@@ -2,8 +2,7 @@
 
 A standalone CAD/BIM toolkit in Python: measure 2D plan sheets, author
 parametric IFC models, roll them up into quantities, stage them in 4D/5D, and
-produce control, layout and structure sheets — with no dependency on any
-estimating product.
+produce control, layout and structure sheets.
 
 - **`bimforge.bim`** — DXF → IFC authoring (IFC4X3 by default, exact
   extrusions and alignment sweeps), IFC → quantity takeoff, plan-sheet
@@ -42,8 +41,7 @@ comes from a *style pack*: a package or directory with `templates/*.dxf` and an
 optional `styles.yaml`. Resolution is explicit argument → registered providers
 → built-in neutral defaults. Any installed distribution can register a provider
 through the `bimforge.style_packs` entry-point group (a zero-argument callable
-returning a pack spec or `None`); bimforge never imports the provider's package
-by name.
+returning a pack spec or `None`).
 
 ## Fixture provenance
 
