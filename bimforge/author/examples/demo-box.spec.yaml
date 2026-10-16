@@ -1,0 +1,20 @@
+# est-bim build fixture spec (CI: --check-only writes nothing).
+family: demo-box
+params:
+  count: 2
+  size_ft: 4.0
+  depth_ft: 2.0
+  spacing_ft: 20.0
+  stated_cy: 2.3704
+paycodes: ./demo-box.paycodes.yaml
+outputs:
+  dxf: out/demo-box.dxf
+  ifc: out/demo-box.ifc
+  takeoff_map: out/demo-box-takeoff-map.yaml
+  qto: null
+  step: null
+project:
+  name: "Demo Box Structure"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 200.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-000000000001"

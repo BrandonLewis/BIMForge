@@ -1,0 +1,27 @@
+# Worked B3 Type-1 retaining wall run. --check-only writes nothing (CI fixture).
+family: standard-plan
+params:
+  tables_file: ./caltrans-b3-tables.example.yaml
+  alignment:
+    pob: {station: 0.0, northing: 0.0, easting: 0.0}
+    run: [{kind: tangent, bearing: "N 0-0-0 E", length: 64.0}]
+  walls:
+    - name: R1
+      wall_type: 1
+      front_side: Lt
+      beg: {station: 0.0}
+      end: {station: 64.0}
+      grid_ft: 8.0
+      design_h_segments: [{length_ft: 32.0, H_ft: 8}, {length_ft: 32.0, H_ft: 10}]
+      top_of_wall: {start_station: 0.0, grid_ft: 8.0, elevs: [109.0, 109.0, 109.0, 109.0, 109.0, 109.0, 109.0, 109.0, 109.0]}
+      footing_bottom: {steps: [{station: 0.0, elev: 100.0}]}
+paycodes: ./caltrans-b3-retaining-wall.paycodes.yaml
+outputs:
+  dxf: out/caltrans-b3.dxf
+  ifc: out/caltrans-b3.ifc
+  takeoff_map: out/caltrans-b3-takeoff-map.yaml
+project:
+  name: "Caltrans B3 Retaining Wall (example)"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 100.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-0000000000b3"

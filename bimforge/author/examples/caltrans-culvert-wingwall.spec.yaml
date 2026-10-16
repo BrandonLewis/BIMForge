@@ -1,0 +1,50 @@
+# Worked culvert-wingwall run. --check-only writes nothing (CI fixture).
+family: culvert-wingwall
+params:
+  tables_file: ./caltrans-culvert-wingwall-tables.example.yaml
+  wingwalls:
+    - name: WW1                        # D84 Type A/B/C straight flared
+      kind: straight
+      wall_h_ft: 8.0
+      length_ft: 18.0
+      min_h_ft: 1.0
+      stem_t_ft: 0.8333
+      toe_ft: 1.0
+      heel_ft: 4.0
+      foot_t_ft: 1.0
+      reinf_lb: 640                    # straight steel is by-reference to the adjoining box
+    - name: WWE                        # D85 Type E stepped
+      kind: stepped
+      stem_t_ft: 0.8333
+      toe_ft: 1.0
+      heel_ft: 4.0
+      foot_t_ft: 1.0
+      steps:                           # max step height 8.5 -> type_e "10"
+        - {length_ft: 6.0, h_ft: 8.5}
+        - {length_ft: 6.0, h_ft: 5.0}
+        - {length_ft: 6.0, h_ft: 2.0}
+    - name: WWW                        # D86 warped
+      kind: warped
+      wall_h_ft: 8.0
+      length_ft: 18.0                  # -> warped.beam by_l "20"
+      min_h_ft: 1.0
+      stem_t_ft: 0.8333
+      toe_ft: 1.0
+      heel_ft: 4.0
+      foot_t_ft: 1.0
+      batter_toe: 0.125          # ~1.5:12 face batter; keeps the faceted warped
+                                 # loft within the 0.5% post-gate MESH_TOLERANCE
+      face_slope: "1.5:1"        # D86 element slope; keys the warped.wall reinf row
+      stiffening_beam: {w_ft: 1.0, d_ft: 1.5}
+      toe_cutoff: {w_ft: 1.0, d_ft: 1.5}
+paycodes: ./caltrans-culvert-wingwall.paycodes.yaml
+outputs:
+  dxf: out/caltrans-culvert-wingwall.dxf
+  ifc: out/caltrans-culvert-wingwall.ifc
+  takeoff_map: out/caltrans-culvert-wingwall-takeoff-map.yaml
+  bbs: out/caltrans-culvert-wingwall.bbs.xlsx
+project:
+  name: "Caltrans Culvert Wingwall (example)"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 100.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-0000000000d8"

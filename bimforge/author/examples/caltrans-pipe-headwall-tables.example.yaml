@@ -1,0 +1,8 @@
+# Caltrans D89 pipe-headwall section catalog (example fixture -- real rows).
+# design H key (feet-inches) -> stem T, footing W=C+B x F, c/d bars,
+# concrete CY/LF (incl. the 1'-0" stem extension) and reinforcing LB/LF.
+headwall:
+  "3-11": {T_ft: 0.8333, W_ft: 4.8333, C_ft: 1.0, B_ft: 3.8333, F_ft: 1.0,
+           c: "#4@12", d: "#5@12", conc_cy_lf: 0.33, reinf_lb_lf: 32}
+  "4-8":  {T_ft: 0.8333, W_ft: 5.3333, C_ft: 1.3333, B_ft: 4.0, F_ft: 1.0,
+           c: "#4@12", d: "#5@8", conc_cy_lf: 0.37, reinf_lb_lf: 37}

@@ -1,0 +1,86 @@
+# Example paycodes for Concrete Barrier Type 732SW (R28). Per-bid data; ships as
+# a template. Ordered first-match on element name. Handrail rules FIRST so the
+# hosted R27 rail parts never fall into the barrier groups (name-coupling guard).
+rules:
+  - match: "(?i)top rail"
+    group: hr_pay
+  - match: "(?i)(lower rail|post \\d|splice sleeve|rail cap|end return)"
+    group: hr_steel
+  - match: "(?i)dowel"
+    group: hr_rebar
+  - match: "(?i)mortar"
+    group: hr_mortar
+  - match: "(?i)732sw transition HS bolts"
+    group: b_bolts
+  - match: "(?i)732sw transition HSS"
+    group: b_transteel
+  - match: "(?i)732sw reinforcing"
+    group: b_rebar
+  - match: "(?i)732sw barrier"
+    group: b_conc
+groups:
+  hr_pay:    {measure: GrossVolume, density_pcf: 490}
+  hr_steel:  {measure: GrossVolume, density_pcf: 490}
+  hr_rebar:  {measure: GrossWeight}
+  hr_mortar: {measure: GrossVolume}
+  b_rebar:   {measure: GrossWeight}
+  b_conc:    {measure: GrossVolume}
+  b_transteel: {measure: GrossWeight}
+  b_bolts:     {measure: Count}
+codes:
+  TUBULAR-HANDRAIL:
+    group: hr_pay
+    measure: Length
+    unit: LF
+    item_number: "833601"
+    description: "Tubular handrailing (B11-51)"
+  HANDRAIL-STL-TOP:
+    group: hr_pay
+    measure: GrossWeight
+    unit: LBS
+    description: "Tubular handrailing steel -- top rail"
+  HANDRAIL-STL:
+    group: hr_steel
+    measure: GrossWeight
+    unit: LBS
+    description: "Tubular handrailing steel"
+  HANDRAIL-REBAR:
+    group: hr_rebar
+    measure: GrossWeight
+    unit: LBS
+    elements_carry_weight: true
+    description: "Handrail post-pocket dowels"
+  HANDRAIL-MORTAR:
+    group: hr_mortar
+    measure: GrossVolume
+    unit: CF
+    description: "Handrail post-pocket mortar"
+  CONC-BARRIER-732SW:
+    group: b_conc
+    measure: Length
+    unit: LF
+    item_number: "832001"
+    description: "Concrete barrier Type 732SW (B11-58)"
+  B732SW-CONC:
+    group: b_conc
+    measure: GrossVolume
+    unit: CF
+    description: "Type 732SW barrier + sidewalk concrete"
+  B732SW-REBAR:
+    group: b_rebar
+    measure: GrossWeight
+    unit: LBS
+    elements_carry_weight: true
+    description: "Type 732SW barrier + sidewalk reinforcing"
+  B732SW-TRANSITION-STEEL:
+    group: b_transteel
+    measure: GrossWeight
+    unit: LBS
+    elements_carry_weight: true
+    description: "Type 732SW guardrail-transition HSS (galvanized)"
+  B732SW-HS-BOLTS:
+    group: b_bolts
+    measure: Count
+    unit: EA
+    item_number: "833602"
+    description: "Type 732SW transition galvanized HS bolts"

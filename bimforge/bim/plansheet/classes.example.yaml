@@ -1,0 +1,22 @@
+# Dash-pattern feature classes for `est-bim vectors --classes classes.yaml`.
+#
+# Agency plan sets draw feature classes with legend dash patterns; the PDF
+# keeps them exactly (pymupdf reports the dash array per stroke). Map the
+# patterns to names and the vectors DXF layers become V-<CLASS> instead of
+# V-DASH-<hash>. This is agency-profile material: read the patterns off the
+# set's legend sheet (`est-bim vectors` prints the V-DASH-<hash> layers it
+# saw; match them by eye, or dump a legend zone and measure the dashes).
+#
+# A pattern is the on/off length sequence in page points — as the fitz dash
+# string ("[ 7.92 3 1.98 3 ] 0"), a bare number list ([7.92, 3, 1.98, 3]),
+# or "solid" to (re)name undashed strokes. The dash phase is ignored.
+# Remember plots scale the pattern too: a half-size plot halves the lengths.
+classes:
+  # right of way: long dash - short dash (12x18 half-size plot lengths)
+  RW: "[ 7.92 3 1.98 3 ] 0"
+  # property line: long dash - two short dashes
+  PL: "[ 5.94 1.98 1.98 1.98 1.98 1.98 ] 0"
+  # easement: long dash - medium dash
+  ESMT: "[ 7.92 1.98 3.96 1.98 ] 0"
+  # keep solid strokes on V-SOLID (the default; shown for completeness)
+  SOLID: solid

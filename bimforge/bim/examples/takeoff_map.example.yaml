@@ -1,0 +1,70 @@
+# ---------------------------------------------------------------------------
+# takeoff_map — how each cost code becomes a bid-item quantity.
+#
+# `est-bim takeoff` groups IFC elements by their classification code (the code
+# you set in layer_map.yaml), sums the chosen measure, and converts it to the
+# pay unit below. One row out per cost code.
+#
+#   measure : which Qto value to sum
+#             area   -> GrossArea | NetArea
+#             volume -> GrossVolume | NetVolume
+#             length -> Length | Perimeter
+#             count  -> Count
+#   unit    : pay unit, auto-converted from SI
+#             area   -> M2 | SF | SY
+#             volume -> M3 | CY | CF
+#             length -> M  | LF | YD
+#             count  -> EA | LS
+# ---------------------------------------------------------------------------
+
+organization_id: 0        # REPLACE with your BidSheet.ai organization id (integer)
+project_ref: "sample-job"
+
+defaults:
+  schedule: "A"
+
+codes:
+  "03 30 00":                 # cast-in-place concrete slab -> paid by volume
+    measure: GrossVolume
+    unit: CY
+    item_number: "0010"
+    schedule: "A"
+
+  "EF_25_10":                 # walls -> paid by volume
+    measure: GrossVolume
+    unit: CY
+    item_number: "0020"
+    schedule: "A"
+
+  "32 16 13":                 # curb & gutter -> paid by length
+    measure: Length
+    unit: LF
+    item_number: "0030"
+    schedule: "A"
+
+  "EF_25_30":                 # floor finish -> paid by area
+    measure: GrossArea
+    unit: SF
+    item_number: "0040"
+    schedule: "A"
+
+  "05 12 00":                 # columns -> paid each
+    measure: Count
+    unit: EA
+    item_number: "0050"
+    schedule: "A"
+
+  # One code can pay SEVERAL bid items — `measures:` (plural) emits one row
+  # per entry over the same elements. Entries are strict (no fallback):
+  # an element lacking that quantity is warned and skipped from that row.
+  #
+  # "49-3020":                # CISS piling: furnished by the foot, driven each
+  #   measures:
+  #     - measure: Length
+  #       unit: LF
+  #       item_number: "0055"
+  #       description: 'Furnish 24" CISS Piling'
+  #     - measure: Count
+  #       unit: EA
+  #       item_number: "0056"
+  #       description: 'Drive 24" CISS Pile'

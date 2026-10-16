@@ -1,0 +1,644 @@
+{
+  "index_url": "https://dot.ca.gov/programs/design/2025-ccs-standard-plans-and-standard-specifications/individual-standard-plans-in-dgn-format-2025-standards",
+  "scope": "B-series (excl. b15 masonry soundwalls) + D80-D86,D89-D91B",
+  "count": 91,
+  "files": [
+    {
+      "series": "B",
+      "sheet": "2025__b00-01.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b00-01.dgn",
+      "sha256": "398c8f2fc763808d75992cbddc0d7cea85e4f71df8b3b635c7b3687c2774d1c6",
+      "bytes": 259072
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b00-03.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b00-03.dgn",
+      "sha256": "33d8b50f21b2b12cfb7f162758ddb6a9467959518f206a679afa995b2bbc3f53",
+      "bytes": 254464
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b00-05.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b00-05.dgn",
+      "sha256": "7387e08c73551df88e23eddff1d6a1e96514013007c574b28791b0f064e1d9ba",
+      "bytes": 225792
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b00-13.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b00-13.dgn",
+      "sha256": "307742787e28af035314961a68fb71e0e2c92fee87465e5c0c195c5b783902ef",
+      "bytes": 219648
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b02-03.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b02-03.dgn",
+      "sha256": "ef365430dfee046ae8f6cabca72bdf1af882c0709d1d514a2acddf5ca3faf66e",
+      "bytes": 175104
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b02-05.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b02-05.dgn",
+      "sha256": "30ac4bf3067eeeb3ac80954b67be91de9c3ed433b027f044a9c63bba0c9721db",
+      "bytes": 248832
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b02-08.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b02-08.dgn",
+      "sha256": "d9373af2884e0c0157da28cf486bb8456ac69ba5d3660621d3d6fe6a5daa79c2",
+      "bytes": 238592
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b02-09.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b02-09.dgn",
+      "sha256": "e55a727b8a1784832c1e412c09edf4368d0002e46ba049ea557fd13ce668e60b",
+      "bytes": 168448
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b02-10.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b02-10.dgn",
+      "sha256": "f35501b12149c2edd499a58deaeb826b3626cb3e5d185859b560cc933e06dc38",
+      "bytes": 185344
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b02-11.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b02-11.dgn",
+      "sha256": "de9bc2fe77071b693f795f1809685d5b158daf5fe84017ad3dff62d749134fb0",
+      "bytes": 165888
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-01a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-01a.dgn",
+      "sha256": "703493c3014c78150fc6b5f5afd4435b39f3e1e0724bdeb145e5001a5a42ea34",
+      "bytes": 235520
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-01b.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-01b.dgn",
+      "sha256": "1db1b48f86eb1d6a39bf3ebb72a9e1689fabc0128016eea7fe59fd8d730de719",
+      "bytes": 225792
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-01c.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-01c.dgn",
+      "sha256": "df68548a68e29001473fedb080b04f292be212c43b4b3d75fb2af3a454c662c8",
+      "bytes": 225792
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-03a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-03a.dgn",
+      "sha256": "212d418f0a18b4ce768eb054b132624bed5e465914d8fc499281328254afbc9e",
+      "bytes": 233984
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-03b.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-03b.dgn",
+      "sha256": "a1b610571f75820804eb0c2a85be06ab98516f7873364bcec55f1c25fb042cdc",
+      "bytes": 218112
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-04a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-04a.dgn",
+      "sha256": "f88eca2a59ee712fb96a042c383b0a76a2476f777c0ffcfd1355fe718592cb50",
+      "bytes": 278528
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-04b.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-04b.dgn",
+      "sha256": "e6d18ee3a6959aad5b7896241e7406c5404f598ccb7f4d7ab36143110d3a0f83",
+      "bytes": 312320
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-04c.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-04c.dgn",
+      "sha256": "d37a889fe1b689d6886827b89c3bab9f39a34328e33c6dde13d0b25177edd2a2",
+      "bytes": 264192
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-05.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-05.dgn",
+      "sha256": "c0e0733273fe539c86641b9f1586df3485bcba12ad9b19139fa5c0945093353b",
+      "bytes": 281088
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-06.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-06.dgn",
+      "sha256": "143303538c81b738b23f3878bcc4eebe4150b2a6eb8f77227d5620395ba9c432",
+      "bytes": 180736
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-07a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-07a.dgn",
+      "sha256": "faf5f2b79f87f54c41120d407306446cd914b2b6e01ddbcfe0648af74be498fe",
+      "bytes": 247296
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-07b.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-07b.dgn",
+      "sha256": "2f48d69d7098cbd41855effa680aeed9c722a360a6c929fc8b0c146390b5efb1",
+      "bytes": 277504
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b03-07c.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b03-07c.dgn",
+      "sha256": "4df7bfb3c9988679634d57606d6106407d7f035a11f2c45aa3bd2a1637d44b98",
+      "bytes": 118784
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b06-01.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b06-01.dgn",
+      "sha256": "f84c1a25b36df02c7554b47611a3cd20c043cc0b54e71d3bd1d9643cb53c115f",
+      "bytes": 181248
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b06-10.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b06-10.dgn",
+      "sha256": "3d1c64c4725ed464339c6f251b79cff92c92dab4d5e69aceabf97232d65c5d42",
+      "bytes": 209920
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b06-21.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b06-21.dgn",
+      "sha256": "42c896f7fcd651eee1696cd40c5da16b52f8e898c1bb138d5986e66f92ea6a22",
+      "bytes": 768000
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b07-01.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b07-01.dgn",
+      "sha256": "94c5ef5526834b04b74d1ca12e605eb416e8aa1c0a1ee39321a8e745eb855b65",
+      "bytes": 222208
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b07-05.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b07-05.dgn",
+      "sha256": "ef96a4bf2864bdadf20a620e9f73848f19598a61e0660d2caaead4a10fdc7638",
+      "bytes": 162304
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b07-06.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b07-06.dgn",
+      "sha256": "a9619d303712354bd09dec122a13f9d34a1620a0422d1a91b691c5c0e2b75311",
+      "bytes": 220672
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b07-07.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b07-07.dgn",
+      "sha256": "d8598fd2982d291f816f93d77e6353e1c95fad82dd8fc94599681bc39f3809d0",
+      "bytes": 187904
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b07-08.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b07-08.dgn",
+      "sha256": "91eabe92f7cbf33265b312a2f00b64f6fbc096a4cb9cb000032cf8cac2eb2c13",
+      "bytes": 151552
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b07-10.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b07-10.dgn",
+      "sha256": "9fb877037a3de8a03bac182fde45694c321f28b5473ebaf39b158142aec51a80",
+      "bytes": 250880
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b07-11.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b07-11.dgn",
+      "sha256": "7d7ed7d85f531783f0c86d977eaca9f0eb529475c3050bbaa85db5396d9ae3e8",
+      "bytes": 186368
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b08-05.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b08-05.dgn",
+      "sha256": "2ae2aa4aa2a9deccf36ca9373ad7ef519a917399b5818d644ed247368c8312cd",
+      "bytes": 578560
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b09-01.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b09-01.dgn",
+      "sha256": "5b5c70fa2609bfc423e18a0813d38adb9c8388157a2ebd32a2cd5c47a98923b7",
+      "bytes": 191488
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b09-02.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b09-02.dgn",
+      "sha256": "3c8e2ef1e51465241674dbb0b315096bb9aba1e6dccd3333f71e1385b172d611",
+      "bytes": 578560
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b09-03.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b09-03.dgn",
+      "sha256": "4852e28461fc4257f56439b616d2c1e330c4033b91cd602015f49a3d8ea2d606",
+      "bytes": 197120
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b09-04.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b09-04.dgn",
+      "sha256": "4308b8f4c6055f98c803e9c3bd9689817d820e7491409b163de3fc96943677b2",
+      "bytes": 160256
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b09-05.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b09-05.dgn",
+      "sha256": "5b7189c7d1ae985975266b84078842138abee47d80298233e07afe68a5e4dfa4",
+      "bytes": 655360
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b09-06.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b09-06.dgn",
+      "sha256": "72ca29ad1e1d0494f555744fd5b1ffe25c2cb091cedd96da8a839381fc294d12",
+      "bytes": 578560
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-007.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-007.dgn",
+      "sha256": "acffb950eb8f3c88a3d2dbd76f4f3454f4fb0625a57d0a89f7c1f1af98df9fee",
+      "bytes": 721920
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-047.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-047.dgn",
+      "sha256": "b4507f2d5b20707e308041b07d0954fe248dd2c9490a77cb1f14bc8df1804938",
+      "bytes": 562688
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-051.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-051.dgn",
+      "sha256": "75fd24023e756ca9898e3e20494d8ea71831833fcc85554dad10bdadb0d642e0",
+      "bytes": 517120
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-052.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-052.dgn",
+      "sha256": "5e776e9aa903ab64aebade7950751f7b05a48101d9b285a630bf942b1ba911cf",
+      "bytes": 588288
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-058.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-058.dgn",
+      "sha256": "ed7eb003950098ef933214b1db989bebfddaa3e8dd5dcbb4e03b85395d4a07be",
+      "bytes": 677888
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-059.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-059.dgn",
+      "sha256": "12d3f869cc21bad1b6f0d1a7be32a4d5bb7e4bb46d07b0ff943648d5d254d208",
+      "bytes": 739840
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-059a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-059a.dgn",
+      "sha256": "c2c96c3449dbd8efba04c56b2d9bc1afd25ac601982b65a724a1812c9d1c0ea9",
+      "bytes": 683008
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-079.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-079.dgn",
+      "sha256": "05114bc1093667d9b069aaec8ca3a6c829490bec38acb02a962721c1da53afaf",
+      "bytes": 1004544
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-080a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-080a.dgn",
+      "sha256": "85218048e837f4db699345d7beec0b3d192aa685c02f2901a71ca11597eab3df",
+      "bytes": 722432
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-081.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-081.dgn",
+      "sha256": "694b6d31774ac113ad36eb5d456163104a66c64105b46d1940c43d42c0d590c0",
+      "bytes": 842240
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-082a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-082a.dgn",
+      "sha256": "2cfb4f846b5c66495e6c4f2c2fb227145fae9bbedcfaedfecba2ba2e4972e9bd",
+      "bytes": 787456
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-083.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-083.dgn",
+      "sha256": "8d351d835ddc2463a1b6399cfe061ae081ba8998be369a64704370cc62db70bc",
+      "bytes": 460800
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-083a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-083a.dgn",
+      "sha256": "bc044143a3b904b9425dcf927e1edc677fa7791d7c76830c9071ccbded89717a",
+      "bytes": 1294336
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-084.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-084.dgn",
+      "sha256": "4ef0de8fa6fa0e3b665546adee2d7506e0da400589613aeb0addf09baf106abd",
+      "bytes": 312832
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-085.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-085.dgn",
+      "sha256": "637b2f92dee438099a83f26db95de52a03b4c38ad3c998208f027e65347b544e",
+      "bytes": 403456
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-086.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-086.dgn",
+      "sha256": "10fa1f8bf8119a98d63a457c6bb820b8a70a96f9ff6eb1c6e7cb2a7e0ebf31d3",
+      "bytes": 596992
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-087.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-087.dgn",
+      "sha256": "3339df566d0fd05720e0871430b960ab7da504f032344b16b32904619353c877",
+      "bytes": 1136640
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-200.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-200.dgn",
+      "sha256": "93ba957e4e13f2c3bfdfa714b14b35cff74b614d2b682780abf67fcbeb986658",
+      "bytes": 366592
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-201.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-201.dgn",
+      "sha256": "1c56fa8092b1e42071cef43161a6d7661bd4b7a67f3e05abc56f5b779015f33b",
+      "bytes": 457216
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-202.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-202.dgn",
+      "sha256": "fd226117b05440b45b37677dd0bef42ec858da07ba1a0c1ec69ef6de4a4aca14",
+      "bytes": 1091072
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-205.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-205.dgn",
+      "sha256": "bbcab03f6144892a2045aa03c4cae12be15ec249199ccc9bc8a33f58d9cd5366",
+      "bytes": 1011200
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-206.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-206.dgn",
+      "sha256": "1530be2bf03010d0d8283a20eb892680213acfb6071c3ca68f2fe57e390e3b88",
+      "bytes": 1246208
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-207.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-207.dgn",
+      "sha256": "d0990e9638cc010a57f4c4f1df21ca9c3ab49d82df22ae055cd9d701c8e56cd4",
+      "bytes": 1021952
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-210.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-210.dgn",
+      "sha256": "4fcd3f5c29807a235f51955943267cdbe26d9121b57ae05771ac9042ab036d71",
+      "bytes": 366592
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-211.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-211.dgn",
+      "sha256": "f4a8bbd633369d300b12bb383f9f6789f7188e1617870bd311d1e7e4bfe62d2b",
+      "bytes": 457216
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-212.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-212.dgn",
+      "sha256": "07e0d00c16846fe20cb3a04904da17c9bbf60aed6f7c703ecdb2344a03892a3d",
+      "bytes": 1091072
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-215.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-215.dgn",
+      "sha256": "1c5cd8b748d31684739f7073ff69f3cb32ffd11597b402043f573f77629cb036",
+      "bytes": 1011200
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-216.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-216.dgn",
+      "sha256": "9fdfdb4c6e6da80a4c0ea1b69feb065f31014da3c21486e9c446ef6e73eef2ba",
+      "bytes": 1246208
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-217.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-217.dgn",
+      "sha256": "2a3973142b955916b149e149231b2e573e0526661bf30b59192d2e802d41d205",
+      "bytes": 1021440
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-220.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-220.dgn",
+      "sha256": "12b376b49d3b09640dfd508e7f9b02b0a62b2421ae55fd288745fffa6134c0c0",
+      "bytes": 483328
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-221.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-221.dgn",
+      "sha256": "f0f68e7b3815e1e40a4724ad280ef202d4e39b23e583ffc2d8af22ac53a11264",
+      "bytes": 448512
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b11-222.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b11-222.dgn",
+      "sha256": "b93f4de2d5a51893b9b6790bfbad273fb49e896d19fbaa9bb1d2777d7ff98c6b",
+      "bytes": 450560
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b14-01.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b14-01.dgn",
+      "sha256": "ce9240dc0bbb04601cd427dee8572ad5d0f3c9b46d0fdf2fecfacc7dc74e5ddb",
+      "bytes": 156160
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b14-03.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b14-03.dgn",
+      "sha256": "e41b05671bcf6aeffca6eb474022527f774c3a80e2c97822ab04d687bb24bac5",
+      "bytes": 147968
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b14-04.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b14-04.dgn",
+      "sha256": "3dd6e9e56ef05b555aa54957f69b38fb330d2af3e6cfdf5c757d883089f91038",
+      "bytes": 317952
+    },
+    {
+      "series": "B",
+      "sheet": "2025__b14-05.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__b14-05.dgn",
+      "sha256": "0046cc04433f954b6c8db03413b9e201e9c437f0cc4d6049b399a1aae350a2dc",
+      "bytes": 245760
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d080.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d080.dgn",
+      "sha256": "2925e76fa10f60daf3d06dbdd9c261dd3bd96bd0882a21cc78cd0457a606d942",
+      "bytes": 394240
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d081.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d081.dgn",
+      "sha256": "15f249bf66e097d3af2660a4716ff132699e53171e89f81a7abef0c550b13872",
+      "bytes": 455168
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d082.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d082.dgn",
+      "sha256": "3eab9d6d3b856cc676139dee0e054f31ae2074166c49be407a635c78a5023e18",
+      "bytes": 319488
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d083a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d083a.dgn",
+      "sha256": "c4c1790c7cb3d3835aba845660c8452e2e4d008eaa0f204f933acff8e7c448ca",
+      "bytes": 290816
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d083b.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d083b.dgn",
+      "sha256": "ff525f48a8cc828ae660c80e33fec89ed23032516640e8babd9390f59251ee8c",
+      "bytes": 261632
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d084.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d084.dgn",
+      "sha256": "77d64b4f5b98fbd09ce448abc649760328b39d439d72b83a4caf156cd7e127de",
+      "bytes": 803328
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d085.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d085.dgn",
+      "sha256": "99153412729129c53d1384282410aa0eda0a2b020548a382555277969acd7577",
+      "bytes": 346112
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d086a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d086a.dgn",
+      "sha256": "0a349f4c5f8f092711f285fcd7541dcd6c8109a32d5bc4be6358c97a5af1d12e",
+      "bytes": 284160
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d086b.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d086b.dgn",
+      "sha256": "ccd3ba6dbb62e06e27286cd9f46b47bfc0bf85c24b1bcae1cf4e37126bd9bdd2",
+      "bytes": 371712
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d086c.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d086c.dgn",
+      "sha256": "1a5ba3b66791de9a2d2bd8f67e0bfc3a60cec9fa00f3fde1e049c357285f1c3f",
+      "bytes": 335872
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d089a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d089a.dgn",
+      "sha256": "3b4a62941811951fe4c5966c32b14e9bf6d784b6544e1766cae5a0cec30c7f20",
+      "bytes": 578560
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d089b.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d089b.dgn",
+      "sha256": "04700a36d4e718770d1330d313ae76052b5b05bf5f934b48a7801c1cc2ce7d18",
+      "bytes": 578560
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d090.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d090.dgn",
+      "sha256": "e264ff7479f0827f69a6acf3a23c9a7e8c3b388a7c41603367ed7b92b2243b9e",
+      "bytes": 578560
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d091a.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d091a.dgn",
+      "sha256": "4a2574d1521f4471cf292997207290a1134ae1ad72cc53a5a225d64a1465da15",
+      "bytes": 478208
+    },
+    {
+      "series": "D",
+      "sheet": "2025__d091b.dgn",
+      "url": "https://dot.ca.gov/-/media/dot-media/programs/design/documents/2025-dgn-files/2025__d091b.dgn",
+      "sha256": "3710af8d775bd83ae22622095919f72bf7e930086ba98a9c8451d9741d96c650",
+      "bytes": 194048
+    }
+  ]
+}

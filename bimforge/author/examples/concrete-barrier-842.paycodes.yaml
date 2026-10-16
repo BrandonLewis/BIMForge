@@ -1,0 +1,47 @@
+# Example paycodes for Concrete Barrier Type 842 (R31). Per-bid data; ships as a
+# template. Ordered first-match on element name; transition rules FIRST so HSS/
+# bolt parts never fall into the barrier/rebar groups (name-coupling guard).
+rules:
+  - match: "(?i)842 transition HS bolts"
+    group: b_bolts
+  - match: "(?i)842 transition HSS"
+    group: b_transteel
+  - match: "(?i)842 reinforcing"
+    group: b_rebar
+  - match: "(?i)842 barrier"
+    group: b_conc
+groups:
+  b_rebar:     {measure: GrossWeight}
+  b_conc:      {measure: GrossVolume}
+  b_transteel: {measure: GrossWeight}
+  b_bolts:     {measure: Count}
+codes:
+  CONC-BARRIER-842:
+    group: b_conc
+    measure: Length
+    unit: LF
+    item_number: "832005"
+    description: "Concrete barrier Type 842 (B11-81)"
+  B842-CONC:
+    group: b_conc
+    measure: GrossVolume
+    unit: CF
+    description: "Type 842 barrier concrete"
+  B842-REBAR:
+    group: b_rebar
+    measure: GrossWeight
+    unit: LBS
+    elements_carry_weight: true
+    description: "Type 842 barrier reinforcing"
+  B842-TRANSITION-STEEL:
+    group: b_transteel
+    measure: GrossWeight
+    unit: LBS
+    elements_carry_weight: true
+    description: "Type 842 guardrail-transition HSS (galvanized)"
+  B842-HS-BOLTS:
+    group: b_bolts
+    measure: Count
+    unit: EA
+    item_number: "833602"
+    description: "Type 842 transition galvanized HS bolts"

@@ -1,0 +1,27 @@
+# Caltrans D90 culvert headwall: structural concrete (CY) + reinforcing (LB).
+# Rules are ordered, first-match per element (paycodes.group_of). The steel
+# rule MUST come first: a reinforcing element is named
+# "<name> headwall reinforcing <mark> #<size>", which also contains "headwall",
+# so if the concrete rule ran first it would swallow the bars as concrete.
+rules:
+  - match: "(?i)headwall reinforcing"    # FIRST: per-mark bars (weight-only)
+    group: hw_steel
+  - match: "(?i)headwall|wingwall|footing"  # panel / footing / wingwall / barrier
+    group: hw_concrete
+groups:
+  hw_concrete: {measure: GrossVolume}
+  hw_steel: {measure: Weight}
+codes:
+  STRUCT-CONC-HW:
+    group: hw_concrete
+    measure: GrossVolume
+    unit: CY
+    item_number: "510060"
+    description: "Structural concrete, culvert headwall"
+  BAR-STEEL-HW:
+    group: hw_steel
+    measure: Weight
+    unit: LB
+    item_number: "520102"
+    description: "Bar reinforcing steel (culvert headwall)"
+    elements_carry_weight: true

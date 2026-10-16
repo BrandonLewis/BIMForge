@@ -1,0 +1,58 @@
+# Caltrans B9 structure approach slab: structural concrete (CY) routed PER TYPE
+# + bar reinforcing steel (LB). Item numbers are illustrative -- the estimator
+# replaces them per bid. Joint/drainage are reference-only here (map bid-side
+# if paid separately).
+rules:
+  - match: "(?i)approach slab type_n_30$"
+    ifc_class: IfcSlab
+    group: as_concrete_n
+  - match: "(?i)approach slab type_r_30$"
+    ifc_class: IfcSlab
+    group: as_concrete_r30
+  - match: "(?i)approach slab type_r_10$"
+    ifc_class: IfcSlab
+    group: as_concrete_r10
+  - match: "(?i)approach slab type_eq_10$"
+    ifc_class: IfcSlab
+    group: as_concrete_eq
+  - match: "(?i)approach (slab reinforcing|dowels)"
+    ifc_class: IfcReinforcingBar
+    group: as_steel
+groups:
+  as_concrete_n: {measure: GrossVolume}
+  as_concrete_r30: {measure: GrossVolume}
+  as_concrete_r10: {measure: GrossVolume}
+  as_concrete_eq: {measure: GrossVolume}
+  as_steel: {measure: Weight}
+codes:
+  STRUCT-CONC-AS-N:
+    group: as_concrete_n
+    measure: GrossVolume
+    unit: CY
+    item_number: "510062"
+    description: "Structural concrete, approach slab (Type N)"
+  STRUCT-CONC-AS-R30:
+    group: as_concrete_r30
+    measure: GrossVolume
+    unit: CY
+    item_number: "510063"
+    description: "Structural concrete, approach slab (Type R, 30 ft)"
+  STRUCT-CONC-AS-R10:
+    group: as_concrete_r10
+    measure: GrossVolume
+    unit: CY
+    item_number: "510064"
+    description: "Structural concrete, approach slab (Type R, 10 ft)"
+  STRUCT-CONC-AS-EQ:
+    group: as_concrete_eq
+    measure: GrossVolume
+    unit: CY
+    item_number: "510065"
+    description: "Structural concrete, approach slab (Type EQ)"
+  BAR-STEEL-AS:
+    group: as_steel
+    measure: Weight
+    unit: LB
+    item_number: "520103"
+    description: "Bar reinforcing steel (approach slab)"
+    elements_carry_weight: true

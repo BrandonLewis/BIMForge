@@ -1,0 +1,27 @@
+# Worked B11-51 tubular-handrail example: one straight 120' run on top of a
+# Type 732SW barrier, one deck/wall joint (a splice sleeve), posts anchored
+# with pocket mortar + dowels. Fictitious project — nothing here is real.
+family: tubular-handrail
+params:
+  runs:
+    - name: NB
+      straight_length_ft: 120.0
+      base_z_ft: 2.667          # top of a Type 732SW barrier
+      post_spacing_ft: 6.1667   # nominal 6'-2"
+      end_posts: [start, end]
+      joints: [60.0]            # one deck/wall joint -> a splice sleeve
+      anchorage: true
+paycodes: ./tubular-handrail.paycodes.yaml
+outputs:
+  dxf: CAD/tubular-handrail.dxf
+  ifc: CAD/tubular-handrail.ifc
+  takeoff_map: CAD/tubular-handrail-takeoff-map.yaml
+  qto: null
+  step: null
+  bbs: null
+  ifc_allow_local: true
+project:
+  name: "B11-51 example"
+  epsg: 2226
+  base: [0.0, 0.0]
+  guid_ns: "6f0e5a1a-0000-4000-8000-000000000001"

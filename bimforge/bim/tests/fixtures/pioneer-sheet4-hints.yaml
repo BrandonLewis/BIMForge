@@ -1,0 +1,26 @@
+# Vision hints for Pioneer Ave signed set, sheet 4 (PROJECT CONTROL).
+#
+# Fixture-captured vision: an agent rendered the sheet (150 dpi, 0.48 pt/px)
+# and read the flattened lettering — committed so the local regression test
+# is deterministic. The sheet letters "SCALE: 1\"=40'" but the signed set is
+# a half-size 12x18 plot (true 1"=80', 1.1111 ft/pt): the scale-note hint
+# below is expected to be reported as CONTRADICTED while the station labels
+# (validated against the twelve vector station ticks at exactly 90.00 pt)
+# carry the consensus. Title blocks lie; ticks don't.
+#
+# near_pt is in visual (as-rendered) page points, y down.
+frame: visual
+zone_hints:
+  - kind: station_label
+    text: "105+00"          # lettered "105" under its P-line station tick
+    near_pt: [521.6, 457.5]
+  - kind: station_label
+    text: "106+00"          # lettered "6" (106) under its tick
+    near_pt: [613.7, 461.4]
+  - kind: station_label
+    text: "107+00"          # lettered "7" (107) under its tick
+    near_pt: [703.1, 461.4]
+  - kind: scale_note
+    text: "1\"=40'"         # lettered under the PLAN title and in the title
+                            # block -- a half-size plot, so this is the lie
+    near_pt: [641.0, 706.0]

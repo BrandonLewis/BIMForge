@@ -1,0 +1,101 @@
+# Caltrans 2025 B3 retaining-wall section tables. COMMITTED: this transcription
+# IS the source of truth, and the gated tests check against it. The DGN/DXF
+# sheets it came from stay git-ignored (79 MB, re-downloadable from dot.ca.gov
+# via data/caltrans-2025/manifest.json).
+# Extracted programmatically from the "TABLE OF REINFORCING STEEL, DIMENSIONS
+# AND DATA" on each Standard Plan sheet (scratchpad extractors: explode block
+# INSERTs, grid the DESIGN-H columns against the label rows). Dimensions are
+# decimal feet.
+#
+#   type_1_case_1  : B3-1A "Type 1 (Case 1)"  vertical front / battered back.
+#                    W/C/B/F/T/batter tabulated. Verify: W_ft == C_ft + B_ft.
+#   type_1a_case_1 : B3-3A "Type 1A (Case 1)"  constant 1'-0" VERTICAL stem
+#                    (no batter) + 1'-2" spread footing. W/C/B tabulated.
+#   type_5_case_1  : B3-4A "Type 5 (Case 1)"  BATTERED front / vertical back.
+#                    W + per-H front batter tabulated; T=11-1/2", F=1'-6",
+#                    toe=1'-4" (WallSection.TYPE5_TOE_FT) constant.
+#   type_6a_case_1 : B3-7A "Type 6A"  short masonry/concrete vertical stem
+#                    (H <= 6'). W tabulated; T=7-5/8" (8" nominal), F=1'-0",
+#                    toe=8" constant.
+#   type_6b_case_1 : B3-7A "Type 6B"  as 6A, stem at the toe; own W table.
+#
+# BATTER GLYPH NOTE (type_5): the per-H front batters on B3-4A are drawn with
+# Caltrans font (CHAR_FAST_FONT.shx) fraction glyphs that ODA's DGN->DXF
+# substitution DROPPED (codes 0x81/0x82/0x85 are absent from the shipped SHX),
+# so they could not be read straight off the DXF. The values below --
+# NONE, 1/4, 1/4, 3/8, 1/2 (:12) for H = 4/6/8/10/12 -- were CONFIRMED by
+# Brandon (2026-08-18) against the sheet.
+#
+# Reinforcing steel and load-combination footing demand are NOT transcribed
+# here -- phase-1 geometry needs only W/C/B/F/T/batter. Rebar is phase 2.
+
+type_1_case_1:
+  stem_top_thickness_ft: 0.9583
+  table:
+    4: {W_ft: 6.75, C_ft: 2.5, B_ft: 4.25, F_ft: 1.3333, T_ft: 0.9583, batter: "0.5:12"}
+    6: {W_ft: 6.5, C_ft: 2.5, B_ft: 4.0, F_ft: 1.3333, T_ft: 0.9583, batter: "0.5:12"}
+    8: {W_ft: 6.5833, C_ft: 2.3333, B_ft: 4.25, F_ft: 1.3333, T_ft: 0.9583, batter: "0.5:12"}
+    10: {W_ft: 7.3333, C_ft: 2.3333, B_ft: 5.0, F_ft: 1.3333, T_ft: 0.9583, batter: "0.5:12"}
+    12: {W_ft: 8.25, C_ft: 2.5, B_ft: 5.75, F_ft: 1.5, T_ft: 0.9583, batter: "0.5:12"}
+    14: {W_ft: 9.25, C_ft: 3.0, B_ft: 6.25, F_ft: 1.6667, T_ft: 0.9583, batter: "0.5:12"}
+    16: {W_ft: 9.75, C_ft: 3.25, B_ft: 6.5, F_ft: 1.6667, T_ft: 0.9583, batter: "0.5:12"}
+    18: {W_ft: 10.6667, C_ft: 3.6667, B_ft: 7.0, F_ft: 1.75, T_ft: 0.9583, batter: "0.5:12"}
+    20: {W_ft: 11.6667, C_ft: 3.6667, B_ft: 8.0, F_ft: 1.75, T_ft: 0.9583, batter: "0.5:12"}
+    22: {W_ft: 12.75, C_ft: 3.75, B_ft: 9.0, F_ft: 1.9167, T_ft: 0.9583, batter: "0.5:12"}
+    24: {W_ft: 13.75, C_ft: 4.0, B_ft: 9.75, F_ft: 2.1667, T_ft: 0.9583, batter: "0.625:12"}
+    26: {W_ft: 14.8333, C_ft: 4.3333, B_ft: 10.5, F_ft: 2.4167, T_ft: 0.9583, batter: "0.625:12"}
+    28: {W_ft: 15.9167, C_ft: 4.6667, B_ft: 11.25, F_ft: 2.8333, T_ft: 0.9583, batter: "0.75:12"}
+    30: {W_ft: 17.25, C_ft: 5.25, B_ft: 12.0, F_ft: 3.25, T_ft: 0.9583, batter: "1:12"}
+    32: {W_ft: 18.25, C_ft: 5.5, B_ft: 12.75, F_ft: 3.5, T_ft: 0.9583, batter: "1:12"}
+    34: {W_ft: 19.25, C_ft: 6.0, B_ft: 13.25, F_ft: 4.5833, T_ft: 1.0833, batter: "1.2:12"}
+    36: {W_ft: 20.25, C_ft: 6.5, B_ft: 13.75, F_ft: 4.75, T_ft: 1.0833, batter: "1.2:12"}
+
+type_1a_case_1:
+  # B3-3A: constant 1'-0" vertical stem, 1'-2" spread footing (read off the
+  # SPREAD FOOTING SECTION). Only W/C/B vary with design H. W_ft == C_ft + B_ft.
+  stem_thickness_ft: 1.0        # 1'-0"
+  footing_thickness_ft: 1.1667  # 1'-2"
+  table:
+    4: {W_ft: 6.0, C_ft: 2.0, B_ft: 4.0}
+    6: {W_ft: 6.25, C_ft: 2.0, B_ft: 4.25}
+    8: {W_ft: 6.5, C_ft: 2.0, B_ft: 4.5}
+    10: {W_ft: 7.3333, C_ft: 2.3333, B_ft: 5.0}
+    12: {W_ft: 8.1667, C_ft: 2.5833, B_ft: 5.5833}
+
+type_5_case_1:
+  # B3-4A: battered front / vertical back. T=11-1/2", F=1'-6". Toe (1'-4") is
+  # WallSection.TYPE5_TOE_FT; C = toe + batter*H, B = W - C. See BATTER GLYPH
+  # NOTE above for the verify_batter rows.
+  stem_top_thickness_ft: 0.9583  # 11-1/2"
+  footing_thickness_ft: 1.5      # 1'-6"
+  table:
+    4: {W_ft: 6.3333, batter: "NONE"}      # 6'-4",  NONE
+    6: {W_ft: 6.5, batter: "0.25:12"}      # 6'-6",  1/4:12
+    8: {W_ft: 7.0, batter: "0.25:12"}      # 7'-0",  1/4:12
+    10: {W_ft: 8.0, batter: "0.375:12"}    # 8'-0",  3/8:12
+    12: {W_ft: 8.8333, batter: "0.5:12"}   # 8'-10", 1/2:12
+
+type_6a_case_1:
+  # B3-7A Type 6A: short vertical stem, H <= 6'. Design H in 8" increments.
+  # Stem 7-5/8" (8" nominal masonry), footing 1'-0", toe 8". Only W tabulated.
+  stem_thickness_ft: 0.6354     # 7-5/8"
+  footing_thickness_ft: 1.0     # 1'-0"
+  toe_ft: 0.6667                # 8"
+  table:
+    3.3333: {W_ft: 3.1667}   # 3'-4" -> 3'-2"
+    4.0: {W_ft: 3.5}         # 4'-0" -> 3'-6"
+    4.6667: {W_ft: 3.8333}   # 4'-8" -> 3'-10"
+    5.3333: {W_ft: 4.1667}   # 5'-4" -> 4'-2"
+    6.0: {W_ft: 4.5}         # 6'-0" -> 4'-6"
+
+type_6b_case_1:
+  # B3-7A Type 6B: as 6A but the stem sits at the toe (long heel); own W table.
+  stem_thickness_ft: 0.6354     # 7-5/8"
+  footing_thickness_ft: 1.0     # 1'-0"
+  toe_ft: 0.6667                # 8"
+  table:
+    3.3333: {W_ft: 2.6667}   # 3'-4" -> 2'-8"
+    4.0: {W_ft: 3.0}         # 4'-0" -> 3'-0"
+    4.6667: {W_ft: 3.3333}   # 4'-8" -> 3'-4"
+    5.3333: {W_ft: 4.1667}   # 5'-4" -> 4'-2"
+    6.0: {W_ft: 4.5}         # 6'-0" -> 4'-6"

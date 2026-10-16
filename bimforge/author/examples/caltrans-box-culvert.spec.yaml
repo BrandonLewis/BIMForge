@@ -1,0 +1,27 @@
+# Worked box-culvert run. --check-only writes nothing (CI fixture).
+family: box-culvert
+params:
+  tables_file: ./caltrans-box-culvert-tables.example.yaml
+  culverts:
+    - name: C1
+      cells: 1
+      span_ft: 8.0
+      height_ft: 5.0
+      earth_cover_ft: 2.0
+      barrel_length_ft: 40.0
+    - name: C2
+      cells: 2
+      span_ft: 8.0
+      height_ft: 5.0
+      earth_cover_ft: 2.0
+      barrel_length_ft: 40.0
+paycodes: ./caltrans-box-culvert.paycodes.yaml
+outputs:
+  dxf: out/caltrans-box-culvert.dxf
+  ifc: out/caltrans-box-culvert.ifc
+  takeoff_map: out/caltrans-box-culvert-takeoff-map.yaml
+project:
+  name: "Caltrans Box Culvert (example)"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 100.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-0000000000d8"

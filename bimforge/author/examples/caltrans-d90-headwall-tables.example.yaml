@@ -1,0 +1,49 @@
+# Fixture D90 catalog for the example spec (representative, NOT the transcribed
+# real sheet -- that is Task 6, under data/caltrans-2025/tables/). Includes the
+# B3 Retaining Wall Type-1 row the headwall wall section (WallSection) reads,
+# keyed by design H, plus the D90 wingwall catalog + bar schedule.
+type_1_case_1:
+  table:
+    "6":
+      W_ft: 5.0
+      C_ft: 1.5
+      B_ft: 3.5
+      T_ft: 1.0
+      F_ft: 1.0
+      batter: NONE
+d90:
+  schedule:
+    wall_vert: {size: 5, spacing_in: 12}
+    footing: {size: 5, spacing_in: 12}
+    pipe_dist: {size: 6, count: 2}
+    wing_vert: {size: 4, spacing_in: 12}
+  wingwalls:
+    A: {angle_deg: 30.0, length_ft: 8.0, h_far_ft: 1.0, t_ft: 1.0}
+    B: {angle_deg: 45.0, length_ft: 10.0, h_far_ft: 1.5, t_ft: 1.0}
+    C: {angle_deg: 30.0, length_ft: 8.0, h_far_ft: 1.0, t_ft: 1.0}
+  # Real Type 836 single-slope barrier (Caltrans Standard Plans sheet 440,
+  # B11-80), same block as the committed data/caltrans-2025 catalog -- see
+  # that file's comments for the transcription/derivation notes.
+  type_c_barrier:
+    barrier_type: '836'
+    h_ft: 3.0
+    per_standard_plan: B11-80
+    shape: single_slope
+    profile:
+      - [0.0,     0.0]
+      - [0.0,     1.8333]
+      - [-0.25,   1.8333]
+      - [-0.3333, 1.9167]
+      - [-0.3333, 2.8958]
+      - [-0.2292, 3.0]
+      - [0.8542,  3.0]
+      - [0.9507,  2.9177]
+      - [1.4167,  0.0]
+    concrete_cf_per_lf: 3.908
+    haunch_ft: 1.0
+    bars:
+      longitudinal: {size: 5, count: 12}
+      ties: {size: 5, spacing_in: 8}
+      haunch:
+        cont: {size: 4, count: 2}
+        dowels: {size: 5, spacing_in: 12, count: 3, length_ft: 3.0}

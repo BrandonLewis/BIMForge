@@ -1,0 +1,26 @@
+# Caltrans wingwall reinforcement callouts (example fixture -- illustrative
+# rows; the real git-ignored catalog is transcribed by
+# scripts/dxf_build_wingwall_tables.py). Keyed as the sheets key: Type E by H,
+# warped wall by H+slope, warped beam by an L->H-breakpoint staircase.
+type_e:
+  "8":  {k_bar: "#5@8", L_bar: "#5", L_each_wall: 2}
+  "10": {k_bar: "#5@7", L_bar: "#6", L_each_wall: 3}
+warped:
+  wall:
+    "8":
+      D_cutoff_in: 6.5
+      D_culvert_in: 6.5
+      slopes:
+        "0.5:1":  {front: "#4@12", rear: "#4@12"}
+        "1.5:1":  {front: "#4@12", rear: "#4@8"}
+    "12":
+      D_cutoff_in: 6.5
+      D_culvert_in: 6.5
+      slopes:
+        "0.5:1":  {front: "#5@7", rear: "#4@12"}
+        "1.5:1":  {front: "#4@12", rear: "#4@5"}
+  beam:
+    by_l:
+      "12": [{h_max: 20, kind: none, face_bars: "2-#6", total: "6-#6"}]
+      "16": [{h_max: 12, A_ft: 1.0, B_ft: 0.75, total: "6-#7"},
+             {h_max: 20, A_ft: 1.0, B_ft: 0.75, total: "6-#7"}]

@@ -1,0 +1,1766 @@
+double:
+  10x10:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#7@4.5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 71.2
+        e: '#5@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 773
+        top_slab_ft: 0.9583
+        wall_t_ft: 1.0833
+      20:
+        a: '#5@5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.625
+        conc_cf_lf: 107.4
+        e: '#5@6'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 608
+        top_slab_ft: 1.5
+        wall_t_ft: 1.375
+  10x5:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@5.5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 51.8
+        e: '#4@9.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 614
+        top_slab_ft: 1.0
+        wall_t_ft: 0.7083
+      20:
+        a: '#5@5'
+        b: '#5@6'
+        bot_slab_ft: 1.5833
+        conc_cf_lf: 82.4
+        e: '#4@7.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 465
+        top_slab_ft: 1.5833
+        wall_t_ft: 0.8333
+  10x6:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 53.9
+        e: '#4@9.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 642
+        top_slab_ft: 1.0
+        wall_t_ft: 0.7083
+      20:
+        a: '#5@5'
+        b: '#5@5.5'
+        bot_slab_ft: 1.5833
+        conc_cf_lf: 86.1
+        e: '#4@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 491
+        top_slab_ft: 1.5417
+        wall_t_ft: 0.9583
+  10x7:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#6@5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 57.3
+        e: '#4@7.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 690
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.8333
+      20:
+        a: '#5@5'
+        b: '#5@6.5'
+        bot_slab_ft: 1.5833
+        conc_cf_lf: 90.4
+        e: '#4@5.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 512
+        top_slab_ft: 1.5417
+        wall_t_ft: 1.0417
+  10x8:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#6@4.5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 61.3
+        e: '#4@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 727
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.9167
+      20:
+        a: '#5@5'
+        b: '#5@5.5'
+        bot_slab_ft: 1.5833
+        conc_cf_lf: 95.9
+        e: '#4@5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 532
+        top_slab_ft: 1.5417
+        wall_t_ft: 1.1667
+  10x9:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#7@5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 65.6
+        e: '#4@5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 715
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.9583
+      20:
+        a: '#5@5'
+        b: '#5@5.5'
+        bot_slab_ft: 1.625
+        conc_cf_lf: 102.9
+        e: '#5@7'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 557
+        top_slab_ft: 1.5417
+        wall_t_ft: 1.2917
+  12x10:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#7@5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 85.4
+        e: '#4@5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 919
+        top_slab_ft: 1.0833
+        wall_t_ft: 1.0833
+      20:
+        a: '#6@5.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.875
+        conc_cf_lf: 134.7
+        e: '#5@6'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 764
+        top_slab_ft: 1.7917
+        wall_t_ft: 1.375
+  12x11:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#7@5'
+        bot_slab_ft: 1.125
+        conc_cf_lf: 97.1
+        e: '#5@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 861
+        top_slab_ft: 1.2083
+        wall_t_ft: 1.2083
+      20:
+        a: '#6@5.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.9167
+        conc_cf_lf: 141.7
+        e: '#5@5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 804
+        top_slab_ft: 1.7917
+        wall_t_ft: 1.4583
+  12x12:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.125
+        conc_cf_lf: 103.8
+        e: '#5@5.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 921
+        top_slab_ft: 1.2083
+        wall_t_ft: 1.3333
+      20:
+        a: '#6@5.5'
+        b: '#6@5'
+        bot_slab_ft: 1.875
+        conc_cf_lf: 149.4
+        e: '#5@4.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 881
+        top_slab_ft: 1.7917
+        wall_t_ft: 1.625
+  12x6:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#5@5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 69.0
+        e: '#4@9.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 733
+        top_slab_ft: 1.125
+        wall_t_ft: 0.7083
+      20:
+        a: '#6@5.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.8333
+        conc_cf_lf: 113.0
+        e: '#4@6'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 671
+        top_slab_ft: 1.8333
+        wall_t_ft: 0.9583
+  12x7:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.0
+        conc_cf_lf: 72.3
+        e: '#4@7.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 766
+        top_slab_ft: 1.125
+        wall_t_ft: 0.8333
+      20:
+        a: '#6@5.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.8333
+        conc_cf_lf: 118.2
+        e: '#4@5.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 692
+        top_slab_ft: 1.8333
+        wall_t_ft: 1.0833
+  12x8:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#6@5'
+        bot_slab_ft: 1.0
+        conc_cf_lf: 76.3
+        e: '#4@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 817
+        top_slab_ft: 1.125
+        wall_t_ft: 0.9167
+      20:
+        a: '#6@5.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.875
+        conc_cf_lf: 125.1
+        e: '#5@7.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 718
+        top_slab_ft: 1.8333
+        wall_t_ft: 1.2083
+  12x9:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#7@5'
+        bot_slab_ft: 1.0
+        conc_cf_lf: 79.6
+        e: '#4@6'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 886
+        top_slab_ft: 1.0833
+        wall_t_ft: 1.0
+      20:
+        a: '#6@5.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.875
+        conc_cf_lf: 131.4
+        e: '#5@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 744
+        top_slab_ft: 1.8333
+        wall_t_ft: 1.3333
+  14x10:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#6@5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 109.0
+        e: '#4@5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 921
+        top_slab_ft: 1.3333
+        wall_t_ft: 1.125
+      20:
+        a: '#6@5'
+        b: '#6@5.5'
+        bot_slab_ft: 2.125
+        conc_cf_lf: 166.4
+        e: '#5@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 920
+        top_slab_ft: 2.0833
+        wall_t_ft: 1.375
+  14x11:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 114.2
+        e: '#5@7'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 968
+        top_slab_ft: 1.3333
+        wall_t_ft: 1.2083
+      20:
+        a: '#6@5'
+        b: '#6@5.5'
+        bot_slab_ft: 2.125
+        conc_cf_lf: 171.0
+        e: '#5@5.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 950
+        top_slab_ft: 2.0417
+        wall_t_ft: 1.4583
+  14x12:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#7@5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 121.0
+        e: '#5@6'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 1046
+        top_slab_ft: 1.3333
+        wall_t_ft: 1.3333
+      20:
+        a: '#6@5'
+        b: '#6@5.5'
+        bot_slab_ft: 2.1667
+        conc_cf_lf: 180.0
+        e: '#5@5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 984
+        top_slab_ft: 2.0417
+        wall_t_ft: 1.625
+  14x13:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 125.6
+        e: '#5@4.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 1126
+        top_slab_ft: 1.3333
+        wall_t_ft: 1.375
+      20:
+        a: '#6@5'
+        b: '#6@5'
+        bot_slab_ft: 2.1667
+        conc_cf_lf: 189.5
+        e: '#5@4.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 1041
+        top_slab_ft: 2.0417
+        wall_t_ft: 1.75
+  14x14:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.2917
+        conc_cf_lf: 135.9
+        e: '#6@6'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 1107
+        top_slab_ft: 1.2917
+        wall_t_ft: 1.5833
+      20:
+        a: '#6@5'
+        b: '#6@4.5'
+        bot_slab_ft: 2.1667
+        conc_cf_lf: 201.3
+        e: '#6@5.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 1114
+        top_slab_ft: 2.0417
+        wall_t_ft: 1.9583
+  14x7:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#5@5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 96.0
+        e: '#4@7.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 804
+        top_slab_ft: 1.375
+        wall_t_ft: 0.8333
+      20:
+        a: '#6@5'
+        b: '#6@6'
+        bot_slab_ft: 2.0833
+        conc_cf_lf: 149.6
+        e: '#4@5.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 833
+        top_slab_ft: 2.125
+        wall_t_ft: 1.0833
+  14x8:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#5@5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 100.1
+        e: '#4@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 824
+        top_slab_ft: 1.375
+        wall_t_ft: 0.9167
+      20:
+        a: '#6@5'
+        b: '#6@5.5'
+        bot_slab_ft: 2.125
+        conc_cf_lf: 156.8
+        e: '#5@7.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 874
+        top_slab_ft: 2.125
+        wall_t_ft: 1.2083
+  14x9:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 104.5
+        e: '#4@6'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 856
+        top_slab_ft: 1.375
+        wall_t_ft: 1.0
+      20:
+        a: '#6@5'
+        b: '#6@5.5'
+        bot_slab_ft: 2.125
+        conc_cf_lf: 163.0
+        e: '#5@6.5'
+        interior_wall_t_ft: 0.6667
+        lb_per_lf: 901
+        top_slab_ft: 2.0833
+        wall_t_ft: 1.375
+  4x2:
+    covers:
+      10:
+        a: '#4@5'
+        b: '#4@5.5'
+        bot_slab_ft: 0.5833
+        conc_cf_lf: 14.9
+        e: '#4@13.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 145
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5
+      20:
+        a: '#4@5.5'
+        b: '#4@6.5'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 17.5
+        e: '#4@13.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 131
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.5417
+  4x3:
+    covers:
+      10:
+        a: '#4@5'
+        b: '#4@6'
+        bot_slab_ft: 0.5833
+        conc_cf_lf: 16.7
+        e: '#4@13.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 157
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5417
+      20:
+        a: '#4@5.5'
+        b: '#4@6'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 19.5
+        e: '#4@12.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 156
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.5833
+  4x4:
+    covers:
+      10:
+        a: '#4@5'
+        b: '#5@6.5'
+        bot_slab_ft: 0.5833
+        conc_cf_lf: 18.8
+        e: '#4@9.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 205
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5833
+      20:
+        a: '#4@5.5'
+        b: '#4@6'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 22.1
+        e: '#4@9.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 158
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.6667
+  5x2:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#4@5'
+        bot_slab_ft: 0.625
+        conc_cf_lf: 17.4
+        e: '#4@13.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 212
+        top_slab_ft: 0.625
+        wall_t_ft: 0.5
+      20:
+        a: '#4@5.5'
+        b: '#4@5.5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 23.4
+        e: '#4@13.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 169
+        top_slab_ft: 0.8333
+        wall_t_ft: 0.5417
+  5x3:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#4@5.5'
+        bot_slab_ft: 0.625
+        conc_cf_lf: 19.2
+        e: '#4@13.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 221
+        top_slab_ft: 0.625
+        wall_t_ft: 0.5417
+      20:
+        a: '#4@5.5'
+        b: '#4@6'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 25.8
+        e: '#4@11'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 182
+        top_slab_ft: 0.8333
+        wall_t_ft: 0.625
+  5x4:
+    covers:
+      10:
+        a: '#5@6'
+        b: '#4@5.5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 22.7
+        e: '#4@11'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 224
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.625
+      20:
+        a: '#4@5.5'
+        b: '#4@5.5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 28.0
+        e: '#4@10'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 196
+        top_slab_ft: 0.8333
+        wall_t_ft: 0.6667
+  5x5:
+    covers:
+      10:
+        a: '#5@6'
+        b: '#5@5.5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 25.0
+        e: '#4@8.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 261
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.6667
+      20:
+        a: '#4@5.5'
+        b: '#4@5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 31.6
+        e: '#4@8'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 215
+        top_slab_ft: 0.8333
+        wall_t_ft: 0.7917
+  6x3:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#5@5.5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 22.9
+        e: '#4@13.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 268
+        top_slab_ft: 0.625
+        wall_t_ft: 0.5417
+      20:
+        a: '#4@5'
+        b: '#4@6'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 33.3
+        e: '#4@11'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 209
+        top_slab_ft: 1.0
+        wall_t_ft: 0.625
+  6x4:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#4@5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 24.9
+        e: '#4@12.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 287
+        top_slab_ft: 0.625
+        wall_t_ft: 0.5833
+      20:
+        a: '#4@5'
+        b: '#4@5.5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 35.5
+        e: '#4@9.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 232
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.7083
+  6x5:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 27.7
+        e: '#4@9'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 333
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.625
+      20:
+        a: '#4@5'
+        b: '#4@5'
+        bot_slab_ft: 1.0833
+        conc_cf_lf: 39.8
+        e: '#4@7.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 244
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.8333
+  6x6:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 30.6
+        e: '#4@7'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 362
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.7083
+      20:
+        a: '#4@5'
+        b: '#5@5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 43.3
+        e: '#4@6.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 297
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.9167
+  7x3:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#5@5'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 28.8
+        e: '#4@13.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 327
+        top_slab_ft: 0.75
+        wall_t_ft: 0.5417
+      20:
+        a: '#4@6'
+        b: '#4@5'
+        bot_slab_ft: 1.1667
+        conc_cf_lf: 41.4
+        e: '#4@11'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 264
+        top_slab_ft: 1.125
+        wall_t_ft: 0.625
+  7x4:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@6'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 30.6
+        e: '#4@11'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 333
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.625
+      20:
+        a: '#4@6'
+        b: '#4@5'
+        bot_slab_ft: 1.1667
+        conc_cf_lf: 44.3
+        e: '#4@10'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 276
+        top_slab_ft: 1.125
+        wall_t_ft: 0.6667
+  7x5:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@5'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 32.4
+        e: '#4@10.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 355
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.625
+      20:
+        a: '#5@6'
+        b: '#5@5'
+        bot_slab_ft: 1.1667
+        conc_cf_lf: 47.3
+        e: '#4@8'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 311
+        top_slab_ft: 1.0833
+        wall_t_ft: 0.7917
+  7x6:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#5@5'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 35.4
+        e: '#4@8'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 377
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.7083
+      20:
+        a: '#5@6'
+        b: '#5@5'
+        bot_slab_ft: 1.1667
+        conc_cf_lf: 50.8
+        e: '#4@6.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 338
+        top_slab_ft: 1.0833
+        wall_t_ft: 0.9167
+  7x7:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#6@5.5'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 38.7
+        e: '#4@6'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 406
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.7917
+      20:
+        a: '#5@6'
+        b: '#5@6'
+        bot_slab_ft: 1.2083
+        conc_cf_lf: 57.6
+        e: '#4@5.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 348
+        top_slab_ft: 1.0833
+        wall_t_ft: 1.0833
+  8x4:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#5@5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 36.4
+        e: '#4@13'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 373
+        top_slab_ft: 0.8333
+        wall_t_ft: 0.5417
+      20:
+        a: '#5@5.5'
+        b: '#5@7'
+        bot_slab_ft: 1.2917
+        conc_cf_lf: 52.7
+        e: '#4@10'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 339
+        top_slab_ft: 1.25
+        wall_t_ft: 0.6667
+  8x5:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#5@5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 38.3
+        e: '#4@11'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 388
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.625
+      20:
+        a: '#5@5.5'
+        b: '#5@6'
+        bot_slab_ft: 1.2917
+        conc_cf_lf: 56.4
+        e: '#4@8'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 367
+        top_slab_ft: 1.25
+        wall_t_ft: 0.7917
+  8x6:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#5@5.5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 41.4
+        e: '#4@9'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 399
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.7083
+      20:
+        a: '#5@5.5'
+        b: '#5@5.5'
+        bot_slab_ft: 1.3333
+        conc_cf_lf: 61.3
+        e: '#4@6'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 395
+        top_slab_ft: 1.2083
+        wall_t_ft: 0.9583
+  8x7:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#5@5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 44.7
+        e: '#4@7'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 429
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.7917
+      20:
+        a: '#5@5.5'
+        b: '#5@5.5'
+        bot_slab_ft: 1.3333
+        conc_cf_lf: 66.1
+        e: '#4@5.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 414
+        top_slab_ft: 1.2083
+        wall_t_ft: 1.0833
+  8x8:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#6@5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 49.2
+        e: '#4@5.5'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 509
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.9167
+      20:
+        a: '#5@6.5'
+        b: '#5@5.5'
+        bot_slab_ft: 1.3333
+        conc_cf_lf: 72.3
+        e: '#5@7'
+        interior_wall_t_ft: 0.5
+        lb_per_lf: 441
+        top_slab_ft: 1.2083
+        wall_t_ft: 1.25
+single:
+  10x10:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#7@4.5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 43.4
+        e: '#5@6'
+        lb_per_lf: 425
+        top_slab_ft: 0.8333
+        wall_t_ft: 1.125
+      20:
+        a: '#6@5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 59.4
+        e: '#5@5'
+        lb_per_lf: 404
+        top_slab_ft: 1.25
+        wall_t_ft: 1.375
+  10x5:
+    covers:
+      10:
+        a: '#6@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.8333
+        conc_cf_lf: 26.1
+        e: '#4@9.5'
+        lb_per_lf: 251
+        top_slab_ft: 0.8333
+        wall_t_ft: 0.7083
+      20:
+        a: '#7@5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 37.5
+        e: '#4@7.5'
+        lb_per_lf: 284
+        top_slab_ft: 1.25
+        wall_t_ft: 0.8333
+  10x6:
+    covers:
+      10:
+        a: '#6@4.5'
+        b: '#6@5'
+        bot_slab_ft: 0.8333
+        conc_cf_lf: 27.1
+        e: '#4@8.5'
+        lb_per_lf: 285
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.7083
+      20:
+        a: '#7@5'
+        b: '#6@5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 40.3
+        e: '#4@6'
+        lb_per_lf: 318
+        top_slab_ft: 1.1667
+        wall_t_ft: 0.9583
+  10x7:
+    covers:
+      10:
+        a: '#6@5'
+        b: '#6@4.5'
+        bot_slab_ft: 0.8333
+        conc_cf_lf: 30.6
+        e: '#4@7.5'
+        lb_per_lf: 307
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.8333
+      20:
+        a: '#7@5'
+        b: '#6@5'
+        bot_slab_ft: 1.25
+        conc_cf_lf: 43.3
+        e: '#4@5.5'
+        lb_per_lf: 338
+        top_slab_ft: 1.125
+        wall_t_ft: 1.0417
+  10x8:
+    covers:
+      10:
+        a: '#6@5'
+        b: '#7@5'
+        bot_slab_ft: 0.8333
+        conc_cf_lf: 34.7
+        e: '#4@6'
+        lb_per_lf: 375
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.9583
+      20:
+        a: '#6@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.2917
+        conc_cf_lf: 49.0
+        e: '#4@5'
+        lb_per_lf: 313
+        top_slab_ft: 1.1667
+        wall_t_ft: 1.1667
+  10x9:
+    covers:
+      10:
+        a: '#6@5'
+        b: '#7@4.5'
+        bot_slab_ft: 0.8333
+        conc_cf_lf: 38.0
+        e: '#4@5'
+        lb_per_lf: 418
+        top_slab_ft: 0.8333
+        wall_t_ft: 1.0
+      20:
+        a: '#6@4.5'
+        b: '#6@5'
+        bot_slab_ft: 1.3333
+        conc_cf_lf: 55.8
+        e: '#5@6.5'
+        lb_per_lf: 375
+        top_slab_ft: 1.25
+        wall_t_ft: 1.2917
+  12x10:
+    covers:
+      10:
+        a: '#6@4.5'
+        b: '#7@4.5'
+        bot_slab_ft: 0.9583
+        conc_cf_lf: 50.8
+        e: '#4@5'
+        lb_per_lf: 488
+        top_slab_ft: 0.9583
+        wall_t_ft: 1.1667
+      20:
+        a: '#7@5'
+        b: '#7@5'
+        bot_slab_ft: 1.3333
+        conc_cf_lf: 68.1
+        e: '#5@6.5'
+        lb_per_lf: 534
+        top_slab_ft: 1.4167
+        wall_t_ft: 1.375
+  12x11:
+    covers:
+      10:
+        a: '#6@4.5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.0
+        conc_cf_lf: 55.9
+        e: '#5@5.5'
+        lb_per_lf: 526
+        top_slab_ft: 0.9583
+        wall_t_ft: 1.25
+      20:
+        a: '#6@4.5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.5833
+        conc_cf_lf: 78.6
+        e: '#5@5'
+        lb_per_lf: 479
+        top_slab_ft: 1.4583
+        wall_t_ft: 1.5
+  12x12:
+    covers:
+      10:
+        a: '#6@4.5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 63.1
+        e: '#5@4.5'
+        lb_per_lf: 548
+        top_slab_ft: 1.0
+        wall_t_ft: 1.375
+      20:
+        a: '#6@4.5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.6667
+        conc_cf_lf: 88.6
+        e: '#6@6'
+        lb_per_lf: 515
+        top_slab_ft: 1.5
+        wall_t_ft: 1.6667
+  12x6:
+    covers:
+      10:
+        a: '#7@4.5'
+        b: '#6@4.5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 34.3
+        e: '#4@8.5'
+        lb_per_lf: 381
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.75
+      20:
+        a: '#7@4.5'
+        b: '#6@5'
+        bot_slab_ft: 1.4583
+        conc_cf_lf: 52.3
+        e: '#4@6'
+        lb_per_lf: 381
+        top_slab_ft: 1.4167
+        wall_t_ft: 1.0
+  12x7:
+    covers:
+      10:
+        a: '#7@5'
+        b: '#6@4.5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 38.0
+        e: '#4@7'
+        lb_per_lf: 382
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.875
+      20:
+        a: '#7@4.5'
+        b: '#6@5'
+        bot_slab_ft: 1.4583
+        conc_cf_lf: 55.3
+        e: '#4@5.5'
+        lb_per_lf: 397
+        top_slab_ft: 1.375
+        wall_t_ft: 1.0833
+  12x8:
+    covers:
+      10:
+        a: '#7@5'
+        b: '#7@4.5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 41.4
+        e: '#4@6'
+        lb_per_lf: 469
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.9583
+      20:
+        a: '#7@4.5'
+        b: '#6@5'
+        bot_slab_ft: 1.4167
+        conc_cf_lf: 59.0
+        e: '#5@7.5'
+        lb_per_lf: 418
+        top_slab_ft: 1.3333
+        wall_t_ft: 1.2083
+  12x9:
+    covers:
+      10:
+        a: '#7@5'
+        b: '#7@4.5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 44.6
+        e: '#4@5.5'
+        lb_per_lf: 497
+        top_slab_ft: 0.9167
+        wall_t_ft: 1.0417
+      20:
+        a: '#7@4.5'
+        b: '#6@5'
+        bot_slab_ft: 1.4167
+        conc_cf_lf: 64.3
+        e: '#5@6.5'
+        lb_per_lf: 455
+        top_slab_ft: 1.3333
+        wall_t_ft: 1.3333
+  14x10:
+    covers:
+      10:
+        a: '#7@5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 58.0
+        e: '#4@5'
+        lb_per_lf: 560
+        top_slab_ft: 1.0833
+        wall_t_ft: 1.1667
+      20:
+        a: '#8@5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.5833
+        conc_cf_lf: 79.1
+        e: '#5@6.5'
+        lb_per_lf: 563
+        top_slab_ft: 1.5
+        wall_t_ft: 1.375
+  14x11:
+    covers:
+      10:
+        a: '#7@5'
+        b: '#8@5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 63.7
+        e: '#5@7'
+        lb_per_lf: 652
+        top_slab_ft: 1.0833
+        wall_t_ft: 1.2917
+      20:
+        a: '#7@4.5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.6667
+        conc_cf_lf: 84.7
+        e: '#5@5'
+        lb_per_lf: 562
+        top_slab_ft: 1.5833
+        wall_t_ft: 1.375
+  14x12:
+    covers:
+      10:
+        a: '#6@4.5'
+        b: '#8@5'
+        bot_slab_ft: 1.0833
+        conc_cf_lf: 70.0
+        e: '#5@5.5'
+        lb_per_lf: 651
+        top_slab_ft: 1.125
+        wall_t_ft: 1.375
+      20:
+        a: '#7@4.5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.75
+        conc_cf_lf: 97.9
+        e: '#5@4.5'
+        lb_per_lf: 596
+        top_slab_ft: 1.6667
+        wall_t_ft: 1.625
+  14x13:
+    covers:
+      10:
+        a: '#6@4.5'
+        b: '#8@5'
+        bot_slab_ft: 1.125
+        conc_cf_lf: 77.3
+        e: '#5@4.5'
+        lb_per_lf: 691
+        top_slab_ft: 1.125
+        wall_t_ft: 1.5
+      20:
+        a: '#7@5'
+        b: '#7@5'
+        bot_slab_ft: 1.8333
+        conc_cf_lf: 108.8
+        e: '#6@6'
+        lb_per_lf: 674
+        top_slab_ft: 1.625
+        wall_t_ft: 1.8333
+  14x14:
+    covers:
+      10:
+        a: '#6@4.5'
+        b: '#8@5'
+        bot_slab_ft: 1.1667
+        conc_cf_lf: 85.0
+        e: '#6@5.5'
+        lb_per_lf: 730
+        top_slab_ft: 1.125
+        wall_t_ft: 1.625
+      20:
+        a: '#7@5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.7917
+        conc_cf_lf: 120.5
+        e: '#6@5'
+        lb_per_lf: 753
+        top_slab_ft: 1.7083
+        wall_t_ft: 2.0417
+  14x7:
+    covers:
+      10:
+        a: '#8@5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 44.2
+        e: '#4@7.5'
+        lb_per_lf: 526
+        top_slab_ft: 1.0833
+        wall_t_ft: 0.7917
+      20:
+        a: '#8@5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.625
+        conc_cf_lf: 68.6
+        e: '#4@5'
+        lb_per_lf: 492
+        top_slab_ft: 1.625
+        wall_t_ft: 1.125
+  14x8:
+    covers:
+      10:
+        a: '#7@4.5'
+        b: '#7@5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 49.2
+        e: '#4@6'
+        lb_per_lf: 498
+        top_slab_ft: 1.0833
+        wall_t_ft: 0.9583
+      20:
+        a: '#8@5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.625
+        conc_cf_lf: 72.9
+        e: '#5@7'
+        lb_per_lf: 512
+        top_slab_ft: 1.5833
+        wall_t_ft: 1.25
+  14x9:
+    covers:
+      10:
+        a: '#7@4.5'
+        b: '#7@4.5'
+        bot_slab_ft: 1.0417
+        conc_cf_lf: 52.9
+        e: '#4@5.5'
+        lb_per_lf: 550
+        top_slab_ft: 1.0833
+        wall_t_ft: 1.0417
+      20:
+        a: '#8@5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.5833
+        conc_cf_lf: 75.7
+        e: '#5@6.5'
+        lb_per_lf: 540
+        top_slab_ft: 1.4583
+        wall_t_ft: 1.375
+  4x2:
+    covers:
+      10:
+        a: '#5@6'
+        b: '#4@5.5'
+        bot_slab_ft: 0.5833
+        conc_cf_lf: 8.0
+        e: '#4@13.5'
+        lb_per_lf: 79
+        top_slab_ft: 0.625
+        wall_t_ft: 0.5
+      20:
+        a: '#5@5'
+        b: '#5@6'
+        bot_slab_ft: 0.5833
+        conc_cf_lf: 7.8
+        e: '#4@13.5'
+        lb_per_lf: 84
+        top_slab_ft: 0.5833
+        wall_t_ft: 0.5
+  4x3:
+    covers:
+      10:
+        a: '#5@6'
+        b: '#4@6'
+        bot_slab_ft: 0.5833
+        conc_cf_lf: 9.3
+        e: '#4@13.5'
+        lb_per_lf: 84
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5
+      20:
+        a: '#5@5'
+        b: '#5@6'
+        bot_slab_ft: 0.625
+        conc_cf_lf: 9.0
+        e: '#4@13.5'
+        lb_per_lf: 96
+        top_slab_ft: 0.5833
+        wall_t_ft: 0.5
+  4x4:
+    covers:
+      10:
+        a: '#4@5'
+        b: '#5@6'
+        bot_slab_ft: 0.5833
+        conc_cf_lf: 11.1
+        e: '#4@9'
+        lb_per_lf: 104
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5833
+      20:
+        a: '#5@5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.625
+        conc_cf_lf: 10.9
+        e: '#4@7'
+        lb_per_lf: 127
+        top_slab_ft: 0.5833
+        wall_t_ft: 0.5833
+  5x2:
+    covers:
+      10:
+        a: '#5@5.5'
+        b: '#5@5'
+        bot_slab_ft: 0.625
+        conc_cf_lf: 9.8
+        e: '#4@13.5'
+        lb_per_lf: 107
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5
+      20:
+        a: '#5@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 10.0
+        e: '#4@13.5'
+        lb_per_lf: 110
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5
+  5x3:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@6'
+        bot_slab_ft: 0.625
+        conc_cf_lf: 11.1
+        e: '#4@13.5'
+        lb_per_lf: 112
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5417
+      20:
+        a: '#5@4.5'
+        b: '#5@5.5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 11.4
+        e: '#4@13.5'
+        lb_per_lf: 114
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5417
+  5x4:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@6'
+        bot_slab_ft: 0.625
+        conc_cf_lf: 12.4
+        e: '#4@12'
+        lb_per_lf: 123
+        top_slab_ft: 0.625
+        wall_t_ft: 0.5833
+      20:
+        a: '#5@4.5'
+        b: '#5@5.5'
+        bot_slab_ft: 0.75
+        conc_cf_lf: 13.9
+        e: '#4@11'
+        lb_per_lf: 128
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.625
+  5x5:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.625
+        conc_cf_lf: 13.8
+        e: '#4@6.5'
+        lb_per_lf: 154
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5833
+      20:
+        a: '#5@5'
+        b: '#5@5.5'
+        bot_slab_ft: 0.7917
+        conc_cf_lf: 17.0
+        e: '#4@7.5'
+        lb_per_lf: 140
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.75
+  6x3:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@5.5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 13.1
+        e: '#4@12.5'
+        lb_per_lf: 126
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.5833
+      20:
+        a: '#6@5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.8333
+        conc_cf_lf: 14.8
+        e: '#4@12.5'
+        lb_per_lf: 147
+        top_slab_ft: 0.75
+        wall_t_ft: 0.5833
+  6x4:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#5@6'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 14.5
+        e: '#4@12'
+        lb_per_lf: 132
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.5833
+      20:
+        a: '#5@4.5'
+        b: '#5@5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 17.1
+        e: '#4@11'
+        lb_per_lf: 139
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.625
+  6x5:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#5@5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 15.9
+        e: '#4@9'
+        lb_per_lf: 159
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.625
+      20:
+        a: '#5@4.5'
+        b: '#5@5.5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 19.7
+        e: '#4@8.5'
+        lb_per_lf: 153
+        top_slab_ft: 0.75
+        wall_t_ft: 0.75
+  6x6:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#6@5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 18.4
+        e: '#4@6.5'
+        lb_per_lf: 206
+        top_slab_ft: 0.6667
+        wall_t_ft: 0.7083
+      20:
+        a: '#5@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.8333
+        conc_cf_lf: 22.8
+        e: '#4@6'
+        lb_per_lf: 186
+        top_slab_ft: 0.75
+        wall_t_ft: 0.875
+  7x3:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#5@5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 14.7
+        e: '#4@13.5'
+        lb_per_lf: 145
+        top_slab_ft: 0.75
+        wall_t_ft: 0.5417
+      20:
+        a: '#6@5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.9583
+        conc_cf_lf: 18.8
+        e: '#4@12.5'
+        lb_per_lf: 162
+        top_slab_ft: 0.9167
+        wall_t_ft: 0.5833
+  7x4:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#5@5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 15.8
+        e: '#4@11'
+        lb_per_lf: 155
+        top_slab_ft: 0.75
+        wall_t_ft: 0.5417
+      20:
+        a: '#6@5'
+        b: '#5@5'
+        bot_slab_ft: 0.875
+        conc_cf_lf: 19.8
+        e: '#4@11'
+        lb_per_lf: 169
+        top_slab_ft: 0.9167
+        wall_t_ft: 0.625
+  7x5:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#6@5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 17.4
+        e: '#4@9'
+        lb_per_lf: 203
+        top_slab_ft: 0.75
+        wall_t_ft: 0.5833
+      20:
+        a: '#6@5'
+        b: '#5@5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 23.3
+        e: '#4@8'
+        lb_per_lf: 186
+        top_slab_ft: 0.875
+        wall_t_ft: 0.7917
+  7x6:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#6@4.5'
+        bot_slab_ft: 0.6667
+        conc_cf_lf: 20.4
+        e: '#4@7'
+        lb_per_lf: 232
+        top_slab_ft: 0.75
+        wall_t_ft: 0.7083
+      20:
+        a: '#6@5'
+        b: '#5@5'
+        bot_slab_ft: 0.9583
+        conc_cf_lf: 26.5
+        e: '#4@7'
+        lb_per_lf: 205
+        top_slab_ft: 0.875
+        wall_t_ft: 0.875
+  7x7:
+    covers:
+      10:
+        a: '#5@5'
+        b: '#6@4.5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 23.9
+        e: '#4@6'
+        lb_per_lf: 245
+        top_slab_ft: 0.7083
+        wall_t_ft: 0.8333
+      20:
+        a: '#5@4.5'
+        b: '#6@5'
+        bot_slab_ft: 0.9167
+        conc_cf_lf: 30.1
+        e: '#4@5'
+        lb_per_lf: 244
+        top_slab_ft: 0.875
+        wall_t_ft: 1.0
+  8x4:
+    covers:
+      10:
+        a: '#6@5'
+        b: '#5@4.5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 18.0
+        e: '#4@11'
+        lb_per_lf: 193
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.5417
+      20:
+        a: '#6@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.0833
+        conc_cf_lf: 25.2
+        e: '#4@10'
+        lb_per_lf: 197
+        top_slab_ft: 1.0417
+        wall_t_ft: 0.6667
+  8x5:
+    covers:
+      10:
+        a: '#6@5'
+        b: '#6@5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 19.6
+        e: '#4@9'
+        lb_per_lf: 229
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.5833
+      20:
+        a: '#6@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.0833
+        conc_cf_lf: 27.5
+        e: '#4@8'
+        lb_per_lf: 210
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.7917
+  8x6:
+    covers:
+      10:
+        a: '#6@5'
+        b: '#6@4.5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 22.6
+        e: '#4@7.5'
+        lb_per_lf: 262
+        top_slab_ft: 0.7917
+        wall_t_ft: 0.7083
+      20:
+        a: '#6@4.5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.0
+        conc_cf_lf: 30.3
+        e: '#4@6.5'
+        lb_per_lf: 234
+        top_slab_ft: 0.9583
+        wall_t_ft: 0.9167
+  8x7:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#9@4.5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 25.8
+        e: '#4@7'
+        lb_per_lf: 491
+        top_slab_ft: 0.75
+        wall_t_ft: 0.8333
+      20:
+        a: '#6@5'
+        b: '#5@4.5'
+        bot_slab_ft: 1.0833
+        conc_cf_lf: 34.4
+        e: '#4@6'
+        lb_per_lf: 242
+        top_slab_ft: 0.9583
+        wall_t_ft: 1.0
+  8x8:
+    covers:
+      10:
+        a: '#5@4.5'
+        b: '#9@4.5'
+        bot_slab_ft: 0.7083
+        conc_cf_lf: 29.0
+        e: '#4@5'
+        lb_per_lf: 527
+        top_slab_ft: 0.75
+        wall_t_ft: 0.9167
+      20:
+        a: '#6@5'
+        b: '#6@4.5'
+        bot_slab_ft: 1.0
+        conc_cf_lf: 38.1
+        e: '#5@7'
+        lb_per_lf: 309
+        top_slab_ft: 0.9583
+        wall_t_ft: 1.125

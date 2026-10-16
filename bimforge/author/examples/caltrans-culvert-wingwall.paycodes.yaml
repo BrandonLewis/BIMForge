@@ -1,0 +1,29 @@
+# Caltrans culvert-wingwall structural concrete (CY) + bar reinforcing steel (LB).
+rules:
+  - match: "(?i)wingwall reinforcing"    # FIRST: per-mark bar elements (k/L/front/rear/beam/dowel/spacer)
+    group: ww_steel                      # -- so the "beam" mark is not caught by the concrete beam rule below
+  - match: "(?i)wingwall.*stem"          # straight/warped stem + stepped "stem step N"
+    group: ww_concrete
+  - match: "(?i)wingwall.*footing"
+    group: ww_concrete
+  - match: "(?i)wingwall.*beam"          # D86 stiffening beam (concrete)
+    group: ww_concrete
+  - match: "(?i)wingwall.*cutoff"        # D86 toe cutoff
+    group: ww_concrete
+groups:
+  ww_concrete: {measure: GrossVolume}
+  ww_steel: {measure: Weight}
+codes:
+  STRUCT-CONC-WW:
+    group: ww_concrete
+    measure: GrossVolume
+    unit: CY
+    item_number: "510060"
+    description: "Structural concrete, culvert wingwall"
+  BAR-STEEL-WW:
+    group: ww_steel
+    measure: Weight
+    unit: LB
+    item_number: "520102"
+    description: "Bar reinforcing steel (culvert wingwall)"
+    elements_carry_weight: true

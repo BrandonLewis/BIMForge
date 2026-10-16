@@ -1,0 +1,25 @@
+# Worked Type 842 example: one straight 120' deck-mounted run terminating in an
+# approach end block (start) and a departure end block (end), with the
+# MGS/Type-AGT guardrail-transition hardware. Fictitious project.
+family: concrete-barrier-842
+params:
+  runs:
+    - name: NB
+      straight_length_ft: 120.0
+      base_kind: deck
+      start_end: approach
+      end_end: departure
+paycodes: ./concrete-barrier-842.paycodes.yaml
+outputs:
+  dxf: CAD/barrier-842.dxf
+  ifc: CAD/barrier-842.ifc
+  takeoff_map: CAD/barrier-842-takeoff-map.yaml
+  qto: null
+  step: null
+  bbs: null
+  ifc_allow_local: true
+project:
+  name: "R31 842 example"
+  epsg: 2226
+  base: [0.0, 0.0]
+  guid_ns: "6f0e5a1a-0000-4000-8000-000000000042"

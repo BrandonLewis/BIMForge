@@ -1,0 +1,103 @@
+# Caltrans 2025 Standard Plan D90 -- Pipe Culvert Headwalls, Endwalls and
+# Wingwalls, Types A, B and C. Source DGN 2025__d090.dgn (git-ignored;
+# manifest data/caltrans-2025/manifest.json).
+#
+# D90 fixes very little dimensionally. Note 4: wingwall elevation, length and
+# flare angle are varied by the Engineer in the field. Wall/footing dimensions
+# C,B,F,W and wall/footing reinforcing come from the B3 Type-1 Standard Plans
+# (B3-1A/1B/1C). This catalog therefore encodes ONLY the sheet-FIXED rules;
+# wingwall geometry and the bar schedule are supplied per-structure in the
+# project spec (field-varied).
+d90:
+  wingwall_types:
+    A:
+      shape: straight
+      b3_plans:
+      - B3-1A
+      - B3-1B
+      - B3-1C
+      barrier: none
+    B:
+      shape: straight
+      b3_plans:
+      - B3-1A
+      - B3-1B
+      - B3-1C
+      barrier: optional_case1
+    C:
+      shape: wall
+      b3_plans:
+      - B3-1B
+      - B3-1C
+      barrier: required
+  loading_cases:
+  - '1'
+  - '2'
+  - '3'
+  pipe:
+    cover_above_min_ft: 1.0
+    cover_above_max_ft: 4.0
+    end_fillet_r_in: 3.0
+    distribution:
+      material: rc_only
+      sizes:
+      - 6
+      - 4
+      note: 'Note 6: adjacent to each side of the pipe opening place additional vertical
+        bars bent into the footing, equivalent to half of the cut-off main bars by
+        the pipe (see Section C-C / D-D).'
+    metal: hook_bolts
+  type_c_barrier:
+    barrier_type: '836'
+    h_ft: 3.0
+    per_standard_plan: B11-80
+    # Real Type 836 single-slope BRIDGE barrier, transcribed from the 2025
+    # Caltrans Standard Plans sheet 440 (B11-80, "Concrete Barrier Type 836
+    # Details No. 2"), the TYPE 836 section. The B11-80 DGN converts cleanly
+    # for the REBAR but not the concrete outline, so the outline is read from
+    # the published sheet's dimensions (confirmed with Brandon 2026-08-24):
+    #   - 3'-0" (36") tall; 1'-2" (14") flat top; 1" chamfers.
+    #   - Traffic face: single slope 9.1 deg (5-3/4" horizontal over 36").
+    #   - Thickened upper section 1'-2" (14") tall, stepping out 4" proud.
+    #   - Recessed lower backface 1'-10" (22") tall, plumb, down to the deck.
+    #   - 1" chamfers at the top-back (1-1/4" return), the traffic-face top
+    #     corner, and the recess bottom corner.
+    # Explicit profile in FEET; x = +toward traffic, z up, 0 = deck top.
+    shape: single_slope
+    profile:
+      - [0.0,     0.0]      # deck; recessed backface bottom
+      - [0.0,     1.8333]   # lower recessed backface up to the recess ledge (1'-10")
+      - [-0.25,   1.8333]   # recess ledge (3" in) toward the thickened upper face
+      - [-0.3333, 1.9167]   # 1" chamfer at the recess bottom corner
+      - [-0.3333, 2.8958]   # thickened upper backface, plumb, 4" proud
+      - [-0.2292, 3.0]      # 1-1/4" top-back return onto the top face
+      - [0.8542,  3.0]      # top face (1'-2" wide)
+      - [0.9507,  2.9177]   # 1" chamfer at the traffic-face top corner
+      - [1.4167,  0.0]      # traffic single-slope face down to the base (17")
+    # No CF/LF is tabulated on sheet 440. Independent area = band integration of
+    # the section over height (NOT the shoelace of the profile above, so a
+    # profile typo makes the two disagree -- non-vacuous):
+    #   lower band z 0..1.8333 ft (x 0..traffic face):        335.35 in^2
+    #   upper band z 1.8333..3.0 ft (x -4"..traffic) - bevel: 227.38 in^2
+    #   total ~= 562.7 in^2 = 3.908 SF/LF
+    concrete_cf_per_lf: 3.908
+    # Section H-H (barrier on a wingwall/retaining wall): a 1'-0" haunch fillet
+    # flares the battered (earth-side) base onto the wall (Brandon 2026-08-25).
+    haunch_ft: 1.0
+    bars:
+      # From sheet 440 TYPE 836: '#5 Cont, Tot 10' main longitudinal cage +
+      # '#5 Cont, Tot 2' at the base = 12 continuous #5. Ties '#5 @ 8"
+      # everywhere else' (6" at deck joints; the general case is encoded here).
+      # 2" cover per sheet 440 Note 2. (#4 x 10 are DECK bars, not barrier.)
+      longitudinal: {size: 5, count: 12}
+      ties: {size: 5, spacing_in: 8}
+      # Section H-H haunch reinforcing: '#4 Cont' + '#5 [U] @ 1'-0" Tot 3'.
+      haunch:
+        cont: {size: 4, count: 2}
+        dowels: {size: 5, spacing_in: 12, count: 3, length_ft: 3.0}
+  wall_height_tolerance_ft: 0.5
+  design:
+    soil_unit_weight_pcf: 120
+    soil_phi_deg: 34
+    fc_psi: 3600
+    fy_psi: 60000

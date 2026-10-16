@@ -1,0 +1,22 @@
+# CIP box-girder bridge: superstructure and substructure concrete (CY).
+rules:
+  - match: "(?i)superstructure"
+    group: br_super
+  - match: "(?i)(column|bent cap|abutment|diaphragm)"
+    group: br_sub
+groups:
+  br_super: {measure: GrossVolume}
+  br_sub: {measure: GrossVolume}
+codes:
+  STRUCT-CONC-BR-DECK:
+    group: br_super
+    measure: GrossVolume
+    unit: CY
+    item_number: "510053"
+    description: "Structural concrete, bridge"
+  STRUCT-CONC-BR-SUB:
+    group: br_sub
+    measure: GrossVolume
+    unit: CY
+    item_number: "510060"
+    description: "Structural concrete, bridge footing and substructure"

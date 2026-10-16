@@ -1,0 +1,27 @@
+# Caltrans box-culvert section catalog (example fixture -- real D80 rows).
+# Thicknesses are earth-cover dependent, so they live on each cover row with the
+# a/b/e bar marks, the tabulated concrete CF/LF, and reinforcement LB/LF. The
+# full production catalog is transcribed off the git-ignored D80/D81 DXFs into
+# data/caltrans-2025/tables/caltrans-d80-box-culvert.yaml (never packaged).
+single:
+  "4x2":                                # D80 single 4' x 2'
+    covers:
+      10: {wall_t_ft: 0.5, top_slab_ft: 0.625, bot_slab_ft: 0.5833,
+           a: "#5@6", b: "#4@5.5", e: "#4@13.5", conc_cf_lf: 8.0, lb_per_lf: 79}
+      20: {wall_t_ft: 0.5, top_slab_ft: 0.5833, bot_slab_ft: 0.5833,
+           a: "#5@5", b: "#5@6", e: "#4@13.5", conc_cf_lf: 7.8, lb_per_lf: 84}
+  "8x5":                                # D80 single 8' x 5'
+    covers:
+      10: {wall_t_ft: 0.5833, top_slab_ft: 0.7917, bot_slab_ft: 0.7083,
+           a: "#6@4.5", b: "#6@5", e: "#4@9", conc_cf_lf: 19.6, lb_per_lf: 229}
+      20: {wall_t_ft: 0.7917, top_slab_ft: 0.9583, bot_slab_ft: 1.0833,
+           a: "#6@5", b: "#5@4.5", e: "#4@8", conc_cf_lf: 27.5, lb_per_lf: 210}
+double:
+  "8x5":                                # D81 double 8' x 5' (6" interior wall)
+    covers:
+      10: {wall_t_ft: 0.625, top_slab_ft: 0.7917, bot_slab_ft: 0.875,
+           interior_wall_t_ft: 0.5, a: "#5@5.5", b: "#5@5", e: "#4@11",
+           conc_cf_lf: 38.3, lb_per_lf: 388}
+      20: {wall_t_ft: 0.7917, top_slab_ft: 1.25, bot_slab_ft: 1.2917,
+           interior_wall_t_ft: 0.5, a: "#5@5.5", b: "#5@6", e: "#4@8",
+           conc_cf_lf: 56.4, lb_per_lf: 367}

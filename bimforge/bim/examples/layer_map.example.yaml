@@ -1,0 +1,68 @@
+# ---------------------------------------------------------------------------
+# est-bim dxf2bim layer map
+#
+# This is the ONE file you edit per project (or per office standard). Each key
+# under `layers:` is a DXF layer name; the value tells the pipeline what IFC
+# element to author from it, how to measure it, and which cost code to attach.
+# ---------------------------------------------------------------------------
+
+project:
+  name: "Sample Takeoff"
+  schema: "IFC4X3_ADD2"   # IFC4X3_ADD2 (default, civil) | IFC4 (non-4X3 viewers) | IFC2X3
+  storey: "Level 0"
+
+units:
+  dxf_length_unit: "mm"   # mm | cm | m | ft | in  -> converted to metres
+
+georeference:
+  crs_epsg: 6423          # EPSG of the DXF coordinates (null to skip georef)
+  # zone: CA_SP_ZONE3     # or crs_epsg: 2227 (crs_epsg wins if both) -- named
+  #                         State Plane zones from bim.georef.ZONES: CA_SP_ZONE2,
+  #                         CA_SP_ZONE3, NV_SP_WEST
+  base_easting: null      # null -> use the model's bounding-box min as origin
+  base_northing: null
+  base_height: 0.0
+
+# feature: area | linear | count
+#   area   -> closed polyline / hatch; measures GrossArea, Perimeter, Volume
+#   linear -> open polyline / line;    measures Length, Width, Volume (ribbon)
+#   count  -> block INSERTs;           measures Count (one element per insert)
+layers:
+  A-SLAB:
+    ifc_class: "IfcSlab"
+    predefined_type: "FLOOR"
+    feature: "area"
+    height: 0.2                    # slab thickness (m)
+    classification: { system: "MasterFormat", code: "03 30 00", name: "Cast-in-Place Concrete" }
+
+  A-WALL:
+    ifc_class: "IfcWall"
+    predefined_type: "STANDARD"
+    feature: "linear"
+    height: 3.0                    # wall height (m)
+    width: 0.2                     # wall thickness (m)
+    classification: { system: "Uniclass 2015", code: "EF_25_10", name: "Walls" }
+    properties:
+      Pset_WallCommon: { IsExternal: true, LoadBearing: true }
+
+  C-CURB:
+    ifc_class: "IfcBuildingElementProxy"
+    feature: "linear"
+    height: 0.15
+    width: 0.3
+    classification: { system: "MasterFormat", code: "32 16 13", name: "Curbs and Gutters" }
+
+  A-HATCH:
+    ifc_class: "IfcCovering"
+    predefined_type: "FLOORING"
+    feature: "area"
+    height: 0.05
+    classification: { system: "Uniclass 2015", code: "EF_25_30", name: "Floor finishes" }
+
+  E-COL:
+    ifc_class: "IfcColumn"
+    predefined_type: "COLUMN"
+    feature: "count"
+    height: 3.0
+    marker_size: 0.4               # size of the count marker footprint (m)
+    classification: { system: "MasterFormat", code: "05 12 00", name: "Structural Steel Framing" }

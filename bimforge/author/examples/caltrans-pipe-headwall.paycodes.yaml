@@ -1,0 +1,25 @@
+# Caltrans pipe-headwall structural concrete (CY) + bar reinforcing steel (LB).
+rules:
+  - match: "(?i)headwall.*stem"          # main + "return" stem
+    group: hw_concrete
+  - match: "(?i)headwall.*footing"       # main + "return" footing
+    group: hw_concrete
+  - match: "(?i)headwall reinforcing"
+    group: hw_steel
+groups:
+  hw_concrete: {measure: GrossVolume}
+  hw_steel: {measure: Weight}
+codes:
+  STRUCT-CONC-HW:
+    group: hw_concrete
+    measure: GrossVolume
+    unit: CY
+    item_number: "510060"
+    description: "Structural concrete, pipe headwall"
+  BAR-STEEL-HW:
+    group: hw_steel
+    measure: Weight
+    unit: LB
+    item_number: "520102"
+    description: "Bar reinforcing steel (pipe headwall)"
+    elements_carry_weight: true

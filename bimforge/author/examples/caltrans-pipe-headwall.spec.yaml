@@ -1,0 +1,35 @@
+# Worked pipe-headwall run. --check-only writes nothing (CI fixture).
+family: pipe-headwall
+params:
+  tables_file: ./caltrans-pipe-headwall-tables.example.yaml
+  headwalls:
+    - name: HW1                       # straight, single circular pipe
+      form: straight
+      design_h_ft: 3.8
+      length_ft: 6.0
+      openings:
+        - {shape: circular, dia_ft: 2.0, center_ft: 3.0}
+    - name: HW2                       # straight, double circular pipe
+      form: straight
+      design_h_ft: 4.6
+      length_ft: 12.0
+      openings:
+        - {shape: circular, dia_ft: 2.0, center_ft: 3.0}
+        - {shape: circular, dia_ft: 2.0, center_ft: 9.0}
+    - name: HW3                       # "L" headwall, CMP arch
+      form: L
+      design_h_ft: 4.6
+      length_ft: 8.0
+      return_len_ft: 7.0
+      openings:
+        - {shape: cmp_arch, span_ft: 4.5, rise_ft: 3.1, center_ft: 4.0}
+paycodes: ./caltrans-pipe-headwall.paycodes.yaml
+outputs:
+  dxf: out/caltrans-pipe-headwall.dxf
+  ifc: out/caltrans-pipe-headwall.ifc
+  takeoff_map: out/caltrans-pipe-headwall-takeoff-map.yaml
+project:
+  name: "Caltrans Pipe Headwall (example)"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 100.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-0000000000e9"

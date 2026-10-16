@@ -1,0 +1,14 @@
+# Neutral demo paycodes for the demo-box family (CI fixture).
+rules:
+  - match: "(?i)demo footing"
+    ifc_class: IfcFooting
+    group: demo_footing
+groups:
+  demo_footing: {measure: GrossVolume}
+codes:
+  DEMO-FTG:
+    group: demo_footing
+    measure: GrossVolume
+    unit: CY
+    item_number: "0001"
+    description: "Demo footings"

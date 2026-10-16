@@ -1,0 +1,42 @@
+# Vision hints for Pioneer Ave signed set, sheet 13 (GENERAL PLAN).
+#
+# Fixture-captured vision: an agent rendered the sheet (150 dpi, 0.48 pt/px)
+# and read the flattened lettering. Sheet 13 is the documented
+# no-geometric-source case: the PLAN view "P" line carries exactly ONE
+# station tick (106+00) inside the view — no evenly spaced family — and the
+# PROFILE GRADE view is lettered NO SCALE with no ruled grid, so every
+# usable calibration value on this sheet comes from its (flattened)
+# lettering, i.e. from ONE independent source type. Calibration must
+# therefore exit 2 — by design — and the evidence report shows the
+# dimension hints below agreeing at ~0.2222 ft/pt (the HALF of the lettered
+# 1/8" = 1'-0", because the signed set is a half-size 12x18 plot), which is
+# the value a manual override can then take with its provenance on record.
+#
+# near_pt is in visual (as-rendered) page points, y down.
+frame: visual
+zone_hints:
+  - zone: elevation
+    kind: dimension
+    text: "TOTAL LENGTH = 45'-0\" MEASURED ALONG \"P\" LINE"
+    near_pt: [471.6, 208.0]     # above the BB->EB dimension line
+  - zone: plan
+    kind: dimension
+    text: "3'-0\""              # shoulder width, right-side dimension chain
+    near_pt: [726.0, 676.0]
+  - zone: plan
+    kind: dimension
+    text: "3'-0\""              # the second shoulder dimension in the chain
+    near_pt: [726.0, 572.5]
+  - zone: plan
+    kind: scale_note
+    text: "1/8\" = 1'-0\""      # lettered under the PLAN title; the signed
+                                # set plots half-size, so this is the lie
+    near_pt: [482.8, 784.1]
+  - zone: plan
+    kind: station_label
+    text: "BB 105+97.90"        # begin bridge -- no tick family to anchor to
+    near_pt: [304.6, 609.1]
+  - zone: plan
+    kind: station_label
+    text: "EB 106+42.90"        # end bridge
+    near_pt: [586.4, 607.8]

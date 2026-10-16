@@ -1,0 +1,37 @@
+# Vision hints for Pioneer Ave signed set, sheet 20 (ROCK SLOPE PROTECTION
+# DETAILS).
+#
+# Fixture-captured vision: an agent rendered the sheet (150 dpi) and read
+# the flattened lettering. Like sheet 13, sheet 20 offers no evenly spaced
+# geometric family at the true scale (the "P" line shows single station
+# ticks at 106+00 / 106+50 only), so calibration exits 2 by design and the
+# evidence report carries the hint-confirmed ~0.1481 ft/pt — HALF the
+# lettered 3/16" = 1'-0" (half-size 12x18 plot) — for a deliberate manual
+# override. The dimension hints then drive the QC cross-check of the RSP
+# footprint measurement.
+#
+# near_pt is in visual (as-rendered) page points, y down.
+frame: visual
+zone_hints:
+  - kind: dimension
+    text: "12'-6\""                # Abut 1 plan, bottom edge of RSP limits
+    near_pt: [331.8, 772.1]
+  - kind: dimension
+    text: "LIMITS OF ROCK SLOPE PROTECTION = 59'-10\""   # Abut 1 overall
+    near_pt: [638.3, 453.6]
+  - kind: dimension
+    text: "LIMITS OF ROCK SLOPE PROTECTION = 58'-7\""    # Abut 2 overall
+    near_pt: [673.9, 414.7]
+  - kind: dimension
+    text: "2'-6\", Typ"            # toe key width / fabric offset band
+    near_pt: [997.8, 361.2]
+  - kind: scale_note
+    text: "3/16\" = 1'-0\""        # lettered under PLAN and ELEVATION titles;
+                                   # the signed set plots half-size: the lie
+    near_pt: [630.0, 806.0]
+  - kind: station_label
+    text: "106+00"                 # single tick on the "P" line, Abut 1 view
+    near_pt: [315.6, 461.4]
+  - kind: station_label
+    text: "106+50"                 # single tick on the "P" line, Abut 2 view
+    near_pt: [1000.0, 461.4]

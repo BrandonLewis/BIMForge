@@ -1,0 +1,73 @@
+# Worked bridge-standard run (spec 4.8): a two-span CIP box girder on a
+# COMPOUND CURVE (R=800 then R=500), with a superelevation transition and a
+# camber diagram, carried on seat abutments at each end and one two-column
+# bent skewed 20 deg, with a diaphragm in every cell at the bent.
+# --check-only writes nothing (CI fixture). Fictitious alignment and
+# stationing — nothing here is a real project.
+family: bridge-standard
+params:
+  alignment:
+    name: "BR"
+    pob: {station: 100.0, northing: 1943000.0, easting: 6594000.0}
+    run:                                # tangent-continuous: the sweep
+      - {kind: tangent, bearing: "N 10-0-0 E", length: 100.0}
+      - {kind: curve, delta: "30-0-0", radius: 800.0, turn: R, length: 418.88}
+      - {kind: curve, delta: "20-0-0", radius: 500.0, turn: R, length: 174.53}
+      - {kind: tangent, bearing: "N 60-0-0 E", length: 100.0}
+  profile:                              # one crest VC over the whole bridge
+    curves:
+      - bvc_station: 100.0
+        bvc_elev: 320.0
+        g_in_pct: 2.0
+        g_out_pct: -2.0
+        length_ft: 800.0
+        evc_station: 900.0
+        evc_elev: 320.0
+  superelevation:                       # 2% crown -> 6% through the curve
+    - [150.0, 0.02]
+    - [250.0, 0.02]
+    - [400.0, 0.06]
+    - [650.0, 0.06]
+    - [750.0, 0.05]
+  camber:                               # one bow per span, zero at supports
+    - [150.0, 0.0]
+    - [300.0, 0.25]
+    - [450.0, 0.0]
+    - [600.0, 0.25]
+    - [750.0, 0.0]
+  section:                              # 40 ft deck, 2-cell box, 6 ft deep
+    deck_width: 40.0
+    depth: 6.0
+    overhang: 4.0
+    webs: {count: 3, thickness: 1.0}
+    top_slab: 0.75
+    bot_slab: 0.6
+  supports:
+    - station: 150.0                    # Abut 1 (seat type, square)
+      skew_deg: 0.0
+      type: abutment
+      stem: {thickness: 3.0, base_el: 292.0}
+      seat: {width: 6.0, bearing_depth: 0.5}
+      backwall: {thickness: 1.0}
+    - station: 450.0                    # Bent 2, two columns, 20 deg skew
+      skew_deg: 20.0
+      type: bent
+      columns: {count: 2, dia: 4.0, base_el: 285.0}
+      cap: {width: 5.0, depth: 4.0}
+      diaphragm: {thickness: 2.0}
+    - station: 750.0                    # Abut 3 (seat type, square)
+      skew_deg: 0.0
+      type: abutment
+      stem: {thickness: 3.0, base_el: 294.0}
+      seat: {width: 6.0, bearing_depth: 0.5}
+      backwall: {thickness: 1.0}
+paycodes: ./bridge-standard.paycodes.yaml
+outputs:
+  dxf: out/bridge-standard.dxf
+  ifc: out/bridge-standard.ifc
+  takeoff_map: out/bridge-standard-takeoff-map.yaml
+project:
+  name: "Fixture Overcrossing (example)"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 300.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-0000000000b1"

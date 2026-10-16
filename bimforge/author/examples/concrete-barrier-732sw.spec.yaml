@@ -1,0 +1,29 @@
+# Worked Type 732SW example: one straight 120' run on a bridge deck, with the
+# B11-51 tubular handrail hosted on top and one deck joint. Fictitious project.
+family: concrete-barrier-732sw
+params:
+  runs:
+    - name: NB 732SW
+      straight_length_ft: 120.0
+      deck_slope_pct: 2.0
+      handrail: true
+      post_spacing_ft: 6.1667
+      joints: [60.0]
+      end_posts: [start, end]
+      # approach_end_block / departure_end_block default true: this run
+      # terminates at both ends, so it gets both end blocks + the B11-59/59A
+      # guardrail-transition hardware. Set either false for a mid-span run.
+paycodes: ./concrete-barrier-732sw.paycodes.yaml
+outputs:
+  dxf: CAD/barrier-732sw.dxf
+  ifc: CAD/barrier-732sw.ifc
+  takeoff_map: CAD/barrier-732sw-takeoff-map.yaml
+  qto: null
+  step: null
+  bbs: null
+  ifc_allow_local: true
+project:
+  name: "R28 732SW example"
+  epsg: 2226
+  base: [0.0, 0.0]
+  guid_ns: "6f0e5a1a-0000-4000-8000-000000000002"

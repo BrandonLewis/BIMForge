@@ -1,0 +1,13 @@
+# Caltrans B3 retaining wall - structural concrete only (rebar & earthwork: phase 2).
+rules:
+  - match: "(?i)retaining wall (footing|stem)"
+    group: rw_concrete
+groups:
+  rw_concrete: {measure: GrossVolume}
+codes:
+  STRUCT-CONC-RW:
+    group: rw_concrete
+    measure: GrossVolume
+    unit: CY
+    item_number: "510060"
+    description: "Structural concrete, retaining wall"

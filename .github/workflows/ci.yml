@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - run: pip install -e '.[all,terrain]' pytest
+      - name: Standalone — the estimating layer must not be present
+        # bimforge imports nothing from estimating_tools; the suite proves it
+        # by running where that package cannot be imported at all.
+        run: |
+          python - <<'PY'
+          import importlib.util, sys
+          if importlib.util.find_spec("estimating_tools"):
+              sys.exit("estimating_tools is installed; bimforge must test standalone")
+          print("standalone ok")
+          PY
+      - run: python -m pytest bimforge -q
+      - name: Dependency vulnerability audit (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit --skip-editable
+
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # gitleaks walks the history
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Provenance scan (bid numbers, machine paths, credentials)
+        # scripts/deorg_scan.py. The maintainer adds project-specific tokens
+        # through the DEORG_EXTRA_PATTERNS repository secret so the list itself
+        # never lands in the tree.
+        env:
+          DEORG_EXTRA_PATTERNS: ${{ secrets.DEORG_EXTRA_PATTERNS }}
+        run: python scripts/deorg_scan.py
+      - name: Secret scan (gitleaks)
+        run: |
+          curl -sSL -o gitleaks.tgz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
+          echo "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  gitleaks.tgz" | sha256sum -c
+          tar xzf gitleaks.tgz gitleaks
+          ./gitleaks git --no-banner --redact --exit-code 1 .
+      - name: Wheel smoke (build, install clean, import, CLIs)
+        run: |
+          pip install build
+          python -m build --wheel --outdir dist .
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install -q "$(ls dist/bimforge-*.whl)[all]"
+          /tmp/smoke/bin/python - <<'PY'
+          import importlib
+          for m in ("bimforge", "bimforge.bim.cli", "bimforge.bim.schedule_io", "bimforge.bim.xer",
+                    "bimforge.bim.cost5d", "bimforge.cad.stylepack", "bimforge.author", "bimforge.sheets.cli"):
+              importlib.import_module(m)
+          print("wheel imports ok")
+          PY
+          /tmp/smoke/bin/est-bim --help >/dev/null
+          /tmp/smoke/bin/est-sheets --help >/dev/null
+          echo "CLIs ok"

@@ -1,0 +1,43 @@
+# Worked culvert-headwall run. --check-only writes nothing (CI fixture).
+# A headwall with a 3 ft RC pipe and Type A wingwalls, plus an endwall with
+# Type C (barrier-topped) wingwalls. Fictitious -- nothing here is a project.
+family: culvert-headwall
+params:
+  tables_file: ./caltrans-d90-headwall-tables.example.yaml
+  structures:
+    - name: HWIN                       # inlet headwall, Type A wingwalls
+      kind: headwall
+      design_h_ft: 6.0
+      length_ft: 10.0
+      skew_deg: 15.0                    # pipe crosses the wall at 15-deg skew
+      fl_elev_ft: 100.0                 # inlet flow line
+      bearing_deg: 0.0
+      position_ft: [0.0, 0.0]
+      pipe: {dia_ft: 3.0, center_ft: 5.0, material: rc}
+      wingwalls:
+        - {type: A, side: left,  base_drop_ft: 3.0, footing: swept}
+        - {type: A, side: right, base_drop_ft: 3.0, footing: swept}
+    - name: EWOUT                      # outlet endwall, Type C wingwalls
+      kind: endwall
+      design_h_ft: 6.0
+      length_ft: 10.0
+      skew_deg: 0.0                     # square outlet
+      fl_elev_ft: 96.0                  # outlet FL <= inlet FL (water runs downhill)
+      bearing_deg: 180.0               # faces the opposite way
+      position_ft: [0.0, 40.0]         # placed 40 ft downstream
+      pipe: {dia_ft: 3.0, center_ft: 5.0, material: metal}
+      wingwalls:
+        - {type: C, side: left,  base_drop_ft: 3.0, footing: stepped}
+        - {type: C, side: right, base_drop_ft: 3.0, footing: stepped}
+paycodes: ./caltrans-d90-headwall.paycodes.yaml
+outputs:
+  dxf: out/caltrans-d90-headwall.dxf
+  ifc: out/caltrans-d90-headwall.ifc
+  takeoff_map: out/caltrans-d90-headwall-takeoff-map.yaml
+  qto: out/caltrans-d90-headwall.qto.xlsx
+  bbs: out/caltrans-d90-headwall.bbs.xlsx
+project:
+  name: "Caltrans D90 Culvert Headwall (example)"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 100.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-0000000000d9"

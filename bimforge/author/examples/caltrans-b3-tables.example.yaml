@@ -1,0 +1,38 @@
+# Small CI fixture covering every supported B3 section type. NOT the production
+# catalog (that lives git-ignored in data/caltrans-2025/tables/, transcribed
+# from the B3 sheets). Values here are illustrative but schema-faithful.
+type_1_case_1:
+  stem_top_thickness_ft: 1.0
+  table:
+    8:  {W_ft: 6.0,  C_ft: 2.0,  B_ft: 4.0,  F_ft: 1.0, T_ft: 1.0, batter: "NONE"}
+    10: {W_ft: 6.75, C_ft: 2.25, B_ft: 4.5,  F_ft: 1.0, T_ft: 1.0, batter: "NONE"}
+
+type_1a_case_1:
+  stem_thickness_ft: 1.0        # 1'-0" constant vertical stem
+  footing_thickness_ft: 1.1667  # 1'-2"
+  table:
+    8:  {W_ft: 6.5, C_ft: 2.0, B_ft: 4.5}
+    12: {W_ft: 8.1667, C_ft: 2.5833, B_ft: 5.5833}
+
+type_5_case_1:
+  stem_top_thickness_ft: 0.9583  # 11-1/2"
+  footing_thickness_ft: 1.5      # 1'-6"
+  table:
+    8:  {W_ft: 7.0, batter: "0.25:12"}
+    12: {W_ft: 8.8333, batter: "0.5:12"}
+
+type_6a_case_1:
+  stem_thickness_ft: 0.6354     # 7-5/8"
+  footing_thickness_ft: 1.0     # 1'-0"
+  toe_ft: 0.6667                # 8"
+  table:
+    4.0: {W_ft: 3.5}
+    6.0: {W_ft: 4.5}
+
+type_6b_case_1:
+  stem_thickness_ft: 0.6354
+  footing_thickness_ft: 1.0
+  toe_ft: 0.6667
+  table:
+    4.0: {W_ft: 3.0}
+    6.0: {W_ft: 4.5}

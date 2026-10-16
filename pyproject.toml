@@ -1,0 +1,54 @@
+[build-system]
+# >=77 for PEP 639 `license` / `license-files` (the Apache-2.0 text ships in the wheel)
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bimforge"
+version = "0.1.87"
+description = "Standalone CAD/BIM toolkit: DXF -> IFC -> takeoff pipeline, sheet production, org-neutral CAD engine."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.10"
+# IFC is core to this toolkit (DXF -> IFC -> takeoff), so the IFC stack ships as
+# a hard dependency, not an optional extra -- a bare install must be able to
+# read/write IFC. pymupdf (PDF plan-sheet calibration) stays optional in `bim`.
+dependencies = ["pyyaml", "ezdxf", "ifcopenshell>=0.9,<0.10", "shapely",
+                "pyproj", "numpy"]
+
+[project.urls]
+Homepage = "https://github.com/BrandonLewis/BIMForge"
+Source = "https://github.com/BrandonLewis/BIMForge"
+Changelog = "https://github.com/BrandonLewis/BIMForge/blob/main/CHANGELOG.md"
+Security = "https://github.com/BrandonLewis/BIMForge/security/policy"
+
+[project.optional-dependencies]
+bim = ["pymupdf"]                     # PDF plan sheets; the rest of the BIM stack is core now
+draw = ["matplotlib"]
+solids = ["build123d"]
+xlsx = ["openpyxl"]                   # bar bending schedules + quantity workbooks (emit_bbs)
+terrain = ["pillow", "scipy", "laspy[lazrs]", "trimesh", "manifold3d", "networkx"]
+all = ["pymupdf", "matplotlib", "build123d", "openpyxl"]
+
+[project.scripts]
+est-bim = "bimforge.bim.cli:main"
+est-sheets = "bimforge.sheets.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bimforge*"]
+# Tests are developer material, not shipped surface — the same exclusion
+# estimating-tools carries. 125 test members were reaching every customer.
+exclude = [
+    "bimforge.tests",
+    "bimforge.tests.*",
+    "bimforge.*.tests",
+    "bimforge.*.tests.*",
+]
+
+[tool.setuptools.package-data]
+"bimforge.bim" = ["examples/*"]
+"bimforge.bim.plansheet" = ["*.yaml"]
+"bimforge.cad" = ["templates/*.dxf"]
+"bimforge.author" = ["examples/*"]
