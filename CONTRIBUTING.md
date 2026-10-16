@@ -53,8 +53,10 @@ bundled wheel, development moves here outright.
 ## Releasing
 
 1. Bump `version` in `pyproject.toml` and add the changelog entry.
-2. Tag `vX.Y.Z` (the release workflow refuses a tag that does not equal the
-   committed version), push the tag.
+2. Either push the tag `vX.Y.Z` (the workflow refuses a tag that does not
+   equal the committed version), or run **Release** from the Actions tab
+   (`workflow_dispatch`) on the branch to release: the run tags that commit
+   itself and refuses a version that is already tagged.
 3. `release.yml` tests, builds the sdist and wheel, publishes to PyPI through
    **trusted publishing** (configured on PyPI for this repository, workflow
    `release.yml`, environment `pypi` — no API token is stored), and creates
