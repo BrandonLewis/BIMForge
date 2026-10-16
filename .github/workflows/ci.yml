@@ -26,7 +26,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: pyproject.toml
-      - run: pip install -e '.[all,terrain]' pytest
+      - name: Install
+        # upgrade the runner's preinstalled pip/setuptools first: pip-audit below
+        # audits the whole environment, and a stale tool-cache setuptools is not
+        # a bimforge dependency
+        run: |
+          python -m pip install -U pip setuptools wheel
+          pip install -e '.[all,terrain]' pytest
       - name: Standalone — the estimating layer must not be present
         # bimforge imports nothing from estimating_tools; the suite proves it
         # by running where that package cannot be imported at all.
