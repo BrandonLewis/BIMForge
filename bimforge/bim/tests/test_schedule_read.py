@@ -216,7 +216,7 @@ def _pre_335(ifc_path):
     path, _ = _embed(ifc_path, sched, "old.4d.ifc")
     m = ifcopenshell.open(path)
     for rel in list(m.by_type("IfcRelDefinesByProperties")):
-        if rel.RelatingPropertyDefinition.Name == "Pset_BimforgeTask":
+        if rel.RelatingPropertyDefinition.Name == "Bimforge_Task":
             m.remove(rel.RelatingPropertyDefinition)
             m.remove(rel)
     return m

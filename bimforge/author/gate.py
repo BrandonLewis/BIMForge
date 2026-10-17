@@ -450,6 +450,63 @@ def _ifc_exact_sweep_check(model, ifc_path: str,
     return fail
 
 
+#: how far an engine's drawing of an exact revolution may stray from the
+#: model's, feet (0.1 mm): its vertices are the profile's corners, turned
+EXACT_REVOLUTION_TOL_FT = 0.0001 / 0.3048
+
+
+def _ifc_exact_revolution_check(model, ifc_path: str) -> list[str]:
+    """Every IfcRevolvedAreaSolid is drawn where its model revolution is (#331).
+
+    The volume check cannot see a turn the wrong way, about the wrong side of
+    the axis or from a shifted profile: each has the same volume. So each
+    item is paired, in order, with the revolutions the element's solids
+    carry (primitives.exact_of), tessellated by ifcopenshell, and every
+    drawn vertex must be a profile point turned by an angle inside the
+    model's sweep, with the profile drawn at both ends.
+    """
+    import ifcopenshell
+    import ifcopenshell.geom
+    import numpy as np
+    from bimforge.author.emit_ifc import body_dicts
+    from bimforge.author.primitives import _on_revolution, exact_of
+    f = ifcopenshell.open(str(ifc_path))
+    st = ifcopenshell.geom.settings()
+    k = model.ctx.ft_to_m
+    by_name = {p.Name: p for p in f.by_type("IfcProduct") if p.Representation
+               and any(it.is_a("IfcRevolvedAreaSolid")
+                       for r in p.Representation.Representations
+                       for it in r.Items)}
+    fail = []
+    for el in model.elements:
+        prod = by_name.get(el.name)
+        if prod is None:
+            continue
+        drawn = [it for r in prod.Representation.Representations
+                 if r.RepresentationIdentifier == "Body" for it in r.Items
+                 if it.is_a("IfcRevolvedAreaSolid")]
+        revs = [ex for dicts in body_dicts(el) for d in dicts
+                if (ex := exact_of(d)) and ex["kind"] == "revolution"]
+        if len(revs) != len(drawn):
+            fail.append(f"{el.name}: {len(drawn)} revolved solids in the IFC, "
+                        f"{len(revs)} in the model")
+            continue
+        # the model's revolutions are element-local (solids_for writes them
+        # relative to the element's placement), so the drawn solid is held
+        # to them in that frame, not moved by the product's placement
+        matrix = np.eye(4)
+        with _quiet_stdout():
+            for i, (ex, item) in enumerate(zip(revs, drawn)):
+                verts, _tris = _tessellate_item(st, item, matrix, k)
+                if not _on_revolution(verts, ex, EXACT_REVOLUTION_TOL_FT):
+                    tag = el.name if len(revs) == 1 else f"{el.name} solid {i + 1}"
+                    fail.append(f"{tag}: the IFC revolved solid is not drawn "
+                                f"where the model's revolution is (turned the "
+                                f"other way, about another axis, or from "
+                                f"another profile)")
+    return fail
+
+
 def _ifc_representation_type_check(model, ifc_path: str) -> list[str]:
     """Every shape representation's items are ones its RepresentationType admits.
 
@@ -684,6 +741,8 @@ def run_post(model, outputs: dict, paycodes=None,
                        outputs["ifc"])
         _run_contained(rep, _ifc_exact_sweep_check, model, outputs["ifc"],
                        mesh_tol)
+        _run_contained(rep, _ifc_exact_revolution_check, model,
+                       outputs["ifc"])
     if outputs.get("takeoff_map"):
         _run_contained(rep, _map_coverage_check, model, outputs["takeoff_map"])
     if outputs.get("dxf"):

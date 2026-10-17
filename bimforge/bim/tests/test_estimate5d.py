@@ -339,3 +339,55 @@ def test_coexists_with_cost5d_budget_schedule():
     assert len(model.by_type("IfcCostItem")) == budget_items + 2
     assert {cs.PredefinedType for cs in model.by_type("IfcCostSchedule")} \
         == {"BUDGET", "ESTIMATE"}
+
+
+# ----------------------------------------------------------------------------
+# Units per dimension (the shared _unit_scales / quantity_scale): the rate
+# per RAW unit must use the declared volume unit, or the quantity's own.
+# ----------------------------------------------------------------------------
+import ifcopenshell.api.unit as _unit  # noqa: E402
+
+CONC_MAP = {"project_ref": "B9", "codes": {
+    "51": {"measure": "NetVolume", "unit": "CY", "item_number": "10"}}}
+CONC_COSTS = {"51": {"cost": 1000.0, "labor_hours": None,
+                     "unit_price": 100.0, "unit": "CY"}}
+
+
+def _conc_ifc(volume, own_unit=None):
+    f = ifcopenshell.file(schema="IFC4")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    _unit.assign_unit(f)                       # mm length, m2, m3
+    ftg = ifcopenshell.api.root.create_entity(f, ifc_class="IfcFooting",
+                                              name="F-1")
+    qto = ifcopenshell.api.pset.add_qto(f, product=ftg,
+                                        name="Qto_FootingBaseQuantities")
+    ifcopenshell.api.pset.edit_qto(f, qto=qto,
+                                   properties={"NetVolume": volume})
+    if own_unit:
+        u = _unit.add_conversion_based_unit(f, name=own_unit[0])
+        u.ConversionFactor.ValueComponent = f.create_entity(
+            u.ConversionFactor.ValueComponent.is_a(), own_unit[1])
+        qto.Quantities[0].Unit = u
+    system = ifcopenshell.api.classification.add_classification(
+        f, classification="BidSchedule")
+    ifcopenshell.api.classification.add_reference(
+        f, products=[ftg], identification="51", name="Concrete",
+        classification=system)
+    return f
+
+
+def test_rate_uses_the_declared_volume_unit_not_length_cubed():
+    model = _conc_ifc(10.0)                    # 10 m3 = 13.0795 CY
+    report = estimate5d.embed_estimate(model, CONC_MAP, CONC_COSTS)
+    assert report.extended_total == pytest.approx(1307.95, abs=0.01)
+    (cs,) = model.by_type("IfcCostSchedule")
+    (parent,) = [ci for rel in cs.Controls for ci in rel.RelatedObjects]
+    (child,) = _children(parent)
+    applied = child.CostValues[0].AppliedValue.wrappedValue
+    assert applied * 10.0 == pytest.approx(1307.95, abs=0.01)
+
+
+def test_rate_honours_a_quantity_s_own_unit():
+    model = _conc_ifc(27.0, own_unit=("cubic foot", 0.3048 ** 3))
+    report = estimate5d.embed_estimate(model, CONC_MAP, CONC_COSTS)
+    assert report.extended_total == pytest.approx(100.0, abs=1e-6)

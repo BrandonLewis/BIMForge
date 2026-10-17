@@ -16,7 +16,11 @@ declared-unit values (the reader-side scaling of issue #109 never rewrites
 the file), so each child's AppliedValue is the bid unit rate converted to
 per-one-raw-quantity-unit:
 
-    AppliedValue = unit_price x CONVERT[dim][pay_unit] x _unit_scales(model)[dim]
+    AppliedValue = unit_price x CONVERT[dim][pay_unit] x scale
+
+where `scale` takes that raw quantity to SI: its own `Unit` when the
+quantity names one, else the project's declared unit for the dimension
+(`ifc_takeoff.quantity_scale` / `_unit_scales`).
 
 No UnitBasis is authored (uneven consumer support); this line is the basis.
 
@@ -34,7 +38,7 @@ import ifcopenshell.api.cost as cost
 from bimforge.bim.cost5d import _classification, _code_reference
 from bimforge.bim.ifc_takeoff import (
     DEFAULT_UNIT, MEASURE_DIM, classifications_of, convert, normalize_map,
-    quantities_of, _unit_scales)
+    quantities_of, quantity_entities, quantity_scale, _unit_scales)
 
 
 @dataclass
@@ -194,12 +198,17 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
                     report.elements_missing_measure.append(
                         (el.Name or el.is_a(), code, measure))
                     continue
-                eligible.append((el, qtys[measure]))
+                # the raw value's own scale: its quantity's Unit when it
+                # names one, else the project unit of the dimension
+                q_ent = quantity_entities(el).get(measure)
+                eligible.append((el, qtys[measure],
+                                 quantity_scale(q_ent, scales, dim)))
             if not eligible:
                 report.codes_without_elements.append(code)
                 continue
-            # convert() validates pay_unit against the measure's dimension
-            rate = convert(price, dim, pay_unit) * scales[dim]
+            # convert() validates pay_unit against the measure's dimension;
+            # the rate per raw unit is then per child (its quantity's scale)
+            per_si = convert(price, dim, pay_unit)
             desc = entry.get("description") or ""
             if not desc:
                 for c in classifications_of(eligible[0][0]):
@@ -211,7 +220,8 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
                 "Name": desc or code, "Identification": code})
             children = 0
             entry_extended = 0.0
-            for el, raw_qty in eligible:
+            for el, raw_qty, q_scale in eligible:
+                rate = per_si * q_scale
                 child = cost.add_cost_item(model, cost_item=parent)
                 cost.edit_cost_item(model, child, attributes={
                     "Name": el.Name or f"{el.is_a()}-{el.GlobalId[:6]}"})

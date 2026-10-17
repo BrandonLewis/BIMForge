@@ -59,7 +59,9 @@ def element_start_dates(model) -> dict[int, str]:
 # sequence API this one deliberately avoids)
 _SEQ_DEP = {"FINISH_START": "FS", "START_START": "SS",
             "FINISH_FINISH": "FF", "START_FINISH": "SF"}
-_TASK_PSET = "Pset_BimforgeTask"
+# The current names, then the "Pset_"-prefixed ones models written by 0.1.88
+# or earlier carry ("Pset_" is reserved for buildingSMART's standard sets).
+_TASK_PSETS = ("Bimforge_Task", "Pset_BimforgeTask")
 _BID_ITEM_CLASSIFICATION = "Owner bid items"
 _CALENDAR_SEP = ": "
 _BLACKOUT_PREFIX = "blackout "
@@ -87,7 +89,16 @@ def _days(value, hours_per_day: float = 8.0) -> float | None:
             + (g["h"] + g["m"] / 60 + g["s"] / 3600) / hours_per_day)
 
 
-def _pset(obj, name: str) -> dict | None:
+def _pset(obj, *names: str) -> dict | None:
+    """The first of `names` the object carries, as {property: value}."""
+    for name in names:
+        got = _one_pset(obj, name)
+        if got is not None:
+            return got
+    return None
+
+
+def _one_pset(obj, name: str) -> dict | None:
     for rel in getattr(obj, "IsDefinedBy", None) or []:
         if not rel.is_a("IfcRelDefinesByProperties"):
             continue
@@ -103,7 +114,7 @@ def _pset(obj, name: str) -> dict | None:
 def task_id(task) -> str:
     """The canonical id of an IfcTask: what read_schedule and task_elements
     key on. The embed's TaskId property, else Identification, else Name."""
-    ps = _pset(task, _TASK_PSET) or {}
+    ps = _pset(task, *_TASK_PSETS) or {}
     return str(ps.get("TaskId") or task.Identification or task.Name
                or task.GlobalId)
 
@@ -170,7 +181,7 @@ def _wbs_map(pairs) -> dict[int, str]:
         head = positional.get(pkey) if pkey is not None else None
         positional[task.id()] = (f"{head}.{count[pkey]}" if head
                                  else str(count[pkey]))
-        if _pset(task, _TASK_PSET) is None:
+        if _pset(task, *_TASK_PSETS) is None:
             ident = task.Identification or ""
             want_head = parent.Identification if parent is not None else None
             got_head = ident.rsplit(".", 1)[0] if "." in ident else None
@@ -178,7 +189,7 @@ def _wbs_map(pairs) -> dict[int, str]:
                 as_is = False
     out = {}
     for task, _ in pairs:
-        ps = _pset(task, _TASK_PSET)
+        ps = _pset(task, *_TASK_PSETS)
         if ps is not None:
             out[task.id()] = str(ps.get("Wbs") or "")
         else:
@@ -296,7 +307,7 @@ def read_schedule(model, name: str | None = None):
     """Read an IfcWorkSchedule back into a CanonicalSchedule (issue #335).
 
     Picks the schedule named `name`, or the only one in the file. Task ids
-    and WBS come from the embed's Pset_BimforgeTask, or else from
+    and WBS come from the embed's Bimforge_Task (or 0.1.88-and-earlier Pset_BimforgeTask), or else from
     Identification and the nesting tree; dates, duration, milestone, type,
     notes, calendar, owner bid items and GlobalId from the IfcTask;
     dependencies from IfcRelSequence (a predecessor outside the schedule
@@ -467,7 +478,10 @@ def schedule_links(model, schedule) -> dict[str, list[dict]]:
 # read_costs — the inverse of cost5d.embed_cost_and_resources (#335 §7)
 # ---------------------------------------------------------------------------
 
-_COST_ITEM_PSET = "Pset_BimforgeCostItem"      # kept in step with cost5d
+_COST_ITEM_PSETS = ("Bimforge_CostItem",         # kept in step with cost5d
+                    "Pset_BimforgeCostItem")
+# estimate_model5d's per-activity set (its first cut named it with Pset_)
+_ACTIVITY_PSETS = ("BidSheet_Activity", "Pset_BidSheetActivity")
 
 
 def _number(value) -> float | None:
@@ -488,6 +502,28 @@ def _crew_hours(crew) -> float | None:
     return _number(getattr(bq, "TimeValue", None)) if bq is not None else None
 
 
+def _leaf_cost_items(cs) -> list:
+    """A cost schedule's priced cost items, in file order: its top-level
+    items, with a parent that nests cost items replaced by its leaves.
+    cost5d writes a flat list; estimate_model5d nests a valueless parent
+    per bid item over its children, whose sum the parent is."""
+    out = []
+
+    def walk(ci):
+        kids = [o for rel in getattr(ci, "IsNestedBy", None) or []
+                for o in rel.RelatedObjects or [] if o.is_a("IfcCostItem")]
+        if not kids:
+            out.append(ci)
+        for kid in kids:
+            walk(kid)
+
+    for rel in cs.Controls or []:
+        for o in rel.RelatedObjects or []:
+            if o.is_a("IfcCostItem"):
+                walk(o)
+    return out
+
+
 def read_costs(model, name: str | None = None) -> dict:
     """Read 5D back out of an IFC (issue #335 §7).
 
@@ -498,15 +534,23 @@ def read_costs(model, name: str | None = None) -> dict:
         {"schedule": name,
          "costs": {code: {"cost", "labor_hours"}},      # load_schedule_costs
          "tasks": {task_id: {"costs": {code: {"cost", "labor_hours"}},
-                             "cost": total, "labor_hours": crew hours}},
+                             "cost": total, "labor_hours": task hours}},
          "warnings": [...]}
+
+    A task's `labor_hours` is its BidSheet_Activity Manhours when the
+    task carries one (estimate_model5d, whose crews are shared across
+    tasks), else the hours of its own crews (cost5d).
 
     Task ids are `task_id`'s, the ones read_schedule returns, so a consumer
     can start from a 5D model. `costs` sums the per-task records — the shape
     `load_schedule_costs` and `est-bim cost5d --costs` accept. A code whose
     hours are unknown everywhere has `labor_hours: null`.
 
-    Per-code hours come from each cost item's Pset_BimforgeCostItem. A model
+    A parent cost item that nests others is read through its leaves
+    (`estimate_model5d` nests share items under each bid item), so an
+    item's children are never counted twice.
+
+    Per-code hours come from each cost item's Bimforge_CostItem (0.1.88 and earlier: Pset_BimforgeCostItem). A model
     embedded before #335 has only the per-task crew: a single-code task's
     hours go to its code, and a multi-code task's are split by cost, with a
     warning, since the embed did not keep the split.
@@ -530,15 +574,13 @@ def read_costs(model, name: str | None = None) -> dict:
         return tasks.setdefault(tid, {"costs": {}, "cost": 0.0,
                                       "labor_hours": None})
 
-    items = [o for rel in css[0].Controls or [] for o in rel.RelatedObjects
-             if o.is_a("IfcCostItem")]
-    for ci in items:
+    for ci in _leaf_cost_items(css[0]):
         code = ci.Identification or ci.Name or ci.GlobalId
         value = sum(_number(cv.AppliedValue) or 0.0
                     for cv in ci.CostValues or [])
         linked = [o for rel in getattr(ci, "Controls", None) or []
                   for o in rel.RelatedObjects or [] if o.is_a("IfcTask")]
-        ps = _pset(ci, _COST_ITEM_PSET)
+        ps = _pset(ci, *_COST_ITEM_PSETS)
         if not linked:
             warnings.append(f"cost item {code!r} (${value:,.2f}) is linked "
                             f"to no task — left out")
@@ -562,6 +604,14 @@ def read_costs(model, name: str | None = None) -> dict:
 
     crew_prefix = f"{sname}: "
     for task, _ in _schedule_tasks(ws):
+        # estimate_model5d: the task's own total, since its crew is shared
+        # by several tasks and carries no hours of its own. Older exports
+        # (cost5d, one crew per task) fall through to the crew's hours.
+        act = _pset(task, *_ACTIVITY_PSETS) or {}
+        manhours = _number(act.get("Manhours"))
+        if manhours is not None:
+            entry(task_id(task))["labor_hours"] = manhours
+            continue
         for rel in getattr(task, "HasAssignments", None) or []:
             crew = rel.RelatingResource if rel.is_a(
                 "IfcRelAssignsToResource") else None

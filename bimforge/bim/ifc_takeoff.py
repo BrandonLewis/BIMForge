@@ -178,17 +178,21 @@ def classification_of(element) -> Optional[dict]:
     return got[0] if got else None
 
 
+def _declared(model, unit_type: str) -> bool:
+    """Whether the project's unit assignment declares `unit_type`."""
+    projects = model.by_type("IfcProject")
+    units = projects[0].UnitsInContext if projects else None
+    return any(getattr(u, "UnitType", None) == unit_type
+               for u in (units.Units if units else []))
+
+
 def _mass_scale(model) -> float:
     """Native mass -> KILOGRAMS. IFC's SI mass unit is the GRAM (kg is the
     KILO prefix), so ifcopenshell's prefix-based scale is gram-based and
     returns 1 for both "GRAM declared" and "no MASSUNIT at all" — the two
     need opposite handling (grams: ÷1000; undeclared: assume kg). Detect
     the declaration ourselves (issue #108's grams caveat)."""
-    projects = model.by_type("IfcProject")
-    units = projects[0].UnitsInContext if projects else None
-    declared = any(getattr(u, "UnitType", None) == "MASSUNIT"
-                   for u in (units.Units if units else []))
-    if not declared:
+    if not _declared(model, "MASSUNIT"):
         return 1.0
     return unit_util.calculate_unit_scale(model, "MASSUNIT") / 1000.0
 
@@ -197,29 +201,90 @@ def _unit_scales(model) -> dict[str, float]:
     """Per-dimension multipliers taking the file's NATIVE Qto values to SI
     base (m / m² / m³ / kg). Foreign files commonly declare millimetre
     lengths and gram masses (issue #109) — raw values must never be assumed
-    SI. Missing declarations scale by 1."""
+    SI.
+
+    Each dimension reads its OWN declared unit: AREAUNIT and VOLUMEUNIT
+    are independent of LENGTHUNIT (ifcopenshell's default assignment, like
+    a Revit metric export, is mm / m² / m³ — cubing the millimetre would
+    read 10 m³ as 1e-8). Only an undeclared area or volume unit falls back
+    to the length unit squared or cubed; a missing length unit scales by 1.
+    A quantity's own `Unit` overrides all of these (`quantity_scale`).
+    """
     s = unit_util.calculate_unit_scale(model)                  # LENGTHUNIT
-    return {"length": s, "area": s * s, "volume": s ** 3,
+    area = (unit_util.calculate_unit_scale(model, "AREAUNIT")
+            if _declared(model, "AREAUNIT") else s * s)
+    volume = (unit_util.calculate_unit_scale(model, "VOLUMEUNIT")
+              if _declared(model, "VOLUMEUNIT") else s ** 3)
+    return {"length": s, "area": area, "volume": volume,
             "mass": _mass_scale(model), "count": 1.0}
+
+
+# IfcPhysicalSimpleQuantity subtype -> physical dimension
+QUANTITY_DIM = {"IfcQuantityLength": "length", "IfcQuantityArea": "area",
+                "IfcQuantityVolume": "volume", "IfcQuantityWeight": "mass",
+                "IfcQuantityCount": "count"}
+
+
+def quantity_scale(quantity, scales: dict, dim: str | None) -> float:
+    """The multiplier taking one quantity entity's raw value to SI base.
+
+    A quantity that names its own `Unit` is measured in that unit,
+    whatever the project declares; otherwise the project scale for `dim`
+    applies (1 for an unknown dimension). Mass is in kilograms, as
+    `_mass_scale` (IFC's SI mass unit is the gram)."""
+    unit = getattr(quantity, "Unit", None)
+    if unit is None:
+        return scales.get(dim, 1.0)
+    scale = unit_util.get_unit_scale(unit)
+    return scale / 1000.0 if dim == "mass" else scale
+
+
+def quantity_sets(element) -> list:
+    """The element's IfcElementQuantity sets: its type's first, then its
+    own (which win on a repeated name, as `util.element.get_psets` merges
+    them)."""
+    sets = []
+    el_type = ue.get_type(element)
+    if el_type is not None:
+        sets += [p for p in (getattr(el_type, "HasPropertySets", None) or [])
+                 if p.is_a("IfcElementQuantity")]
+    for rel in getattr(element, "IsDefinedBy", None) or []:
+        if rel.is_a("IfcRelDefinesByProperties") and                 rel.RelatingPropertyDefinition.is_a("IfcElementQuantity"):
+            sets.append(rel.RelatingPropertyDefinition)
+    return sets
+
+
+def quantity_entities(element) -> dict:
+    """{quantity name: IfcPhysicalSimpleQuantity} across all Qto sets,
+    later sets winning (the flattening `quantities_of` returns)."""
+    out = {}
+    for qto in quantity_sets(element):
+        for q in qto.Quantities or []:
+            if q.is_a("IfcPhysicalSimpleQuantity"):
+                out[q.Name] = q
+    return out
 
 
 def quantities_of(element, scales: dict | None = None) -> dict[str, float]:
     """Flatten all Qto sets into {quantity_name: value}.
 
     Pass the model's `_unit_scales()` dict as `scales` to get SI base
-    values: quantity names with a known dimension (MEASURE_DIM) are scaled
-    from the file's declared units, unknown names pass through raw (they
-    are unmappable anyway). With `scales=None` (the default) values come
-    back NATIVE/unscaled — only for callers that guarantee an SI-authored
-    file."""
+    values: each quantity is scaled by its own `Unit` when it names one,
+    else by the project unit of its dimension (MEASURE_DIM by name, else
+    the quantity entity's class); a quantity of unknown dimension passes
+    through raw. With `scales=None` (the default) values come back
+    NATIVE/unscaled — for callers (estimate5d) that convert per quantity
+    with `quantity_scale` themselves."""
     flat: dict[str, float] = {}
-    for qset in ue.get_psets(element, qtos_only=True).values():
-        for k, v in qset.items():
-            if k == "id":
-                continue
-            if isinstance(v, (int, float)):
-                factor = (scales or {}).get(MEASURE_DIM.get(k), 1.0)
-                flat[k] = float(v) * factor
+    for name, q in quantity_entities(element).items():
+        v = q[3]                       # the simple quantity's value slot
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        if scales is None:
+            flat[name] = float(v)
+            continue
+        dim = MEASURE_DIM.get(name) or QUANTITY_DIM.get(q.is_a())
+        flat[name] = float(v) * quantity_scale(q, scales, dim)
     return flat
 
 

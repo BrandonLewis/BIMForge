@@ -352,6 +352,52 @@ def _parametric_solid(f, d, k):
         Depth=float(depth * k))
 
 
+def _ensure_radians(f) -> None:
+    """Declare a radian PLANEANGLEUNIT on the project's unit assignment, once.
+
+    Only a file that writes a plane angle needs one, and a file that does
+    and declares none leaves its reader to guess; adding it only then keeps
+    every other file byte-identical (test_ifc4_golden)."""
+    for ua in f.by_type("IfcUnitAssignment"):
+        if any(getattr(u, "UnitType", None) == "PLANEANGLEUNIT"
+               for u in ua.Units):
+            continue
+        ua.Units = list(ua.Units) + [f.create_entity(
+            "IfcSIUnit", UnitType="PLANEANGLEUNIT", Name="RADIAN")]
+
+
+def _revolved_solid(f, d, k):
+    """The exact IfcRevolvedAreaSolid a "revolution" dict names (#331).
+
+    The profile plane becomes the Position as for an extrusion (RefDirection
+    x, Axis x × y), and the turning axis — a line in that plane — is
+    re-expressed in the Position's own frame, which is what IFC measures it
+    in. The angle is radians, and the file says so (_ensure_radians).
+    """
+    _ensure_radians(f)
+    pl, ax = d["plane"], d["axis"]
+    x, y = pl["x"], pl["y"]
+    z = _cross(x, y)
+    o = pl["o"]
+    prof = _profile(f, [(u * k, v * k) for u, v in d["profile"]],
+                    [[(u * k, v * k) for u, v in h]
+                     for h in d.get("voids") or ()])
+    rel = tuple(a - b for a, b in zip(ax["o"], o))
+    loc = (_dot(rel, x) * k, _dot(rel, y) * k)
+    a = ax["dir"]
+    return f.create_entity(
+        "IfcRevolvedAreaSolid", SweptArea=prof,
+        Position=_place3(f, o[0] * k, o[1] * k, o[2] * k, axis=z, ref=x),
+        Axis=f.create_entity(
+            "IfcAxis1Placement",
+            Location=f.create_entity("IfcCartesianPoint",
+                                     Coordinates=(float(loc[0]),
+                                                  float(loc[1]), 0.0)),
+            Axis=f.create_entity("IfcDirection", DirectionRatios=(
+                float(_dot(a, x)), float(_dot(a, y)), 0.0))),
+        Angle=float(d["angle"]))
+
+
 def _sectioned_solid(f, d, k, curve):
     """One IfcSectionedSolidHorizontal along the alignment's IfcCurve (#332).
 
@@ -568,6 +614,8 @@ def solids_for(f, el, ft_to_m: float, curves=None):
                          if ex and ex["kind"] == "sectioned" else None)
                 if ex and ex["kind"] == "extrusion":
                     out.append(_parametric_solid(f, ex, k))
+                elif ex and ex["kind"] == "revolution":
+                    out.append(_revolved_solid(f, ex, k))
                 elif (curve is not None
                       and not any((el.x_ft, el.y_ft, el.z_ft,
                                    el.bearing_deg))):

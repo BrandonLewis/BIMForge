@@ -60,15 +60,18 @@ def _qto_ifc(path):
     f = ifcopenshell.file(schema="IFC4")
     project = ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject",
                                                   name="p")
-    ifcopenshell.api.unit.assign_unit(f)   # ifcopenshell default: MILLIMETRES
+    # ifcopenshell default: MILLIMETRE length, but SQUARE_METRE area and
+    # CUBIC_METRE volume — the shape of a Revit metric export
+    ifcopenshell.api.unit.assign_unit(f)
     slab = ifcopenshell.api.root.create_entity(f, ifc_class="IfcSlab",
                                                name="Deck-1")
     qto = ifcopenshell.api.pset.add_qto(f, product=slab,
                                         name="Qto_SlabBaseQuantities")
-    # native mm² — 44.59 m²; the reader must scale by the declared unit
-    # (issue #109), never assume SI
+    # 44.59 in the declared AREAUNIT (m²); the millimetre length unit must
+    # not be squared onto it (issue #109: scale by the DECLARED unit of
+    # each dimension, never assume SI, never derive area from length)
     ifcopenshell.api.pset.edit_qto(f, qto=qto,
-                                   properties={"GrossArea": 44_590_000.0})
+                                   properties={"GrossArea": 44.59})
     f.write(str(path))
     return path
 
@@ -264,3 +267,68 @@ def test_unknown_singular_measure_is_a_loud_error(tmp_path):
     tmap = {"codes": {"PILE-200W-FRN": {"measure": "Bogus", "unit": "LF"}}}
     with pytest.raises(ValueError, match=r"unknown measure 'Bogus'"):
         build_takeoff(str(path), tmap)
+
+
+# ----------------------------------------------------------------------------
+# Units per dimension: AREAUNIT / VOLUMEUNIT are read on their own, and a
+# quantity's own Unit wins — never area = length², volume = length³.
+# ----------------------------------------------------------------------------
+import ifcopenshell.api.unit  # noqa: E402
+
+VOLUME_MAP = {"codes": {"51": {"measure": "NetVolume", "unit": "CY",
+                               "item_number": "10"}}}
+
+
+def _footing_file(units=None, volume=10.0):
+    f = ifcopenshell.file(schema="IFC4")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    if units is None:
+        ifcopenshell.api.unit.assign_unit(f)          # mm, m2, m3
+    else:
+        ifcopenshell.api.unit.assign_unit(f, units=units(f))
+    ftg = ifcopenshell.api.root.create_entity(f, ifc_class="IfcFooting",
+                                              name="F-1")
+    qto = ifcopenshell.api.pset.add_qto(f, product=ftg,
+                                        name="Qto_FootingBaseQuantities")
+    ifcopenshell.api.pset.edit_qto(f, qto=qto,
+                                   properties={"NetVolume": volume})
+    system = ifcopenshell.api.classification.add_classification(
+        f, classification="BidSchedule")
+    ifcopenshell.api.classification.add_reference(
+        f, products=[ftg], identification="51", name="Concrete",
+        classification=system)
+    return f, ftg
+
+
+def _exact_unit(f, name, factor):
+    u = ifcopenshell.api.unit.add_conversion_based_unit(f, name=name)
+    u.ConversionFactor.ValueComponent = f.create_entity(
+        u.ConversionFactor.ValueComponent.is_a(), factor)
+    return u
+
+
+def _takeoff_qty(f):
+    from bimforge.bim.ifc_takeoff import _build_takeoff
+    takeoff, _ = _build_takeoff(f, VOLUME_MAP)
+    (row,) = takeoff["rows"]
+    return row["quantity"]
+
+
+def test_takeoff_reads_volume_in_the_declared_volume_unit():
+    f, _ = _footing_file()                 # mm length, but m3 volume
+    assert _takeoff_qty(f) == pytest.approx(13.0795, abs=1e-4)
+
+
+def test_takeoff_feet_with_cubic_yards():
+    f, _ = _footing_file(lambda f: [
+        _exact_unit(f, "foot", 0.3048),
+        _exact_unit(f, "cubic yard", 0.764554857984)], volume=1.0)
+    assert _takeoff_qty(f) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_takeoff_honours_a_quantity_s_own_unit():
+    f, ftg = _footing_file(volume=27.0)    # project volume unit: m3
+    (q,) = [q for rel in ftg.IsDefinedBy
+            for q in rel.RelatingPropertyDefinition.Quantities]
+    q.Unit = _exact_unit(f, "cubic foot", 0.3048 ** 3)
+    assert _takeoff_qty(f) == pytest.approx(1.0, abs=1e-6)

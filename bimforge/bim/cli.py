@@ -8,6 +8,8 @@
   est-bim takeoff --ifc model.ifc [--map takeoff_map.yaml] [--out takeoff.json] [--csv takeoff.csv]
   est-bim schedule-read --ifc model.4d.ifc [--schedule NAME] --out schedule.json [--takeoff-map map.yaml --takeoff-out takeoff.json] [--costs-out costs.json]
   est-bim sfca    model.ifc [--flat 0.85] [--split-el EL] [--skip-class IfcPipeSegment,...]
+  est-bim model-elements model.ifc [--items items.json] [--estimate-id N] [--complete] [--structure-id ID] [--structure-ids ids.json] [--form-area Qto_Set.Name] [--schedule LABEL] [--all-elements] [--out upsert.json]
+  est-bim estimate-model model.ifc estimate_model.json out.ifc [--schedule-name NAME] [--placeholders]
   est-bim kml     model.ifc [--out model.kml]
   est-bim kmz     model.ifc [--out model.kmz] [--geoid-shift-m M] [--omit RE] [--massing] [--collada | --gltf]
   est-bim build   spec.yaml [--check-only]
@@ -489,6 +491,87 @@ def _run_estimate5d(args) -> int:
     for el, code, measure in report.elements_missing_measure:
         print(f"  ! element '{el}' (code {code}) lacks {measure} — skipped",
               file=sys.stderr)
+    return 0
+
+
+def _run_model_elements(args) -> int:
+    """IFC elements -> the BidSheet.ai upsert_modelled_elements payload."""
+    from pathlib import Path
+
+    import ifcopenshell
+
+    from bimforge.bim.model_elements import plan_modelled_elements
+
+    try:
+        items = (json.loads(Path(args.items).read_text(encoding="utf-8"))
+                 if args.items else None)
+        structure_ids = (json.loads(Path(args.structure_ids).read_text(
+            encoding="utf-8")) if args.structure_ids else None)
+        if structure_ids is not None and not isinstance(structure_ids, dict):
+            raise ValueError("--structure-ids must be a JSON object "
+                             "{code: structure id}")
+        plan = plan_modelled_elements(
+            args.ifc, items, structure_id=args.structure_id,
+            structure_ids=structure_ids, form_area=args.form_area,
+            all_elements=args.all_elements, schedule=args.schedule)
+    except (OSError, ValueError, KeyError, ifcopenshell.Error) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    payload = {}
+    if args.estimate_id is not None:
+        payload["estimate_id"] = args.estimate_id
+    payload["complete"] = bool(args.complete)
+    payload.update(plan)
+    text = json.dumps(payload, indent=2)
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(text + "\n")
+    else:
+        print(text)
+    print(f"{len(plan['elements'])} element(s) planned, "
+          f"{len(plan['skipped'])} skipped, "
+          f"{len(plan['without_quantities'])} with no quantities"
+          + (f"; written to {args.out}" if args.out else ""), file=sys.stderr)
+    for s_ in plan["skipped"]:
+        print(f"  - skipped {s_['name']} ({s_['ifc_class']}): {s_['reason']}",
+              file=sys.stderr)
+    for w in plan["warnings"]:
+        print(f"  ! {w}", file=sys.stderr)
+    return 0
+
+
+def _run_estimate_model(args) -> int:
+    """Embed a get_estimate_model document into an IFC."""
+    from pathlib import Path
+
+    import ifcopenshell
+
+    from bimforge.bim.estimate_model5d import embed_estimate_model
+
+    try:
+        model_json = json.loads(Path(args.model).read_text(encoding="utf-8"))
+        if not isinstance(model_json, dict) or "items" not in model_json:
+            raise ValueError("the model JSON must be a get_estimate_model "
+                             "document (estimate, items, elements, "
+                             "activities, shares)")
+        summary = embed_estimate_model(
+            args.ifc, model_json, args.out, schedule_name=args.schedule_name,
+            placeholders=args.placeholders)
+    except (OSError, ValueError, KeyError, ifcopenshell.Error) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(summary, indent=2))
+    print(f"Embedded '{summary['schedule_name']}': {summary['tasks']} task(s), "
+          f"{summary['cost_items']} item(s) / {summary['share_items']} share "
+          f"cost item(s) (${float(summary['allocated_total']):,.2f}), "
+          f"{summary['labor_resources']} crew(s); written to {args.out}",
+          file=sys.stderr)
+    if summary["unmatched_elements"]:
+        print(f"  ! {len(summary['unmatched_elements'])} model element(s) "
+              f"are not in the IFC (see unmatched_elements)", file=sys.stderr)
+    for w in summary["warnings"]:
+        print(f"  ! {w}", file=sys.stderr)
     return 0
 
 
@@ -2220,6 +2303,50 @@ def main(argv=None) -> int:
     e5.add_argument("--out", help="output IFC path (default: alongside the "
                                   "input, <stem>.est.ifc)")
 
+    me = sub.add_parser("model-elements",
+                        help="plan BidSheet.ai upsert_modelled_elements "
+                             "entries (GlobalId + Qto quantities in the "
+                             "key's unit) from an IFC")
+    me.add_argument("ifc", help="input IFC file")
+    me.add_argument("--items",
+                    help="JSON {bid item code: estimate item id} — or a "
+                         "get_estimate_model document (its items[])")
+    me.add_argument("--estimate-id", dest="estimate_id", type=int,
+                    help="BidSheet.ai estimate id, carried into the payload")
+    me.add_argument("--complete", action="store_true",
+                    help="mark the payload as the full model (BidSheet.ai "
+                         "then reports modelled elements it lacks)")
+    me.add_argument("--structure-id", dest="structure_id",
+                    help="structure id for every element (default: none)")
+    me.add_argument("--structure-ids", dest="structure_ids",
+                    help="JSON {classification code: structure id}")
+    me.add_argument("--form-area", dest="form_area",
+                    help="the Qto quantity holding the formed area "
+                         "(Qto_Set.Name, or a bare name) -> form_contact_sf; "
+                         "never inferred")
+    me.add_argument("--schedule",
+                    help="match --items only against this schedule label "
+                         "(get_estimate_model items[].schedule)")
+    me.add_argument("--all-elements", dest="all_elements",
+                    action="store_true",
+                    help="also send unclassified, untyped elements and "
+                         "beams/members/plates/courses/pavements, as generic "
+                         "(their volume is stored as concrete_cy)")
+    me.add_argument("--out", help="output JSON (default: stdout)")
+
+    em = sub.add_parser("estimate-model",
+                        help="embed a BidSheet.ai get_estimate_model document "
+                             "as IfcTask / IfcCostItem / IfcLaborResource")
+    em.add_argument("ifc", help="input IFC file")
+    em.add_argument("model", help="get_estimate_model JSON")
+    em.add_argument("out", help="output IFC path")
+    em.add_argument("--schedule-name", dest="schedule_name",
+                    help='work schedule name (default "BidSheet.ai estimate '
+                         '<id>"; the cost schedule is "<name> cost")')
+    em.add_argument("--placeholders", action="store_true",
+                    help="add an IfcBuildingElementProxy (no geometry) for "
+                         "each model element the IFC lacks, under its GlobalId")
+
     k = sub.add_parser("kml", help="convert a georeferenced IFC into 3D KML (Google Earth)")
     k.add_argument("ifc", help="input IFC file (georeferenced, est-bim >= 0.1.11)")
     k.add_argument("--out", help="output KML path (default: alongside the IFC)")
@@ -2606,6 +2733,10 @@ def main(argv=None) -> int:
             return _run_cost5d(args)
         if args.cmd == "estimate5d":
             return _run_estimate5d(args)
+        if args.cmd == "model-elements":
+            return _run_model_elements(args)
+        if args.cmd == "estimate-model":
+            return _run_estimate_model(args)
         if args.cmd == "kml":
             return _run_kml(args)
         if args.cmd == "kmz":

@@ -10,7 +10,7 @@ pointed the other way. Construction semantics only: elements appear at task
 start and persist; the KML/KMZ TimeSpan writer (slice 3) reads these dates.
 
 Issue #335 adds what a re-planning consumer needs back out: each task's
-`Pset_BimforgeTask` (canonical TaskId + Wbs, since Identification carries the
+`Bimforge_Task` (canonical TaskId + Wbs, since Identification carries the
 wbs-or-id that cost5d and Bonsai key on), PredefinedType (task_type),
 Description (notes), a ScheduleDuration, owner bid items as classification
 references under `BID_ITEM_CLASSIFICATION`, and one IfcWorkCalendar per named
@@ -49,7 +49,9 @@ BID_ITEM_CLASSIFICATION = "Owner bid items"
 
 # The canonical task id and WBS. IfcTask.Identification keeps the wbs-or-id
 # it always carried (cost5d and Bonsai key on it), so the id needs a home.
-TASK_PSET = "Pset_BimforgeTask"
+# Not "Pset_" (reserved for buildingSMART's sets); models written by 0.1.88
+# or earlier carry "Pset_BimforgeTask", which schedule_read still reads.
+TASK_PSET = "Bimforge_Task"
 
 # Named task calendars are "<schedule> calendar: <key>"; the project calendar
 # is "<schedule> calendar".

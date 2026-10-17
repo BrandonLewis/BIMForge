@@ -638,11 +638,16 @@ def triangulate_planar_face(ring: list) -> list:
 #:   {"kind": "sectioned", "sweep", "alignment", "vprofile", "origin",
 #:    "sections"} — an alignment sweep (author.sweep), which no rigid map of
 #:       the dict can move: any transform drops it.
+#:   {"kind": "revolution", "profile", "voids", "plane", "axis", "angle"}
+#:       (#331) the profile on `plane` (as for an extrusion) turned `angle`
+#:       radians, right-handed, about the line axis {"o", "dir"} — a point
+#:       and unit direction lying in that plane, wholly to one side of the
+#:       profile
 #: The mesh is the authority. Code that edits a dict's verts without knowing
 #: about "exact" (a subclass that grades a girder, a wrapper that places it)
 #: leaves a stale exact form behind, so exact_of() trusts it only while the
 #: mesh still IS that solid, and the edited mesh is what gets written.
-EXACT_KINDS = ("extrusion", "sectioned")
+EXACT_KINDS = ("extrusion", "sectioned", "revolution")
 
 #: how far a mesh vertex may sit from its exact solid, feet
 EXACT_MATCH_TOL_FT = 1e-6
@@ -669,6 +674,8 @@ def place_exact(d: dict, lin, off=(0.0, 0.0, 0.0)) -> dict:
     ex = d.get("exact")
     if ex is None:
         return dict(d)
+    if ex["kind"] == "revolution":
+        return _place_revolution(d, lin, off)
     if ex["kind"] != "extrusion":
         return as_mesh(d)
     pl = ex["plane"]
@@ -679,6 +686,89 @@ def place_exact(d: dict, lin, off=(0.0, 0.0, 0.0)) -> dict:
     o = tuple(a + b for a, b in zip(_mat_vec(lin, pl["o"]), off))
     return dict(d, exact=dict(ex, plane={"o": o, "x": x, "y": y},
                               dir=_mat_vec(lin, ex["dir"])))
+
+
+def _place_revolution(d: dict, lin, off) -> dict:
+    """place_exact for a revolution: only a rigid map (lin orthogonal) leaves
+    one. A reflection reverses the turn, so it keeps the angle and flips the
+    axis: M R_a(t) M^-1 = R_{-Ma}(t) when det M = -1."""
+    ex = d["exact"]
+    cols = [tuple(lin[r][c] for r in range(3)) for c in range(3)]
+    for i in range(3):
+        for j in range(3):
+            g = sum(a * b for a, b in zip(cols[i], cols[j]))
+            if abs(g - (1.0 if i == j else 0.0)) > 1e-9:
+                return as_mesh(d)
+    det = (lin[0][0] * (lin[1][1] * lin[2][2] - lin[1][2] * lin[2][1])
+           - lin[0][1] * (lin[1][0] * lin[2][2] - lin[1][2] * lin[2][0])
+           + lin[0][2] * (lin[1][0] * lin[2][1] - lin[1][1] * lin[2][0]))
+
+    def pt(p):
+        return tuple(a + b for a, b in zip(_mat_vec(lin, p), off))
+
+    pl, ax = ex["plane"], ex["axis"]
+    a = _mat_vec(lin, ax["dir"])
+    if det < 0:
+        a = tuple(-c for c in a)
+    return dict(d, exact=dict(
+        ex, plane={"o": pt(pl["o"]), "x": _mat_vec(lin, pl["x"]),
+                   "y": _mat_vec(lin, pl["y"])},
+        axis={"o": pt(ax["o"]), "dir": a}))
+
+
+def _revolution_frame(ex: dict):
+    """(axis point, axis dir, e, f): e the in-plane unit radial toward the
+    profile, f = dir × e, the direction a point at angle 0 starts to move."""
+    import numpy as np
+    pl, ax = ex["plane"], ex["axis"]
+    o, x, y = (np.asarray(pl[k], float) for k in ("o", "x", "y"))
+    c, a = np.asarray(ax["o"], float), np.asarray(ax["dir"], float)
+    a = a / np.linalg.norm(a)
+    pts = np.array([o + u * x + v * y for u, v in ex["profile"]])
+    rel = pts - c
+    r = rel - np.outer(rel @ a, a)
+    e = r.mean(axis=0)
+    e = e / np.linalg.norm(e)
+    return c, a, e, np.cross(a, e)
+
+
+def _revolution_profile_points(ex: dict, angle: float) -> list:
+    """The profile's points (outer and voids) turned `angle` about the axis."""
+    import numpy as np
+    pl = ex["plane"]
+    o, x, y = (np.asarray(pl[k], float) for k in ("o", "x", "y"))
+    c, a, _e, _f = _revolution_frame(ex)
+    out = []
+    for ring in [ex["profile"]] + list(ex.get("voids") or ()):
+        for u, v in ring:
+            rel = o + u * x + v * y - c
+            t = rel @ a
+            r = rel - t * a
+            q = c + t * a + r * math.cos(angle) + np.cross(a, r) * math.sin(angle)
+            out.append(tuple(float(z) for z in q))
+    return out
+
+
+def _on_revolution(verts: list, ex: dict, tol: float) -> bool:
+    """Every vertex is a profile point turned by an angle in [0, angle], and
+    the profile appears at both ends — the mesh is this revolution's."""
+    import numpy as np
+    c, a, e, f = _revolution_frame(ex)
+    v = np.asarray(verts, float) - c
+    t = v @ a
+    r = v - np.outer(t, a)
+    th = np.arctan2(r @ f, r @ e)
+    rad = np.linalg.norm(r, axis=1)
+    if (rad.min() <= tol or th.min() < -1e-9
+            or th.max() > ex["angle"] + 1e-9):
+        return False
+    back = c + np.outer(t, a) + np.outer(rad, e)   # each vertex turned to 0
+    prof = _revolution_profile_points(ex, 0.0)
+    if not _same_points([tuple(p) for p in back], prof, tol):
+        return False
+    ends = np.asarray(prof + _revolution_profile_points(ex, ex["angle"]))
+    d2 = ((ends[:, None, :] - (v + c)[None, :, :]) ** 2).sum(-1)
+    return bool(d2.min(axis=1).max() <= tol * tol)
 
 
 def _extrusion_points(ex: dict) -> list:
@@ -723,6 +813,8 @@ def exact_of(d: dict) -> dict | None:
                           EXACT_MATCH_TOL_FT)
     elif ex.get("kind") == "sectioned":
         ok = ex["sweep"].mesh_is_exact(d["verts"])
+    elif ex.get("kind") == "revolution":
+        ok = _on_revolution(list(d["verts"]), ex, EXACT_MATCH_TOL_FT)
     else:
         ok = False
     return ex if ok else None

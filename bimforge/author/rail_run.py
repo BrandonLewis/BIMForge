@@ -272,7 +272,30 @@ class _BentTube:
         plan = [[(min(xs), min(ys)), (max(xs), min(ys)),
                  (max(xs), max(ys)), (min(xs), max(ys))]]
         return [{"kind": "mesh", "units": "ft", "verts": verts,
-                 "tris": tris, "plan": plan}]
+                 "tris": tris, "plan": plan, "exact": self._revolution()}]
+
+    def _revolution(self) -> dict:
+        """The solid this mesh chords: the section turned phi1 - phi0 about
+        the x-parallel axis one radius below the rail centerline (#331), one
+        IfcRevolvedAreaSolid. The profile plane is the section at phi0, with
+        u = x - x0 and v = w (up the section at that angle); the axis runs
+        -toward along x, so the right-handed turn carries the section the
+        way `_map` does."""
+        outer = clean_ring2d(self.outer)
+        voids = [c for c in (clean_ring2d(v) for v in self.voids) if len(c) >= 3]
+        s0, c0 = math.sin(self.phi0), math.cos(self.phi0)
+
+        def uv(ring):
+            return [(x - self.x0, z - self.z_center) for x, z in ring]
+
+        return {"kind": "revolution", "profile": uv(outer),
+                "voids": [uv(v) for v in voids],
+                "plane": {"o": self._map(self.x0, self.z_center, self.phi0),
+                          "x": (1.0, 0.0, 0.0),
+                          "y": (0.0, self.toward * s0, c0)},
+                "axis": {"o": (self.x0, self.y_bc, self.z_center - self.R),
+                         "dir": (-self.toward, 0.0, 0.0)},
+                "angle": self.phi1 - self.phi0}
 
 
 def _return_sweep_angle(rail, radius_ft: float) -> float:

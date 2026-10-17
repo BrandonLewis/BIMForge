@@ -15,7 +15,7 @@ codes). Idempotent by name: the cost schedule is "<name> cost"; each crew is
 "<name>: <task>". A re-run removes those (and their classification links) first.
 Pure ifcopenshell.api; the distribution is `bimforge.bim.costload`.
 
-Issue #335: each cost item also carries `Pset_BimforgeCostItem` (TaskId, and
+Issue #335: each cost item also carries `Bimforge_CostItem` (TaskId, and
 the item's own LaborHours — the crew sums hours across a task's codes, so
 per-code hours are otherwise lost), and tasks are found inside the work
 schedule of the same name by the id `schedule_read.task_id` reads, so
@@ -47,7 +47,10 @@ if TYPE_CHECKING:
 CLASSIFICATION_NAME = "Estimate cost codes"
 
 # per cost item: the canonical task id and the (task, code) labor hours
-COST_ITEM_PSET = "Pset_BimforgeCostItem"
+# Not "Pset_": that prefix is reserved for buildingSMART's standard sets.
+# Models written by 0.1.88 or earlier carry "Pset_BimforgeCostItem", which
+# schedule_read still reads.
+COST_ITEM_PSET = "Bimforge_CostItem"
 
 
 @dataclass

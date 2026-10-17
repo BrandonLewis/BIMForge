@@ -127,7 +127,7 @@ def test_model_from_before_335_splits_crew_hours_by_cost():
     m = _model()
     for rel in list(m.by_type("IfcRelDefinesByProperties")):
         pd = rel.RelatingPropertyDefinition
-        if pd.Name in ("Pset_BimforgeCostItem", "Pset_BimforgeTask"):
+        if pd.Name in ("Bimforge_CostItem", "Bimforge_Task"):
             m.remove(pd)
             m.remove(rel)
     got = read_costs(m)
@@ -156,3 +156,23 @@ def test_cli_costs_out(tmp_path):
                  "--costs-out", str(costs)]) == 0
     got = json.loads(costs.read_text())
     assert got["costs"]["A"]["cost"] == pytest.approx(10000.0)
+
+
+def test_models_with_the_old_pset_names_still_read():
+    """0.1.88 and earlier wrote Pset_BimforgeTask / Pset_BimforgeCostItem
+    ("Pset_" is reserved for buildingSMART's sets); renamed to Bimforge_*,
+    the old names must keep reading identically."""
+    new = _model()
+    old = _model()
+    renamed = 0
+    for pd in old.by_type("IfcPropertySet"):
+        if pd.Name in ("Bimforge_Task", "Bimforge_CostItem"):
+            pd.Name = "Pset_" + pd.Name.replace("_", "")
+            renamed += 1
+    assert renamed
+    assert read_costs(old) == read_costs(new)
+    def tasks(m):           # GlobalIds differ between the two builds
+        return [{k: v for k, v in t.items() if k != "global_id"}
+                for t in read_schedule(m).to_dict()["tasks"]]
+    assert tasks(old) == tasks(new)
+    assert [t["wbs"] for t in tasks(old)] == ["1", "2", "3"]
