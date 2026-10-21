@@ -36,6 +36,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import sys
 import zipfile
 from dataclasses import dataclass, field
@@ -401,9 +402,12 @@ def pay_measure_value(row: ElementRow, cfg: dict) -> float | None:
 # ----------------------------------------------------------------------------
 def _save_deterministic(wb, path: str) -> None:
     """Save with pinned docProps AND fixed zip-member dates: openpyxl stamps
-    each member with wall-clock time, so pinning docProps alone leaves two
-    rebuilds a second apart byte-different."""
+    each member with wall-clock time, and its save overwrites
+    ``properties.modified`` with now, so ``docProps/core.xml``'s modified
+    date is rewritten here too; otherwise two rebuilds a second apart are
+    byte-different."""
     wb.properties.created = wb.properties.modified = WORKBOOK_BUILD_STAMP
+    stamp = WORKBOOK_BUILD_STAMP.strftime("%Y-%m-%dT%H:%M:%SZ").encode()
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -415,7 +419,11 @@ def _save_deterministic(wb, path: str) -> None:
             zi = zipfile.ZipInfo(info.filename, date_time=_ZIP_DATE)
             zi.compress_type = zipfile.ZIP_DEFLATED
             zi.external_attr = info.external_attr
-            dst.writestr(zi, src.read(info.filename))
+            data = src.read(info.filename)
+            if info.filename == "docProps/core.xml":
+                data = re.sub(rb"(<dcterms:modified[^>]*>)[^<]*(</dcterms:modified>)",
+                              rb"\g<1>" + stamp + rb"\g<2>", data)
+            dst.writestr(zi, data)
 
 
 def _item_sort_key(item: str):

@@ -9,6 +9,7 @@ blue; Summary SUMIFS by cost code; a rebuild is byte-identical.
 import hashlib
 import json
 import uuid
+import zipfile
 
 import numpy as np
 import pytest
@@ -172,6 +173,15 @@ def test_official_quantity_blank_without_the_file(tmp_path):
     sm = openpyxl.load_workbook(out)["Summary"]
     assert sm["F2"].value is None and sm["F3"].value is None
     assert sm["C3"].value == "Structure Concrete, Footing"   # map description
+
+
+def test_docprops_modified_is_pinned(tmp_path):
+    # openpyxl's save stamps `modified` with wall-clock time, so two rebuilds
+    # a second apart differed despite the pinned property.
+    _ifc, out, _ = _build(tmp_path)
+    with zipfile.ZipFile(out) as z:
+        core = z.read("docProps/core.xml").decode("utf-8")
+    assert "2026-08-15T12:00:00Z</dcterms:modified>" in core
 
 
 def test_rebuild_is_byte_identical(tmp_path):
