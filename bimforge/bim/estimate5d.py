@@ -20,7 +20,12 @@ per-one-raw-quantity-unit:
 
 where `scale` takes that raw quantity to SI: its own `Unit` when the
 quantity names one, else the project's declared unit for the dimension
-(`ifc_takeoff.quantity_scale` / `_unit_scales`).
+(`ifc_takeoff.quantity_scale` / `_unit_scales`). A Count row's
+AppliedValue is further multiplied by pay / counted — the takeoff's pay
+quantity (`ifc_takeoff.count_quantity`: 1 for LS, else `count_as` when set)
+over the elements' summed Count — so the children of a lump sum sum to the
+capped price (#366). Elements whose Count sums to 0 cannot carry a lump sum;
+the code is reported in `zero_count_lump_sums` and extends $0.
 
 No UnitBasis is authored (uneven consumer support); this line is the basis.
 
@@ -37,8 +42,9 @@ import ifcopenshell.api.cost as cost
 
 from bimforge.bim.cost5d import _classification, _code_reference
 from bimforge.bim.ifc_takeoff import (
-    DEFAULT_UNIT, MEASURE_DIM, classifications_of, convert, normalize_map,
-    quantities_of, quantity_entities, quantity_scale, _unit_scales)
+    DEFAULT_UNIT, MEASURE_DIM, classifications_of, convert, count_quantity,
+    normalize_map, quantities_of, quantity_entities, quantity_scale,
+    resolve_measure, _unit_scales)
 
 
 @dataclass
@@ -55,6 +61,9 @@ class EstimateEmbedReport:
     codes_without_measure: list = field(default_factory=list)
     codes_without_elements: list = field(default_factory=list)
     elements_missing_measure: list = field(default_factory=list)  # (el, code, measure)
+    # (code, pay quantity): a lump sum / count_as over elements whose Count
+    # sums to 0 — nothing to spread the price over, so it extends $0
+    zero_count_lump_sums: list = field(default_factory=list)
 
 
 def _rate_for(code: str, entry: dict, costs: dict, *, plural: bool,
@@ -194,14 +203,17 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
             eligible = []
             for el in elements:
                 qtys = quantities_of(el)          # NATIVE — matches the rate
-                if measure not in qtys:
+                # the takeoff's aliases (#363): a map's plain Weight reads
+                # an element's GrossWeight, and the other way round
+                found = resolve_measure(qtys, measure)
+                if found is None:
                     report.elements_missing_measure.append(
                         (el.Name or el.is_a(), code, measure))
                     continue
                 # the raw value's own scale: its quantity's Unit when it
                 # names one, else the project unit of the dimension
-                q_ent = quantity_entities(el).get(measure)
-                eligible.append((el, qtys[measure],
+                q_ent = quantity_entities(el).get(found)
+                eligible.append((el, found, qtys[found],
                                  quantity_scale(q_ent, scales, dim)))
             if not eligible:
                 report.codes_without_elements.append(code)
@@ -218,16 +230,15 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
             parent = cost.add_cost_item(model, cost_schedule=cs)
             cost.edit_cost_item(model, parent, attributes={
                 "Name": desc or code, "Identification": code})
-            children = 0
-            entry_extended = 0.0
-            for el, raw_qty, q_scale in eligible:
+            priced = []   # (cost value, rate per raw unit, raw qty, scale)
+            for el, found, raw_qty, q_scale in eligible:
                 rate = per_si * q_scale
                 child = cost.add_cost_item(model, cost_item=parent)
                 cost.edit_cost_item(model, child, attributes={
                     "Name": el.Name or f"{el.is_a()}-{el.GlobalId[:6]}"})
                 cost.assign_cost_item_quantity(model, cost_item=child,
                                                products=[el],
-                                               prop_name=measure)
+                                               prop_name=found)
                 if not (child.CostQuantities or ()):
                     # The measure passed eligibility off an INHERITED type
                     # Qto (quantities_of reads the type; assign walks only
@@ -245,10 +256,27 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
                         (el.Name or el.is_a(), code, measure))
                     continue
                 cv = cost.add_cost_value(model, parent=child)
+                priced.append((cv, rate, raw_qty, q_scale))
+            children = len(priced)
+            # A Count row pays the takeoff's quantity (#366): 1 for a lump
+            # sum, `count_as` when the map states one. The parent stays
+            # valueless (consumers sum the children) and each child keeps
+            # its own element's quantity, so its rate scales by
+            # pay / counted — the children then sum to the capped price.
+            factor = 1.0
+            if dim == "count" and priced:
+                counted = convert(sum(raw * qs for _, _, raw, qs in priced),
+                                  dim, pay_unit)
+                pay = count_quantity(entry, pay_unit, counted)
+                if counted:
+                    factor = pay / counted
+                elif pay:
+                    report.zero_count_lump_sums.append((code, pay))
+            entry_extended = 0.0
+            for cv, rate, raw_qty, _ in priced:
                 cost.edit_cost_value(model, cv,
-                                     attributes={"AppliedValue": rate})
-                children += 1
-                entry_extended += rate * raw_qty
+                                     attributes={"AppliedValue": rate * factor})
+                entry_extended += rate * factor * raw_qty
             if not children:
                 # every eligible element was type-level — a childless parent
                 # would read as a zero bid item; remove it and report the

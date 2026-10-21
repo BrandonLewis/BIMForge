@@ -322,3 +322,59 @@ def test_multi_classified_element_links_to_every_codes_task(tmp_path):
              for rel in f.by_type("IfcRelAssignsToProcess")}
     assert links == {"Furnish piles": ["P-1"], "Drive piles": ["P-1"]}
     assert report.codes_without_elements == []
+
+
+def _links(g):
+    links = {}
+    for rel in g.by_type("IfcRelAssignsToProcess"):
+        links[rel.RelatingProcess.Name] = sorted(o.Name for o in rel.RelatedObjects)
+    return links
+
+
+def test_embed_filters_narrow_the_code_join(sample_ifc):
+    # #365: codes join slab + wall + 4 columns (6); filter_re keeps the two
+    # "A-" elements, filter_ifc_class keeps the columns, and both together
+    # AND. A name_re selector still ORs in unfiltered.
+    codes = ["03 30 00", "EF_25_10", "05 12 00"]
+    sched = CanonicalSchedule(name="Filt", tasks=[
+        ScheduleTask(id="a", name="Arch", wbs="1", start="2026-07-10",
+                     finish="2026-07-12", bid_item_codes=codes,
+                     filter_name_re=r"^A-"),
+        ScheduleTask(id="c", name="Cols", wbs="2", start="2026-07-13",
+                     finish="2026-07-15", bid_item_codes=codes,
+                     filter_ifc_class="IfcColumn"),
+        ScheduleTask(id="both", name="Both", wbs="3", start="2026-07-16",
+                     finish="2026-07-17", bid_item_codes=codes,
+                     filter_name_re=r"^A-", filter_ifc_class="IfcSlab"),
+        ScheduleTask(id="or", name="Or", wbs="4", start="2026-07-18",
+                     finish="2026-07-19", bid_item_codes=["05 12 00"],
+                     filter_ifc_class="IfcWall", match_name_re=r"A-SLAB"),
+    ])
+    g, report = _embed(sample_ifc, sched, out_name="filt.ifc")
+    links = _links(g)
+    assert links["Arch"] == ["A-SLAB-34", "A-WALL-35"]
+    assert links["Cols"] == ["COL"] * 4
+    assert links["Both"] == ["A-SLAB-34"]
+    assert links["Or"] == ["A-SLAB-34"]           # filter dropped the columns
+    assert report.codes_without_elements == []
+
+
+def test_embed_filter_that_empties_the_join_is_reported(sample_ifc):
+    sched = CanonicalSchedule(name="Empty", tasks=[
+        ScheduleTask(id="z", name="Zip", wbs="1", start="2026-07-10",
+                     finish="2026-07-12", bid_item_codes=["05 12 00"],
+                     filter_name_re=r"^ZZZ")])
+    g, report = _embed(sample_ifc, sched, out_name="empty.ifc")
+    assert "Zip" not in _links(g)
+    assert report.assigned_elements == 0
+    assert any("filter_re" in s and "Zip" in s
+               for s in report.selectors_without_elements)
+
+
+def test_embed_invalid_filter_regex_is_clean_error(sample_ifc):
+    sched = CanonicalSchedule(name="Bad", tasks=[
+        ScheduleTask(id="b", name="Bad", wbs="1", start="2026-07-10",
+                     finish="2026-07-11", bid_item_codes=["05 12 00"],
+                     filter_name_re="([")])
+    with pytest.raises(ValueError, match="invalid filter_re"):
+        embed_schedule(ifcopenshell.open(sample_ifc), sched)

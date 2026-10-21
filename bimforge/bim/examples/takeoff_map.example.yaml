@@ -14,7 +14,9 @@
 #             area   -> M2 | SF | SY
 #             volume -> M3 | CY | CF
 #             length -> M  | LF | YD
-#             count  -> EA | LS
+#             count  -> EA | LS   (LS reports 1 however many elements)
+#   count_as: optional number a Count row reports instead of its element
+#             count (a stated pay count, or an LS other than 1)
 # ---------------------------------------------------------------------------
 
 organization_id: 0        # REPLACE with your BidSheet.ai organization id (integer)

@@ -37,7 +37,8 @@ Quantity keys, by element type (subtype-aware, so IfcWallStandardCase is a
 wall — BidSheet.ai's own IfcClass lookup is exact, hence `element_type` is
 always sent explicitly):
 
-- volume -> `excavation_cy` (IfcEarthworksCut: UndisturbedVolume, else
+- volume -> `excavation_cy` (IfcEarthworksCut, or IfcEarthworksElement with
+  ObjectType EXCAVATION: UndisturbedVolume, else
   Net/GrossVolume), `backfill_cy` (IfcEarthworksFill: CompactedVolume, else
   Net/GrossVolume), otherwise `concrete_cy` (NetVolume, else GrossVolume).
   A loose (swelled) volume is never the in-place measure and is not used.
@@ -66,7 +67,15 @@ is looked up in `items` — {code: item id}, {code: {"id", "unit"}}, or a
 `item_number`; a code or number several items share is ambiguous and maps
 to none; `schedule=` limits the items to one schedule label first). The item
 pays the key whose unit is the item's unit; with no unit known it pays the
-volume key. Pure: reads the IFC, writes nothing.
+volume key.
+
+Takeoff target (`takeoff=True`, BidSheet.ai #1486 slice 7): the same entries
+for `upsert_modelled_elements(takeoff_id=...)`, which lands them in a named
+project takeoff instead of an estimate. A takeoff has no pay items, so pay-item
+matching is dropped — no entry carries a `pay_items` key and `items` is refused.
+Element selection, GlobalId validation and unit conversion are unchanged.
+
+Pure: reads the IFC, writes nothing.
 """
 from __future__ import annotations
 
@@ -137,6 +146,12 @@ def element_type_of(element) -> str:
     for cls, element_type in ELEMENT_TYPES:
         if _is_a(element, cls):
             return element_type
+    # pay-item excavation as emit_ifc writes it (#364): an unhosted
+    # IfcEarthworksCut is invalid IFC, so it is IfcEarthworksElement with
+    # ObjectType EXCAVATION
+    if _is_a(element, "IfcEarthworksElement") and \
+            (getattr(element, "ObjectType", None) or "").upper() == "EXCAVATION":
+        return "excavation"
     return "generic"
 
 
@@ -301,7 +316,8 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
                            structure_ids: dict | None = None,
                            form_area: str | None = None,
                            all_elements: bool = False,
-                           schedule: str | None = None) -> dict:
+                           schedule: str | None = None,
+                           takeoff: bool = False) -> dict:
     """Plan the `upsert_modelled_elements` payload for an IFC.
 
     `ifc` is a path or an open model. `items` maps classification (bid
@@ -312,11 +328,15 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
     quantity holding the formed (form contact) area — never inferred.
     `all_elements` also sends unclassified, untyped elements and
     beams/members/plates/courses/pavements, as generic. See the module
-    docstring for which elements are sent.
+    docstring for which elements are sent. `takeoff` plans for a takeoff
+    target: no `pay_items` on any entry, and `items`/`schedule` are refused.
 
     Returns {"elements": [...], "skipped": [{global_id, name, ifc_class,
     reason}], "without_quantities": [{global_id, name}], "warnings": [...]}.
     """
+    if takeoff and (items or schedule is not None):
+        raise ValueError("a takeoff has no pay items — items and schedule "
+                         "do not apply to a takeoff target")
     model = ifcopenshell.open(ifc) if isinstance(ifc, str) else ifc
     scales = _unit_scales(model)
     index, ambiguous = _item_index(items, schedule)
@@ -421,7 +441,8 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
             without.append({"global_id": gid, "name": name})
 
         pay_items: dict[str, int] = {}
-        for code in codes if quantities else ():
+        # a takeoff has no pay items: never match codes to items for one
+        for code in codes if quantities and not takeoff else ():
             rec = index.get(code)
             if rec is None:
                 if code in ambiguous:

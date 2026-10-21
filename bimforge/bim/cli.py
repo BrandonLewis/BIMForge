@@ -6,9 +6,10 @@
   est-bim ifc2dxf --ifc model.ifc [--out model.plan.dxf] [--include IfcSlab,IfcFooting] [--exclude IfcRailing] [--simplify-ft 0.05]
   est-bim ifc2gis --ifc model.ifc [model2.ifc ...] [--out model.gpkg] [--index structures.ifc] [--tin]
   est-bim takeoff --ifc model.ifc [--map takeoff_map.yaml] [--out takeoff.json] [--csv takeoff.csv]
+  est-bim takeoff-workbook --ifc model.ifc [--ifc more.ifc ...] --map takeoff_map.yaml [--official bid_items.json] --out takeoff.xlsx
   est-bim schedule-read --ifc model.4d.ifc [--schedule NAME] --out schedule.json [--takeoff-map map.yaml --takeoff-out takeoff.json] [--costs-out costs.json]
   est-bim sfca    model.ifc [--flat 0.85] [--split-el EL] [--skip-class IfcPipeSegment,...]
-  est-bim model-elements model.ifc [--items items.json] [--estimate-id N] [--complete] [--structure-id ID] [--structure-ids ids.json] [--form-area Qto_Set.Name] [--schedule LABEL] [--all-elements] [--out upsert.json]
+  est-bim model-elements model.ifc [--items items.json] [--estimate-id N] [--complete] [--structure-id ID] [--structure-ids ids.json] [--form-area Qto_Set.Name] [--schedule LABEL] [--all-elements] [--takeoff [--takeoff-id N]] [--out upsert.json]
   est-bim estimate-model model.ifc estimate_model.json out.ifc [--schedule-name NAME] [--placeholders]
   est-bim kml     model.ifc [--out model.kml]
   est-bim kmz     model.ifc [--out model.kmz] [--geoid-shift-m M] [--omit RE] [--massing] [--collada | --gltf]
@@ -182,6 +183,20 @@ def _run_validate(args) -> int:
     logger = V.json_logger()
     V.validate(model, logger)
     issues = list(logger.statements)
+    # #364: the validator's "With inverse: VoidsElements ... Not valid" names
+    # no element; say which cut is unhosted and what pay-item excavation is
+    # Guard on the schema's own declarations: IFC2X3 and IFC4 lack the
+    # entity, and by_type raises on a name the schema does not define
+    from bimforge.author.emit_ifc import _schema_has
+    has_cut = _schema_has(model.schema_identifier, "IfcEarthworksCut")
+    for cut in model.by_type("IfcEarthworksCut") if has_cut else []:
+        if not getattr(cut, "VoidsElements", None):
+            issues.append(
+                f"IfcEarthworksCut {cut.Name!r} ({cut.GlobalId}) voids no host: "
+                f"a feature subtraction must be the RelatedOpeningElement of "
+                f"an IfcRelVoidsElement. Pay-item excavation is "
+                f"IfcEarthworksElement with ObjectType EXCAVATION — emit_ifc "
+                f"writes an unhosted cut that way.")
 
     counts = Counter(e.is_a() for e in model.by_type("IfcElement"))
     width = max(len("CLASS"), len("TOTAL"), *(len(c) for c in counts)) \
@@ -230,6 +245,30 @@ def _run_takeoff(args) -> int:
     print_warnings(warnings)
     print("\nNext: hand this JSON to the estimating-core push-takeoff skill "
           "(or `est-takeoff plan` for a dry-run push plan).")
+    return 0
+
+
+def _run_takeoff_workbook(args) -> int:
+    """Per-element, formula-driven takeoff workbook (issue #367): one row
+    per element per pay code with Qty / #_surfaces / L / W / H / CY /
+    Forming SF, the box-vs-model volume check, the SFCA face split and the
+    pay quantity in the bid unit, plus a Summary against the official
+    bid-item quantities. Byte-deterministic for a rebuild."""
+    from bimforge.bim.takeoff_workbook import (build_workbook, load_map,
+                                               load_official)
+
+    try:
+        tmap = load_map(args.map)
+        official = load_official(args.official)
+        info = build_workbook(args.ifc, tmap, args.out, official=official)
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Takeoff workbook written to {args.out}: {info['elements']} "
+          f"element rows, {info['summary']} summary rows, "
+          f"{info['models']} model(s)")
+    if not args.official:
+        print("note: no --official bid items; Summary's Official qty is blank")
     return 0
 
 
@@ -488,6 +527,10 @@ def _run_estimate5d(args) -> int:
             ("no classified elements", report.codes_without_elements)):
         for code in entries:
             print(f"  ! code {code}: {label}", file=sys.stderr)
+    for code, pay in report.zero_count_lump_sums:
+        print(f"  ! {code}: its elements' Count sums to 0, so a lump sum / "
+              f"count_as of {pay:g} cannot be priced off them -- extended $0",
+              file=sys.stderr)
     for el, code, measure in report.elements_missing_measure:
         print(f"  ! element '{el}' (code {code}) lacks {measure} — skipped",
               file=sys.stderr)
@@ -502,6 +545,13 @@ def _run_model_elements(args) -> int:
 
     from bimforge.bim.model_elements import plan_modelled_elements
 
+    takeoff = bool(args.takeoff or args.takeoff_id is not None)
+    if takeoff and (args.items or args.schedule is not None
+                    or args.estimate_id is not None):
+        print("error: --takeoff plans for a takeoff, which has no pay items "
+              "and no estimate — drop --items, --schedule and --estimate-id",
+              file=sys.stderr)
+        return 1
     try:
         items = (json.loads(Path(args.items).read_text(encoding="utf-8"))
                  if args.items else None)
@@ -513,7 +563,8 @@ def _run_model_elements(args) -> int:
         plan = plan_modelled_elements(
             args.ifc, items, structure_id=args.structure_id,
             structure_ids=structure_ids, form_area=args.form_area,
-            all_elements=args.all_elements, schedule=args.schedule)
+            all_elements=args.all_elements, schedule=args.schedule,
+            takeoff=takeoff)
     except (OSError, ValueError, KeyError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -521,6 +572,8 @@ def _run_model_elements(args) -> int:
     payload = {}
     if args.estimate_id is not None:
         payload["estimate_id"] = args.estimate_id
+    if args.takeoff_id is not None:
+        payload["takeoff_id"] = args.takeoff_id
     payload["complete"] = bool(args.complete)
     payload.update(plan)
     text = json.dumps(payload, indent=2)
@@ -533,6 +586,12 @@ def _run_model_elements(args) -> int:
           f"{len(plan['skipped'])} skipped, "
           f"{len(plan['without_quantities'])} with no quantities"
           + (f"; written to {args.out}" if args.out else ""), file=sys.stderr)
+    if takeoff:
+        print("  for upsert_modelled_elements(takeoff_id="
+              f"{args.takeoff_id if args.takeoff_id is not None else '...'}"
+              ", ...) — no pay items (a takeoff has none); then "
+              "compare_takeoff / apply_takeoff to pin it on an estimate",
+              file=sys.stderr)
     for s_ in plan["skipped"]:
         print(f"  - skipped {s_['name']} ({s_['ifc_class']}): {s_['reason']}",
               file=sys.stderr)
@@ -2226,6 +2285,22 @@ def main(argv=None) -> int:
     t.add_argument("--out", default="takeoff.json", help="output JSON path")
     t.add_argument("--csv", help="also write a CSV for eyeballing")
 
+    tw = sub.add_parser("takeoff-workbook",
+                        help="write a verifiable per-element takeoff "
+                             "workbook (xlsx): Qty, #_surfaces, L, W, H, "
+                             "CY and Forming SF as live formulas, with a "
+                             "Summary against the official bid items")
+    tw.add_argument("--ifc", action="append", required=True,
+                    help="input IFC file (repeat for several models)")
+    tw.add_argument("--map", required=True,
+                    help="takeoff_map YAML (measure, pay unit, item number "
+                         "per cost code)")
+    tw.add_argument("--official",
+                    help="JSON list of bid items ({item_number, quantity | "
+                         "estimated_quantity, description?}) for the "
+                         "Summary's Official qty column")
+    tw.add_argument("--out", required=True, help="output workbook (.xlsx)")
+
     sf = sub.add_parser("sfca",
                         help="classify an IFC's tessellated faces into "
                              "top/bottom/side (SFCA) + volume, per element")
@@ -2253,8 +2328,16 @@ def main(argv=None) -> int:
     sc.add_argument("--schedule", required=True, dest="schedule",
                     help="schedule file (GanttWarrior .gw.json; XER/MSPDI later)")
     sc.add_argument("--task-map", dest="task_map",
-                    help='JSON {"<task id|wbs>": ["<bid_item_code>", …]} — '
-                         "wins over --name-code-re")
+                    help='JSON {"<task id|wbs>": <entry>} — wins over '
+                         '--name-code-re. An entry is a list of bid item '
+                         'codes (["<code>", …]) or a dict: {"codes": [...], '
+                         '"name_re": "<regex>", "ifc_class": "IfcPile"} where '
+                         'name_re/ifc_class SELECT elements by Name/class (OR: '
+                         'any matcher assigns), and/or {"codes": [...], '
+                         '"filter_re": "<regex>", "filter_ifc_class": '
+                         '"IfcWall"} where the filters NARROW the code join '
+                         "(AND: an element must carry a code and match every "
+                         "filter)")
     sc.add_argument("--name-code-re", dest="name_code_re",
                     help="regex; first capture group per match extracts bid "
                          "item codes from each task name")
@@ -2283,7 +2366,13 @@ def main(argv=None) -> int:
     c5.add_argument("--ifc", required=True)
     c5.add_argument("--schedule", required=True, dest="schedule")
     c5.add_argument("--costs", required=True)
-    c5.add_argument("--task-map", dest="task_map", default=None)
+    c5.add_argument("--task-map", dest="task_map", default=None,
+                    help="JSON task map, same form as `schedule --task-map` "
+                         "(code lists, or dicts with \"codes\"). The cost "
+                         "split uses only each task's bid item codes and "
+                         "work-days: name_re/ifc_class selectors and "
+                         "filter_re/filter_ifc_class filters are accepted "
+                         "but have no effect here")
     c5.add_argument("--name-code-re", dest="name_code_re", default=None)
     c5.add_argument("--schedule-name", dest="schedule_name", default=None)
     c5.add_argument("--work-hours-per-day", dest="work_hours_per_day",
@@ -2332,6 +2421,13 @@ def main(argv=None) -> int:
                     help="also send unclassified, untyped elements and "
                          "beams/members/plates/courses/pavements, as generic "
                          "(their volume is stored as concrete_cy)")
+    me.add_argument("--takeoff", action="store_true",
+                    help="plan for upsert_modelled_elements(takeoff_id=...): "
+                         "a named project takeoff, so no pay_items (refuses "
+                         "--items, --schedule and --estimate-id)")
+    me.add_argument("--takeoff-id", dest="takeoff_id", type=int,
+                    help="BidSheet.ai takeoff id, carried into the payload "
+                         "(implies --takeoff)")
     me.add_argument("--out", help="output JSON (default: stdout)")
 
     em = sub.add_parser("estimate-model",
@@ -2723,6 +2819,8 @@ def main(argv=None) -> int:
             return _run_validate(args)
         if args.cmd == "takeoff":
             return _run_takeoff(args)
+        if args.cmd == "takeoff-workbook":
+            return _run_takeoff_workbook(args)
         if args.cmd == "sfca":
             return _run_sfca(args)
         if args.cmd == "schedule":

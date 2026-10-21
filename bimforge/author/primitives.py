@@ -849,6 +849,11 @@ class SectionPrism:
         self.voids = [list(v) for v in (voids or [])]
         self.ifc, self.layer = ifc, layer
 
+    #: `area_sf` is the CROSS-SECTION (volume = area_sf x length), not a plan
+    #: footprint; `Element.from_geometry` must not export it as the element's
+    #: area_sf, which the emitter reads as the footprint (#371).
+    area_is_section = True
+
     @property
     def area_sf(self) -> float:
         return poly_area(self.profile) - sum(poly_area(v) for v in self.voids)

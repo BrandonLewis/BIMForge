@@ -312,13 +312,16 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     # precompile task name regexes up front — a bad pattern fails loud
     import re
     name_res: dict[str, "re.Pattern"] = {}
+    filter_res: dict[str, "re.Pattern"] = {}
     for t in sched.tasks:
-        if t.match_name_re:
-            try:
-                name_res[t.id] = re.compile(t.match_name_re)
-            except re.error as exc:
-                raise ValueError(f"task {t.id}: invalid name_re "
-                                 f"{t.match_name_re!r}: {exc}")
+        for label, pattern, store in (("name_re", t.match_name_re, name_res),
+                                      ("filter_re", t.filter_name_re, filter_res)):
+            if pattern:
+                try:
+                    store[t.id] = re.compile(pattern)
+                except re.error as exc:
+                    raise ValueError(f"task {t.id}: invalid {label} "
+                                     f"{pattern!r}: {exc}")
 
     report = EmbedReport(schedule_name=name)
 
@@ -343,8 +346,15 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
         if t.global_id:
             _set_global_id(model, ent, t.global_id, t.id)
         ps = pset_api.add_pset(model, product=ent, name=TASK_PSET)
+        # the task map's selectors and filters ride along (#365), so
+        # schedule_read hands back the join rule, not only its result
+        selectors = {"MatchNameRe": t.match_name_re,
+                     "MatchIfcClass": t.match_ifc_class,
+                     "FilterNameRe": t.filter_name_re,
+                     "FilterIfcClass": t.filter_ifc_class}
         pset_api.edit_pset(model, pset=ps, properties={
-            "TaskId": t.id, **({"Wbs": t.wbs} if t.wbs else {})})
+            "TaskId": t.id, **({"Wbs": t.wbs} if t.wbs else {}),
+            **{k: v for k, v in selectors.items() if v}})
         task_by_id[t.id] = ent
         if t.wbs:
             task_by_wbs[t.wbs] = ent
@@ -400,7 +410,8 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
         if start and finish:
             report.tasks_timed += 1
 
-    # product assignment: code join OR name-regex OR IFC class (slice 5)
+    # product assignment: code join (narrowed by the task's filters, #365)
+    # OR name-regex OR IFC class (slice 5)
     assigned: set = set()
     missing_codes: set = set()
     missing_selectors: list = []
@@ -412,6 +423,22 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
                 els += hit
             else:
                 missing_codes.add(code)
+        # AND mode (#365): filter_re / filter_ifc_class narrow the code
+        # join — an element stays only when it matches every filter. The
+        # OR selectors below are added afterwards, unfiltered.
+        frx = filter_res.get(t.id)
+        fklass = t.filter_ifc_class or None
+        if (frx or fklass) and els:
+            kept = [el for el in els
+                    if (not frx or (el.Name and frx.search(el.Name)))
+                    and (not fklass or el.is_a(fklass))]
+            if not kept:
+                parts = ([f"filter_re={t.filter_name_re!r}"] if frx else []) + \
+                        ([f"filter_ifc_class={t.filter_ifc_class!r}"] if fklass else [])
+                missing_selectors.append(
+                    f"{t.name or t.id}: {', '.join(parts)} kept none of the "
+                    f"{len({e.id() for e in els})} code-joined element(s)")
+            els = kept
         rx = name_res.get(t.id)
         klass = t.match_ifc_class or None
         # a selector matches when EITHER the name regex OR the IFC class hits

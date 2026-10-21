@@ -486,3 +486,39 @@ def test_project_calendar_with_no_work_days_round_trips(sample_ifc):
     sched.work_weekdays = []
     path, _ = _embed(sample_ifc, sched, "nowork.4d.ifc")
     assert read_schedule(ifcopenshell.open(path)).work_weekdays == []
+
+
+def test_selectors_and_filters_round_trip(sample_ifc):
+    # #365: the task map's selectors (match_*) and AND filters (filter_*)
+    # read back from the Bimforge_Task property set
+    src = _full_schedule()
+    src.tasks[3].filter_name_re = r"^A-"
+    src.tasks[3].filter_ifc_class = "IfcSlab"
+    src.tasks[2].match_name_re = r"^C-"
+    src.tasks[2].match_ifc_class = "IfcBuildingElementProxy"
+    path, _ = _embed(sample_ifc, src, "filters.4d.ifc")
+    got = {t.id: t for t in read_schedule(ifcopenshell.open(path)).tasks}
+    assert got["40"].filter_name_re == r"^A-"
+    assert got["40"].filter_ifc_class == "IfcSlab"
+    assert got["30"].match_name_re == r"^C-"
+    assert got["30"].match_ifc_class == "IfcBuildingElementProxy"
+    assert got["20"].filter_name_re is None and got["20"].match_name_re is None
+
+
+@pytest.mark.parametrize("cfg,expect", [
+    # #369 review: the shares came from each element's own count while the
+    # row is capped — two tasks each took a full LS, unassigned went -1
+    ({"measure": "Count", "unit": "LS"}, {"P1": 0.5, "P2": 0.5}),
+    ({"measure": "Count", "unit": "EA", "count_as": 2}, {"P1": 1.0, "P2": 1.0}),
+])
+def test_lump_sum_and_count_as_rows_split_to_the_capped_quantity(
+        sample_ifc, cfg, expect):
+    path, _ = _staged(sample_ifc, "ls.4d.ifc")
+    tmap = _tmap()
+    tmap["codes"]["05 12 00"] = dict(cfg, item_number="12")
+    takeoff, _ = takeoff_by_task(path, tmap)
+    row = next(r for r in takeoff["rows"] if r["cost_code"] == "05 12 00")
+    assert row["tasks"] == expect
+    assert row["unassigned"] == 0.0
+    assert sum(row["tasks"].values()) + row["unassigned"] == \
+        pytest.approx(row["quantity"])

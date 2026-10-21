@@ -391,3 +391,92 @@ def test_rate_honours_a_quantity_s_own_unit():
     model = _conc_ifc(27.0, own_unit=("cubic foot", 0.3048 ** 3))
     report = estimate5d.embed_estimate(model, CONC_MAP, CONC_COSTS)
     assert report.extended_total == pytest.approx(100.0, abs=1e-6)
+
+
+def _signals_ifc(n=2, code="SIG", counts=None):
+    """`n` "Temp signal" proxies, each Count=1 (or `counts[i]`), under one
+    code (#366)."""
+    f = ifcopenshell.file(schema="IFC4")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    ifcopenshell.api.unit.assign_unit(f)
+    system = ifcopenshell.api.classification.add_classification(
+        f, classification="BidSchedule")
+    for i in range(n):
+        el = ifcopenshell.api.root.create_entity(
+            f, ifc_class="IfcBuildingElementProxy", name=f"Temp signal {i + 1}")
+        qto = ifcopenshell.api.pset.add_qto(f, product=el,
+                                            name="Qto_BaseQuantities")
+        ifcopenshell.api.pset.edit_qto(
+            f, qto=qto, properties={"Count": counts[i] if counts else 1})
+        ifcopenshell.api.classification.add_reference(
+            f, products=[el], identification=code, name="Temp signal",
+            classification=system)
+    return f
+
+
+def _child_totals(model):
+    """AppliedValue x quantity per child — what a consumer sums."""
+    (cs,) = model.by_type("IfcCostSchedule")
+    (parent,) = [ci for rel in (cs.Controls or [])
+                 for ci in rel.RelatedObjects if ci.is_a("IfcCostItem")]
+    return [k.CostValues[0].AppliedValue.wrappedValue
+            * k.CostQuantities[0].CountValue for k in _children(parent)]
+
+
+@pytest.mark.parametrize("cfg,price,expected,takeoff_qty", [
+    # #369 review: an LS item is 1 LS however many elements back it — the
+    # takeoff said 1 LS while the estimate extended 2 x $50,000
+    ({"measure": "Count", "unit": "LS"}, 50_000.0, 50_000.0, 1),
+    # `count_as` states the pay count outright: 2 signals modelled, 1 paid
+    ({"measure": "Count", "unit": "EA", "count_as": 1}, 900.0, 900.0, 1),
+])
+def test_lump_sum_and_count_as_price_the_capped_quantity(
+        tmp_path, cfg, price, expected, takeoff_qty):
+    from bimforge.bim.ifc_takeoff import build_takeoff
+    model = _signals_ifc()
+    tmap = {"codes": {"SIG": dict(cfg, item_number="0120")}}
+    costs = {"SIG": {"cost": expected, "unit_price": price,
+                     "unit": cfg["unit"]}}
+    path = tmp_path / "sig.ifc"
+    model.write(str(path))
+    report = estimate5d.embed_estimate(model, tmap, costs)
+    assert report.extended_total == pytest.approx(expected)
+    assert report.by_code["SIG"]["variance_pct"] == pytest.approx(0.0)
+    # the takeoff agrees on the pay quantity
+    takeoff, _ = build_takeoff(str(path), tmap)
+    assert takeoff["rows"][0]["quantity"] == takeoff_qty
+    # each element keeps a child; the children sum to the parent's price
+    totals = _child_totals(model)
+    assert len(totals) == 2
+    assert sum(totals) == pytest.approx(expected)
+    assert totals[0] == pytest.approx(totals[1])
+
+
+def test_weight_alias_prices_a_gross_weight_element():
+    # #363: a hand-written map says plain Weight (the reinforcing Qto's
+    # name); emit_ifc writes GrossWeight — the takeoff reads either, so
+    # must the estimate
+    model = _steel_gram_ifc()
+    tmap = {"codes": {"STL-FAB": {"measure": "Weight", "unit": "CWT",
+                                  "item_number": "0090"}}}
+    costs = {"STL-FAB": {"cost": 100.0, "unit_price": 50.0, "unit": "CWT"}}
+    report = estimate5d.embed_estimate(model, tmap, costs)
+    assert not report.elements_missing_measure
+    assert report.children == 1
+    assert report.extended_total == pytest.approx(50.0 * 96.0 * KG_TO_CWT,
+                                                  rel=1e-9)
+
+
+@pytest.mark.parametrize("cfg,price,pay", [
+    ({"measure": "Count", "unit": "LS"}, 50_000.0, 1.0),
+    ({"measure": "Count", "unit": "EA", "count_as": 3}, 900.0, 3.0),
+])
+def test_lump_sum_over_zero_counts_is_reported_not_priced(cfg, price, pay):
+    # elements whose Count sums to 0 leave nothing to spread a lump sum /
+    # count_as over: extended stays $0, but the report must say why
+    model = _signals_ifc(counts=[0, 0])
+    tmap = {"codes": {"SIG": dict(cfg, item_number="0120")}}
+    costs = {"SIG": {"cost": 1.0, "unit_price": price, "unit": cfg["unit"]}}
+    report = estimate5d.embed_estimate(model, tmap, costs)
+    assert report.zero_count_lump_sums == [("SIG", pay)]
+    assert report.extended_total == 0.0

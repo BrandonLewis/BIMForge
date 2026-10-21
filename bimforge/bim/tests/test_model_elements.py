@@ -169,6 +169,21 @@ def test_earthworks_cut_and_fill_map_to_excavation_and_backfill():
         "source": "Qto_EarthworksFillBaseQuantities.CompactedVolume"}
 
 
+def test_earthworks_element_typed_excavation_reads_as_excavation():
+    # #364: emit_ifc writes pay-item excavation as IfcEarthworksElement with
+    # ObjectType EXCAVATION (an unhosted IfcEarthworksCut is invalid IFC)
+    f = _file(schema="IFC4X3_ADD2")
+    el = _element(f, "IfcEarthworksElement", "Exc", "Qto_BaseQuantities",
+                  {"GrossVolume": 76.4554857984})
+    el.ObjectType = "EXCAVATION"
+    _element(f, "IfcEarthworksElement", "Other", "Qto_BaseQuantities",
+             {"GrossVolume": 1.0}, codes=["X"])
+    els = _by_name(plan_modelled_elements(f))
+    assert els["Exc"]["element_type"] == "excavation"
+    assert els["Exc"]["quantities"]["excavation_cy"]["value"] == 100.0
+    assert els["Other"]["element_type"] == "generic"
+
+
 def test_wall_subtype_reads_as_wall_and_pile_carries_length():
     f = _file()
     _element(f, "IfcWallStandardCase", "W-1", "Qto_WallBaseQuantities",
@@ -418,3 +433,72 @@ def test_cli_model_elements_reports_an_unreadable_ifc(tmp_path, capsys):
     assert cli.main(["model-elements", str(bad)]) == 1
     err = capsys.readouterr().err
     assert err.startswith("error: ") and "Traceback" not in err
+
+
+def _takeoff_file():
+    f = _file()
+    _element(f, "IfcFooting", "F-1", "Qto_FootingBaseQuantities",
+             {"NetVolume": 10.0}, codes=["51-CONC"])
+    _element(f, "IfcPile", "P-1", "Qto_PileBaseQuantities",
+             {"Length": 10.0, "NetVolume": 1.0}, codes=["FRN"])
+    _element(f, "IfcWall", "W-1", "Qto_WallBaseQuantities",
+             {"NetVolume": 5.0})
+    return f
+
+
+def test_takeoff_target_drops_pay_items_and_keeps_quantities():
+    f = _takeoff_file()
+    estimate = plan_modelled_elements(f, {"51-CONC": 701, "FRN": 11})
+    takeoff = plan_modelled_elements(f, takeoff=True)
+    assert any("pay_items" in e for e in estimate["elements"])
+    assert not any("pay_items" in e for e in takeoff["elements"])
+    strip = [{k: v for k, v in e.items() if k != "pay_items"}
+             for e in estimate["elements"]]
+    assert takeoff["elements"] == strip         # same selection, same values
+    assert takeoff["skipped"] == estimate["skipped"]
+
+
+def test_takeoff_target_refuses_items_and_schedule():
+    f = _takeoff_file()
+    with pytest.raises(ValueError, match="no pay items"):
+        plan_modelled_elements(f, {"51-CONC": 701}, takeoff=True)
+    with pytest.raises(ValueError, match="no pay items"):
+        plan_modelled_elements(f, takeoff=True, schedule="A")
+
+
+def test_cli_model_elements_takeoff_mode(tmp_path, capsys):
+    f = _takeoff_file()
+    ifc = tmp_path / "m.ifc"
+    f.write(str(ifc))
+    out = tmp_path / "upsert.json"
+    rc = cli.main(["model-elements", str(ifc), "--takeoff-id", "12",
+                   "--complete", "--out", str(out)])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "upsert_modelled_elements(takeoff_id=12" in err
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["takeoff_id"] == 12 and "estimate_id" not in payload
+    assert payload["complete"] is True
+    assert not any("pay_items" in e for e in payload["elements"])
+    expected = plan_modelled_elements(str(ifc))["elements"]
+    assert [e["quantities"] for e in payload["elements"]] == \
+        [e["quantities"] for e in expected]
+    # bare --takeoff: no id in the payload, the summary still names the tool
+    rc = cli.main(["model-elements", str(ifc), "--takeoff"])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "takeoff_id" not in json.loads(captured.out)
+    assert "upsert_modelled_elements(takeoff_id=..." in captured.err
+
+
+def test_cli_model_elements_takeoff_refuses_estimate_options(tmp_path, capsys):
+    f = _takeoff_file()
+    ifc = tmp_path / "m.ifc"
+    f.write(str(ifc))
+    items = tmp_path / "items.json"
+    items.write_text(json.dumps({"51-CONC": 9}), encoding="utf-8")
+    for extra in (["--items", str(items)], ["--estimate-id", "76"],
+                  ["--schedule", "A"]):
+        assert cli.main(["model-elements", str(ifc), "--takeoff",
+                         *extra]) == 1
+        assert capsys.readouterr().err.startswith("error: --takeoff")
