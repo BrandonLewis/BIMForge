@@ -57,6 +57,28 @@ MEASURE_DIM = {
     "GrossWeight": "mass", "NetWeight": "mass", "Weight": "mass",
 }
 
+# A declared measure reads these Qto names too, in order, when the element
+# lacks the one named (#363): emit_ifc writes GrossWeight, the reinforcing
+# Qto set names it plain Weight, and a map may say either.
+MEASURE_ALIASES = {
+    "Weight": ("GrossWeight", "NetWeight"),
+    "GrossWeight": ("Weight",),
+    "NetWeight": ("Weight",),
+}
+
+
+def resolve_measure(qtys: dict[str, float], name: str | None) -> Optional[str]:
+    """`name` if the element carries it, else the first alias it does carry."""
+    if not name:
+        return None
+    if name in qtys:
+        return name
+    for alias in MEASURE_ALIASES.get(name, ()):
+        if alias in qtys:
+            return alias
+    return None
+
+
 # factor to multiply the SI value (m2 / m3 / m / kg / each) by, per pay unit
 CONVERT = {
     "area":   {"M2": 1.0, "SM": 1.0, "SF": 10.76391041671, "SY": 1.19599004630},
@@ -306,14 +328,37 @@ def ifc_leg(ifc_path: str) -> dict:
 # Build the CanonicalTakeoff
 # ----------------------------------------------------------------------------
 def pick_measure(qtys: dict[str, float], preferred: Optional[str]) -> Optional[str]:
-    if preferred and preferred in qtys:
-        return preferred
+    found = resolve_measure(qtys, preferred)
+    if found is not None:
+        return found
     # natural preference order: count, then volume, then area, then length
     for name in ("Count", "GrossVolume", "NetVolume", "GrossArea", "NetArea",
                  "Length"):
         if name in qtys:
             return name
     return None
+
+
+def _check_count_as(code: str, entry: dict, where: str = "") -> None:
+    """`count_as:` (#366) must be a number — the quantity a Count row
+    reports in place of its element count (a lump sum, a pay count that
+    differs from the modelled one)."""
+    if "count_as" not in entry:
+        return
+    v = entry["count_as"]
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError(f"code {code}{where}: count_as must be a number, "
+                         f"got {v!r}")
+
+
+def count_quantity(entry: dict, unit: str, counted: float) -> float:
+    """The quantity a Count row reports (#366): `count_as` when the map
+    sets one, else 1 for a lump-sum (`LS`) unit, else the element count."""
+    if entry.get("count_as") is not None:
+        return float(entry["count_as"])
+    if str(unit).upper() == "LS":
+        return 1.0
+    return counted
 
 
 def measure_entries(code: str, cfg: dict):
@@ -336,6 +381,7 @@ def measure_entries(code: str, cfg: dict):
         if entry["measure"] not in MEASURE_DIM:
             raise ValueError(f"code {code}: unknown measure "
                              f"'{entry['measure']}' (choices: {sorted(MEASURE_DIM)})")
+        _check_count_as(code, entry, f": measures[{i}]")
     return entries
 
 
@@ -364,6 +410,7 @@ def normalize_map(tmap: dict):
         if m is not None and m not in MEASURE_DIM:
             raise ValueError(f"code {code}: unknown measure {m!r} "
                              f"(choices: {sorted(MEASURE_DIM)})")
+        _check_count_as(code, cfg or {})
     defaults = tmap.get("defaults", {}) or {}
     entries_by_code = {code: measure_entries(code, cfg or {})
                        for code, cfg in codes_cfg.items()}
@@ -463,10 +510,11 @@ def _build_takeoff(model, tmap: dict) -> tuple[dict, list[str]]:
                 a["elements"].append(element_entry(el, qtys, measure))
                 continue
             for i, entry in enumerate(entries):
-                measure = entry["measure"]
-                if measure not in qtys:
+                measure = resolve_measure(qtys, entry["measure"])
+                if measure is None:
                     warnings.append(f"{el.is_a()} '{el.Name}' (code {code}) "
-                                    f"lacks {measure} — skipped from that row")
+                                    f"lacks {entry['measure']} — skipped from "
+                                    f"that row")
                     continue
                 a = acc[(code, i)]
                 a["si_total"] += qtys[measure]
@@ -493,6 +541,14 @@ def _build_takeoff(model, tmap: dict) -> tuple[dict, list[str]]:
             warnings.append(f"code {code}: no map entry — used natural unit "
                             f"'{unit}' and no item number")
         qty = round(convert(a["si_total"], a["dim"], unit), 4)
+        if a["dim"] == "count":
+            # a lump sum is 1 LS however many elements back it, and
+            # `count_as` states the pay count outright (#366); the elements
+            # still list below, so the audit and the push see what backs it
+            qty = count_quantity(entry, unit, qty)
+        elif entry.get("count_as") is not None:
+            warnings.append(f"code {code}: count_as is set but the row sums "
+                            f"{a['measure']} ({a['dim']}), not Count — ignored")
         rows.append({
             "description": a["description"],
             "kind": "quantity",
@@ -575,11 +631,25 @@ def takeoff_by_task(ifc_path: str, tmap: dict, schedule=None
     for row in takeoff["rows"]:
         unit = row["unit"]
         split: dict[str, float] = defaultdict(float)
+        backing = 0.0          # what every element sums to, claimed or not
+        counted = False
         for el in row["elements"]:
+            if el["value_si"] is None:
+                continue
+            dim = MEASURE_DIM[el["measure"]]
+            counted = counted or dim == "count"
+            q = convert(el["value_si"], dim, unit)
+            backing += q
             owner = claim.get(el["global_id"])
-            if owner is not None and el["value_si"] is not None:
-                split[owner] += convert(el["value_si"],
-                                        MEASURE_DIM[el["measure"]], unit)
+            if owner is not None:
+                split[owner] += q
+        if counted and backing and row["quantity"] != backing:
+            # a lump-sum or `count_as` row (#366) reports a quantity other
+            # than its element count; each element backs its proportion of
+            # that quantity, so the shares scale to it — and an element no
+            # task claims keeps its proportion in `unassigned`
+            scale = row["quantity"] / backing
+            split = {tid: q * scale for tid, q in split.items()}
         row["tasks"], row["unassigned"] = _apportion(
             row["quantity"],
             sorted(split.items(), key=lambda kv: order[kv[0]]))

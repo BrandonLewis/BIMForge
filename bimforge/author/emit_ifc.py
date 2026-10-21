@@ -216,6 +216,12 @@ def base_quantities(el, ft_to_m: float):
     base = getattr(el.geometry, "base", None)
     if area is None and base:
         area = poly_area(base)
+    if area is None and q.get("length_ft") and q.get("width_ft"):
+        # A swept member (SectionPrism, tube) declares its pay length and
+        # section width but carries no footprint (#371): the footprint IS
+        # L x W, which keeps Length x Width == GrossArea and makes Height the
+        # volume-equivalent mean height of the run.
+        area = q["length_ft"] * q["width_ft"]
     if area:
         perim = q.get("perimeter_ft")
         if perim is None and base:
@@ -741,6 +747,36 @@ def _class_for_schema(schema: str, ifc_class: str, el_name: str) -> str:
         return FALLBACK_CLASS
 
 
+def _schema_has(schema: str, ifc_class: str) -> bool:
+    import ifcopenshell.ifcopenshell_wrapper as wrapper
+    try:
+        wrapper.schema_by_name(schema).declaration_by_name(ifc_class)
+        return True
+    except RuntimeError:
+        return False
+
+
+#: Pay-item excavation (#364). IfcEarthworksCut is an
+#: IfcFeatureElementSubtraction: the schema REQUIRES it to void a host
+#: through IfcRelVoidsElement (like an opening), and an Element's class is
+#: never hosted that way — the file failed `est-bim validate`. An unhosted
+#: cut is therefore written as IfcEarthworksElement with ObjectType
+#: EXCAVATION (the class carries no PredefinedType in IFC4X3_ADD2).
+EXCAVATION_CLASS = "IfcEarthworksElement"
+EXCAVATION_OBJECT_TYPE = "EXCAVATION"
+
+
+def _unhosted_cut_class(schema: str, ifc_class: str, el_name: str) -> tuple[str, str | None]:
+    """(class to emit, ObjectType) — the #364 rewrite for an unhosted cut."""
+    if ifc_class != "IfcEarthworksCut" or not _schema_has(schema, EXCAVATION_CLASS):
+        return ifc_class, None
+    print(f"note: {el_name!r} is an unhosted IfcEarthworksCut (a feature "
+          f"subtraction must void a host) — emitting {EXCAVATION_CLASS} "
+          f"with ObjectType={EXCAVATION_OBJECT_TYPE!r}, the pay-item "
+          "excavation class.", file=sys.stderr)
+    return EXCAVATION_CLASS, EXCAVATION_OBJECT_TYPE
+
+
 def _place_product(run, f, product, el, ft_to_m: float) -> None:
     """Put one product at its Element's model-frame x/y/z.
 
@@ -1262,12 +1298,19 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         by_name: dict[str, object] = {}
         hosts = {h for h, _op in m.openings}
         for el in m.elements:
-            ifc_class = _class_for_schema(ctx.schema, el.ifc_class, el.name)
+            # an Element is never the RelatedOpeningElement of an
+            # IfcRelVoidsElement (only m.openings are), so every
+            # IfcEarthworksCut Element is unhosted (#364)
+            wanted, object_type = _unhosted_cut_class(ctx.schema, el.ifc_class,
+                                                      el.name)
+            ifc_class = _class_for_schema(ctx.schema, wanted, el.name)
             product = run("root.create_entity", f, ifc_class=ifc_class,
                           predefined_type=el.predefined_type, name=el.name)
             product.GlobalId = ctx.guid(_gk(scope, el.guid_key))
-            if ifc_class != el.ifc_class:
-                product.ObjectType = el.ifc_class
+            if ifc_class != wanted:
+                product.ObjectType = wanted
+            elif object_type:
+                product.ObjectType = object_type
             # Issue #190: carry the estimator's per-element note (assumptions,
             # placement-honesty notes, sheet cites) onto IfcRoot.Description.
             # `or None` keeps an unset description a true null, not "".

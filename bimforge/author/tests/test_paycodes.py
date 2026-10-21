@@ -117,3 +117,47 @@ def test_takeoff_map_round_trips_through_normalize_map():
     assert set(codes_cfg) == {"F-CONC", "P-FRN", "P-DRV", "S-STL"}
     assert defaults == {"schedule": "Base Bid"}
     assert all(v is None for v in entries.values())      # singular form
+
+
+def test_measure_weight_resolves_to_the_gross_weight_qto_emit_ifc_writes(tmp_path):
+    """#363: a code declared `measure: Weight` (Qto_ReinforcingElementBaseQuantities'
+    name for it) must take off against the GrossWeight Qto emit_ifc writes —
+    the map normalises Weight to GrossWeight, and the takeoff treats the two
+    as aliases. A 2 cf plate at 490 pcf pays 980 LBS."""
+    import uuid
+    pytest.importorskip("ifcopenshell")
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.model import StructureModel
+    from bimforge.author.paycodes import apply
+    from bimforge.author.primitives import Prism
+    from bimforge.author.project import ProjectContext
+    from bimforge.bim.ifc_takeoff import build_takeoff
+
+    pc = from_dict({
+        "rules": [{"match": r"(?i)plate", "group": "steel"}],
+        "groups": {"steel": {"measure": "Weight", "density_pcf": 490.0}},
+        "codes": {"S-STL": {"group": "steel", "measure": "Weight", "unit": "LBS"}},
+    })
+    assert pc.codes["S-STL"]["measure"] == "GrossWeight"
+    assert pc.groups["steel"]["measure"] == "GrossWeight"
+    m = StructureModel("f", ProjectContext(name="f", epsg=2226, base_e=6_594_000.0,
+                                           base_n=1_943_000.0, base_h=200.0,
+                                           guid_ns=uuid.UUID(int=1)))
+    p = Prism("base plate", [(0, 0), (2, 0), (2, 1), (0, 1)], z_bot=0.0, z_top=1.0,
+              ifc="IfcPlate")
+    m.add(Element.from_geometry(p.name, p, ifc_class="IfcPlate"))
+    apply(m, pc)
+    out = tmp_path / "plate.ifc"
+    emit_ifc(m, str(out), pc)
+    tmap = pc.takeoff_map(m.codes_used())
+    assert tmap["codes"]["S-STL"]["measure"] == "GrossWeight"
+    takeoff, warnings = build_takeoff(str(out), tmap)
+    (row,) = takeoff["rows"]
+    assert row["unit"] == "LBS"
+    assert row["quantity"] == pytest.approx(980.0, rel=1e-6)
+    assert not warnings
+    # a hand-written map that still says `Weight` reads the same Qto
+    takeoff2, warnings2 = build_takeoff(
+        str(out), {"codes": {"S-STL": {"measure": "Weight", "unit": "LBS"}}})
+    assert takeoff2["rows"][0]["quantity"] == pytest.approx(980.0, rel=1e-6)
+    assert not warnings2

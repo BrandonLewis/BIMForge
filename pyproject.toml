@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bimforge"
-version = "0.1.89"
+version = "0.1.94"
 description = "Standalone CAD/BIM toolkit: DXF -> IFC -> takeoff pipeline, sheet production, org-neutral CAD engine."
 readme = "README.md"
 license = "Apache-2.0"

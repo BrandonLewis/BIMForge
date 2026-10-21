@@ -44,6 +44,10 @@ KNOWN_MEASURES = ("GrossVolume", "NetVolume", "GrossArea", "NetArea",
                   "Length", "Perimeter", "Width", "Height", "Count",
                   "GrossWeight", "NetWeight", "Weight")
 WEIGHT_MEASURES = ("GrossWeight", "NetWeight", "Weight")
+#: Spellings normalised at load (#363): emit_ifc writes the weight Qto as
+#: GrossWeight, so a map saying plain `Weight` (the reinforcing-Qto name)
+#: must come out as GrossWeight or the takeoff never finds it.
+MEASURE_ALIASES = {"Weight": "GrossWeight"}
 
 
 @dataclass(frozen=True)
@@ -169,6 +173,8 @@ def from_dict(data: dict) -> PayCodes:
         msgs.append("no codes")
     for name, g in groups.items():
         m = (g or {}).get("measure")
+        if m in MEASURE_ALIASES:
+            m = g["measure"] = MEASURE_ALIASES[m]
         if m and m not in KNOWN_MEASURES:
             msgs.append(f"group {name}: unknown measure {m!r}")
     for code, cfg in codes.items():
@@ -178,6 +184,8 @@ def from_dict(data: dict) -> PayCodes:
         if cfg.get("group") not in groups:
             msgs.append(f"code {code}: group {cfg.get('group')!r} not in groups")
         m = cfg.get("measure")
+        if m in MEASURE_ALIASES:
+            m = cfg["measure"] = MEASURE_ALIASES[m]
         if m not in KNOWN_MEASURES:
             msgs.append(f"code {code}: unknown measure {m!r} "
                         f"(choices: {sorted(KNOWN_MEASURES)})")

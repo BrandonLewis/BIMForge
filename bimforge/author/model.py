@@ -86,7 +86,14 @@ class Element:
     def from_geometry(cls, name: str, geometry: Any, **kw) -> "Element":
         """Build an Element whose quantities delegate to the geometry object."""
         q = dict(kw.pop("quantities", {}))
+        # A swept member's `area_sf` is its cross-section (SectionPrism, #371):
+        # exporting it as the element's area_sf makes the emitter divide it by
+        # the pay length and write a 0.03 ft Width and a Height equal to the
+        # length. Leave it out; the emitter derives the footprint from L x W.
+        section = bool(getattr(geometry, "area_is_section", False))
         for attr, key in _GEOM_QTY_ATTRS.items():
+            if key == "area_sf" and section:
+                continue
             if key not in q and hasattr(geometry, attr):
                 q[key] = float(getattr(geometry, attr))
         return cls(name=name, geometry=geometry, quantities=q, **kw)

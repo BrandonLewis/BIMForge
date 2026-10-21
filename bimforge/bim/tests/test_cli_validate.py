@@ -55,3 +55,36 @@ def test_unparseable_file_exits_one(tmp_path, capsys):
     assert cli.main(["validate", str(bad)]) == 1
     err = capsys.readouterr().err
     assert "error" in err
+
+
+def test_unhosted_earthworks_cut_fails_with_a_hint(tmp_path, capsys):
+    # #364: an IfcEarthworksCut that voids no host is invalid IFC; say so in
+    # plain words and name the class pay-item excavation should carry
+    import ifcopenshell
+    import ifcopenshell.api.root
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcEarthworksCut",
+                                        name="Cut 1")
+    path = tmp_path / "cut.ifc"
+    f.write(str(path))
+    assert cli.main(["validate", str(path)]) == 1
+    err = capsys.readouterr().err
+    assert "Cut 1" in err
+    assert "IfcRelVoidsElement" in err and "IfcEarthworksElement" in err
+
+
+def test_ifc2x3_file_validates_without_crashing(tmp_path, capsys):
+    # #369 review: the #364 cut check called by_type("IfcEarthworksCut") on
+    # every schema but IFC4, and IFC2X3 has no such entity — RuntimeError.
+    # Guard on the schema's own declarations, not on its name.
+    import ifcopenshell
+    # empty: the api's create_entity and the raw IfcProject both demand an
+    # owner history on 2X3, and the crash needs no content to reproduce
+    f = ifcopenshell.file(schema="IFC2X3")
+    path = tmp_path / "old.ifc"
+    f.write(str(path))
+    rc = cli.main(["validate", str(path)])
+    out = capsys.readouterr().out
+    assert "TOTAL" in out and "schema issues:" in out
+    assert rc in (0, 1)

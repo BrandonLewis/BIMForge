@@ -88,6 +88,12 @@ class ScheduleTask:
     # builders, Revit/Tekla exports). Any of the three matchers assigns.
     match_name_re: str | None = None
     match_ifc_class: str | None = None
+    # #365 — AND mode: when set, these FILTER the code-join set (an element
+    # must carry one of bid_item_codes AND match every filter) instead of
+    # adding to it the way match_name_re / match_ifc_class do. Serialized
+    # only when set, so earlier canonical JSON round-trips unchanged.
+    filter_name_re: str | None = None
+    filter_ifc_class: str | None = None
     # issue #335 — what a 4D IFC carries beyond dates and links. All
     # optional and serialized only when set, so earlier canonical JSON
     # round-trips unchanged.
@@ -117,7 +123,7 @@ class CanonicalSchedule:
         for t in d["tasks"]:
             for key in ("resources", "activity_codes", "external_dependencies",
                         "global_id", "task_type", "bid_items", "notes",
-                        "calendar"):
+                        "calendar", "filter_name_re", "filter_ifc_class"):
                 if not t[key]:
                     del t[key]
         if not d["calendars"]:
@@ -279,6 +285,10 @@ def resolve_bid_item_codes(sched: CanonicalSchedule, *,
     dict of matchers for code-less models (slice 5):
     `{"codes": [...], "name_re": "^RW\\d", "ifc_class": "IfcPile"}` — any key
     optional; the dict form sets `match_name_re` / `match_ifc_class` too.
+    `name_re` / `ifc_class` OR into the join (any matcher assigns). The dict
+    may instead carry `filter_re` and/or `filter_ifc_class` (#365), which
+    AND against the code join: an element must carry one of `codes` and
+    match every filter. A filter with no `codes` to narrow is refused.
 
     Summary (WBS-parent) tasks are reported separately, never "unmapped" —
     work maps at the leaves. A leaf is "mapped" if it has any matcher (code,
@@ -294,12 +304,22 @@ def resolve_bid_item_codes(sched: CanonicalSchedule, *,
             t.bid_item_codes = list(explicit.get("codes") or [])
             t.match_name_re = explicit.get("name_re")
             t.match_ifc_class = explicit.get("ifc_class")
+            t.filter_name_re = explicit.get("filter_re")
+            t.filter_ifc_class = explicit.get("filter_ifc_class")
+            if (t.filter_name_re or t.filter_ifc_class) and not t.bid_item_codes:
+                raise ValueError(
+                    f"task {t.id}: filter_re/filter_ifc_class narrow the "
+                    f"code join, so the entry needs \"codes\" to narrow "
+                    f"(use name_re/ifc_class to SELECT elements instead)")
         elif explicit is not None:
             # explicit map REPLACES anything present: a bare code list also
-            # clears any pre-existing name/class selectors (precedence above).
+            # clears any pre-existing name/class selectors and filters
+            # (precedence above).
             t.bid_item_codes = list(explicit)
             t.match_name_re = None
             t.match_ifc_class = None
+            t.filter_name_re = None
+            t.filter_ifc_class = None
         elif pattern:
             found = [m.group(1) if m.groups() else m.group(0)
                      for m in pattern.finditer(t.name)]

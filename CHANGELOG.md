@@ -2,6 +2,42 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
+## 0.1.94 — 2026-10-20
+
+(0.1.90 through 0.1.93 were internal builds and were not published.)
+
+### Added
+
+- **`est-bim takeoff-workbook`.** A verifiable per-element takeoff workbook:
+  one row per element per pay code with Qty, L, W, H, CY, forming SF, model vs
+  L×W×H volume and its delta, surface areas, weight and pay quantity, plus a
+  Summary by cost code against official quantities (`--official`), a Legend and
+  the SHA-256 of each source IFC. Output is byte-deterministic (the
+  `docProps` modified date is pinned too, which openpyxl's save overwrites).
+- **`model-elements --takeoff` / `--takeoff-id N`** plans an element payload for
+  a named takeoff (no pay items attached).
+- **AND-mode filters on the 4D task map.** An entry may carry `filter_re` and/or
+  `filter_ifc_class` to narrow its code join, so one bid item spanning several
+  stages can be split across tasks.
+- **`count_as: <number>`** on a takeoff-map entry overrides the element count.
+
+### Fixed
+
+- A Count row paid LS takes off as 1 (every contributing element is still
+  listed), and `estimate5d` prices LS / `count_as` rows at that capped quantity
+  instead of rate × element count. The per-task split of such rows sums to the
+  row.
+- A map saying plain `Weight` resolves to the `GrossWeight` Qto that the emitter
+  writes.
+- An unhosted `IfcEarthworksCut` is written as `IfcEarthworksElement`, so it
+  validates.
+- `est-bim validate` no longer crashes on IFC2X3 files.
+- A `SectionPrism`'s cross-section area is no longer exported as its plan
+  area; the footprint comes from length × width.
+- `cost5d --task-map` help says selectors and filters have no effect there.
+- CI's pip-audit runs on the 3.12 leg: pillow 13's advisory fixes need Python
+  3.11+.
+
 ## 0.1.89 — 2026-10-17
 
 (0.1.88 was an internal build and was not published.)

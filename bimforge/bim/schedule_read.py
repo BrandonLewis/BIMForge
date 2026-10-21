@@ -313,8 +313,10 @@ def read_schedule(model, name: str | None = None):
     dependencies from IfcRelSequence (a predecessor outside the schedule
     becomes an external dependency). A model written before #335, or by
     another tool, reads with the newer fields empty — never an error.
-    Element links are `task_elements`; bid_item_codes and the match
-    selectors are embed-time joins and stay empty.
+    Element links are `task_elements`; bid_item_codes are an embed-time
+    join and stay empty. The task map's selectors and filters
+    (match_name_re / match_ifc_class / filter_name_re / filter_ifc_class)
+    read back from Bimforge_Task (#365).
     """
     from bimforge.bim.schedule_model import (
         Calendar, CanonicalSchedule, Dependency, ScheduleTask)
@@ -358,8 +360,13 @@ def read_schedule(model, name: str | None = None):
             if cal_key not in calendars:
                 calendars[cal_key] = Calendar(**_read_calendar(cal))
 
+        ps = _pset(task, *_TASK_PSETS) or {}
         tasks.append(ScheduleTask(
             id=ids[task.id()], name=task.Name or "", wbs=wbs_of[task.id()],
+            match_name_re=ps.get("MatchNameRe") or None,
+            match_ifc_class=ps.get("MatchIfcClass") or None,
+            filter_name_re=ps.get("FilterNameRe") or None,
+            filter_ifc_class=ps.get("FilterIfcClass") or None,
             start=_day(getattr(tt, "ScheduleStart", None)) if tt else None,
             finish=_day(getattr(tt, "ScheduleFinish", None)) if tt else None,
             duration_days=duration,

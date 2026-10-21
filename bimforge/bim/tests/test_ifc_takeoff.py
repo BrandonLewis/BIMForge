@@ -259,6 +259,21 @@ def test_plain_weight_is_a_mass_measure():
     assert MEASURE_DIM["Weight"] == "mass"
 
 
+def test_weight_is_an_alias_of_gross_weight_in_the_takeoff(tmp_path):
+    # #363: emit_ifc writes GrossWeight; a map (or paycodes) saying plain
+    # `Weight` must read it, on both the singular and the `measures:` path
+    path = _steel_gram_ifc(tmp_path / "steel.ifc")
+    for tmap in ({"codes": {"STL-FAB": {"measure": "Weight", "unit": "LBS"}}},
+                 {"codes": {"STL-FAB": {"measures": [
+                     {"measure": "Weight", "unit": "LBS"}]}}}):
+        takeoff, warnings = build_takeoff(str(path), tmap)
+        (row,) = takeoff["rows"]
+        assert row["unit"] == "LBS"
+        assert row["quantity"] == pytest.approx(96.0 * KG_TO_LB, rel=1e-6)
+        assert row["elements"][0]["measure"] == "GrossWeight"
+        assert not warnings
+
+
 def test_unknown_singular_measure_is_a_loud_error(tmp_path):
     # issue #108's second defect: the singular path crashed with a bare
     # KeyError (or silently fell back) where the measures: path had a real
@@ -332,3 +347,69 @@ def test_takeoff_honours_a_quantity_s_own_unit():
             for q in rel.RelatingPropertyDefinition.Quantities]
     q.Unit = _exact_unit(f, "cubic foot", 0.3048 ** 3)
     assert _takeoff_qty(f) == pytest.approx(1.0, abs=1e-6)
+
+
+def _three_counted_ifc(path, code="MOB"):
+    """Three proxies each carrying Count=1 under one code — a lump-sum
+    item's contributing elements (#366)."""
+    f = ifcopenshell.file(schema="IFC4")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    ifcopenshell.api.unit.assign_unit(f)
+    system = ifcopenshell.api.classification.add_classification(
+        f, classification="BidSchedule")
+    for i in range(3):
+        el = ifcopenshell.api.root.create_entity(
+            f, ifc_class="IfcBuildingElementProxy", name=f"Sign-{i + 1}")
+        qto = ifcopenshell.api.pset.add_qto(f, product=el, name="Qto_BaseQuantities")
+        ifcopenshell.api.pset.edit_qto(f, qto=qto, properties={"Count": 1})
+        ifcopenshell.api.classification.add_reference(
+            f, products=[el], identification=code, name=code, classification=system)
+    f.write(str(path))
+    return path
+
+
+def test_count_row_paid_lump_sum_reports_one_and_keeps_its_elements(tmp_path):
+    # #366: an LS item is 1 LS however many elements contribute to it; the
+    # elements still list so the audit and the push see what backs it
+    path = _three_counted_ifc(tmp_path / "ls.ifc")
+    tmap = {"codes": {"MOB": {"measure": "Count", "unit": "LS"}}}
+    takeoff, warnings = build_takeoff(str(path), tmap)
+    (row,) = takeoff["rows"]
+    assert row["unit"] == "LS"
+    assert row["quantity"] == 1
+    assert [e["name"] for e in row["elements"]] == ["Sign-1", "Sign-2", "Sign-3"]
+    assert not warnings
+    # the same elements still count 3 EA under an each-paid code
+    tmap = {"codes": {"MOB": {"measure": "Count", "unit": "EA"}}}
+    takeoff, _ = build_takeoff(str(path), tmap)
+    assert takeoff["rows"][0]["quantity"] == 3
+
+
+def test_count_as_overrides_the_count_of_any_count_code(tmp_path):
+    path = _three_counted_ifc(tmp_path / "ca.ifc")
+    # singular path: 3 elements but the item pays 2 EA (one is a spare)
+    tmap = {"codes": {"MOB": {"measure": "Count", "unit": "EA", "count_as": 2}}}
+    takeoff, warnings = build_takeoff(str(path), tmap)
+    (row,) = takeoff["rows"]
+    assert row["quantity"] == 2 and len(row["elements"]) == 3
+    assert not warnings
+    # an LS row may still be told a number other than 1
+    tmap = {"codes": {"MOB": {"measure": "Count", "unit": "LS", "count_as": 0.5}}}
+    takeoff, _ = build_takeoff(str(path), tmap)
+    assert takeoff["rows"][0]["quantity"] == 0.5
+    # the measures: (plural) path honours a per-entry count_as
+    tmap = {"codes": {"MOB": {"measures": [
+        {"measure": "Count", "unit": "EA", "count_as": 4},
+        {"measure": "Count", "unit": "LS"}]}}}
+    takeoff, _ = build_takeoff(str(path), tmap)
+    assert [r["quantity"] for r in takeoff["rows"]] == [4, 1]
+
+
+def test_count_as_must_be_a_number(tmp_path):
+    from bimforge.bim.ifc_takeoff import normalize_map
+    with pytest.raises(ValueError, match="count_as"):
+        normalize_map({"codes": {"MOB": {"measure": "Count", "unit": "EA",
+                                         "count_as": "two"}}})
+    with pytest.raises(ValueError, match="count_as"):
+        normalize_map({"codes": {"MOB": {"measures": [
+            {"measure": "Count", "unit": "EA", "count_as": True}]}}})

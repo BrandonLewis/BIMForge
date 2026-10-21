@@ -372,6 +372,32 @@ def test_base_quantities_declared_length_keeps_lxw_equals_area():
     assert q["Length"] * q["Width"] == pytest.approx(q["GrossArea"])
 
 
+def test_section_prism_section_area_is_not_the_footprint():
+    """SectionPrism.area_sf is the CROSS-SECTION (volume = area x length). A
+    1 x 1 ft beam 36 ft long used to emit Width 0.03 ft and Height 36 ft,
+    because from_geometry exported the section as area_sf and the emitter read
+    it as the plan footprint, dividing it by the declared pay length (#371).
+    The section must stay out of the element's area_sf, and with L and W
+    declared the footprint is L x W, keeping both invariants."""
+    from bimforge.author.emit_ifc import base_quantities
+    from bimforge.author.primitives import SectionPrism
+    beam = SectionPrism("beam", [(-0.5, 0.0), (0.5, 0.0), (0.5, 1.0), (-0.5, 1.0)], 36.0)
+    el = Element.from_geometry("beam", beam, ifc_class="IfcBeam",
+                               quantities={"length_ft": 36.0, "width_ft": 1.0, "height_ft": 1.0})
+    assert "area_sf" not in el.quantities
+    assert el.quantities["volume_cf"] == pytest.approx(36.0)
+    q = {name: val for _entity, name, val in base_quantities(el, ft_to_m=1.0)}
+    assert q["Length"] == pytest.approx(36.0)
+    assert q["Width"] == pytest.approx(1.0)
+    assert q["Height"] == pytest.approx(1.0)
+    assert q["GrossArea"] == pytest.approx(36.0)          # the footprint, L x W
+    assert q["Height"] * q["GrossArea"] == pytest.approx(q["GrossVolume"])
+    # an explicit footprint still wins over the derived one
+    el2 = Element.from_geometry("beam", beam, ifc_class="IfcBeam",
+                                quantities={"length_ft": 36.0, "width_ft": 1.0, "area_sf": 36.0})
+    assert el2.quantities["area_sf"] == 36.0
+
+
 def test_emit_ifc_prism_per_vertex_bottom_meshes_the_wedge(tmp_path):
     """A Prism carrying a per-vertex `bottom_z` (sloping floor) has no uniform
     sweep depth, so emit_ifc must build the triangulated B-rep — the same path
@@ -1388,3 +1414,43 @@ def test_emit_ifc_writes_opening_description_onto_the_void(tmp_path):
     f = ifcopenshell.open(str(out))
     op = f.by_type("IfcOpeningElement")[0]
     assert op.Description == "24in RCP per sheet D-3"
+
+
+def _excavation_model():
+    ctx = ProjectContext(name="exc", epsg=2226, base_e=6_594_000.0,
+                         base_n=1_943_000.0, base_h=200.0,
+                         guid_ns=uuid.UUID(int=7))
+    m = StructureModel("exc", ctx)
+    cut = Prism("structure excavation", [(0, 0), (10, 0), (10, 10), (0, 10)],
+                z_bot=-5.0, z_top=0.0, ifc="IfcEarthworksCut")
+    m.add(Element.from_geometry(cut.name, cut, ifc_class="IfcEarthworksCut",
+                                classifications=["EXC"]))
+    return m
+
+
+def test_unhosted_earthworks_cut_is_emitted_as_earthworks_element(tmp_path, capsys):
+    """#364: IfcEarthworksCut is an IfcFeatureElementSubtraction — it MUST void
+    a host through IfcRelVoidsElement, and emit_ifc never hosts an Element's
+    class that way, so the file failed schema validation. Pay-item excavation
+    is written as IfcEarthworksElement (ObjectType EXCAVATION) with a note."""
+    import ifcopenshell
+    import ifcopenshell.validate as V
+    from bimforge.bim.ifc_takeoff import build_takeoff
+    out = tmp_path / "exc.ifc"
+    emit_ifc(_excavation_model(), str(out))
+    err = capsys.readouterr().err
+    assert "IfcEarthworksCut" in err and "IfcEarthworksElement" in err
+    f = ifcopenshell.open(str(out))
+    assert not f.by_type("IfcEarthworksCut")
+    (el,) = f.by_type("IfcEarthworksElement")
+    assert el.is_a() == "IfcEarthworksElement"
+    assert el.ObjectType == "EXCAVATION"
+    logger = V.json_logger()
+    V.validate(f, logger)
+    assert list(logger.statements) == []
+    # the pay quantity is unchanged: 10 x 10 x 5 ft = 500 cf
+    takeoff, warnings = build_takeoff(
+        str(out), {"codes": {"EXC": {"measure": "GrossVolume", "unit": "CY"}}})
+    (row,) = takeoff["rows"]
+    assert row["quantity"] == pytest.approx(500.0 / 27.0, rel=1e-4)
+    assert not warnings

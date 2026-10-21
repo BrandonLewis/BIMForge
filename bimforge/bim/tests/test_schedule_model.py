@@ -227,3 +227,43 @@ def test_estimating_tools_reexports_the_same_model():
     for name in ("CanonicalSchedule", "ScheduleTask", "Dependency",
                  "Calendar", "resolve_bid_item_codes", "MapReport"):
         assert getattr(model, name) is getattr(schedule_model, name)
+
+
+def test_resolve_dict_task_map_sets_filters_and_bare_list_clears_them():
+    # #365: filter_re / filter_ifc_class narrow the code join (AND); they
+    # ride ScheduleTask.filter_name_re / filter_ifc_class
+    sched = _sched()
+    resolve_bid_item_codes(sched, task_map={
+        "t2": {"codes": ["190101"], "filter_re": r"^RW\d", "filter_ifc_class": "IfcWall"},
+        "t3": {"codes": ["490505"], "filter_ifc_class": "IfcPile"},
+    })
+    by_id = {t.id: t for t in sched.tasks}
+    assert by_id["t2"].bid_item_codes == ["190101"]
+    assert by_id["t2"].filter_name_re == r"^RW\d"
+    assert by_id["t2"].filter_ifc_class == "IfcWall"
+    assert by_id["t2"].match_name_re is None and by_id["t2"].match_ifc_class is None
+    assert by_id["t3"].filter_name_re is None
+    assert by_id["t3"].filter_ifc_class == "IfcPile"
+    resolve_bid_item_codes(sched, task_map={"t2": ["190101"]})
+    assert by_id["t2"].filter_name_re is None and by_id["t2"].filter_ifc_class is None
+
+
+def test_resolve_filter_without_codes_is_a_loud_error():
+    # a filter narrows the code join; with nothing to narrow it is a typo
+    sched = _sched()
+    with pytest.raises(ValueError, match="filter"):
+        resolve_bid_item_codes(sched, task_map={"t2": {"filter_re": "^RW"}})
+
+
+def test_filters_serialize_only_when_set_and_round_trip():
+    sched = _sched()
+    d = sched.to_dict()
+    for t in d["tasks"]:
+        assert "filter_name_re" not in t and "filter_ifc_class" not in t
+    sched.tasks[1].filter_name_re = r"^RW\d"
+    sched.tasks[1].filter_ifc_class = "IfcWall"
+    again = CanonicalSchedule.from_json(sched.to_json())
+    assert again == sched
+    assert again.tasks[1].filter_name_re == r"^RW\d"
+    assert again.tasks[1].filter_ifc_class == "IfcWall"
+    assert again.tasks[0].filter_name_re is None
