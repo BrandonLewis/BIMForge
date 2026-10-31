@@ -18,6 +18,9 @@ produce control, layout and structure sheets.
   org-neutral DXF/KML/geo engine, styled by pluggable **style packs**.
 - **`bimforge.terrain`** — terrain grids, watertight terrain solids and
   excavation carves from point clouds and contours.
+- **`bimforge.blender`** — Blender add-ons. *Alignment Section* puts a station
+  slider in the 3D view sidebar that cuts a live cross-section along an IFC4X3
+  `IfcAlignment` (see below).
 
 ## Install
 
@@ -33,6 +36,24 @@ Two CLIs ship with the package:
 est-bim --help      # dxf2bim, ifc2dxf, takeoff, schedule, cost5d, kml, calibrate, measure, build, ...
 est-sheets --help   # control / layout / structure sheet production
 ```
+
+## Blender: alignment section slider
+
+```bash
+python -m bimforge.blender        # writes bimforge_alignment_section.zip
+```
+
+In Blender 4.2+ install the zip from *Edit > Preferences > Add-ons > Install
+from Disk*. It needs ifcopenshell inside Blender, which Bonsai provides. Then
+go to *3D View > Sidebar (N) > Section*, pick **Bonsai** (the IFC Bonsai has
+open) or **File**, and press **Load Alignments**. Drag **Station** to slide the
+section. You can also step by a fixed interval or type a station and press
+**Go**. **View Section** looks through an orthographic camera whose near clip
+sits on the cut. Every mesh is cut at the plane, and the cut is filled into
+*Section Cut*. The panel reports station, grade elevation, grade and bearing.
+With **Follow timeline** on, frames sweep the whole alignment, so rendering
+the animation makes a fly-through. Stations read in feet when the project is
+in feet or its map conversion is to a feet grid.
 
 ## Style packs
 

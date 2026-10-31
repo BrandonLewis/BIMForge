@@ -2,6 +2,25 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
+## Unreleased
+
+### Added
+
+- **Blender alignment-section add-on (`bimforge.blender`).** A station slider
+  in the 3D view sidebar (N) that slides a cross-section along an IFC4X3
+  `IfcAlignment`. At each station it stands a vertical plane square to the
+  alignment in plan and aims an orthographic camera down the alignment, with
+  its near clip on the plane. It cuts and fills every mesh at the plane and
+  reports station, grade elevation, grade and bearing. It also has step and
+  go-to-station controls, can look ahead or back, and can follow the timeline
+  for fly-throughs. It reads Bonsai's open IFC or a file on disk.
+  `python -m bimforge.blender` builds the installable zip.
+- **`bimforge.bim.alignment_station`.** Evaluates an `IfcAlignment` at a
+  distance or a station: point, 3-D and plan tangent, grade, azimuth and true
+  elevation (through `IfcMapConversion`). It uses ifcopenshell's curve
+  kernel, so every segment type is exact. Polyline alignments are
+  interpolated. Station equations are not applied yet.
+
 ## 0.1.94 — 2026-10-20
 
 (0.1.90 through 0.1.93 were internal builds and were not published.)
