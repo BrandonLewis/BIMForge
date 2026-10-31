@@ -271,6 +271,55 @@ class AlignmentStationer:
         off = (x - fr.point[0]) * fr.left[0] + (y - fr.point[1]) * fr.left[1]
         return d, off
 
+    def locate_many(self, xy, step: float | None = None):
+        """(distances, offsets_left) arrays for many plan points at once
+        (numpy), for bulk work such as stationing every vertex of a model
+        for GIS; `locate` refines one point exactly.
+
+        The alignment is drawn every `step` metres (default 0.5 m, at most
+        4000 pieces) with its square-to-the-line normals at each node. A
+        point takes the piece it projects nearest to, and its position
+        along that piece comes from where it falls between the piece's two
+        NORMAL lines - exact on a tangent and on a circular curve, where
+        the normals meet at the centre - not from projecting onto the chord,
+        which is off by offset x half the chord angle. Points past an end
+        clamp to it."""
+        import numpy as np
+        step = step or max(min(0.5, self.length / 200.0), self.length / 4000.0)
+        n = max(1, int(math.ceil(self.length / step)))
+        ds = np.linspace(0.0, self.length, n + 1)
+        frames = [self.frame(float(d)) for d in ds]
+        P = np.array([fr.point[:2] for fr in frames])
+        T = np.array([fr.plan_tangent[:2] for fr in frames])
+        A, B = P[:-1], P[1:]
+        AB = B - A
+        L2 = (AB ** 2).sum(1)
+        L2[L2 == 0] = 1e-30
+        pts = np.asarray(xy, dtype=float).reshape(-1, 2)
+        dist = np.empty(len(pts))
+        off = np.empty(len(pts))
+        for i in range(0, len(pts), 256):
+            q = pts[i:i + 256, None, :]                       # (m, 1, 2)
+            t = np.clip(((q - A) * AB).sum(-1) / L2, 0.0, 1.0)
+            foot = A + t[..., None] * AB
+            j = ((q - foot) ** 2).sum(-1).argmin(1)
+            qq = q[:, 0, :]
+            # signed distances of q along the tangent from each end's normal
+            # line: zero on that normal; t is where it crosses between them
+            sa = ((qq - A[j]) * T[j]).sum(1)
+            sb = ((qq - B[j]) * T[j + 1]).sum(1)
+            den = sa - sb
+            tt = np.where(np.abs(den) > 1e-15, sa / np.where(den == 0, 1, den),
+                          0.0)
+            tt = np.clip(tt, 0.0, 1.0)
+            dist[i:i + 256] = ds[j] + tt * (ds[j + 1] - ds[j])
+            tan = (1 - tt)[:, None] * T[j] + tt[:, None] * T[j + 1]
+            tan /= np.linalg.norm(tan, axis=1)[:, None]
+            base = A[j] + tt[:, None] * AB[j]
+            rel = qq - base
+            off[i:i + 256] = tan[:, 0] * rel[:, 1] - tan[:, 1] * rel[:, 0]
+        return dist, off
+
     def _kernel(self, d):
         m = self._eval.evaluate(d)
         return ((m[0][3], m[1][3], m[2][3]), (m[0][0], m[1][0], m[2][0]))

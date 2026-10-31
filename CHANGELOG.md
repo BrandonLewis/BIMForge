@@ -34,6 +34,17 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `solid_bodies`. A spec sets it with `gate: {solid_bodies: warn|error|off}`
   and declares bodies by name with `bodies: [{match, body}]`
   (`gate.configure_solid_bodies`, used by `est-bim build`).
+- **QGIS: 4D dates and stations on every GIS feature (`ifc2gis`).** When
+  the IFC carries a 4D schedule, each feature gets `appear_date` and
+  `vanish_date` as GeoPackage DATE columns (NULL = open-ended). QGIS's
+  Temporal Controller then plays the staging ("Separate Fields for Start
+  and End Date"). When it carries an IfcAlignment, each feature gets
+  `alignment`, `sta_from`/`sta_to` (numeric, project station unit),
+  `sta_from_txt`/`sta_to_txt` (`547+58.20`) and `off_from`/`off_to`
+  (+ = Lt), so a layer filters by station like a plan sheet.
+  `AlignmentStationer.locate_many` stations many points at once, exact on
+  tangents and circular curves: it interpolates between the normal lines,
+  not the chord.
 - **True arcs.** Circles reach IFC and STEP as circles, not polygons, so
   Revit and Tekla import round members as round (their IFC converters map an
   IfcCircleProfileDef extrusion to a native pipe or rod section; a faceted

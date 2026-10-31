@@ -29,6 +29,16 @@ element's semantics (station/offset/elevation/source-sheet/...) onto the matchin
 detailed geometry by longest-prefix name match, prefixed ``s_``. Restrict which
 property set is read with ``index_pset``; the default merges every set.
 
+When the IFC carries a 4D schedule (IfcTask links: `est-bim schedule`, the
+Bonsai-ready outputs), each feature gets ``appear_date`` / ``vanish_date``
+(GeoPackage DATE columns, NULL = open-ended) from
+``bimforge.bim.schedule_state``: QGIS's Temporal Controller plays the
+staging with "Separate Fields for Start and End Date". When it carries an
+IfcAlignment, each feature gets its station/offset range along it
+(``alignment``, ``sta_from`` / ``sta_to`` and the "547+58.20" texts,
+``off_from`` / ``off_to``, + = Lt, in the project's station unit), so a layer
+filters by station like a plan sheet.
+
 The GeoPackage is written with stdlib sqlite3 + shapely ISO WKB (TIN WKB is
 hand-assembled), so the export needs no GDAL/fiona. Requires the ``bim`` extra
 (ifcopenshell, shapely, pyproj).
@@ -209,6 +219,8 @@ def features_for(model_path, index: dict | None = None):
     # raising; solids are unaffected. Uses the named enum, not a magic int.
     settings.set("dimensionality", ifc_wrapper.CURVES_SURFACES_AND_SOLIDS)
 
+    spans, station = _schedule_and_alignment(model)
+
     polygons, lines, skipped = [], [], []
     for prod in model.by_type("IfcProduct"):
         if not prod.Representation:
@@ -242,6 +254,12 @@ def features_for(model_path, index: dict | None = None):
             attrs.setdefault(k, v)
         for k, v in _match_structure(prod.Name or "", index).items():
             attrs.setdefault(f"s_{k}", v)
+        if spans is not None:
+            sp = spans.get(prod.GlobalId)
+            attrs["appear_date"] = _Date(sp.appear) if sp and sp.appear else None
+            attrs["vanish_date"] = _Date(sp.vanish) if sp and sp.vanish else None
+        if station is not None and not prod.is_a("IfcAlignment"):
+            attrs.update(_station_range(station, pts))
 
         faces, edges = shape.geometry.faces, shape.geometry.edges
         if faces:
@@ -258,6 +276,52 @@ def features_for(model_path, index: dict | None = None):
             if polylines:
                 lines.append((polylines, attrs))
     return gr.epsg, polygons, lines, skipped
+
+
+class _Date(str):
+    """An ISO date string the writer declares as a GeoPackage DATE column."""
+
+
+def _schedule_and_alignment(model):
+    """(element spans | None, stationer | None) for the GIS attributes."""
+    spans = station = None
+    try:
+        if model.by_type("IfcTask"):
+            from bimforge.bim.schedule_state import element_spans
+            spans = element_spans(model)
+    except Exception:                       # no 4D, or an older schema
+        spans = None
+    try:
+        from bimforge.bim.alignment_station import (AlignmentStationer,
+                                                    alignments)
+        found = alignments(model)
+        if found:
+            station = AlignmentStationer(model, found[0])
+    except Exception:
+        station = None
+    return spans, station
+
+
+def _station_range(st, pts) -> dict:
+    """{alignment, sta_from, sta_to, sta_from_txt, sta_to_txt, off_from,
+    off_to} for model-metre points, in the project's station unit."""
+    import numpy as np
+    xy = np.asarray(pts, dtype=float)[:, :2]
+    if len(xy) > 4000:                         # a terrain: every 4000th-ish
+        xy = xy[:: int(len(xy) // 4000) + 1]
+    d, o = st.locate_many(xy)
+    u = st.station_unit
+
+    def conv(m):
+        return float(st.convert(st.station_at(m), u))
+    s0, s1 = conv(float(d.min())), conv(float(d.max()))
+    from bimforge.bim.alignment_station import metres_to
+    return {"alignment": st.name,
+            "sta_from": round(s0, 2), "sta_to": round(s1, 2),
+            "sta_from_txt": st.format_station(st.station_at(float(d.min())), u),
+            "sta_to_txt": st.format_station(st.station_at(float(d.max())), u),
+            "off_from": round(metres_to(float(o.min()), u), 2),
+            "off_to": round(metres_to(float(o.max()), u), 2)}
 
 
 # ---- GeoPackage writer (stdlib sqlite3, no GDAL) ---------------------------
@@ -360,14 +424,19 @@ def _write_gpkg(out_path, layers):
                     seen.add(row[1])
                     cur.execute("INSERT INTO gpkg_spatial_ref_sys VALUES (?,?,?,?,?,?)", row)
         for table, gtype, epsg, feats in layers:
-            attr_keys, texty = {}, set()
+            attr_keys, texty, datey = {}, set(), set()
             for _, a in feats:
                 for k, v in a.items():
                     attr_keys.setdefault(k, "REAL")
-                    if isinstance(v, str):
+                    if isinstance(v, _Date):
+                        datey.add(k)
+                    elif isinstance(v, str):
                         texty.add(k)
             for k in texty:
                 attr_keys[k] = "TEXT"
+            for k in (datey | {k for k in attr_keys if k.endswith("_date")}) \
+                    - texty:                   # GeoPackage DATE: ISO text
+                attr_keys[k] = "DATE"
             # Attribute names are user-defined IFC strings: make each a safe,
             # UNIQUE SQL identifier. Escape embedded quotes; dedupe
             # case-insensitively (SQLite identifiers are case-insensitive) and

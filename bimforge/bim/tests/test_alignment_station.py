@@ -177,3 +177,19 @@ def test_locate_clamps_past_the_ends(emitted):
     d, off = st.locate(x, y)
     assert d == 0.0 and off == pytest.approx(3.0)
     assert format_offset(0.0) == "CL" and format_offset(-1.0, "m") == "1.00 Rt"
+
+
+def test_locate_many_matches_locate(emitted):
+    import numpy as np
+    m, al, prof, f = emitted
+    st = AlignmentStationer(f, alignments(f)[0])
+    k = m.ctx.ft_to_m
+    pts, want = [], []
+    for s, off in [(1010.0, 0.0), (1100.0, 12.0), (1200.0, -25.0), (1340.0, 7.5)]:
+        d = (s - al.s_start) * k
+        pts.append(st.point_at(d, off * k)[:2])
+        want.append((d, off * k))
+    dd, oo = st.locate_many(np.array(pts))
+    for (d, o), gd, go in zip(want, dd, oo):
+        assert gd == pytest.approx(d, abs=2e-3)      # chord sag only
+        assert go == pytest.approx(o, abs=2e-3)

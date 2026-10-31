@@ -77,6 +77,21 @@ With **Follow timeline** on, frames sweep the whole alignment, so rendering
 the animation makes a fly-through. Stations read in feet when the project is
 in feet or its map conversion is to a feet grid.
 
+## GIS (QGIS)
+
+```bash
+est-bim ifc2gis --ifc model.4d.ifc --out model.gpkg
+```
+
+The output is a true-3D GeoPackage in the project CRS. It has one layer of
+solids and one of lines (the alignment), and each feature carries its class,
+name, GlobalId, cost code and quantities. If the IFC has a 4D schedule, each
+feature also carries `appear_date` and `vanish_date`. If it has an
+alignment, each feature carries its station and offset range. Drag the file
+into QGIS and set the project CRS to match. Use *View > 3D Map Views* to
+see the Z, and the Temporal Controller (Layer Properties > Temporal >
+separate start and end date fields) to play the staging.
+
 ## Style packs
 
 CAD styling (title-block borders, layer colours, KML and IFC surface styles)
