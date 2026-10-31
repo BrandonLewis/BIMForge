@@ -10,7 +10,7 @@ import math
 
 from bimforge.author.headwall_section import HeadwallSection
 from bimforge.author.model import Element, StructureModel
-from bimforge.author.primitives import Prism, SectionPrism
+from bimforge.author.primitives import Prism, SectionPrism, circle_poly
 
 REQUIRED = ("tables", "headwalls")
 
@@ -24,10 +24,10 @@ DEFAULT_INVERT_FT = 0.5
 
 def circular_void(dia: float, cu: float, cz: float, n: int = 32) -> list:
     """CCW circle of diameter `dia` centred at (cu, cz) in the stem face
-    (u = along wall length, z = height)."""
-    r = dia / 2.0
-    return [(cu + r * math.cos(2 * math.pi * k / n),
-             cz + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    (u = along wall length, z = height): an equal-area polygon that
+    remembers its circle (a CircleRing), so the stem's IFC/STEP carry a
+    TRUE round opening and its net volume is the true circle's."""
+    return circle_poly(dia / 2.0, n, cu, cz)
 
 
 def arch_void(span: float, rise: float, cu: float, cz_invert: float,

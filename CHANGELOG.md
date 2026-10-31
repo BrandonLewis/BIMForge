@@ -34,6 +34,28 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `solid_bodies`. A spec sets it with `gate: {solid_bodies: warn|error|off}`
   and declares bodies by name with `bodies: [{match, body}]`
   (`gate.configure_solid_bodies`, used by `est-bim build`).
+- **True arcs.** Circles reach IFC and STEP as circles, not polygons, so
+  Revit and Tekla import round members as round (their IFC converters map an
+  IfcCircleProfileDef extrusion to a native pipe or rod section; a faceted
+  polygon stays a dumb solid).
+  - `circle_poly` returns a `CircleRing`: the same equal-area polygon every
+    mesh and volume consumer reads, which also remembers `(cx, cy, r)`.
+    Rebuilding the list forgets it, and the polygon is then written, never a
+    wrong circle. `copy_ring` keeps it.
+  - Exact extrusions carry `circles`. `emit_ifc` writes
+    IfcCircleProfileDef, IfcCircleHollowProfileDef (concentric tube), or
+    IfcCircle curves inside an arbitrary profile (a round opening).
+    `emit_step` writes true cylinders, and now oblique extrusions too.
+  - New `CircularColumn(name, bottom, top, r, r_inner=None)`: a horizontal
+    circular section swept straight, plumb or battered (an oblique IFC
+    extrusion), for piles, posts and sleeves.
+  - `SectionPrism` keeps circular profiles and voids. The `pipe-headwall`
+    opening is a CircleRing, so its net volume is now the true circle's
+    (about 0.6 % of the opening's area less concrete than the old inscribed
+    polygon).
+  - The gate tessellates curved IFC finely (`GATE_ANGULAR_DEFLECTION`,
+    0.1 rad; `mesh_leg(angular_deflection=)`), so it checks the true circle,
+    not a viewer's 25-gon, which reads 0.97 % low.
 - **STEP for engineering hand-off.** `emit_step` now writes geometry an
   engineer can use, not just view:
   - an exact straight extrusion (SectionPrism: girders, barriers, walls

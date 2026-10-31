@@ -171,7 +171,7 @@ def _accumulate(acc: dict, guid: str, ifc_type: str, verts, faces) -> None:
     a["hi"] = np.maximum(a["hi"], V.max(axis=0))
 
 
-def mesh_leg(ifc_path: str) -> dict:
+def mesh_leg(ifc_path: str, angular_deflection: float | None = None) -> dict:
     """{GlobalId: {"name", "ifc_class", "mesh": {"volume_m3", "plan_area_m2",
     "len_m", "wid_m", "hgt_m", "z_min_m", "z_max_m"}}} for every element the
     geometry iterator yields; {} when the file has no geometry at all."""
@@ -181,6 +181,8 @@ def mesh_leg(ifc_path: str) -> dict:
     f = ifcopenshell.open(str(ifc_path))
     s = geom.settings()
     s.set("use-world-coords", True)
+    if angular_deflection:                   # finer curves than a viewer's
+        s.set("mesher-angular-deflection", float(angular_deflection))
     acc: dict[str, dict] = {}
     it = geom.iterator(s, f)
     if not it.initialize():

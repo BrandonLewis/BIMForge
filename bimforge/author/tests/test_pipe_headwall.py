@@ -149,7 +149,8 @@ def test_headwall_example_fixture_schema():
 def _stem_void_z(params):
     m = build(params, CTX)
     stem = [e for e in m.elements if e.name.endswith("headwall stem")][0]
-    return min(p[1] for p in stem.geometry.voids[0]), stem.geometry.profile
+    cu, cz, r = stem.geometry.voids[0].circle        # the TRUE circle's invert
+    return cz - r, stem.geometry.profile
 
 
 def test_default_invert_is_six_inches_above_the_footing():

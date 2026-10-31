@@ -265,17 +265,46 @@ _QTY_ATTR = {"IfcQuantityArea": "AreaValue", "IfcQuantityLength": "LengthValue",
 
 
 # ------------------------------------------------------------------ geometry
-def _profile(f, ring, holes=()):
+def _profile(f, ring, holes=(), circles=None):
+    """The profile for an outer ring and its holes (both already scaled).
+
+    `circles` ({"profile": (cx, cy, r) | None, "voids": [...]}, scaled like
+    the rings) names which of them are TRUE circles: a round section is an
+    IfcCircleProfileDef, a round tube an IfcCircleHollowProfileDef, and a
+    round hole (or outline) inside an arbitrary profile an IfcCircle - so
+    Revit, Tekla and every CAD kernel see arcs, not facets."""
     def pl(points):
         pts = [f.create_entity("IfcCartesianPoint", Coordinates=(float(u), float(v)))
                for u, v in points]
         return f.create_entity("IfcPolyline", Points=pts + [pts[0]])
+
+    def at(c):
+        return f.create_entity(
+            "IfcAxis2Placement2D", Location=f.create_entity(
+                "IfcCartesianPoint", Coordinates=(float(c[0]), float(c[1]))))
+
+    def circle(c):
+        return f.create_entity("IfcCircle", Position=at(c), Radius=float(c[2]))
+    pc = (circles or {}).get("profile")
+    vcs = list((circles or {}).get("voids") or [None] * len(holes))
+    vcs += [None] * (len(holes) - len(vcs))
+    if pc is not None and not holes:
+        return f.create_entity("IfcCircleProfileDef", ProfileType="AREA",
+                               Position=at(pc), Radius=float(pc[2]))
+    if pc is not None and len(holes) == 1 and vcs[0] is not None and \
+            math.hypot(vcs[0][0] - pc[0], vcs[0][1] - pc[1]) < 1e-9 and \
+            vcs[0][2] < pc[2]:
+        return f.create_entity("IfcCircleHollowProfileDef", ProfileType="AREA",
+                               Position=at(pc), Radius=float(pc[2]),
+                               WallThickness=float(pc[2] - vcs[0][2]))
+    outer = circle(pc) if pc is not None else pl(ring)
     if holes:
         return f.create_entity(
             "IfcArbitraryProfileDefWithVoids", ProfileType="AREA",
-            OuterCurve=pl(ring), InnerCurves=[pl(h) for h in holes])
+            OuterCurve=outer, InnerCurves=[circle(c) if c is not None else pl(h)
+                                           for h, c in zip(holes, vcs)])
     return f.create_entity("IfcArbitraryClosedProfileDef", ProfileType="AREA",
-                           OuterCurve=pl(ring))
+                           OuterCurve=outer)
 
 
 def _place3(f, x, y, z, axis=None, ref=None):
@@ -343,9 +372,16 @@ def _parametric_solid(f, d, k):
         # it on -Z): flip RefDirection and the profile's u with it, which
         # draws the same section and flips Axis = x × y.
         x, sign, z = tuple(-c for c in x), -1.0, tuple(-c for c in z)
+    cs = d.get("circles")
+
+    def sc(c):
+        return None if c is None else (sign * c[0] * k, c[1] * k, c[2] * k)
     prof = _profile(f, [(sign * u * k, v * k) for u, v in d["profile"]],
                     [[(sign * u * k, v * k) for u, v in h]
-                     for h in d.get("voids") or ()])
+                     for h in d.get("voids") or ()],
+                    None if not cs else {
+                        "profile": sc(cs.get("profile")),
+                        "voids": [sc(c) for c in cs.get("voids") or ()]})
     o = pl["o"]
     pos = _place3(f, o[0] * k, o[1] * k, o[2] * k, axis=z, ref=x)
     v = d["dir"]

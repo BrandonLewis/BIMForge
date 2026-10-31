@@ -44,6 +44,9 @@ from bimforge.author.primitives import FACET_TOLERANCE
 
 #: Post-emit mesh-vs-analytic tolerance (tessellation is the only slack).
 MESH_TOLERANCE = 0.005
+#: The gate's own tessellation of curved IFC geometry (radians): fine
+#: enough that a true circle reads within 0.05% of its area at any radius.
+GATE_ANGULAR_DEFLECTION = 0.1
 
 
 @dataclass
@@ -297,7 +300,10 @@ def _exact_sweep_names(ifc_path: str) -> set:
 def _ifc_mesh_check(model, ifc_path: str, tol: float) -> list[str]:
     from bimforge.bim.ifc_mesh import mesh_leg
     got: dict[str, float] = {}
-    for info in mesh_leg(str(ifc_path)).values():
+    # tessellate finely: the gate checks the SOLID the file states (a true
+    # circle), not a viewer's 25-gon of it (-0.97% on a small bar)
+    for info in mesh_leg(str(ifc_path),
+                         angular_deflection=GATE_ANGULAR_DEFLECTION).values():
         got[info["name"]] = got.get(info["name"], 0.0) + info["mesh"]["volume_m3"]
     # ifcopenshell 0.9 draws an IfcSectionedSolidHorizontal with its caps
     # doubled and a stray cap inside (IfcOpenShell#9820), so the shell is not

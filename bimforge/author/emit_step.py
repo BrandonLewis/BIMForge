@@ -89,21 +89,31 @@ def _exact_extrusion(d, k):
         return None
     from build123d import (BuildPart, BuildSketch, Mode, Plane, Polygon,
                            Vector, extrude)
+    from build123d import Circle, Locations
     pl = ex["plane"]
     o, x, y = (Vector(*pl["o"]) * k, Vector(*pl["x"]), Vector(*pl["y"]))
     z = x.cross(y)
     dvec = Vector(*ex["dir"]) * k
     if dvec.length < 1e-12 or z.length < 1e-12 or \
-            dvec.normalized().cross(z.normalized()).length > 1e-9:
-        return None                           # oblique: the mesh is exact
+            abs(dvec.normalized().dot(z.normalized())) < 1e-9:
+        return None                           # sweep in the plane: no solid
+    cs = ex.get("circles") or {}
+    vcs = list(cs.get("voids") or [])
     plane = Plane(origin=o, x_dir=x, z_dir=z)
+
+    def shape(ring, circ, mode):
+        if circ is not None:                  # the TRUE circle: a cylinder
+            with Locations((circ[0] * k, circ[1] * k)):
+                Circle(circ[2] * k, mode=mode)
+        else:
+            Polygon(*[(u * k, v * k) for u, v in ring], align=None, mode=mode)
     with BuildPart() as bp:
         with BuildSketch(plane):
-            Polygon(*[(u * k, v * k) for u, v in ex["profile"]], align=None)
-            for h in ex.get("voids") or ():
-                Polygon(*[(u * k, v * k) for u, v in h], align=None,
-                        mode=Mode.SUBTRACT)
-        extrude(amount=dvec.dot(z.normalized()))
+            shape(ex["profile"], cs.get("profile"), Mode.ADD)
+            for i, h in enumerate(ex.get("voids") or ()):
+                shape(h, vcs[i] if i < len(vcs) else None, Mode.SUBTRACT)
+        # along the sweep vector itself: straight or oblique (a battered pile)
+        extrude(amount=dvec.length, dir=dvec.normalized())
     return bp.part
 
 

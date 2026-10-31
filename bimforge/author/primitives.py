@@ -37,15 +37,44 @@ def equal_area_polygon_radius(r: float, segments: int) -> float:
     return r * math.sqrt(2.0 * math.pi / (segments * math.sin(2.0 * math.pi / segments)))
 
 
+class CircleRing(list):
+    """A circle's polygon - the points every mesh, plan and volume consumer
+    reads, unchanged - that also REMEMBERS the circle: ``.circle`` is
+    ``(cx, cy, r)`` with the TRUE radius. Exact writers (emit_ifc's
+    IfcCircleProfileDef / IfcCircle, emit_step's cylinders) draw the arc
+    instead of the polygon, so a pile reaches Revit/Tekla as a round
+    section, not a 16-gon. Any operation that rebuilds the list (cleaning,
+    rewinding, transforming) drops the memory, and the polygon is written:
+    never a wrong circle, at worst the facets."""
+    circle: tuple = None
+
+
+def ring_circle(ring) -> tuple | None:
+    """(cx, cy, r) when `ring` is a CircleRing, else None."""
+    return getattr(ring, "circle", None)
+
+
+def copy_ring(ring) -> list:
+    """A list copy of `ring` that keeps a CircleRing's circle."""
+    out = CircleRing(ring) if ring_circle(ring) is not None else list(ring)
+    if ring_circle(ring) is not None:
+        out.circle = ring.circle
+    return out
+
+
 def circle_poly(r: float, segments: int, cx: float = 0.0, cy: float = 0.0,
                 exact_area: bool = True, clockwise: bool = False):
-    """A circle as a regular polygon; `exact_area` sizes it to the true area.
-    Clockwise winding is what a VOID (hole ring) wants."""
+    """A circle as a regular polygon (a CircleRing: it remembers the true
+    circle for the exact writers); `exact_area` sizes it to the true area,
+    so the polygon's volume IS the circle's. Clockwise winding is what a
+    VOID (hole ring) wants."""
     rr = equal_area_polygon_radius(r, segments) if exact_area else r
     sgn = -1.0 if clockwise else 1.0
-    return [(cx + rr * math.cos(sgn * 2 * math.pi * i / segments),
-             cy + rr * math.sin(sgn * 2 * math.pi * i / segments))
-            for i in range(segments)]
+    ring = CircleRing((cx + rr * math.cos(sgn * 2 * math.pi * i / segments),
+                       cy + rr * math.sin(sgn * 2 * math.pi * i / segments))
+                      for i in range(segments))
+    ring.circle = (float(cx), float(cy), float(r))
+    return ring
 
 
 def obround_poly(length: float, width: float, segments: int = ARC_SEGMENTS,
@@ -842,6 +871,92 @@ def _split_ring_at(ring: list, pts, eps: float = 1e-9) -> list:
     return out
 
 
+def _circles(profile_circle, void_circles) -> dict | None:
+    """An exact extrusion's "circles" entry: {"profile": (cx, cy, r) | None,
+    "voids": [(cx, cy, r) | None, ...]} (parallel to its voids), or None
+    when nothing is round."""
+    if profile_circle is None and not any(void_circles):
+        return None
+    return {"profile": profile_circle, "voids": list(void_circles)}
+
+
+class CircularColumn:
+    """A horizontal circular section swept straight from `bottom` to `top`
+    (each an (x, y, z) CENTRE, feet): a plumb or battered pipe pile, a round
+    column, a post. `r_inner` makes it a tube.
+
+    The mesh is the equal-area polygon (so the declared volume, the mesh's
+    and the exact solid's are one number: pi (r^2 - r_inner^2) x the
+    VERTICAL height - Cavalieri, the section is horizontal); the exact form
+    is the circle extruded along top - bottom (oblique when battered), which
+    emit_ifc writes as an IfcCircleProfileDef / IfcCircleHollowProfileDef
+    IfcExtrudedAreaSolid and emit_step as a true cylinder.
+    """
+
+    def __init__(self, name: str, bottom, top, r: float,
+                 r_inner: float | None = None,
+                 segments: int = ARC_SEGMENTS,
+                 ifc: str = "IfcColumn", layer: str | None = None) -> None:
+        self.name, self.bottom, self.top = name, tuple(bottom), tuple(top)
+        if abs(self.top[2] - self.bottom[2]) < 1e-9:
+            raise ValueError(f"{name}: top and bottom are at one elevation")
+        if r <= 0 or (r_inner is not None and not 0 < r_inner < r):
+            raise ValueError(f"{name}: need 0 < r_inner < r")
+        self.r, self.r_inner, self.segments = float(r), r_inner, segments
+        self.ifc, self.layer = ifc, layer
+
+    @property
+    def area_sf(self) -> float:
+        ri = self.r_inner or 0.0
+        return math.pi * (self.r ** 2 - ri ** 2)
+
+    @property
+    def volume_cf(self) -> float:
+        return self.area_sf * abs(self.top[2] - self.bottom[2])
+
+    def body_solids(self) -> list[dict]:
+        outer = circle_poly(self.r, self.segments)
+        rings = [outer]
+        inner = None
+        if self.r_inner:
+            inner = circle_poly(self.r_inner, self.segments, clockwise=True)
+            rings.append(inner)
+        n = self.segments
+        b, t = self.bottom, self.top
+        verts = []
+        for ring in rings:
+            verts += [(b[0] + u, b[1] + v, b[2]) for u, v in ring]
+            verts += [(t[0] + u, t[1] + v, t[2]) for u, v in ring]
+        tris = []
+        if inner is None:
+            for i in range(1, n - 1):
+                tris.append((0, i + 1, i))                 # bottom
+                tris.append((n, n + i, n + i + 1))         # top
+        else:
+            o0, o1, i0, i1 = 0, n, 2 * n, 3 * n
+            for i in range(n):
+                j = (i + 1) % n
+                # the CW inner ring runs the other way round: pair by angle
+                ii, jj = (n - i) % n, (n - j) % n
+                tris += [(o0 + i, i0 + jj, o0 + j), (o0 + i, i0 + ii, i0 + jj),
+                         (o1 + i, o1 + j, i1 + jj), (o1 + i, i1 + jj, i1 + ii)]
+        for base in ([0] if inner is None else [0, 2 * n]):
+            for i in range(n):
+                j = (i + 1) % n
+                tris += [(base + i, base + j, base + n + j),
+                         (base + i, base + n + j, base + n + i)]
+        top_ring = [(t[0] + u, t[1] + v) for u, v in outer]
+        return [{"kind": "mesh", "units": "ft", "verts": verts,
+                 "tris": _outward_tris(verts, tris), "plan": [top_ring],
+                 "exact": {"kind": "extrusion", "profile": list(outer),
+                           "voids": [list(inner)] if inner else [],
+                           "circles": _circles(
+                               outer.circle, [inner.circle] if inner else []),
+                           "plane": {"o": b, "x": (1.0, 0.0, 0.0),
+                                     "y": (0.0, 1.0, 0.0)},
+                           "dir": tuple(t[i] - b[i] for i in range(3))}}]
+
+
 class SectionPrism:
     """A constant (x, z) cross-section extruded along +Y from `y0` for
     `length` feet (spillway-pilot lineage: chute slabs, ogee weirs, chute blocks,
@@ -866,9 +981,9 @@ class SectionPrism:
                  layer: str | None = None) -> None:
         if length <= 0:
             raise ValueError(f"{name}: length must be positive")
-        self.name, self.profile = name, list(profile)
+        self.name, self.profile = name, copy_ring(profile)
         self.length, self.y0 = float(length), float(y0)
-        self.voids = [list(v) for v in (voids or [])]
+        self.voids = [copy_ring(v) for v in (voids or [])]
         self.ifc, self.layer = ifc, layer
 
     #: `area_sf` is the CROSS-SECTION (volume = area_sf x length), not a plan
@@ -893,7 +1008,9 @@ class SectionPrism:
         if len(outer) < 3:
             raise ValueError(f"{self.name}: profile collapses to < 3 points")
         outer = _wound(outer, ccw=True)
-        voids = [c for c in (clean_ring2d(v) for v in self.voids) if c]
+        cleaned = [(clean_ring2d(v), ring_circle(v)) for v in self.voids]
+        voids = [c for c, _ in cleaned if c]
+        void_circles = [vc for c, vc in cleaned if c]
         merged = keyhole_ring(outer, voids) if voids else outer
         caps = ear_clip(merged)
         y0, y1 = self.y0, self.y0 + self.length
@@ -940,6 +1057,8 @@ class SectionPrism:
                  "tris": _outward_tris(verts, tris), "plan": plan,
                  "exact": {"kind": "extrusion", "profile": outer,
                            "voids": voids,
+                           "circles": _circles(ring_circle(self.profile),
+                                               void_circles),
                            "plane": {"o": (0.0, y0, 0.0), "x": (1.0, 0.0, 0.0),
                                      "y": (0.0, 0.0, 1.0)},
                            "dir": (0.0, self.length, 0.0)}}]
