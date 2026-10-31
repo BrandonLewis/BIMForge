@@ -13,7 +13,10 @@ station the add-on:
   the cut faces into "Section Cut", each per its own styling — concrete as
   concrete, rebar, asphalt, gravel — from the item's material (Bonsai's
   IfcSurfaceStyle), else from what its name says it is;
-* reports station, elevation of the grade line, grade and bearing.
+* reports station, elevation of the grade line, grade and bearing;
+* draws an offset ruler (CL, 10' Lt, 10' Rt, ...) across the section, puts
+  the 3D cursor at a station + offset Lt/Rt and reads the top surface
+  there, and inquires the cursor back to station + offset.
 
 The slider can follow the timeline, so scrubbing frames sweeps the section
 along the alignment (and rendering the frames makes a fly-through).
@@ -53,7 +56,7 @@ NEAR_GAP = 0.002        # m: near clip this far in front of the plane
 # Live state that cannot sit in bpy properties: the open file, the
 # stationers, the last frame. Rebuilt on demand after a reload.
 _STATE: dict = {"key": None, "file": None, "stationers": [], "frame": None,
-                "error": ""}
+                "error": "", "point": None}
 _ENUM_CACHE: list = []
 _DRAW_HANDLE = None
 
@@ -159,6 +162,9 @@ def _cut_material():
 #: rebar is tried before steel and asphalt before concrete. The rgb of the
 #: shared kinds are bimforge.author.ifc_styles' (a test holds them equal).
 FILL_PALETTE: list[tuple[str, str, tuple]] = [
+    # existing work to be removed reads apart from new work of any kind
+    ("Existing (to remove)", r"to be removed|\bdemo(lish|lition)?\b|"
+     r"^existing \d", (0.86, 0.62, 0.55)),
     ("Reinforcing Steel", r"rebar|reinforc|\brebr\b|\brein\b|ifcreinforcing",
      (0.75, 0.15, 0.12)),
     ("Asphalt", r"asphalt|\bhma\b|\bac\b|bitum|\bpave(ment)?\b|\bpaving\b",
@@ -170,6 +176,7 @@ FILL_PALETTE: list[tuple[str, str, tuple]] = [
      r"ifcrailing|ifcmember|ifcplate", (0.55, 0.60, 0.66)),
     ("Timber", r"timber|wood|lagging", (0.55, 0.40, 0.24)),
     ("Earthwork", r"earth|soil|embank|excav|terrain|\bfill\b|\bew\b|"
+     r"(?<!concrete )backfill|\bgrade\b|"
      r"ifcgeographic|ifcearthworks", (0.55, 0.45, 0.32)),
     ("Concrete", r"concrete|\bconc\b|\bpcc\b|\bcip\b|precast|grout|"
      r"ifcslab|ifcwall|ifcfooting|ifcbeam|ifccolumn|ifcpile|deck|barrier|"
@@ -268,7 +275,7 @@ def build_axis(scene, props, st):
     """The alignment itself as a 3-D poly curve, so a misplaced model (a
     false origin, a wrong offset) is visible at a glance."""
     from mathutils import Vector
-    off = Vector(props.offset)
+    off = Vector(props.shift)
     cu = bpy.data.curves.get(AXIS) or bpy.data.curves.new(AXIS, "CURVE")
     cu.dimensions = "3D"
     cu.splines.clear()
@@ -287,7 +294,7 @@ def build_axis(scene, props, st):
 def place(scene, props, st, fr):
     """Stand the plane and the camera at frame `fr`; cut if live."""
     from mathutils import Vector
-    off = Vector(props.offset)
+    off = Vector(props.shift)
     p = Vector(fr.point) + off + Vector((0.0, 0.0, props.lift))
     x, y, z, look = _basis(fr, props.look == "BACK")
 
@@ -309,8 +316,107 @@ def place(scene, props, st, fr):
 
     if props.live_cut:
         cut(scene, props, Vector(fr.point) + off, look)
+    ruler(scene, props, st, fr, look)
     _STATE["frame"] = fr
     _redraw()
+
+
+RULER, LABEL = "Section Offsets", "Offset Label"
+
+
+def _ruler_text(offset_left_m: float, unit: str, step: float) -> str:
+    v = abs(offset_left_m) / (_st.US_SURVEY_FT_M if unit == "ft" else 1.0)
+    if round(v, 6) == 0:
+        return "CL"
+    mark = "'" if unit == "ft" else " m"
+    num = f"{v:.0f}" if abs(step - round(step)) < 1e-9 else f"{v:.2f}"
+    return f"{num}{mark} {'Lt' if offset_left_m > 0 else 'Rt'}"
+
+
+def ruler(scene, props, st, fr, look):
+    """Offset ticks across the section: a line `ruler_height` above the
+    grade point, a tick and a label every `ruler_step` Lt and Rt, and a CL
+    drop to the grade line. Drawn in the cut plane, a hair toward the
+    camera, so it shows in the section view and renders."""
+    from mathutils import Vector
+    old = [o for o in bpy.data.objects if o.name.startswith(LABEL)]
+    if not props.ruler:
+        for o in old + [bpy.data.objects.get(RULER)]:
+            if o is not None:
+                bpy.data.objects.remove(o)
+        return
+    u = _unit(props, st)
+    step_m = props.ruler_step * (_st.US_SURVEY_FT_M if u == "ft" else 1.0)
+    half = props.width / 2
+    n = min(200, int(half // step_m))
+    left = Vector(fr.left)
+    up = Vector((0.0, 0.0, 1.0))
+    base = (Vector(fr.point) + Vector(props.shift) - look * (NEAR_GAP * 0.9))
+    top = base + up * props.ruler_height
+    tick = props.width / 120
+    verts = [top - left * (n * step_m), top + left * (n * step_m),
+             base, top]                                   # line; CL drop
+    edges = [(0, 1), (2, 3)]
+    offs = [i * step_m for i in range(-n, n + 1)]
+    for o in offs:
+        a = top + left * o
+        verts += [a, a - up * tick]
+        edges.append((len(verts) - 2, len(verts) - 1))
+    rob = _strip_mesh(scene, RULER, [(verts[a], verts[b]) for a, b in edges],
+                      look, props.width / 1400, (0.04, 0.04, 0.05))
+    rob.hide_render = False
+    # labels: text objects facing the camera, reused across slides
+    x, y, z, _look = _basis(fr, props.look == "BACK")
+    size = props.width / 70
+    mat = _section_material("Ruler", (0.05, 0.05, 0.06))
+    for i, o in enumerate(offs):
+        name = f"{LABEL} {i:03d}"
+        cu = bpy.data.curves.get(name) or bpy.data.curves.new(name, "FONT")
+        cu.body = _ruler_text(o, u, props.ruler_step)
+        cu.align_x = "CENTER"
+        cu.size = size
+        if not cu.materials:
+            cu.materials.append(mat)
+        ob = _obj(scene, name, lambda: cu)
+        ob.data = cu
+        ob.matrix_world = _matrix(x, y, z, top + left * o + up * (tick * 0.6))
+    for o in old[len(offs):]:
+        bpy.data.objects.remove(o)
+
+
+def locate(scene, props, st, distance, offset_left):
+    """Mark station + offset: the 3D cursor and a "Station Offset" empty at
+    the grade elevation, and the top surface found straight below/above."""
+    from mathutils import Vector
+    p = Vector(st.point_at(distance, offset_left)) + Vector(props.shift)
+    mark = _obj(scene, "Station Offset", lambda: None)
+    mark.empty_display_type = "SPHERE"
+    mark.empty_display_size = max(0.1, props.width / 150)
+    mark.location = p
+    scene.cursor.location = p
+    hit = top_surface(scene, p.x, p.y)
+    _STATE["point"] = (distance, offset_left, p.z, hit)
+    _redraw()
+    return _STATE["point"]
+
+
+def top_surface(scene, x, y):
+    """(z, object name) of the highest visible model surface at plan (x, y),
+    or None. The add-on's own helpers are looked through."""
+    from mathutils import Vector
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    helper = bpy.data.collections.get(COLL)
+    skip = set(helper.all_objects) if helper else set()
+    origin = Vector((x, y, 1.0e5))
+    for _ in range(64):
+        ok, loc, _n, _i, ob, _m = scene.ray_cast(depsgraph, origin,
+                                                 Vector((0, 0, -1)))
+        if not ok:
+            return None
+        if ob.original not in skip:
+            return loc.z, ob.name
+        origin = loc - Vector((0, 0, 1e-4))
+    return None
 
 
 def _plane_mesh():
@@ -405,6 +511,8 @@ def cut(scene, props, co, look):
                 lift[v] = max(lift.get(v, 0.0), d)
     for v, d in lift.items():
         v.co -= look * d
+    segs = [(tuple(e.verts[0].co), tuple(e.verts[1].co))
+            for _slot, es in groups for e in es]
     me = bpy.data.meshes.get(CUT) or bpy.data.meshes.new(CUT)
     me.materials.clear()          # clearing AFTER to_mesh zeroes the indices
     out.to_mesh(me)
@@ -417,7 +525,62 @@ def cut(scene, props, co, look):
     ob = _obj(scene, CUT, lambda: me)
     ob.data = me
     ob.show_in_front = False
+    outline(scene, props, segs, co, look)
     return ob
+
+
+LINES = "Section Lines"
+
+
+def strips(segs, look, width):
+    """(verts, faces) of flat strips `width` wide along each segment, lying
+    in the section plane (normal `look`), each run on half a width past
+    its ends so corners close. Flat, so they draw and RENDER as lines, and
+    no near clip can slice them as it would a round tube."""
+    from mathutils import Vector
+    verts, faces = [], []
+    h = width / 2
+    for a, b in segs:
+        a, b = Vector(a), Vector(b)
+        d = b - a
+        d -= look * d.dot(look)        # in-plane: float32 noise on a short
+        if d.length < 1e-5:            # segment must not tip the strip out
+            continue
+        d.normalize()
+        n = look.cross(d).normalized() * h
+        a, b = a - d * h, b + d * h
+        i = len(verts)
+        verts += [a - n, b - n, b + n, a + n]
+        faces.append((i, i + 1, i + 2, i + 3))
+    return verts, faces
+
+
+def _strip_mesh(scene, name, segs, look, width, rgb):
+    verts, faces = strips(segs, look, width)
+    me = bpy.data.meshes.get(name) or bpy.data.meshes.new(name)
+    me.clear_geometry()
+    me.from_pydata([tuple(v) for v in verts], [], faces)
+    if not me.materials:
+        me.materials.append(_section_material("Line", rgb))
+    ob = _obj(scene, name, lambda: me)
+    ob.data = me
+    return ob
+
+
+def outline(scene, props, segs, co, look):
+    """Every cut edge as a thin dark line ("Section Lines"): outlines the
+    fills and shows open cuts (a ground SURFACE has no inside to fill).
+    Projected back onto the plane, then lifted over every fill layer and
+    still inside the near-clip gap."""
+    lift = -look * (NEAR_GAP * 0.8)
+
+    def put(q):
+        q = _v(q)
+        return q - look * (q - co).dot(look) + lift
+    segs = [(put(a), put(b)) for a, b in segs] if props.outline else []
+    ob = _strip_mesh(scene, LINES, segs, look, props.width / 1000,
+                     (0.04, 0.04, 0.05))
+    ob.hide_viewport = ob.hide_render = not props.outline
 
 
 def _layer(area: float) -> float:
@@ -431,6 +594,11 @@ def _layer(area: float) -> float:
     import math
     level = 0 if area <= 0 else min(31, max(0, int(math.log2(area)) + 21))
     return NEAR_GAP * (0.25 + 0.5 * (31 - level) / 31)
+
+
+def _v(p):
+    from mathutils import Vector
+    return Vector(p)
 
 
 def _redraw():
@@ -505,15 +673,35 @@ if bpy is not None:
         lift: FloatProperty(name="Lift", default=0.0, subtype="DISTANCE",
                             update=_on_view,
                             description="Raise the view centre above grade")
-        offset: FloatVectorProperty(
-            name="Offset", size=3, subtype="TRANSLATION",
+        shift: FloatVectorProperty(
+            name="Model shift", size=3, subtype="TRANSLATION",
             update=_on_alignment,
             description="Add to alignment coordinates (Bonsai false origin)")
+        ruler: BoolProperty(name="Offset ruler", default=True,
+                            update=_on_view, description=(
+                                "Offset ticks Lt/Rt of the alignment across "
+                                "the section"))
+        ruler_step: FloatProperty(name="Every", min=0.01, default=10.0,
+                                  update=_on_view,
+                                  description="Ruler spacing, display unit")
+        ruler_height: FloatProperty(
+            name="Ruler height", default=3.0, subtype="DISTANCE",
+            update=_on_view,
+            description="Ruler height above the grade line")
+        pt_offset: FloatProperty(name="Offset", min=0.0, default=12.0,
+                                 description="Offset to locate, display unit")
+        pt_side: EnumProperty(name="Side", items=[
+            ("LT", "Lt", "Left of the alignment (looking up-station)"),
+            ("RT", "Rt", "Right of the alignment (looking up-station)")],
+            default="LT")
         live_cut: BoolProperty(name="Live cut", default=True,
                                update=_on_view,
                                description="Re-cut the meshes as you slide")
         fill: BoolProperty(name="Fill", default=True, update=_on_view,
                            description="Fill closed cut loops with faces")
+        outline: BoolProperty(name="Outline", default=True,
+                              update=_on_view,
+                              description="Draw every cut edge as a line")
         fill_style: EnumProperty(name="Fill", items=[
             ("STYLE", "By styling", "Each item's own styling: its material "
              "(the IFC surface style), else what its name says it is "
@@ -612,8 +800,50 @@ if bpy is not None:
                 return {"CANCELLED"}
             from mathutils import Vector
             _x, _y, _z, look = _basis(fr, props.look == "BACK")
-            cut(context.scene, props, Vector(fr.point) + Vector(props.offset),
+            cut(context.scene, props, Vector(fr.point) + Vector(props.shift),
                 look)
+            return {"FINISHED"}
+
+    class BIMFORGE_OT_section_offset_locate(bpy.types.Operator):
+        bl_idname = "bimforge.section_offset_locate"
+        bl_label = "Locate"
+        bl_description = ("Put the 3D cursor at the offset from the current "
+                          "station and read the surface there")
+
+        def execute(self, context):
+            props = context.scene.bimforge_section
+            st, fr = _stationer(props), _STATE["frame"]
+            if st is None or fr is None:
+                return {"CANCELLED"}
+            u = _unit(props, st)
+            m = props.pt_offset * (_st.US_SURVEY_FT_M if u == "ft" else 1.0)
+            locate(context.scene, props, st, fr.distance,
+                   m if props.pt_side == "LT" else -m)
+            self.report({"INFO"}, _point_text(props, st))
+            return {"FINISHED"}
+
+    class BIMFORGE_OT_section_offset_inquire(bpy.types.Operator):
+        bl_idname = "bimforge.section_offset_inquire"
+        bl_label = "Inquire Cursor"
+        bl_description = ("Station and offset of the 3D cursor; with Cut, "
+                          "also slide the section there")
+        cut_there: bpy.props.BoolProperty(default=False)
+
+        def execute(self, context):
+            props = context.scene.bimforge_section
+            st = _stationer(props)
+            if st is None:
+                return {"CANCELLED"}
+            from mathutils import Vector
+            c = context.scene.cursor.location - Vector(props.shift)
+            d, off = st.locate(c.x, c.y)
+            if self.cut_there:
+                props.position = d / st.length if st.length else 0.0
+            _STATE["point"] = (d, off, c.z + props.shift[2],
+                               top_surface(context.scene, *context.scene
+                                           .cursor.location.xy))
+            self.report({"INFO"}, _point_text(props, st))
+            _redraw()
             return {"FINISHED"}
 
     # ------------------------------------------------------------ panel
@@ -663,6 +893,25 @@ if bpy is not None:
                 info.label(text=(f"{st.format_station(st.start_station, u)}"
                                  f" to {st.format_station(st.end_station, u)}"))
             self.layout.operator("bimforge.section_view", icon="VIEW_CAMERA")
+            offs = self.layout.box()
+            offs.label(text="Offsets", icon="DRIVER_DISTANCE")
+            row = offs.row(align=True)
+            row.prop(props, "ruler")
+            row.prop(props, "ruler_step")
+            if props.ruler:
+                offs.prop(props, "ruler_height")
+            row = offs.row(align=True)
+            row.prop(props, "pt_offset")
+            row.prop(props, "pt_side", expand=True)
+            row = offs.row(align=True)
+            row.operator("bimforge.section_offset_locate", icon="PIVOT_CURSOR")
+            row.operator("bimforge.section_offset_inquire", text="Inquire",
+                         icon="CURSOR")
+            row.operator("bimforge.section_offset_inquire", text="Cut",
+                         icon="MOD_BOOLEAN").cut_there = True
+            if _STATE.get("point"):
+                for line in _point_text(props, st).split("  |  "):
+                    offs.label(text=line)
             view = self.layout.column(align=True)
             view.row().prop(props, "look", expand=True)
             view.prop(props, "width")
@@ -672,6 +921,7 @@ if bpy is not None:
             row = cutc.row(align=True)
             row.prop(props, "live_cut")
             row.prop(props, "fill")
+            row.prop(props, "outline")
             cutc.prop(props, "fill_style", text="")
             cutc.prop(props, "target")
             if not props.live_cut:
@@ -680,7 +930,22 @@ if bpy is not None:
             more.prop(props, "units")
             more.prop(props, "follow_frames")
             more.prop(props, "overlay")
-            more.prop(props, "offset")
+            more.prop(props, "shift")
+
+
+def _point_text(props, st) -> str:
+    """'Sta 548+13.00, 12.00 Lt  |  PG EL 160.42  |  top EL 161.07 deck'."""
+    d, off, z, hit = _STATE["point"]
+    u = _unit(props, st)
+    el = lambda zz: f"{_st.metres_to(st.elevation_m(zz), u):,.2f}"  # noqa: E731
+    pg = st.frame(d).point[2]
+    parts = [f"Sta {st.format_station(st.station_at(d), u)}, "
+             f"{_st.format_offset(off, u)}", f"PG EL {el(pg)}"]
+    if abs(z - pg) > 1e-6:
+        parts.append(f"cursor EL {el(z)}")
+    if hit is not None:
+        parts.append(f"top EL {el(hit[0])} {hit[1][:28]}")
+    return "  |  ".join(parts)
 
 
 def _bearing(az: float) -> str:
@@ -740,13 +1005,15 @@ def _frame_change(scene, *_):
 
 
 def _load_post(*_):
-    _STATE.update(key=None, file=None, stationers=[], frame=None, error="")
+    _STATE.update(key=None, file=None, stationers=[], frame=None, error="",
+                  point=None)
 
 
 _CLASSES = () if bpy is None else (
     SectionProps, BIMFORGE_OT_section_load, BIMFORGE_OT_section_step,
     BIMFORGE_OT_section_goto, BIMFORGE_OT_section_view,
-    BIMFORGE_OT_section_cut, BIMFORGE_PT_section)
+    BIMFORGE_OT_section_cut, BIMFORGE_OT_section_offset_locate,
+    BIMFORGE_OT_section_offset_inquire, BIMFORGE_PT_section)
 _HANDLERS: list = []
 
 

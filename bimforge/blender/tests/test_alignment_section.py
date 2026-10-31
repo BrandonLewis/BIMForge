@@ -235,6 +235,11 @@ def test_each_item_fills_per_its_styling(addon):
         conc = min(depth["Section · Concrete"])
         assert rebar < conc <= 0.0
         assert -mod.NEAR_GAP < rebar
+        # every cut edge is outlined by a flat strip, which renders
+        lines = bpy.data.objects[mod.LINES].data
+        assert len(lines.polygons) >= len(me.edges) // 2
+        assert max(abs((v.co - p0).dot(look)) for v in lines.vertices) \
+            < mod.NEAR_GAP
         props.fill_style = "SINGLE"
         bpy.ops.bimforge.section_cut()
         me = bpy.data.objects[mod.CUT].data
@@ -261,3 +266,52 @@ def test_palette_agrees_with_the_ifc_styles():
     assert classify("IfcSlab/Deck")[0] == "Concrete"
     assert classify("S-EW-FILL")[0] == "Earthwork"
     assert classify("Widget") is None
+    assert classify("Existing reinforced concrete (Br 39-0063), to be removed")[0] \
+        == "Existing (to remove)"
+    assert classify("existing 39-0063 slab stage 1")[0] == "Existing (to remove)"
+    assert classify("Structure backfill (bridge)")[0] == "Earthwork"
+    assert classify("Concrete Backfill")[0] == "Concrete"
+
+
+def test_offsets_ruler_locate_and_inquire(addon):
+    mod, m, al, prof = addon
+    scene = bpy.context.scene
+    props = scene.bimforge_section
+    st = mod._stationer(props)
+    props.goto = 1200.0
+    bpy.ops.bimforge.section_goto()
+    fr = mod._STATE["frame"]
+    k = m.ctx.ft_to_m
+    # ruler: CL plus 10-ft ticks out to the view's half width, labelled
+    props.ruler, props.ruler_step, props.width = True, 10.0, 40.0
+    labels = sorted(o.data.body for o in bpy.data.objects
+                    if o.name.startswith(mod.LABEL))
+    half_ft = 20.0 / k
+    n = int(half_ft // 10)
+    assert len(labels) == 2 * n + 1 and "CL" in labels
+    assert f"{10 * n}' Lt" in labels and f"{10 * n}' Rt" in labels
+    # locate 6 ft Rt: on the deck (12 ft wide, top at grade) -> top EL = PG
+    props.pt_offset, props.pt_side = 5.0, "RT"
+    assert bpy.ops.bimforge.section_offset_locate() == {"FINISHED"}
+    d, off, z, hit = mod._STATE["point"]
+    assert off == pytest.approx(-5.0 * k)
+    n_, e_ = al.station_offset(1200.0, 5.0, "Rt")
+    from bimforge.author.sweep import to_model
+    want = [c * k for c in to_model(m.ctx, n_, e_, prof.elev(1200.0))]
+    assert tuple(scene.cursor.location) == pytest.approx(want, abs=1e-3)
+    assert hit is not None and hit[1] == "deck"
+    # the deck top is the grade at CL, falling 0 here (flat section)
+    assert st.elevation_m(hit[0]) / k == pytest.approx(prof.elev(1200.0),
+                                                       abs=1e-3)
+    text = mod._point_text(props, st)
+    assert text.startswith("Sta 12+00.00, 5.00 Rt") and "top EL" in text
+    # inquire: move the cursor 20 ft Lt at another station and cut there
+    scene.cursor.location = st.point_at((1300.0 - al.s_start) * k, 20.0 * k)
+    assert bpy.ops.bimforge.section_offset_inquire(cut_there=True) \
+        == {"FINISHED"}
+    assert mod._point_text(props, st).startswith("Sta 13+00.00, 20.00 Lt")
+    assert st.convert(mod._STATE["frame"].station, "ft") == pytest.approx(
+        1300.0)
+    assert mod._STATE["point"][3] is None          # off the 12-ft deck
+    props.ruler = False
+    assert not [o for o in bpy.data.objects if o.name.startswith(mod.LABEL)]

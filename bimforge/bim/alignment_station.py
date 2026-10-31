@@ -237,6 +237,40 @@ class AlignmentStationer:
         n = max(1, int(math.ceil(self.length / step)))
         return [self.frame(self.length * i / n).point for i in range(n + 1)]
 
+    # ------------------------------------------------------------- offsets
+    def point_at(self, distance: float, offset: float) -> tuple:
+        """The point `offset` metres LEFT of the alignment (negative = right)
+        at `distance`, at the profile grade elevation: offsets are
+        horizontal and square to the alignment, as on the plans."""
+        fr = self.frame(distance)
+        return tuple(fr.point[i] + fr.left[i] * offset for i in range(3))
+
+    def locate(self, x: float, y: float, step: float | None = None
+               ) -> tuple[float, float]:
+        """(distance, offset_left) of a plan point: the inverse of point_at.
+
+        The nearest point on the alignment in plan, found from a coarse
+        sampling and refined by projecting onto the tangent (exact on
+        lines, a few iterations on curves). A point beyond either end
+        clamps there, its offset still measured square to the end tangent.
+        """
+        step = step or max(0.25, self.length / 2000.0)
+        n = max(1, int(math.ceil(self.length / step)))
+        best = min((self.length * i / n for i in range(n + 1)),
+                   key=lambda d: _plan_dist2(self.frame(d).point, x, y))
+        d = best
+        for _ in range(12):
+            fr = self.frame(d)
+            dx, dy = x - fr.point[0], y - fr.point[1]
+            nd = min(max(d + dx * fr.plan_tangent[0] + dy * fr.plan_tangent[1],
+                         0.0), self.length)
+            if abs(nd - d) < 1e-9:
+                break
+            d = nd
+        fr = self.frame(d)
+        off = (x - fr.point[0]) * fr.left[0] + (y - fr.point[1]) * fr.left[1]
+        return d, off
+
     def _kernel(self, d):
         m = self._eval.evaluate(d)
         return ((m[0][3], m[1][3], m[2][3]), (m[0][0], m[1][0], m[2][0]))
@@ -277,6 +311,18 @@ class AlignmentStationer:
         p = tuple(a[i] + u * (b[i] - a[i]) for i in range(3))
         t = tuple(b[i] - a[i] for i in range(3))
         return p, t
+
+
+def format_offset(offset_left_m: float, unit: str = "ft") -> str:
+    """'12.00 Lt' / '3.50 Rt' / 'CL' from a metres-left offset."""
+    v = metres_to(abs(offset_left_m), unit)
+    if round(v, 2) == 0:
+        return "CL"
+    return f"{v:.2f} {'Lt' if offset_left_m > 0 else 'Rt'}"
+
+
+def _plan_dist2(p, x, y):
+    return (p[0] - x) ** 2 + (p[1] - y) ** 2
 
 
 def _apply(m, v, w):

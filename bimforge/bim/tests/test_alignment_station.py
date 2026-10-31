@@ -16,7 +16,8 @@ import ifcopenshell.api.alignment as api  # noqa: E402
 from bimforge.author.sweep import to_model  # noqa: E402
 from bimforge.author.tests.test_emit_alignment import _emit, _model  # noqa: E402
 from bimforge.bim.alignment_station import (  # noqa: E402
-    AlignmentStationer, alignments, format_station, station_unit)
+    AlignmentStationer, alignments, format_offset, format_station,
+    station_unit)
 
 
 @pytest.fixture(scope="module")
@@ -146,3 +147,33 @@ def test_elevation_reads_through_the_map_conversion(emitted):
     fr = st.frame((1123.4 - al.s_start) * m.ctx.ft_to_m)
     elev_ft = st.elevation_m(fr.point[2]) / m.ctx.ft_to_m
     assert elev_ft == pytest.approx(prof.elev(1123.4), abs=1e-6)
+
+
+def test_offsets_are_radial_and_round_trip(emitted):
+    m, al, prof, f = emitted
+    st = AlignmentStationer(f, alignments(f)[0])
+    k = m.ctx.ft_to_m
+    for s, off_ft, side in [(1050.0, 12.0, "Lt"), (1200.0, 25.0, "Rt"),
+                            (1330.0, 40.0, "Lt")]:
+        d = (s - al.s_start) * k
+        left = off_ft * k * (1 if side == "Lt" else -1)
+        p = st.point_at(d, left)
+        n, e = al.station_offset(s, off_ft, side)       # bimforge's radial truth
+        want = to_model(m.ctx, n, e, prof.elev(s))
+        assert p[:2] == pytest.approx([c * k for c in want[:2]], abs=1e-4)
+        assert p[2] == pytest.approx(st.frame(d).point[2])   # at grade
+        dd, oo = st.locate(p[0], p[1])
+        assert dd == pytest.approx(d, abs=1e-6)
+        assert oo == pytest.approx(left, abs=1e-6)
+        assert format_offset(oo) == f"{off_ft:.2f} {side}"
+
+
+def test_locate_clamps_past_the_ends(emitted):
+    *_, f = emitted
+    st = AlignmentStationer(f, alignments(f)[0])
+    fr = st.frame(0.0)
+    x = fr.point[0] - fr.plan_tangent[0] * 10 + fr.left[0] * 3
+    y = fr.point[1] - fr.plan_tangent[1] * 10 + fr.left[1] * 3
+    d, off = st.locate(x, y)
+    assert d == 0.0 and off == pytest.approx(3.0)
+    assert format_offset(0.0) == "CL" and format_offset(-1.0, "m") == "1.00 Rt"

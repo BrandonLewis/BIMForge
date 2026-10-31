@@ -54,7 +54,17 @@ sits on the cut. Every mesh is cut at the plane, and the cut is filled into
 colour, which is the IFC surface style when Bonsai loaded it. An unstyled
 item (no material, or the default grey) is filled by what its material or
 object name says it is: concrete, rebar, asphalt, gravel, steel, timber or
-earthwork. **Single colour** switches back to one highlight colour. The panel reports station, grade elevation, grade and bearing.
+earthwork. **Single colour** switches back to one highlight colour.
+Every cut edge is also drawn as a thin dark line. That outlines the fills and
+shows open cuts, such as a ground surface, which has no inside to fill.
+
+**Offsets.** An offset ruler runs across the section: CL, then ticks every
+*Every* (10' Lt, 10' Rt, ...) at a set height above grade. **Locate** puts
+the 3D cursor at the current station plus an offset Lt or Rt, at the grade
+elevation. It then reads the top model surface straight below, for example
+`Sta 12+50.00, 3.50 Rt | PG EL 160.16 | top EL 150.92 existing-grade`.
+**Inquire** reads the 3D cursor back as station and offset, and **Cut** also
+slides the section to it. The panel reports station, grade elevation, grade and bearing.
 With **Follow timeline** on, frames sweep the whole alignment, so rendering
 the animation makes a fly-through. Stations read in feet when the project is
 in feet or its map conversion is to a feet grid.

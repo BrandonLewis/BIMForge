@@ -17,9 +17,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   go-to-station controls, can look ahead or back, and can follow the timeline
   for fly-throughs. It reads Bonsai's open IFC or a file on disk.
   `python -m bimforge.blender` builds the installable zip.
+- **Offsets in the section add-on.** An offset ruler (CL, 10' Lt, 10' Rt, ...)
+  is drawn and rendered across the section. *Locate* puts the 3D cursor at
+  station + offset Lt/Rt and reads the top surface there. *Inquire* reads the
+  cursor back as station + offset, and *Cut* slides the section to it. Cut
+  edges are outlined with flat strips, so they render, and open cuts such as
+  a ground surface show as lines. Existing work to be removed and structure
+  backfill get their own fills when unstyled. The false-origin field is now
+  *Model shift*, so it isn't confused with station offsets.
 - **`bimforge.bim.alignment_station`.** Evaluates an `IfcAlignment` at a
   distance or a station: point, 3-D and plan tangent, grade, azimuth and true
-  elevation (through `IfcMapConversion`). It uses ifcopenshell's curve
+  elevation (through `IfcMapConversion`). It also converts station + offset
+  to a point and back (`point_at` / `locate`, offsets square to the
+  alignment, as on the plans). It uses ifcopenshell's curve
   kernel, so every segment type is exact. Polyline alignments are
   interpolated. Station equations are not applied yet.
 
