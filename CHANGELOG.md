@@ -31,7 +31,15 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `StructureModel.solid_body_gate` sets it to "warn" (the default: reported,
   outputs kept), "error" or "off". `GateReport.warnings` carries the warn
   output. The measurement is `bimforge.bim.ifc_mesh.mesh_topology` /
-  `solid_bodies`.
+  `solid_bodies`. A spec sets it with `gate: {solid_bodies: warn|error|off}`
+  and declares bodies by name with `bodies: [{match, body}]`
+  (`gate.configure_solid_bodies`, used by `est-bim build`).
+- **`SectionPrism` with a void touching its edge.** The keyhole bridge
+  could land inside an outer edge that the side walls ran past whole,
+  leaving a T-junction (an open crack along the cap). Walls now split at
+  every such vertex. A void TANGENT to the section edge, such as the D89
+  default opening for a 36 in pipe, now reads as what it is: one pinch edge
+  of zero-thickness concrete.
 - **Earthwork lifts: `bimforge.author.lifts`.** `split_into_lifts(model,
   name, lift_ft)` makes an element's fill body one exact solid. It accepts
   mesh, prism, the `fill` kind (pit less its cuts), boxes, and touching cells,
@@ -41,7 +49,10 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   named `... lift 07 (El a-b)`, which carry its class, material, pay codes
   and facility part, plus `Element.lift` metadata. The parent becomes an
   IfcElementAssembly, and a stated quantity holds the lifts' sum to it.
-  `lift_dates` shares a task's working days out by cumulative lift volume.
+  `lift_dates` dates the lifts at a production rate (`rate_cy_per_day`,
+  compacted, working days, each lift starting where the one below ends), or
+  shares a task's working days by volume when no rate is given.
+  `lift_overrun` reports how far the rate misses the task's finish.
   Needs manifold3d (the `terrain` extra).
 - **4D date filter in the section add-on.** It shows the model as it stands
   on a date of the IFC's embedded schedule. Construction tasks' elements

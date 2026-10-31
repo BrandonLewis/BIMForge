@@ -753,6 +753,40 @@ def _ifc_solid_body_check(model, ifc_path: str) -> list[str]:
     return out
 
 
+SOLID_BODY_MODES = ("warn", "error", "off")
+
+
+def configure_solid_bodies(model, spec: dict) -> None:
+    """Apply a spec's solid-body settings to `model`:
+
+        gate:   {solid_bodies: error}           # warn (default) | error | off
+        bodies: [{match: "^existing-grade", body: surface},
+                 {match: "sheet pile run", body: solids}]
+
+    `bodies` rules are element-name regexes, first match wins, and only set
+    an element still at the default "solid" (a family's own declaration
+    stands). Shared by `est-bim build` and bid-side build scripts."""
+    import re
+    from bimforge.author.model import BODY_KINDS
+    mode = str((spec.get("gate") or {}).get("solid_bodies", "warn")).lower()
+    if mode not in SOLID_BODY_MODES:
+        raise ValueError(f"gate.solid_bodies {mode!r} must be one of "
+                         f"{SOLID_BODY_MODES}")
+    model.solid_body_gate = mode
+    rules = []
+    for r in spec.get("bodies") or ():
+        if r.get("body") not in BODY_KINDS:
+            raise ValueError(f"bodies: {r!r}: body must be one of {BODY_KINDS}")
+        rules.append((re.compile(r["match"]), r["body"]))
+    for el in model.elements:
+        if el.body != "solid":
+            continue
+        for rx, kind in rules:
+            if rx.search(el.name):
+                el.body = kind
+                break
+
+
 def _run_contained(rep: GateReport, chk, *args) -> None:
     """Run one post-check; a RAISE becomes a failure entry instead of
     propagating. An uncontained exception would bypass delete_outputs and

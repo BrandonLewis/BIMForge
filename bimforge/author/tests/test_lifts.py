@@ -8,7 +8,8 @@ import pytest
 pytest.importorskip("manifold3d")
 
 from bimforge.author.lifts import (cut_lifts, lift_dates,  # noqa: E402
-                                   solid_of, split_into_lifts)
+                                   lift_overrun, solid_of,
+                                   split_into_lifts)
 from bimforge.author.model import Element, StructureModel  # noqa: E402
 from bimforge.author.project import ProjectContext  # noqa: E402
 from bimforge.bim.ifc_mesh import mesh_topology  # noqa: E402
@@ -122,3 +123,21 @@ def test_lift_dates_share_the_task_by_volume():
     assert all(a <= b for a, b in d)
     assert [a for a, _ in d] == sorted(a for a, _ in d)
     assert "2027-09-18" not in {x for p in d for x in p}       # Saturday
+
+
+def test_lift_dates_by_production_rate():
+    m = _model(_backfill())
+    els = split_into_lifts(m, "Abut 1 structure backfill", 0.67)
+    total_cy = sum(e.quantities["volume_cf"] for e in els) / 27.0   # 25.9 CY
+    # 10 CY/day compacted: 2.6 working days from Wed 2027-09-15 -> Fri
+    d = lift_dates(els, "2027-09-15", rate_cy_per_day=10.0)
+    assert total_cy == pytest.approx(700 / 27)
+    assert d[0][0] == "2027-09-15" and d[-1][1] == "2027-09-17"
+    assert all(a <= b for a, b in d) and [a for a, _ in d] == sorted(
+        a for a, _ in d)
+    # 5 CY/day: 5.2 days -> spills over the weekend to Wed 2027-09-22
+    slow = lift_dates(els, "2027-09-15", rate_cy_per_day=5.0)
+    assert slow[-1][1] == "2027-09-22"
+    assert "2027-09-18" not in {x for p in slow for x in p}
+    assert lift_overrun(slow, "2027-09-20") == 2
+    assert lift_overrun(d, "2027-09-20") == 0

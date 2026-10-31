@@ -220,21 +220,51 @@ def split_into_lifts(model, name: str, lift_ft: float, *,
     return elements
 
 
-def lift_dates(lifts, start: str, finish: str,
+def lift_dates(lifts, start: str, finish: str | None = None, *,
+               rate_cy_per_day: float | None = None,
                workdays: frozenset = frozenset(range(5))) -> list[tuple]:
-    """(start, finish) ISO days per lift, bottom first: the task's working
-    days shared out by CUMULATIVE VOLUME (a lift of twice the volume takes
-    twice the time), each lift starting the day the one below finishes or
-    the next. `lifts` carry `.volume_cf` (Lift) or quantities["volume_cf"]
-    (an Element)."""
+    """(start, finish) ISO days per lift, bottom first.
+
+    With `rate_cy_per_day` (the crew's compacted production rate) each lift
+    takes its own volume / rate, working days only, starting at `start` and
+    carrying over to the next working day: lift 5 begins where lift 4
+    ended, so a big lower lift and a thin top lift take what they take, and
+    `finish` (if given) is only a check — `lift_overrun` tells by how much
+    the rate misses it. Without a rate the lifts share the working days of
+    `start`..`finish` by cumulative volume. `lifts` carry `.volume_cf`
+    (Lift) or quantities["volume_cf"] (an Element)."""
     from datetime import date, timedelta
-    d0, d1 = date.fromisoformat(start), date.fromisoformat(finish)
-    days = [d0 + timedelta(i) for i in range((d1 - d0).days + 1)
-            if (d0 + timedelta(i)).weekday() in workdays] or [d0]
 
     def vol(x):
         return getattr(x, "volume_cf", None) or x.quantities["volume_cf"]
     vols = [vol(x) for x in lifts]
+    d0 = date.fromisoformat(start)
+
+    def workday(i):                       # the i-th working day from d0
+        d, n = d0, -1
+        while True:
+            if d.weekday() in workdays:
+                n += 1
+                if n == i:
+                    return d
+            d += timedelta(1)
+
+    if rate_cy_per_day:
+        if rate_cy_per_day <= 0:
+            raise ValueError("rate_cy_per_day must be positive")
+        out, t = [], 0.0                  # t: working days elapsed
+        for v in vols:
+            a = t
+            t += v / 27.0 / rate_cy_per_day
+            out.append((workday(int(math.floor(a + 1e-9))).isoformat(),
+                        workday(max(int(math.floor(a + 1e-9)),
+                                    int(math.ceil(t - 1e-9)) - 1)).isoformat()))
+        return out
+    if finish is None:
+        raise ValueError("lift_dates needs a finish or a rate_cy_per_day")
+    d1 = date.fromisoformat(finish)
+    days = [d0 + timedelta(i) for i in range((d1 - d0).days + 1)
+            if (d0 + timedelta(i)).weekday() in workdays] or [d0]
     tot = sum(vols) or 1.0
     out, acc = [], 0.0
     for v in vols:
@@ -244,3 +274,15 @@ def lift_dates(lifts, start: str, finish: str,
         out.append((days[min(a, len(days) - 1)].isoformat(),
                     days[min(b, len(days) - 1)].isoformat()))
     return out
+
+
+def lift_overrun(dates, finish: str,
+                 workdays: frozenset = frozenset(range(5))) -> int:
+    """Working days the last lift ends AFTER `finish` (0 if on time)."""
+    from datetime import date, timedelta
+    end, f = date.fromisoformat(dates[-1][1]), date.fromisoformat(finish)
+    n, d = 0, f
+    while d < end:
+        d += timedelta(1)
+        n += d.weekday() in workdays
+    return n

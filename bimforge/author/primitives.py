@@ -820,6 +820,28 @@ def exact_of(d: dict) -> dict | None:
     return ex if ok else None
 
 
+def _split_ring_at(ring: list, pts, eps: float = 1e-9) -> list:
+    """`ring` with every point of `pts` that lies strictly inside one of its
+    edges inserted there, in order along the edge."""
+    out = []
+    for p, q in zip(ring, ring[1:] + ring[:1]):
+        out.append(p)
+        dx, dz = q[0] - p[0], q[1] - p[1]
+        L2 = dx * dx + dz * dz
+        if L2 <= eps:
+            continue
+        mids = []
+        for c in pts:
+            t = ((c[0] - p[0]) * dx + (c[1] - p[1]) * dz) / L2
+            if eps < t < 1.0 - eps:
+                cross = (c[0] - p[0]) * dz - (c[1] - p[1]) * dx
+                if abs(cross) <= 1e-9 * math.sqrt(L2) * max(1.0, math.sqrt(L2)):
+                    mids.append((t, (c[0], c[1])))
+        for _t, c in sorted(set(mids)):
+            out.append(c)
+    return out
+
+
 class SectionPrism:
     """A constant (x, z) cross-section extruded along +Y from `y0` for
     `length` feet (spillway-pilot lineage: chute slabs, ogee weirs, chute blocks,
@@ -896,7 +918,14 @@ class SectionPrism:
         # bridge edges are zero-width and would emit coincident wall pairs.
         # The CW void rings get inward-facing walls from the same edge rule,
         # which is outward from the solid — orientation stays consistent.
-        for r in [outer] + [_wound(v, ccw=False) for v in voids]:
+        # ...but a keyhole bridge may land on a POINT INSIDE an outer edge
+        # (the void's nearest point projected onto it): the caps then carry
+        # a vertex the long wall quad does not, a T-junction that leaves the
+        # shell open along that edge. Split each ring edge at every cap
+        # vertex lying on it, so walls and caps share every edge.
+        on_edge = [pt for pt in merged]
+        for r in [_split_ring_at(outer, on_edge)] + [
+                _split_ring_at(_wound(v, ccw=False), on_edge) for v in voids]:
             for p, q in zip(r, r[1:] + r[:1]):
                 qa, pa = vid(q[0], y0, q[1]), vid(p[0], y0, p[1])
                 pb, qb = vid(p[0], y1, p[1]), vid(q[0], y1, q[1])

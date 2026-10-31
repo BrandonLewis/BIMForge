@@ -14,6 +14,9 @@ The spec file:
               facility: {kind: bridge, predefined_type: GIRDER}}  # 4X3 only)
     spatial_parts:          # optional: element-name regex -> facility part
       - {match: "(?i)abut", part: ABUTMENT}
+    gate: {solid_bodies: warn}   # optional: warn (default) | error | off
+    bodies:                 # optional: element-name regex -> body kind
+      - {match: "^existing-grade", body: surface}
 
 The dispatcher is NOT a geometry language: a family is python; the spec is
 parameters. Orchestration: spec -> family.build -> paycodes.apply -> gate
@@ -129,6 +132,7 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
         from bimforge.author.spatial import apply_spatial_parts, parse_rules
         apply_spatial_parts(model, parse_rules(spec["spatial_parts"]))
     pc_mod.apply(model, pc)
+    gate.configure_solid_bodies(model, spec)
 
     rep = gate.run_pre(model, pc)
     print(rep.format("pre"), file=sys.stderr)

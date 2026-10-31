@@ -41,6 +41,23 @@ def test_coincident_corners_are_welded():
     assert mesh_topology(v, f)["closed"]
 
 
+def test_a_fan_across_a_collinear_vertex_is_still_closed():
+    # a 2 x 1 x 1 block whose bottom/top long edges carry a midpoint vertex
+    # (a stepped-top prism ring); the caps are fanned from vertex 0, so one
+    # cap triangle is (0, mid, far) - zero area, but it closes the shell
+    ring = [(0, 0), (1, 0), (2, 0), (2, 1), (0, 1)]
+    n = len(ring)
+    v = [(x, y, 0.0) for x, y in ring] + [(x, y, 1.0) for x, y in ring]
+    f = [(0, i + 1, i) for i in range(1, n - 1)]               # bottom fan
+    f += [(n, n + i, n + i + 1) for i in range(1, n - 1)]      # top fan
+    for i in range(n):
+        j = (i + 1) % n
+        f += [(i, j, j + n), (i, j + n, i + n)]
+    t = mesh_topology(v, f)
+    assert t["open_edges"] == 0 and t["nonmanifold_edges"] == 0
+    assert t["closed"] and t["components"] == 1
+
+
 def test_an_open_box_is_not_closed():
     t = mesh_topology(CUBE_V, CUBE_F[2:])          # no bottom
     assert t["open_edges"] == 4 and not t["closed"]
@@ -144,3 +161,36 @@ def test_warn_keeps_outputs_and_error_deletes_them(tmp_path):
 def test_body_kind_is_validated():
     with pytest.raises(ValueError, match="body"):
         Element("x", "IfcWall", body="shell")
+
+
+def test_spec_settings_configure_the_check():
+    from bimforge.author.gate import configure_solid_bodies
+    m = _model()
+    m.element("ties").body = "solid"
+    configure_solid_bodies(m, {"gate": {"solid_bodies": "error"},
+                               "bodies": [{"match": "^ties$", "body": "solids"},
+                                          {"match": ".", "body": "surface"}]})
+    assert m.solid_body_gate == "error"
+    assert m.element("ties").body == "solids"
+    assert m.element("sheet pans").body == "solids"      # family's own stands
+    assert m.element("footing").body == "surface"        # first match wins
+    with pytest.raises(ValueError):
+        configure_solid_bodies(m, {"gate": {"solid_bodies": "loud"}})
+    with pytest.raises(ValueError):
+        configure_solid_bodies(m, {"bodies": [{"match": "x", "body": "air"}]})
+
+
+def test_a_void_tangent_to_the_section_edge_is_a_pinch_not_a_crack():
+    import math
+    from bimforge.author.primitives import SectionPrism
+    # a 3 ft opening whose invert sits exactly on the bottom of the face
+    # (the D89 default D/3 + 6 in centre for a 36 in pipe): the concrete is
+    # zero-thick there. The shell must close (no T-junction cracks); the
+    # one remaining non-manifold edge IS the pinch, and is reported.
+    circ = [(5.0 + 1.5 * math.cos(2 * math.pi * i / 32),
+             1.5 + 1.5 * math.sin(2 * math.pi * i / 32)) for i in range(32)]
+    sp = SectionPrism("stem", [(0, 0), (10, 0), (10, 6), (0, 6)], 1.0,
+                      voids=[circ])
+    d = sp.body_solids()[0]
+    t = mesh_topology(d["verts"], d["tris"])
+    assert t["open_edges"] == 0 and t["nonmanifold_edges"] == 1

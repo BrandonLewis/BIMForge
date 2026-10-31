@@ -228,7 +228,11 @@ def mesh_topology(verts, faces, weld: float = WELD_M) -> dict:
                               piece: every piece is a closed 2-manifold
                               shell around real volume, i.e. a solid.
 
-    Degenerate (zero-area) triangles are dropped first: they bound nothing.
+    Triangles that collapse to a repeated vertex after welding are dropped
+    (they have no edges of their own). A zero-AREA triangle with three
+    distinct vertices is KEPT: a fan across a collinear vertex makes one, and
+    it is what joins that vertex's two short edges to the long edge opposite
+    — dropping it would report a closed cap as cracked.
     """
     import numpy as np
     v = np.asarray(verts, dtype=float).reshape(-1, 3)
