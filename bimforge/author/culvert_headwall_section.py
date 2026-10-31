@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import math
 
-from bimforge.author.primitives import Prism, SectionPrism
+from bimforge.author.primitives import (CircleRing, Prism, SectionPrism,
+                                        circle_poly)
 
 #: A pipe skew approaching 90 deg makes the ellipse's horizontal semi-axis
 #: r/cos(theta) diverge (the pipe runs parallel to the wall face -- not a real
@@ -43,8 +44,12 @@ def elliptical_void(dia: float, skew_deg: float, cu: float, cz: float,
     (u = along length, z = height) face."""
     r = dia / 2.0
     a = _skew_widen(r, skew_deg)
-    return [(cu + a * math.cos(2 * math.pi * k / n),
-             cz + r * math.sin(2 * math.pi * k / n)) for k in range(n)]
+    # an equal-area polygon that REMEMBERS its curve (CircleRing): the panel's
+    # net volume is the true ellipse's, and IFC/STEP draw the true arc
+    ring = circle_poly(r, n)                          # equal-area circle at 0, 0
+    out = CircleRing((cu + u * (a / r), cz + v) for u, v in ring)
+    out.circle = (cu, cz, r) if abs(a - r) < 1e-12 else (cu, cz, a, r)
+    return out
 
 
 def headwall_stem(name: str, wall, length: float, pipe: dict,

@@ -57,13 +57,24 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
     IfcCircleProfileDef, IfcCircleHollowProfileDef (concentric tube), or
     IfcCircle curves inside an arbitrary profile (a round opening).
     `emit_step` writes true cylinders, and now oblique extrusions too.
-  - New `CircularColumn(name, bottom, top, r, r_inner=None)`: a horizontal
-    circular section swept straight, plumb or battered (an oblique IFC
-    extrusion), for piles, posts and sleeves.
+  - New `CircularColumn(name, bottom, top, r, r_inner=None)`: a TRUE
+    cylinder on the axis bottom -> top, cut off level at both ends, for
+    piles, posts and sleeves. It is round square to its axis, so on a batter
+    the level ends are ellipses (semi-axes r / cos(theta) along the batter
+    and r across it). IFC gets an IfcEllipseProfileDef extruded along the
+    axis (IfcCircleProfileDef when plumb), and STEP a true cylinder. Its
+    volume is pi r^2 x the length along the axis; a section kept horizontal
+    instead runs about 5 % short at 3:1. Exact forms' `circles` entries may
+    be ellipses `(cx, cy, a, b)`, written as IfcEllipse / IfcEllipseProfileDef
+    and as build123d ellipses.
   - `SectionPrism` keeps circular profiles and voids. The `pipe-headwall`
     opening is a CircleRing, so its net volume is now the true circle's
     (about 0.6 % of the opening's area less concrete than the old inscribed
     polygon).
+  - The D90 `culvert-headwall` pipe void (`elliptical_void`) is now an
+    equal-area CircleRing too: a circle when square, an ellipse
+    `(cu, cz, a, r)` when skewed. IFC and STEP draw the true arc, and the
+    panel's net volume is the true curve's, not the inscribed polygon's.
   - The gate tessellates curved IFC finely (`GATE_ANGULAR_DEFLECTION`,
     0.1 rad; `mesh_leg(angular_deflection=)`), so it checks the true circle,
     not a viewer's 25-gon, which reads 0.97 % low.

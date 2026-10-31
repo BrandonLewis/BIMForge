@@ -89,7 +89,7 @@ def _exact_extrusion(d, k):
         return None
     from build123d import (BuildPart, BuildSketch, Mode, Plane, Polygon,
                            Vector, extrude)
-    from build123d import Circle, Locations
+    from build123d import Circle, Ellipse, Locations
     pl = ex["plane"]
     o, x, y = (Vector(*pl["o"]) * k, Vector(*pl["x"]), Vector(*pl["y"]))
     z = x.cross(y)
@@ -102,9 +102,12 @@ def _exact_extrusion(d, k):
     plane = Plane(origin=o, x_dir=x, z_dir=z)
 
     def shape(ring, circ, mode):
-        if circ is not None:                  # the TRUE circle: a cylinder
+        if circ is not None:                  # the TRUE circle / ellipse
             with Locations((circ[0] * k, circ[1] * k)):
-                Circle(circ[2] * k, mode=mode)
+                if len(circ) == 4:
+                    Ellipse(circ[2] * k, circ[3] * k, mode=mode)
+                else:
+                    Circle(circ[2] * k, mode=mode)
         else:
             Polygon(*[(u * k, v * k) for u, v in ring], align=None, mode=mode)
     with BuildPart() as bp:

@@ -40,7 +40,9 @@ def equal_area_polygon_radius(r: float, segments: int) -> float:
 class CircleRing(list):
     """A circle's polygon - the points every mesh, plan and volume consumer
     reads, unchanged - that also REMEMBERS the circle: ``.circle`` is
-    ``(cx, cy, r)`` with the TRUE radius. Exact writers (emit_ifc's
+    ``(cx, cy, r)`` with the TRUE radius - or ``(cx, cy, a, b)``, an
+    ELLIPSE with semi-axes a along x and b along y (a battered cylinder's
+    level section). Exact writers (emit_ifc's
     IfcCircleProfileDef / IfcCircle, emit_step's cylinders) draw the arc
     instead of the polygon, so a pile reaches Revit/Tekla as a round
     section, not a 16-gon. Any operation that rebuilds the list (cleaning,
@@ -881,16 +883,19 @@ def _circles(profile_circle, void_circles) -> dict | None:
 
 
 class CircularColumn:
-    """A horizontal circular section swept straight from `bottom` to `top`
-    (each an (x, y, z) CENTRE, feet): a plumb or battered pipe pile, a round
-    column, a post. `r_inner` makes it a tube.
+    """A TRUE circular cylinder of radius `r` on the axis `bottom` -> `top`
+    (each an (x, y, z) CENTRE, feet), cut off LEVEL at both ends: a plumb or
+    battered pipe pile, a round column, a post. `r_inner` makes it a tube.
 
-    The mesh is the equal-area polygon (so the declared volume, the mesh's
-    and the exact solid's are one number: pi (r^2 - r_inner^2) x the
-    VERTICAL height - Cavalieri, the section is horizontal); the exact form
-    is the circle extruded along top - bottom (oblique when battered), which
-    emit_ifc writes as an IfcCircleProfileDef / IfcCircleHollowProfileDef
-    IfcExtrudedAreaSolid and emit_step as a true cylinder.
+    Round square to its axis, as the member is: on a batter the level
+    cut-off and tip planes cut it in ELLIPSES (semi-axes r across the
+    batter, r / cos(theta) along it, theta the axis's angle from vertical).
+    The mesh is that ellipse as an equal-area polygon; the exact form is the
+    ellipse (a circle when plumb) extruded along the axis - emit_ifc writes
+    an IfcEllipseProfileDef / IfcCircleProfileDef IfcExtrudedAreaSolid
+    (hollow: the profile with an inner curve), emit_step a true cylinder.
+    The volume is one number all ways: pi (r^2 - r_inner^2) x the length
+    along the axis.
     """
 
     def __init__(self, name: str, bottom, top, r: float,
@@ -906,27 +911,61 @@ class CircularColumn:
         self.ifc, self.layer = ifc, layer
 
     @property
+    def axis_length_ft(self) -> float:
+        return math.dist(self.top, self.bottom)
+
+    @property
+    def cos_theta(self) -> float:
+        """cos of the axis's angle from vertical (1 plumb)."""
+        return abs(self.top[2] - self.bottom[2]) / self.axis_length_ft
+
+    @property
     def area_sf(self) -> float:
+        """The cross-section SQUARE TO THE AXIS (the member's own)."""
         ri = self.r_inner or 0.0
         return math.pi * (self.r ** 2 - ri ** 2)
 
     @property
     def volume_cf(self) -> float:
-        return self.area_sf * abs(self.top[2] - self.bottom[2])
+        return self.area_sf * self.axis_length_ft
+
+    def _frame(self):
+        """(x, y) horizontal unit vectors of the end-plane profile: x along
+        the batter (the ellipse's long axis), y across it."""
+        dx, dy = self.top[0] - self.bottom[0], self.top[1] - self.bottom[1]
+        h = math.hypot(dx, dy)
+        if h < 1e-12:
+            return (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)
+        return (dx / h, dy / h, 0.0), (-dy / h, dx / h, 0.0)
+
+    def _section(self, rad: float, clockwise: bool = False):
+        """The level end section of radius `rad`: an equal-area ellipse
+        polygon in the profile frame, remembering (0, 0, a, b) - or the
+        circle (0, 0, r) when plumb."""
+        stretch = 1.0 / self.cos_theta
+        ring = circle_poly(rad, self.segments, clockwise=clockwise)
+        if abs(stretch - 1.0) < 1e-12:
+            return ring
+        out = CircleRing((u * stretch, v) for u, v in ring)
+        out.circle = (0.0, 0.0, rad * stretch, rad)    # ellipse: a along x
+        return out
 
     def body_solids(self) -> list[dict]:
-        outer = circle_poly(self.r, self.segments)
-        rings = [outer]
-        inner = None
-        if self.r_inner:
-            inner = circle_poly(self.r_inner, self.segments, clockwise=True)
-            rings.append(inner)
+        outer = self._section(self.r)
+        inner = self._section(self.r_inner, clockwise=True) \
+            if self.r_inner else None
+        rings = [outer] + ([inner] if inner else [])
+        ex, ey = self._frame()
         n = self.segments
         b, t = self.bottom, self.top
+
+        def at(c, u, v):
+            return (c[0] + u * ex[0] + v * ey[0], c[1] + u * ex[1] + v * ey[1],
+                    c[2])
         verts = []
         for ring in rings:
-            verts += [(b[0] + u, b[1] + v, b[2]) for u, v in ring]
-            verts += [(t[0] + u, t[1] + v, t[2]) for u, v in ring]
+            verts += [at(b, u, v) for u, v in ring]
+            verts += [at(t, u, v) for u, v in ring]
         tris = []
         if inner is None:
             for i in range(1, n - 1):
@@ -945,15 +984,14 @@ class CircularColumn:
                 j = (i + 1) % n
                 tris += [(base + i, base + j, base + n + j),
                          (base + i, base + n + j, base + n + i)]
-        top_ring = [(t[0] + u, t[1] + v) for u, v in outer]
+        top_ring = [at(t, u, v)[:2] for u, v in outer]
         return [{"kind": "mesh", "units": "ft", "verts": verts,
                  "tris": _outward_tris(verts, tris), "plan": [top_ring],
                  "exact": {"kind": "extrusion", "profile": list(outer),
                            "voids": [list(inner)] if inner else [],
                            "circles": _circles(
                                outer.circle, [inner.circle] if inner else []),
-                           "plane": {"o": b, "x": (1.0, 0.0, 0.0),
-                                     "y": (0.0, 1.0, 0.0)},
+                           "plane": {"o": b, "x": ex, "y": ey},
                            "dir": tuple(t[i] - b[i] for i in range(3))}}]
 
 

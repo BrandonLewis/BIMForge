@@ -283,15 +283,23 @@ def _profile(f, ring, holes=(), circles=None):
             "IfcAxis2Placement2D", Location=f.create_entity(
                 "IfcCartesianPoint", Coordinates=(float(c[0]), float(c[1]))))
 
-    def circle(c):
+    def circle(c):                     # (cx, cy, r) or ellipse (cx, cy, a, b)
+        if len(c) == 4:
+            return f.create_entity("IfcEllipse", Position=at(c),
+                                   SemiAxis1=float(c[2]), SemiAxis2=float(c[3]))
         return f.create_entity("IfcCircle", Position=at(c), Radius=float(c[2]))
     pc = (circles or {}).get("profile")
+    if pc is not None and len(pc) == 4 and not holes:
+        return f.create_entity("IfcEllipseProfileDef", ProfileType="AREA",
+                               Position=at(pc), SemiAxis1=float(pc[2]),
+                               SemiAxis2=float(pc[3]))
     vcs = list((circles or {}).get("voids") or [None] * len(holes))
     vcs += [None] * (len(holes) - len(vcs))
     if pc is not None and not holes:
         return f.create_entity("IfcCircleProfileDef", ProfileType="AREA",
                                Position=at(pc), Radius=float(pc[2]))
-    if pc is not None and len(holes) == 1 and vcs[0] is not None and \
+    if pc is not None and len(pc) == 3 and len(holes) == 1 and \
+            vcs[0] is not None and len(vcs[0]) == 3 and \
             math.hypot(vcs[0][0] - pc[0], vcs[0][1] - pc[1]) < 1e-9 and \
             vcs[0][2] < pc[2]:
         return f.create_entity("IfcCircleHollowProfileDef", ProfileType="AREA",
@@ -375,7 +383,8 @@ def _parametric_solid(f, d, k):
     cs = d.get("circles")
 
     def sc(c):
-        return None if c is None else (sign * c[0] * k, c[1] * k, c[2] * k)
+        return None if c is None else (sign * c[0] * k, c[1] * k) + tuple(
+            r * k for r in c[2:])
     prof = _profile(f, [(sign * u * k, v * k) for u, v in d["profile"]],
                     [[(sign * u * k, v * k) for u, v in h]
                      for h in d.get("voids") or ()],

@@ -32,9 +32,12 @@ def test_circular_column_mesh_volume_and_exact_agree():
     (d,) = pile.body_solids()
     t = mesh_topology(d["verts"], d["tris"])
     assert t["closed"] and t["components"] == 1
-    assert pile.volume_cf == pytest.approx(math.pi * 40.0)        # area x vertical H
+    # a TRUE cylinder: pi r^2 x the length along its (battered) axis
+    assert pile.volume_cf == pytest.approx(math.pi * math.hypot(4.0, 40.0))
     assert exact_of(d) is d["exact"]
-    assert d["exact"]["circles"]["profile"] == (0.0, 0.0, 1.0)
+    # its level end section is an ellipse, r / cos(theta) along the batter
+    a, b = d["exact"]["circles"]["profile"][2:]
+    assert a == pytest.approx(math.hypot(4.0, 40.0) / 40.0) and b == 1.0
     tube = CircularColumn("pipe", (0, 0, 0), (0, 0, 10), r=1.0, r_inner=0.9)
     (d2,) = tube.body_solids()
     assert mesh_topology(d2["verts"], d2["tris"])["closed"]
@@ -87,7 +90,11 @@ def test_ifc_writes_true_circles(tmp_path):
     assert prof["plumb pile"].SweptArea.is_a("IfcCircleProfileDef")
     assert prof["plumb pile"].SweptArea.Radius == pytest.approx(0.75 * FT)
     bat = prof["battered pile"]
-    assert bat.SweptArea.is_a("IfcCircleProfileDef")
+    # level cut-off / tip of a round pile on a batter: an ellipse section
+    assert bat.SweptArea.is_a("IfcEllipseProfileDef")
+    cos_t = 40 / math.hypot(13.33, 40)
+    assert bat.SweptArea.SemiAxis1 == pytest.approx(0.75 / cos_t * FT)
+    assert bat.SweptArea.SemiAxis2 == pytest.approx(0.75 * FT)
     dx, dy, dz = bat.ExtrudedDirection.DirectionRatios
     assert dx / dz == pytest.approx(13.33 / 40, abs=1e-3)          # 3:1 batter
     hollow = prof["pipe sleeve"].SweptArea
@@ -117,3 +124,28 @@ def test_step_writes_true_cylinders(tmp_path):
     # an oblique circular extrusion: its side is a true elliptic-cylinder
     # surface (a B-spline/extrusion surface), not facets
     assert len(bat.faces()) == 3
+
+
+def test_a_battered_pile_is_round_square_to_its_axis(tmp_path):
+    """Every point of the drawn surface sits r from the pile axis."""
+    import numpy as np
+    import ifcopenshell.geom
+    m = _model()
+    out = tmp_path / "arcs.ifc"
+    emit_ifc(m, str(out))
+    f = ifcopenshell.open(str(out))
+    (p,) = [x for x in f.by_type("IfcPile") if x.Name == "battered pile"]
+    s = ifcopenshell.geom.settings()
+    s.set("use-world-coords", True)
+    s.set("mesher-angular-deflection", 0.05)
+    v = np.array(ifcopenshell.geom.create_shape(s, p).geometry.verts).reshape(-1, 3)
+    pile = m.element("battered pile").geometry
+    b = np.array(pile.bottom) * FT
+    axis = (np.array(pile.top) - np.array(pile.bottom)) * FT
+    axis /= np.linalg.norm(axis)
+    rel = v - b
+    radial = np.linalg.norm(rel - np.outer(rel @ axis, axis), axis=1)
+    # every vertex is on the round side or on a level end inside it
+    assert radial.max() == pytest.approx(0.75 * FT, rel=1e-6)
+    side = radial > 0.75 * FT * (1 - 1e-6)
+    assert side.sum() > 20
