@@ -25,6 +25,16 @@ share one schema, and it must be the target ctx's: mixing IFC4 and IFC4X3 is
 refused, because an entity cannot be copied across schemas. IFC4 sources keep
 the storey behaviour.
 
+IFC4X3 alignments. An IfcAlignment is a positioning element, not a building
+element: it is aggregated to the IfcProject and referenced (not contained) in
+the site, and its layouts, segments and stationing referents hang off it by
+ordered IfcRelNests. Federation keeps exactly that shape: the alignment and
+everything nested under it are carried whole, the alignment is re-aggregated
+to the TARGET project and referenced into the target site, none of it is
+dropped into a storey, and its Axis representation keeps an Axis
+subcontext. So a model's control line survives into the combined file, where
+the staging, layout and section tools read their stations.
+
 It MERGES, it does not re-author: quantities/classifications/materials/styles
 travel with the product intact, so the federated file says what its sources do.
 It does NOT reproject — sources must already sit on the same base point (the
@@ -46,6 +56,59 @@ _CARRIED = ("IfcRelDefinesByProperties", "IfcRelAssociatesClassification",
             "IfcRelDefinesByType")
 
 
+def _alignment_ids(src) -> tuple[set, list]:
+    """(ids of every alignment and everything nested/aggregated under it,
+    the TOP-level alignments) in `src`."""
+    tops = []
+    ids: set = set()
+    for al in src.by_type("IfcAlignment") if _is_4x3(src) else ():
+        parent = any(r.RelatingObject.is_a("IfcAlignment")
+                     for r in (getattr(al, "Nests", None) or ())) or any(
+            r.RelatingObject.is_a("IfcAlignment") for r in al.Decomposes or ())
+        if not parent:
+            tops.append(al)
+    stack = list(tops)
+    while stack:
+        e = stack.pop()
+        if e.id() in ids:
+            continue
+        ids.add(e.id())
+        for rel in (getattr(e, "IsNestedBy", None) or ()) + \
+                (getattr(e, "IsDecomposedBy", None) or ()):
+            stack += list(rel.RelatedObjects)
+    return ids, sorted(tops, key=lambda a: a.id())
+
+
+def _carry_alignment_nests(tgt, src, added: dict, roots: dict,
+                           align_ids: set) -> None:
+    """The ordered nests (alignment > layouts > segments, alignment >
+    referents) and aggregates (parent > child alignments), whole."""
+    for kind in ("IfcRelNests", "IfcRelAggregates"):
+        for rel in src.by_type(kind):
+            if rel.RelatingObject.id() in align_ids and all(
+                    o.id() in added for o in rel.RelatedObjects):
+                nr = tgt.add(rel)
+                roots[nr.id()] = nr
+
+
+def _place_alignments(tgt, alignments, site, ctx) -> None:
+    """Aggregate each carried top-level alignment to the target project and
+    reference it into the target site (IFC4.3 CT 4.1.4.1.1). Both rels get a
+    deterministic GlobalId keyed on the alignment's (namespaced) id; api
+    mints random ones."""
+    import ifcopenshell.api
+    project = tgt.by_type("IfcProject")[0]
+    for al in alignments:
+        agg = ifcopenshell.api.run("aggregate.assign_object", tgt,
+                                   products=[al], relating_object=project)
+        if agg is not None and len(agg.RelatedObjects) == 1:
+            agg.GlobalId = ctx.guid(f"federated/aggregate/{al.GlobalId}")
+        ref = ifcopenshell.api.run("spatial.reference_structure", tgt,
+                                   products=[al], relating_structure=site)
+        if ref is not None:
+            ref.GlobalId = ctx.guid(f"federated/referenced/{site.GlobalId}")
+
+
 @dataclass
 class FederationResult:
     products: int = 0
@@ -56,6 +119,8 @@ class FederationResult:
     facilities: int = 0
     #: products contained directly in the target IfcSite (`site`-kind sources).
     site_products: int = 0
+    #: top-level IfcAlignments carried (aggregated to the project).
+    alignments: int = 0
 
 
 class MixedSchemaError(ValueError):
@@ -198,23 +263,29 @@ def _namespace(roots: dict, storey_name: str, ctx) -> None:
             r.GlobalId = ctx.guid(f"{storey_name}/{r.GlobalId}")
 
 
-def _merge_source(tgt, src, storey_name: str, dest_storey, ctx) -> int:
+def _merge_source(tgt, src, storey_name: str, dest_storey, ctx
+                  ) -> tuple[int, list]:
     """The storey path (IFC4 sources, and 4X3 sources with no facility tree):
-    every non-feature product is re-contained in this source's storey."""
+    every non-feature product is re-contained in this source's storey, except
+    alignments (carried whole, placed by the caller). Returns (products,
+    the carried top-level alignments)."""
+    align_ids, tops = _alignment_ids(src)
     products = [p for p in src.by_type("IfcProduct")
                 if not p.is_a("IfcSpatialElement")
                 and not p.is_a("IfcSpatialStructureElement")]
-    keep = [p for p in products if not p.is_a("IfcFeatureElement")]
+    keep = [p for p in products if not p.is_a("IfcFeatureElement")
+            and p.id() not in align_ids]
     added = {p.id(): tgt.add(p) for p in products}
     # every merged IfcRoot to re-id, keyed by target id so a type shared by
     # several IfcRelDefinesByType rels is namespaced exactly once (double
     # namespacing would apply ctx.guid twice, defeating stability).
     roots = {e.id(): e for e in added.values()}
     _carry_relationships(tgt, src, added, roots)
+    _carry_alignment_nests(tgt, src, added, roots, align_ids)
     _namespace(roots, storey_name, ctx)
     _contain(tgt, [added[p.id()] for p in keep], dest_storey,
              f"federated/contained/{storey_name}", ctx)
-    return len(keep)
+    return len(keep), [added[a.id()] for a in tops]
 
 
 def _repoint_to_site(tgt, spatial, site) -> None:
@@ -250,10 +321,12 @@ def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey):
     subtree, fac_roots = _facility_subtree(src)
     spatial_ids = {s.id() for s in subtree}
     site_ids = _site_contained_ids(src)
+    align_ids, tops = _alignment_ids(src)
     products = [p for p in src.by_type("IfcProduct")
                 if not p.is_a("IfcSpatialElement")
                 and not p.is_a("IfcSpatialStructureElement")]
-    keep = [p for p in products if not p.is_a("IfcFeatureElement")]
+    keep = [p for p in products if not p.is_a("IfcFeatureElement")
+            and p.id() not in align_ids]
 
     # the facility subtree first (deterministic order), then the products
     added = {s.id(): tgt.add(s) for s in subtree}
@@ -263,12 +336,14 @@ def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey):
     # re-contained below (the storey path contains every product, so it can
     # leave nests behind without orphaning anything)
     _carry_relationships(tgt, src, added, roots, _CARRIED + ("IfcRelNests",))
+    _carry_alignment_nests(tgt, src, added, roots, align_ids)
 
     # containment: carried whole when it is IN the facility subtree; the site's
     # own products go to the target site; a building/storey's go to a storey.
     to_site, to_storey, contained = [], [], set()
     for rel in src.by_type("IfcRelContainedInSpatialStructure"):
-        members = [p for p in rel.RelatedElements if p.id() in added]
+        members = [p for p in rel.RelatedElements if p.id() in added
+                   and p.id() not in align_ids]
         contained |= {p.id() for p in members}
         if rel.RelatingStructure.id() in spatial_ids:
             nr = tgt.add(rel)
@@ -303,16 +378,26 @@ def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey):
     if to_storey:
         _contain(tgt, [added[p.id()] for p in to_storey], make_storey(),
                  f"federated/contained/{name}", ctx)
-    return len(keep), len(fac_roots), len(to_site)
+    return (len(keep), len(fac_roots), len(to_site),
+            [added[a.id()] for a in tops])
 
 
 def _unify_contexts(f, model_ctx, body_ctx) -> int:
     """Re-point every representation onto the one model/body context and delete
     the merged copies. Returns the number of contexts collapsed."""
     keep = {model_ctx.id(), body_ctx.id()}
+    axis_ctx = None
     for rep in f.by_type("IfcRepresentation"):
         c = rep.ContextOfItems
         if c is not None and c.id() not in keep:
+            if rep.RepresentationIdentifier == "Axis":
+                # an alignment's curve: keep it in an Axis subcontext of the
+                # one model context (as ifcopenshell.api.alignment writes it)
+                if axis_ctx is None:
+                    axis_ctx = _axis_subcontext(f, model_ctx)
+                    keep.add(axis_ctx.id())
+                rep.ContextOfItems = axis_ctx
+                continue
             rep.ContextOfItems = (body_ctx
                                   if rep.RepresentationIdentifier == "Body"
                                   else model_ctx)
@@ -329,6 +414,17 @@ def _unify_contexts(f, model_ctx, body_ctx) -> int:
             "IfcGeometricRepresentationSubContext")):
         f.remove(f.by_id(cid))
     return len(dead)
+
+
+def _axis_subcontext(f, model_ctx):
+    """The target's Model/Axis subcontext under `model_ctx`, made if absent."""
+    for c in f.by_type("IfcGeometricRepresentationSubContext"):
+        if c.ParentContext == model_ctx and c.ContextIdentifier == "Axis":
+            return c
+    import ifcopenshell.api
+    return ifcopenshell.api.run(
+        "context.add_context", f, context_type="Model",
+        context_identifier="Axis", target_view="MODEL_VIEW", parent=model_ctx)
 
 
 def _dedupe_nonproduct_globalids(f, ctx) -> int:
@@ -440,13 +536,15 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True
                     storey.append(_storey(f, ctx, building, name))
                 return storey[0]
 
-            n, n_fac, n_site = _merge_facility_source(
+            n, n_fac, n_site, als = _merge_facility_source(
                 f, src, name, ctx, site, make_storey)
             result.facilities += n_fac
             result.site_products += n_site
         else:
-            n = _merge_source(f, src, name, _storey(f, ctx, building, name),
-                              ctx)
+            n, als = _merge_source(f, src, name,
+                                   _storey(f, ctx, building, name), ctx)
+        _place_alignments(f, als, site, ctx)
+        result.alignments += len(als)
         result.per_source[name] = n
         result.products += n
 

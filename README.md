@@ -64,7 +64,15 @@ the 3D cursor at the current station plus an offset Lt or Rt, at the grade
 elevation. It then reads the top model surface straight below, for example
 `Sta 12+50.00, 3.50 Rt | PG EL 160.16 | top EL 150.92 existing-grade`.
 **Inquire** reads the 3D cursor back as station and offset, and **Cut** also
-slides the section to it. The panel reports station, grade elevation, grade and bearing.
+slides the section to it.
+
+**4D date.** When the IFC carries a 4D schedule (IfcTask links, as written
+by `est-bim schedule`), the panel shows the model as it stands at the end of
+a day. A construction task's elements appear at its start, and a demolition,
+dismantle or removal task's elements disappear at its start. Hidden elements
+are not cut. Type a date, step by a day or a week, or jump to the previous
+or next day on which something appears or goes. The panel counts what is
+standing, not yet built and removed. The panel reports station, grade elevation, grade and bearing.
 With **Follow timeline** on, frames sweep the whole alignment, so rendering
 the animation makes a fly-through. Stations read in feet when the project is
 in feet or its map conversion is to a feet grid.

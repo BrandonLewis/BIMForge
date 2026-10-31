@@ -56,12 +56,29 @@ def _styles(product):
             for st in si.Styles if st.is_a("IfcSurfaceStyle")]
 
 
+def _schedule_deck(f, path):
+    """A 4D schedule in the fixture: the deck is poured 2027-09-15."""
+    import ifcopenshell.api
+    run = ifcopenshell.api.run
+    ws = run("sequence.add_work_schedule", f, name="baseline")
+    t = run("sequence.add_task", f, work_schedule=ws, name="Deck pour")
+    t.PredefinedType = "CONSTRUCTION"
+    tt = run("sequence.add_task_time", f, task=t)
+    run("sequence.edit_task_time", f, task_time=tt,
+        attributes={"ScheduleStart": "2027-09-15T08:00:00"})
+    (deck,) = [p for p in f.by_type("IfcSlab") if p.Name == "deck"]
+    run("sequence.assign_product", f, relating_product=deck,
+        related_object=t)
+    f.write(str(path))
+
+
 @pytest.fixture(scope="module")
 def addon(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("addon")
     with zipfile.ZipFile(build_addon(tmp / f"{ADDON}.zip")) as z:
         assert sorted(z.namelist()) == [f"{ADDON}/__init__.py",
-                                        f"{ADDON}/alignment_station.py"]
+                                        f"{ADDON}/alignment_station.py",
+                                        f"{ADDON}/schedule_state.py"]
         z.extractall(tmp / "addons")
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sys.path.insert(0, str(tmp / "addons"))
@@ -69,6 +86,7 @@ def addon(tmp_path_factory):
     mod.register()
     m, al, prof = _model()
     path, f = _emit(tmp, m)
+    _schedule_deck(f, path)
     _import_meshes(f)
     props = bpy.context.scene.bimforge_section
     props.source = "FILE"
@@ -315,3 +333,28 @@ def test_offsets_ruler_locate_and_inquire(addon):
     assert mod._STATE["point"][3] is None          # off the 12-ft deck
     props.ruler = False
     assert not [o for o in bpy.data.objects if o.name.startswith(mod.LABEL)]
+
+
+def test_the_date_filter_hides_what_is_not_built_and_skips_its_cut(addon):
+    mod, *_ = addon
+    scene = bpy.context.scene
+    props = scene.bimforge_section
+    assert mod._STATE["events"] == ["2027-09-15"]
+    deck = bpy.data.objects["deck"]
+    props.position = 0.5
+    assert len(bpy.data.objects[mod.CUT].data.polygons) > 0
+    props.date_filter = True
+    props.date = "2027-06-15"                      # before the pour
+    # the alignment's own axis object (as Bonsai loads it) is unscheduled
+    assert mod._STATE["counts"] == {"standing": 1, "not yet built": 1,
+                                    "removed": 0, "unmatched": 0}
+    assert not deck.visible_get() and deck.hide_render
+    assert len(bpy.data.objects[mod.CUT].data.polygons) == 0
+    bpy.ops.bimforge.section_date_step(event=1)    # next event: the pour
+    assert props.date == "2027-09-15"
+    assert deck.visible_get() and not deck.hide_render
+    assert len(bpy.data.objects[mod.CUT].data.polygons) > 0
+    bpy.ops.bimforge.section_date_step(days=-1)
+    assert props.date == "2027-09-14" and not deck.visible_get()
+    props.date_filter = False                      # everything back
+    assert deck.visible_get() and not mod._STATE["hidden"]

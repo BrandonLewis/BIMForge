@@ -14,6 +14,8 @@ station the add-on:
   concrete, rebar, asphalt, gravel — from the item's material (Bonsai's
   IfcSurfaceStyle), else from what its name says it is;
 * reports station, elevation of the grade line, grade and bearing;
+* shows the model as it stands on a date of the IFC's 4D schedule (what is
+  not yet built, or already removed, is hidden and not cut);
 * draws an offset ruler (CL, 10' Lt, 10' Rt, ...) across the section, puts
   the 3D cursor at a station + offset Lt/Rt and reads the top surface
   there, and inquires the cursor back to station + offset.
@@ -39,8 +41,10 @@ bl_info = {
 
 try:                                    # the add-on zip carries its own copy
     from . import alignment_station as _st
+    from . import schedule_state as _ss
 except ImportError:                     # running from the bimforge package
     from bimforge.bim import alignment_station as _st
+    from bimforge.bim import schedule_state as _ss
 
 try:
     import bpy
@@ -56,7 +60,8 @@ NEAR_GAP = 0.002        # m: near clip this far in front of the plane
 # Live state that cannot sit in bpy properties: the open file, the
 # stationers, the last frame. Rebuilt on demand after a reload.
 _STATE: dict = {"key": None, "file": None, "stationers": [], "frame": None,
-                "error": "", "point": None}
+                "error": "", "point": None, "spans": {}, "events": [],
+                "hidden": set(), "counts": None}
 _ENUM_CACHE: list = []
 _DRAW_HANDLE = None
 
@@ -98,8 +103,10 @@ def _open(props):
         if not stationers:
             raise RuntimeError(f"no IFC4X3 IfcAlignment with a curve "
                                f"(schema {f.schema})")
+        spans = _ss.element_spans(f)
         _STATE.update(key=key, file=f, stationers=stationers, frame=None,
-                      error="")
+                      error="", spans=spans, events=_ss.event_days(spans),
+                      counts=None)
     return _STATE["file"], _STATE["stationers"]
 
 
@@ -601,6 +608,88 @@ def _v(p):
     return Vector(p)
 
 
+# ------------------------------------------------------------------ 4D date
+def _ifc_name_index(f) -> dict:
+    """Product Name -> GlobalId, for names that are unique in the file."""
+    seen: dict = {}
+    for p in f.by_type("IfcProduct"):
+        if p.Name:
+            seen[p.Name] = None if p.Name in seen else p.GlobalId
+    return {k: v for k, v in seen.items() if v}
+
+
+def global_id(ob, f, by_name: dict) -> str | None:
+    """The IFC GlobalId a Blender object stands for: Bonsai's link first
+    (BIMObjectProperties.ifc_definition_id), then a GlobalId custom
+    property, then the object's name (Bonsai names objects 'IfcWall/Name';
+    a '.001' duplicate suffix is ignored)."""
+    try:
+        eid = ob.BIMObjectProperties.ifc_definition_id
+        if eid:
+            return f.by_id(eid).GlobalId
+    except Exception:
+        pass
+    for key in ("GlobalId", "ifc_globalid", "global_id"):
+        if key in ob.keys():
+            return str(ob[key])
+    import re
+    name = re.sub(r"\.\d{3}$", "", ob.name)
+    for cand in (name, name.split("/", 1)[-1]):
+        if cand in by_name:
+            return by_name[cand]
+    return None
+
+
+def apply_date(scene) -> dict | None:
+    """Hide what does not stand on `props.date` (or show everything again
+    when the filter is off), then re-cut. Returns the counts."""
+    props = scene.bimforge_section
+    f = _STATE["file"]
+    helper = bpy.data.collections.get(COLL)
+    skip = set(helper.all_objects) if helper else set()
+    for name in list(_STATE["hidden"]):           # undo the last filter
+        ob = bpy.data.objects.get(name)
+        if ob is not None:
+            ob.hide_set(False)
+            ob.hide_render = False
+    _STATE["hidden"] = set()
+    _STATE["counts"] = None
+    if not (props.date_filter and props.date and f is not None):
+        return None
+    try:
+        day = _ss.shift_day(props.date, 0)
+    except ValueError:
+        _STATE["error"] = f"date {props.date!r} is not YYYY-MM-DD"
+        return None
+    by_name = _ifc_name_index(f)
+    counts = {"standing": 0, "not yet built": 0, "removed": 0,
+              "unmatched": 0}
+    for ob in scene.objects:
+        if ob.type != "MESH" or ob in skip:
+            continue
+        gid = global_id(ob, f, by_name)
+        if gid is None:
+            counts["unmatched"] += 1
+            continue
+        st = _ss.state(_STATE["spans"].get(gid), day)
+        counts[st] += 1
+        if st != "standing":
+            ob.hide_set(True)
+            ob.hide_render = True
+            _STATE["hidden"].add(ob.name)
+    _STATE["counts"] = counts
+    return counts
+
+
+def _on_date(self, context):
+    if _STATE["file"] is None:
+        return
+    apply_date(context.scene)
+    if _STATE["frame"] is not None:
+        update(context.scene)
+    _redraw()
+
+
 def _redraw():
     for win in bpy.context.window_manager.windows:
         for area in win.screen.areas:
@@ -688,6 +777,13 @@ if bpy is not None:
             name="Ruler height", default=3.0, subtype="DISTANCE",
             update=_on_view,
             description="Ruler height above the grade line")
+        date_filter: BoolProperty(
+            name="Show the model on a date", default=False, update=_on_date,
+            description=("Hide what is not yet built, or already removed, "
+                         "on the date (the IFC's 4D schedule)"))
+        date: StringProperty(
+            name="Date", default="", update=_on_date,
+            description="YYYY-MM-DD; the state at the end of that day")
         pt_offset: FloatProperty(name="Offset", min=0.0, default=12.0,
                                  description="Offset to locate, display unit")
         pt_side: EnumProperty(name="Side", items=[
@@ -804,6 +900,33 @@ if bpy is not None:
                 look)
             return {"FINISHED"}
 
+    class BIMFORGE_OT_section_date_step(bpy.types.Operator):
+        bl_idname = "bimforge.section_date_step"
+        bl_label = "Step Date"
+        bl_description = ("Move the 4D date by days, or to the previous / "
+                          "next day something appears or is removed")
+        days: bpy.props.IntProperty(default=1)
+        event: bpy.props.IntProperty(default=0)    # -1 / +1: jump to event
+
+        def execute(self, context):
+            props = context.scene.bimforge_section
+            ev = _STATE["events"]
+            if not ev:
+                self.report({"WARNING"}, "the IFC carries no 4D schedule")
+                return {"CANCELLED"}
+            day = props.date or ev[0]
+            if self.event > 0:
+                nxt = [d for d in ev if d > day]
+                day = nxt[0] if nxt else ev[-1]
+            elif self.event < 0:
+                prv = [d for d in ev if d < day]
+                day = prv[-1] if prv else ev[0]
+            else:
+                day = _ss.shift_day(day, self.days)
+            props.date_filter = True
+            props.date = day                  # its update re-filters
+            return {"FINISHED"}
+
     class BIMFORGE_OT_section_offset_locate(bpy.types.Operator):
         bl_idname = "bimforge.section_offset_locate"
         bl_label = "Locate"
@@ -893,6 +1016,34 @@ if bpy is not None:
                 info.label(text=(f"{st.format_station(st.start_station, u)}"
                                  f" to {st.format_station(st.end_station, u)}"))
             self.layout.operator("bimforge.section_view", icon="VIEW_CAMERA")
+            if _STATE["events"]:
+                dbox = self.layout.box()
+                dbox.label(text="4D date", icon="TIME")
+                row = dbox.row(align=True)
+                row.prop(props, "date_filter", text="")
+                row.prop(props, "date", text="")
+                row = dbox.row(align=True)
+                for icon, kw in (("PREV_KEYFRAME", {"event": -1}),
+                                 ("TRIA_LEFT", {"days": -7}),
+                                 ("REW", {"days": -1}),
+                                 ("FF", {"days": 1}),
+                                 ("TRIA_RIGHT", {"days": 7}),
+                                 ("NEXT_KEYFRAME", {"event": 1})):
+                    op = row.operator("bimforge.section_date_step", text="",
+                                      icon=icon)
+                    for k, v in kw.items():
+                        setattr(op, k, v)
+                ev = _STATE["events"]
+                dbox.label(text=f"schedule {ev[0]} to {ev[-1]}")
+                c = _STATE["counts"]
+                if c:
+                    dbox.label(text=(f"{c['standing']} standing, "
+                                     f"{c['not yet built']} not yet built, "
+                                     f"{c['removed']} removed"))
+                    if c["unmatched"]:
+                        dbox.label(text=(f"{c['unmatched']} objects not "
+                                         f"matched to the IFC (shown)"),
+                                   icon="INFO")
             offs = self.layout.box()
             offs.label(text="Offsets", icon="DRIVER_DISTANCE")
             row = offs.row(align=True)
@@ -983,6 +1134,8 @@ def _draw_overlay():
     text = (f"{st.name}   Sta {st.format_station(fr.station, u)}   "
             f"EL {elev:,.2f}   {fr.grade * 100:+.2f}%   "
             f"looking {'back' if props.look == 'BACK' else 'ahead'}")
+    if props.date_filter and props.date:
+        text += f"   4D {props.date}"
     blf.size(0, 16)
     blf.color(0, 1.0, 1.0, 1.0, 0.95)
     blf.position(0, 24, ctx.region.height - 64, 0)
@@ -1006,14 +1159,15 @@ def _frame_change(scene, *_):
 
 def _load_post(*_):
     _STATE.update(key=None, file=None, stationers=[], frame=None, error="",
-                  point=None)
+                  point=None, spans={}, events=[], hidden=set(), counts=None)
 
 
 _CLASSES = () if bpy is None else (
     SectionProps, BIMFORGE_OT_section_load, BIMFORGE_OT_section_step,
     BIMFORGE_OT_section_goto, BIMFORGE_OT_section_view,
     BIMFORGE_OT_section_cut, BIMFORGE_OT_section_offset_locate,
-    BIMFORGE_OT_section_offset_inquire, BIMFORGE_PT_section)
+    BIMFORGE_OT_section_offset_inquire, BIMFORGE_OT_section_date_step,
+    BIMFORGE_PT_section)
 _HANDLERS: list = []
 
 

@@ -4,7 +4,8 @@
 alignment (View3D > Sidebar > Section). Blender installs an add-on from a
 zip, and the add-on must carry the stationing module it uses (Bonsai's
 Python has ifcopenshell but not bimforge), so :func:`build_addon` zips the
-add-on together with its own copy of bimforge.bim.alignment_station.
+add-on together with its own copies of bimforge.bim.alignment_station and
+bimforge.bim.schedule_state.
 
 Examples:
     python -m bimforge.blender                      # -> ./bimforge_alignment_section.zip
@@ -24,9 +25,11 @@ def build_addon(out: str | Path) -> Path:
     here = Path(__file__).resolve().parent
     src = here / "alignment_section" / "__init__.py"
     station = here.parent / "bim" / "alignment_station.py"
+    sched = here.parent / "bim" / "schedule_state.py"
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(src, f"{ADDON}/__init__.py")
         z.write(station, f"{ADDON}/alignment_station.py")
+        z.write(sched, f"{ADDON}/schedule_state.py")
     return out

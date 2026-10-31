@@ -140,6 +140,13 @@ class StructureModel:
     #: and volume are unchanged. expected_sign is +1 or -1; |value| <= tol is a
     #: degenerate/ambiguous failure. (#251)
     stated_orientations: list[tuple[str, float, int, float]] = field(default_factory=list)
+    #: Alignments to write as IfcAlignment even though no geometry sweeps
+    #: along them: (bimforge.author.alignment.Alignment, Profile | None).
+    #: A family whose solids are built off its own line frame declares the
+    #: control line here, so the IFC still carries the stations a downstream
+    #: tool (staging, section views, layout) reads. A swept-along alignment
+    #: is found from the geometry and need not be declared.
+    alignments: list = field(default_factory=list)
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

@@ -17,6 +17,26 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   go-to-station controls, can look ahead or back, and can follow the timeline
   for fly-throughs. It reads Bonsai's open IFC or a file on disk.
   `python -m bimforge.blender` builds the installable zip.
+- **4D date filter in the section add-on.** It shows the model as it stands
+  on a date of the IFC's embedded schedule. Construction tasks' elements
+  appear at their start, and demolition, dismantle and removal tasks'
+  elements disappear at theirs. Hidden elements are not cut. The panel steps
+  by day or week, or jumps to the next or previous event, and counts what is
+  standing, not yet built and removed. Blender objects are matched to IFC
+  elements by Bonsai's link, a GlobalId property or the element name. The
+  state logic is `bimforge.bim.schedule_state` (`element_spans`, `standing`,
+  `state`, `event_days`), which uses only ifcopenshell and ships inside the
+  add-on zip.
+- **Declared alignments: `StructureModel.alignments`.** A family whose solids
+  are built off its own line frame can declare its control line as
+  `(Alignment, Profile | None)`. `emit_ifc` then writes it as an IfcAlignment
+  although no geometry sweeps along it.
+- **`federate` carries IfcAlignment whole.** The alignment is aggregated to
+  the target project and referenced in the site, never contained in a
+  storey. Its layouts, segments and stationing referents keep their ordered
+  nests. Its Axis curve keeps a Model/Axis subcontext instead of being merged
+  into Body. The new relationships get deterministic GlobalIds, and
+  `FederationResult.alignments` counts what was carried.
 - **Offsets in the section add-on.** An offset ruler (CL, 10' Lt, 10' Rt, ...)
   is drawn and rendered across the section. *Locate* puts the 3D cursor at
   station + offset Lt/Rt and reads the top surface there. *Inquire* reads the
