@@ -934,7 +934,7 @@ if bpy is not None:
 
 
 def _point_text(props, st) -> str:
-    """'Sta 548+13.00, 12.00 Lt  |  PG EL 160.42  |  top EL 161.07 deck'."""
+    """'Sta 12+50.00, 12.00 Lt  |  PG EL 160.42  |  top EL 161.07 deck'."""
     d, off, z, hit = _STATE["point"]
     u = _unit(props, st)
     el = lambda zz: f"{_st.metres_to(st.elevation_m(zz), u):,.2f}"  # noqa: E731

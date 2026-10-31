@@ -266,9 +266,9 @@ def test_palette_agrees_with_the_ifc_styles():
     assert classify("IfcSlab/Deck")[0] == "Concrete"
     assert classify("S-EW-FILL")[0] == "Earthwork"
     assert classify("Widget") is None
-    assert classify("Existing reinforced concrete (Br 39-0063), to be removed")[0] \
+    assert classify("Existing reinforced concrete (Br 12-3456), to be removed")[0] \
         == "Existing (to remove)"
-    assert classify("existing 39-0063 slab stage 1")[0] == "Existing (to remove)"
+    assert classify("existing 12-3456 slab stage 1")[0] == "Existing (to remove)"
     assert classify("Structure backfill (bridge)")[0] == "Earthwork"
     assert classify("Concrete Backfill")[0] == "Concrete"
 
