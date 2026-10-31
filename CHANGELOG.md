@@ -10,8 +10,10 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   in the 3D view sidebar (N) that slides a cross-section along an IFC4X3
   `IfcAlignment`. At each station it stands a vertical plane square to the
   alignment in plan and aims an orthographic camera down the alignment, with
-  its near clip on the plane. It cuts and fills every mesh at the plane and
-  reports station, grade elevation, grade and bearing. It also has step and
+  its near clip on the plane. It cuts every mesh at the plane and fills each
+  item per its styling (its material / IFC surface style). Unstyled items
+  are filled by what their name says they are: concrete, rebar, asphalt,
+  gravel, steel, timber or earthwork. The panel reports station, grade elevation, grade and bearing. It also has step and
   go-to-station controls, can look ahead or back, and can follow the timeline
   for fly-throughs. It reads Bonsai's open IFC or a file on disk.
   `python -m bimforge.blender` builds the installable zip.

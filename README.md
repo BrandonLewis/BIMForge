@@ -50,7 +50,11 @@ open) or **File**, and press **Load Alignments**. Drag **Station** to slide the
 section. You can also step by a fixed interval or type a station and press
 **Go**. **View Section** looks through an orthographic camera whose near clip
 sits on the cut. Every mesh is cut at the plane, and the cut is filled into
-*Section Cut*. The panel reports station, grade elevation, grade and bearing.
+*Section Cut*. Each item is filled per its own styling: its material's
+colour, which is the IFC surface style when Bonsai loaded it. An unstyled
+item (no material, or the default grey) is filled by what its material or
+object name says it is: concrete, rebar, asphalt, gravel, steel, timber or
+earthwork. **Single colour** switches back to one highlight colour. The panel reports station, grade elevation, grade and bearing.
 With **Follow timeline** on, frames sweep the whole alignment, so rendering
 the animation makes a fly-through. Stations read in feet when the project is
 in feet or its map conversion is to a feet grid.

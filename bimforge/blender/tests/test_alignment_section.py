@@ -24,7 +24,8 @@ SQ_M_PER_SQ_FT = (1200.0 / 3937.0) ** 2
 
 
 def _import_meshes(f):
-    """Each IFC product's world mesh as a Blender object (Bonsai stand-in)."""
+    """Each IFC product's world mesh as a Blender object, a material per
+    IfcSurfaceStyle as Bonsai makes them (the Bonsai stand-in)."""
     s = ifcopenshell.geom.settings()
     s.set("use-world-coords", True)
     it = ifcopenshell.geom.iterator(s, f)
@@ -36,10 +37,23 @@ def _import_meshes(f):
         me = bpy.data.meshes.new(sh.name or "el")
         me.from_pydata([v[i:i + 3] for i in range(0, len(v), 3)], [],
                        [t[i:i + 3] for i in range(0, len(t), 3)])
+        # one material per product: its IfcSurfaceStyle, named and coloured
+        # as Bonsai names and colours it
+        for style in _styles(f.by_id(sh.id))[:1]:
+            mat = bpy.data.materials.new(style.Name or "style")
+            c = style.Styles[0].SurfaceColour
+            mat.diffuse_color = (c.Red, c.Green, c.Blue, 1.0)
+            me.materials.append(mat)
         bpy.context.scene.collection.objects.link(
             bpy.data.objects.new(sh.name or "el", me))
         if not it.next():
             break
+
+
+def _styles(product):
+    return [st for rep in product.Representation.Representations
+            for item in rep.Items for si in item.StyledByItem
+            for st in si.Styles if st.is_a("IfcSurfaceStyle")]
 
 
 @pytest.fixture(scope="module")
@@ -129,3 +143,121 @@ def test_bearing_text():
     assert _bearing(10.0) == "N 10-00-00 E"
     assert _bearing(180 - 82.844566666) == "S 82-50-40 E"
     assert _bearing(330.5) == "N 29-30-00 W"
+
+
+def _box(name, fr, x0, x1, z0, z1, mats=(), split=None):
+    """A box across the alignment at frame `fr`: x right, z up, 2 m long.
+    `split` (an x) gives the faces right of it material slot 1."""
+    from mathutils import Vector
+    p, t = Vector(fr.point), Vector(fr.plan_tangent)
+    r, up = t.cross(Vector((0, 0, 1))), Vector((0, 0, 1))
+    xs = [x0, x1] if split is None else [x0, split, x1]
+    verts, faces = [], []
+    for i, (a, b) in enumerate(zip(xs, xs[1:])):
+        base = len(verts)
+        for x, y, z in [(a, -1, z0), (b, -1, z0), (b, 1, z0), (a, 1, z0),
+                        (a, -1, z1), (b, -1, z1), (b, 1, z1), (a, 1, z1)]:
+            verts.append(p + r * x + t * y + up * z)
+        faces += [[base + j for j in f] for f in
+                  [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5),
+                   (2, 3, 7, 6), (3, 0, 4, 7)]]
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([tuple(v) for v in verts], [], faces)
+    for m in mats:
+        me.materials.append(m)
+    if split is not None:
+        for poly in me.polygons[6:]:
+            poly.material_index = 1
+    ob = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(ob)
+    return ob
+
+
+def _mat(name, rgb=None):
+    mat = bpy.data.materials.new(name)
+    if rgb is not None:
+        mat.diffuse_color = (*rgb, 1.0)
+    return mat
+
+
+def test_each_item_fills_per_its_styling(addon):
+    mod, *_ = addon
+    props = bpy.context.scene.bimforge_section
+    props.goto = 1200.0
+    bpy.ops.bimforge.section_goto()
+    fr = mod._STATE["frame"]
+    ft = 1200.0 / 3937.0
+    hma = (0.10, 0.10, 0.11)
+    made = [
+        # styled: an asphalt overlay whose material carries its colour
+        _box("Overlay", fr, -1.8, 1.8, 0.0, 0.1, [_mat("HMA Type A", hma)]),
+        # unstyled, named for what it is: gravel base under the deck
+        _box("AB Class 2 base", fr, -2.0, 2.0, -1.2, -0.95),
+        # default-grey material named for what it is: a rebar "bar"
+        _box("bar", fr, -0.5, 0.5, -0.5, -0.45, [_mat("Reinforcing Steel")]),
+        # one item, two styles: concrete left of x = 3, steel plate right
+        _box("Abutment", fr, 2.5, 3.5, -1.0, 0.0,
+             [_mat("Concrete", (0.75, 0.73, 0.68)), _mat("Steel")], split=3.0),
+    ]
+    try:
+        props.fill_style = "STYLE"
+        bpy.ops.bimforge.section_cut()
+        me = bpy.data.objects[mod.CUT].data
+        area: dict[str, float] = {}
+        for poly in me.polygons:
+            name = me.materials[poly.material_index].name
+            area[name] = area.get(name, 0.0) + poly.area
+        colour = {m.name: tuple(m.diffuse_color[:3]) for m in me.materials}
+        # the deck carries bimforge's Concrete IfcSurfaceStyle; the
+        # abutment's left half is a Concrete material too, so they share a
+        # fill. The rebar box sits inside the deck: both fills are counted.
+        assert area["Section · Concrete"] == pytest.approx(
+            12 * 3 * ft * ft + 0.5 * 1.0, rel=1e-3)
+        assert colour["Section · Concrete"] == pytest.approx((0.75, 0.73, 0.68))
+        assert area["Section · HMA Type A"] == pytest.approx(3.6 * 0.1, rel=1e-3)
+        assert colour["Section · HMA Type A"] == pytest.approx(hma)
+        assert area["Section · Gravel"] == pytest.approx(4.0 * 0.25, rel=1e-3)
+        assert colour["Section · Gravel"] == pytest.approx((0.62, 0.55, 0.42))
+        assert area["Section · Reinforcing Steel"] == pytest.approx(
+            1.0 * 0.05, rel=1e-3)
+        assert area["Section · Structural Steel"] == pytest.approx(
+            0.5 * 1.0, rel=1e-3)
+        # coplanar fills are layered: the small rebar fill stands nearer the
+        # camera than the deck around it, so it never z-fights; all of them
+        # stay behind the near clip
+        from mathutils import Vector
+        look, p0 = Vector(fr.plan_tangent), Vector(fr.point)
+        depth = {}
+        for poly in me.polygons:
+            depth.setdefault(me.materials[poly.material_index].name,
+                             []).append((poly.center - p0).dot(look))
+        rebar = max(depth["Section · Reinforcing Steel"])
+        conc = min(depth["Section · Concrete"])
+        assert rebar < conc <= 0.0
+        assert -mod.NEAR_GAP < rebar
+        props.fill_style = "SINGLE"
+        bpy.ops.bimforge.section_cut()
+        me = bpy.data.objects[mod.CUT].data
+        assert [m.name for m in me.materials] == ["Section Cut"]
+    finally:
+        for ob in made:
+            bpy.data.objects.remove(ob)
+        props.fill_style = "STYLE"
+
+
+def test_palette_agrees_with_the_ifc_styles():
+    from bimforge.author import ifc_styles as S
+    from bimforge.blender.alignment_section import FILL_PALETTE, classify
+    rgb = {k: v for k, _p, v in FILL_PALETTE}
+    for kind, src in [("Concrete", S._CONCRETE), ("Reinforcing Steel", S._REBAR),
+                      ("Structural Steel", S._STEEL), ("Earthwork", S._EARTH),
+                      ("Timber", S._TIMBER)]:
+        assert rgb[kind] == pytest.approx(tuple(src["rgb"]))
+    assert classify("S-REBAR")[0] == "Reinforcing Steel"
+    assert classify("IfcReinforcingBar/B1")[0] == "Reinforcing Steel"
+    assert classify("AC Pavement")[0] == "Asphalt"
+    assert classify("Class 2 AB")[0] == "Gravel"
+    assert classify("RSP Class IV")[0] == "Gravel"
+    assert classify("IfcSlab/Deck")[0] == "Concrete"
+    assert classify("S-EW-FILL")[0] == "Earthwork"
+    assert classify("Widget") is None

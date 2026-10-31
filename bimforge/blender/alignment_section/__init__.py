@@ -10,7 +10,9 @@ station the add-on:
 * aims an orthographic "Section Camera" down the alignment, its near clip on
   the plane, so View Section shows exactly what lies beyond the cut;
 * cuts every mesh in the scene (or one collection) at the plane and fills
-  the cut faces into "Section Cut", so the section reads as solid hatch;
+  the cut faces into "Section Cut", each per its own styling — concrete as
+  concrete, rebar, asphalt, gravel — from the item's material (Bonsai's
+  IfcSurfaceStyle), else from what its name says it is;
 * reports station, elevation of the grade line, grade and bearing.
 
 The slider can follow the timeline, so scrubbing frames sweeps the section
@@ -151,6 +153,98 @@ def _cut_material():
     return mat
 
 
+#: Section fill by what the thing IS, for a cut item whose own styling says
+#: nothing (no material, or Blender's / ifcopenshell's default 0.8 grey).
+#: Matched on the material name, then the object name; first hit wins, so
+#: rebar is tried before steel and asphalt before concrete. The rgb of the
+#: shared kinds are bimforge.author.ifc_styles' (a test holds them equal).
+FILL_PALETTE: list[tuple[str, str, tuple]] = [
+    ("Reinforcing Steel", r"rebar|reinforc|\brebr\b|\brein\b|ifcreinforcing",
+     (0.75, 0.15, 0.12)),
+    ("Asphalt", r"asphalt|\bhma\b|\bac\b|bitum|\bpave(ment)?\b|\bpaving\b",
+     (0.16, 0.16, 0.17)),
+    ("Gravel", r"gravel|aggregate|\bagg\b|\bab\b|base course|class 2|"
+     r"\bbase\b|crushed|rock|riprap|\brsp\b|ballast|drain rock",
+     (0.62, 0.55, 0.42)),
+    ("Structural Steel", r"steel|\bstl\b|metal|\bmetl\b|girder|"
+     r"ifcrailing|ifcmember|ifcplate", (0.55, 0.60, 0.66)),
+    ("Timber", r"timber|wood|lagging", (0.55, 0.40, 0.24)),
+    ("Earthwork", r"earth|soil|embank|excav|terrain|\bfill\b|\bew\b|"
+     r"ifcgeographic|ifcearthworks", (0.55, 0.45, 0.32)),
+    ("Concrete", r"concrete|\bconc\b|\bpcc\b|\bcip\b|precast|grout|"
+     r"ifcslab|ifcwall|ifcfooting|ifcbeam|ifccolumn|ifcpile|deck|barrier|"
+     r"headwall|culvert|abutment", (0.75, 0.73, 0.68)),
+]
+UNSTYLED = ("Unstyled", (0.60, 0.60, 0.60))
+_DEFAULT_GREY = (0.8, 0.8, 0.8)
+
+
+def classify(*names) -> tuple[str, tuple] | None:
+    """(kind, rgb) for the first palette entry any of `names` matches."""
+    import re
+    for name in names:
+        low = (name or "").lower().replace("_", " ")
+        for kind, pattern, rgb in FILL_PALETTE:
+            if re.search(pattern, low):
+                return kind, rgb
+    return None
+
+
+def _styled_rgb(mat):
+    """The colour a material's styling gives, or None when it is the
+    unstyled default. Bonsai writes the IfcSurfaceStyle colour into both
+    the viewport colour and the Principled base colour; either will do."""
+    if mat is None:
+        return None
+    rgb = tuple(mat.diffuse_color[:3])
+    if any(abs(c - d) > 1e-3 for c, d in zip(rgb, _DEFAULT_GREY)):
+        return rgb
+    bsdf = _principled(mat)
+    if bsdf is not None:
+        base = tuple(bsdf.inputs["Base Color"].default_value[:3])
+        if any(abs(c - d) > 1e-3 for c, d in zip(base, _DEFAULT_GREY)):
+            return base
+    return None
+
+
+def _principled(mat):
+    tree = getattr(mat, "node_tree", None)
+    if tree is None:
+        return None
+    return next((n for n in tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+
+
+def fill_for(mat, ob) -> tuple[str, tuple]:
+    """(name, rgb) of the section fill for faces of `ob` styled `mat`.
+
+    The item's own styling first — its material's colour, which is its
+    IfcSurfaceStyle when Bonsai loaded it — then what its material or
+    object name says it is, then a neutral grey.
+    """
+    rgb = _styled_rgb(mat)
+    if rgb is not None:
+        return mat.name, rgb
+    hit = classify(mat.name if mat else "", ob.name)
+    return hit if hit is not None else UNSTYLED
+
+
+def _section_material(name: str, rgb) -> "bpy.types.Material":
+    """An opaque, flat section fill in `rgb` (opaque even when the source is
+    see-through, like earthwork: a cut face is solid)."""
+    key = f"Section · {name}"
+    mat = bpy.data.materials.get(key)
+    if mat is None:
+        mat = bpy.data.materials.new(key)
+        if getattr(mat, "node_tree", None) is None:
+            mat.use_nodes = True
+    mat.diffuse_color = (*rgb, 1.0)
+    bsdf = _principled(mat)
+    if bsdf is not None:
+        bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+        bsdf.inputs["Roughness"].default_value = 1.0
+    return mat
+
+
 def _basis(fr, look_back):
     """Camera basis: -Z looks down the alignment, +Y is world up, +X is
     the alignment's right (looking ahead) — a section drawn as plans are."""
@@ -236,14 +330,23 @@ def _straddles(ob, co, no) -> bool:
 def cut(scene, props, co, look):
     """Bisect every candidate mesh at the plane (point `co`, normal `look`)
     into one "Section Cut" mesh: the cut edges, and faces filled from each
-    object's closed loops."""
+    object's closed loops.
+
+    Each cut edge comes from a face; the fill takes that face's material, so
+    a multi-material item fills each part per its styling (concrete as
+    concrete, rebar as rebar, asphalt, gravel). Loops are filled per object
+    AND per material, never across them. `fill_style` SINGLE fills
+    everything in one colour instead.
+    """
     import bmesh
     depsgraph = bpy.context.evaluated_depsgraph_get()
     helper = bpy.data.collections.get(COLL)
     pool = (props.target.all_objects if props.target
             else scene.objects)
     out = bmesh.new()
-    shift = -look * (NEAR_GAP / 4)       # cap a hair toward the camera
+    by_style = props.fill_style == "STYLE"
+    fills: dict[tuple, int] = {}          # (name, rgb) -> output slot
+    groups: list[tuple[int, list]] = []
     for ob in pool:
         if ob.type != "MESH" or not ob.visible_get():
             continue
@@ -251,6 +354,7 @@ def cut(scene, props, co, look):
             continue
         if not _straddles(ob, co, look):
             continue
+        slots = [s.material for s in ob.material_slots]
         bm = bmesh.new()
         try:
             bm.from_object(ob, depsgraph)
@@ -269,27 +373,64 @@ def cut(scene, props, co, look):
                 plane_co=co, plane_no=look)
             cut_edges = [g for g in res["geom_cut"]
                          if isinstance(g, bmesh.types.BMEdge)]
-            vmap, new_edges = {}, []
+            vmap, per_mat = {}, {}
             for e in cut_edges:
                 a, b = (vmap.get(v) or vmap.setdefault(
-                    v, out.verts.new(v.co + shift)) for v in e.verts)
-                if a is not b:
-                    new_edges.append(out.edges.new((a, b)))
-            if props.fill and new_edges:
-                bmesh.ops.triangle_fill(out, use_beauty=True,
-                                        use_dissolve=False, edges=new_edges,
-                                        normal=-look)
+                    v, out.verts.new(v.co)) for v in e.verts)
+                if a is b:
+                    continue
+                mi = e.link_faces[0].material_index if e.link_faces else 0
+                per_mat.setdefault(mi, []).append(out.edges.new((a, b)))
+            for mi, new_edges in sorted(per_mat.items()):
+                mat = slots[mi] if 0 <= mi < len(slots) else None
+                fill = fill_for(mat, ob) if by_style else ("Cut", None)
+                slot = fills.setdefault(fill, len(fills))
+                groups.append((slot, new_edges))
         finally:
             bm.free()
+    lift: dict = {}                       # vert -> shift toward the camera
+    for slot, new_edges in groups:
+        area = 0.0
+        if props.fill:
+            res = bmesh.ops.triangle_fill(out, use_beauty=True,
+                                          use_dissolve=False,
+                                          edges=new_edges, normal=-look)
+            for f in res["geom"]:
+                if isinstance(f, bmesh.types.BMFace):
+                    f.material_index = slot
+                    area += f.calc_area()
+        d = _layer(area)
+        for e in new_edges:
+            for v in e.verts:
+                lift[v] = max(lift.get(v, 0.0), d)
+    for v, d in lift.items():
+        v.co -= look * d
     me = bpy.data.meshes.get(CUT) or bpy.data.meshes.new(CUT)
+    me.materials.clear()          # clearing AFTER to_mesh zeroes the indices
     out.to_mesh(me)
     out.free()
+    for (name, rgb), _slot in sorted(fills.items(), key=lambda kv: kv[1]):
+        me.materials.append(_cut_material() if rgb is None
+                            else _section_material(name, rgb))
     if not me.materials:
         me.materials.append(_cut_material())
     ob = _obj(scene, CUT, lambda: me)
     ob.data = me
     ob.show_in_front = False
     return ob
+
+
+def _layer(area: float) -> float:
+    """How far toward the camera a fill of `area` m^2 sits off the plane.
+
+    Fills are coplanar, so rebar inside a deck, or a pipe inside its
+    bedding, would z-fight the fill around it. Smaller fills stand nearer
+    the camera, a step per halving of area. Every step is inside the
+    near-clip gap, so it never hides a fill.
+    """
+    import math
+    level = 0 if area <= 0 else min(31, max(0, int(math.log2(area)) + 21))
+    return NEAR_GAP * (0.25 + 0.5 * (31 - level) / 31)
 
 
 def _redraw():
@@ -373,6 +514,12 @@ if bpy is not None:
                                description="Re-cut the meshes as you slide")
         fill: BoolProperty(name="Fill", default=True, update=_on_view,
                            description="Fill closed cut loops with faces")
+        fill_style: EnumProperty(name="Fill", items=[
+            ("STYLE", "By styling", "Each item's own styling: its material "
+             "(the IFC surface style), else what its name says it is "
+             "(concrete, rebar, asphalt, gravel, ...)"),
+            ("SINGLE", "Single colour", "Every cut in one highlight colour")],
+            default="STYLE", update=_on_view)
         target: PointerProperty(
             name="Cut", type=bpy.types.Collection, update=_on_view,
             description="Only cut this collection (empty: every mesh)")
@@ -525,6 +672,7 @@ if bpy is not None:
             row = cutc.row(align=True)
             row.prop(props, "live_cut")
             row.prop(props, "fill")
+            cutc.prop(props, "fill_style", text="")
             cutc.prop(props, "target")
             if not props.live_cut:
                 cutc.operator("bimforge.section_cut", icon="MOD_BOOLEAN")
