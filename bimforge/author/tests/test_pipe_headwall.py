@@ -144,3 +144,40 @@ def test_headwall_example_fixture_schema():
             parse_bar_spec(row[mk])
         s = HeadwallSection(_parse_h_key(key), t)
         assert s.section_area_sf == pytest.approx(row["conc_cy_lf"] * 27.0, abs=0.15)
+
+
+def _stem_void_z(params):
+    m = build(params, CTX)
+    stem = [e for e in m.elements if e.name.endswith("headwall stem")][0]
+    return min(p[1] for p in stem.geometry.voids[0]), stem.geometry.profile
+
+
+def test_default_invert_is_six_inches_above_the_footing():
+    from bimforge.author.families.pipe_headwall import DEFAULT_INVERT_FT
+    assert DEFAULT_INVERT_FT == 0.5
+    p = {"tables": TABLE, "headwalls": [dict(PARAMS["headwalls"][0], openings=[
+        {"shape": "circular", "dia_ft": 3.0, "center_ft": 4.0}])]}
+    inv, profile = _stem_void_z(p)
+    tof = min(z for _u, z in profile)
+    # was D/3 + 6 in to the centre: a 36 in pipe's invert ON the footing
+    assert inv - tof == pytest.approx(0.5, abs=1e-3)
+
+
+def test_invert_or_centre_can_be_given_per_opening():
+    base = PARAMS["headwalls"][0]
+    for o, want in (({"invert_z_ft": 0.75}, 0.75), ({"center_z_ft": 1.5}, 0.5)):
+        p = {"tables": TABLE, "headwalls": [dict(base, openings=[
+            dict({"shape": "circular", "dia_ft": 2.0, "center_ft": 4.0}, **o)])]}
+        inv, profile = _stem_void_z(p)
+        assert inv - min(z for _u, z in profile) == pytest.approx(want, abs=1e-3)
+
+
+def test_an_opening_that_does_not_fit_the_stem_is_refused():
+    base = PARAMS["headwalls"][0]
+    for o, msg in (({"invert_z_ft": 0.0}, "invert"),
+                   ({"center_z_ft": 5.0}, "top of wall"),
+                   ({"center_ft": 0.5}, "wall end")):
+        p = {"tables": TABLE, "headwalls": [dict(base, openings=[
+            dict({"shape": "circular", "dia_ft": 2.0, "center_ft": 4.0}, **o)])]}
+        with pytest.raises(ValueError, match=msg):
+            build(p, CTX)

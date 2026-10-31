@@ -34,6 +34,27 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `solid_bodies`. A spec sets it with `gate: {solid_bodies: warn|error|off}`
   and declares bodies by name with `bodies: [{match, body}]`
   (`gate.configure_solid_bodies`, used by `est-bim build`).
+- **STEP for engineering hand-off.** `emit_step` now writes geometry an
+  engineer can use, not just view:
+  - an exact straight extrusion (SectionPrism: girders, barriers, walls
+    with voids) is written as a real extrusion of its profile;
+  - other meshes are sewn (OCCT sewing, robust to boolean slivers and
+    T-vertices), split one solid per closed shell, and coplanar facets are
+    merged, so a box is 6 faces, not 12 triangles. Curved surfaces stay
+    faceted, because the model authors them as facets.
+  - A 300-element girder bridge with lifted backfill writes 336 valid solids, matching
+    the model's volumes to 3e-5. Before, the shell constructor failed on
+    every multi-piece lift.
+- **`pipe-headwall` opening height.** A circular opening with no
+  `center_z_ft` now sits with its pipe INVERT `invert_z_ft` above the top of
+  footing, default `DEFAULT_INVERT_FT` = 0.5 ft (6 in, the usual practice).
+  The old rule was D/3 + 6 in to the CENTRE, which put a 36 in pipe's invert
+  on the footing. An opening that does not fit inside the stem, with
+  concrete all round, is refused with the reason. This moves existing specs'
+  default openings up (a 24 in pipe by 4 in), but not their volumes.
+- **Lifts in pieces.** A level lift cut through by a wall or wing is
+  several bodies placed together. `Lift.pieces` counts them, and such a lift
+  element is declared `body="solids"`.
 - **`SectionPrism` with a void touching its edge.** The keyhole bridge
   could land inside an outer edge that the side walls ran past whole,
   leaving a T-junction (an open crack along the cap). Walls now split at

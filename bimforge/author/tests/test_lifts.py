@@ -91,7 +91,8 @@ def test_split_replaces_the_element_with_its_lifts():
                            "parent": "Abut 1 structure backfill",
                            "bottom_elev": pytest.approx(141.34),
                            "top_elev": pytest.approx(142.01),
-                           "thickness_ft": pytest.approx(0.67)}
+                           "thickness_ft": pytest.approx(0.67),
+                           "pieces": 1}
     (label, got, want, tol), = [q for q in m.stated_quantities
                                 if "lifts sum" in q[0]]
     assert got == pytest.approx(want)
@@ -141,3 +142,32 @@ def test_lift_dates_by_production_rate():
     assert "2027-09-18" not in {x for p in slow for x in p}
     assert lift_overrun(slow, "2027-09-20") == 2
     assert lift_overrun(d, "2027-09-20") == 0
+
+
+def test_lifts_build_as_step_solids():
+    b3d = pytest.importorskip("build123d")
+    from bimforge.author.emit_step import _solid_from_dict
+    lifts = cut_lifts(solid_of([_backfill()]), 0.67)
+    for lf in lifts:
+        d = {"kind": "mesh", "units": "ft", "verts": lf.verts, "tris": lf.tris}
+        (part,) = _solid_from_dict(b3d, d)
+        assert part.is_valid and part.volume == pytest.approx(lf.volume_cf,
+                                                              rel=1e-6)
+
+
+def test_a_lift_split_by_a_wall_is_declared_as_pieces():
+    # a wall standing through the fill: every lift below its top is two
+    # bodies, one each side - placed together, so one lift of 2 solids
+    wall = [(9.0, -1.0), (11.0, -1.0), (11.0, 11.0), (9.0, 11.0)]
+    fill = {"kind": "fill", "units": "ft", "base": SQ, "z_bot": 0.0,
+            "z_top": 4.0, "cuts": [{"base": wall, "z_bot": 0.0, "z_top": 3.0}]}
+    m = _model(fill)
+    els = split_into_lifts(m, "Abut 1 structure backfill", 0.67)
+    assert [e.lift["pieces"] for e in els] == [2, 2, 2, 2, 1, 1]
+    assert [e.body for e in els] == ["solids"] * 4 + ["solid"] * 2
+    b3d = pytest.importorskip("build123d")
+    from bimforge.author.emit_step import _solid_from_dict
+    parts = _solid_from_dict(b3d, els[0].geometry)
+    assert len(parts) == 2 and all(p.is_valid for p in parts)
+    assert sum(p.volume for p in parts) == pytest.approx(
+        els[0].quantities["volume_cf"], rel=1e-6)

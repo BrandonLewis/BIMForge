@@ -36,6 +36,77 @@ def _require_build123d():
             'pip install "bimforge[solids]"') from None
 
 
+#: Sewing tolerance for triangulated B-reps, model units (ft): coincident
+#: facet corners closer than this are one vertex.
+SEW_TOL = 1e-6
+
+
+def _sewn_solids(verts, tris) -> list:
+    """Closed triangle mesh -> [Solid, ...]: one solid per closed shell.
+
+    The facets are SEWN (OCCT BRepBuilderAPI_Sewing, robust to the slivers
+    and T-vertices a boolean leaves) rather than handed to a shell
+    constructor, each closed shell becomes its own solid (a lift that is two
+    pieces either side of a wall is two solids - one solid cannot have two
+    outer shells), and coplanar facets are then MERGED into one planar face
+    (ShapeUpgrade_UnifySameDomain via build123d's clean()). A box arrives as
+    6 faces, not 12 triangles: what an engineer can select, offset and
+    dimension in their CAD system. Curved surfaces stay faceted - the model
+    authors them as facets."""
+    from build123d import Face, Solid, Wire
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeSolid, BRepBuilderAPI_Sewing
+    from OCP.TopAbs import TopAbs_SHELL
+    from OCP.TopExp import TopExp_Explorer
+    from OCP.TopoDS import TopoDS
+    sew = BRepBuilderAPI_Sewing(SEW_TOL)
+    for tri in tris:
+        try:
+            sew.Add(Face(Wire.make_polygon([verts[i] for i in tri],
+                                           close=True)).wrapped)
+        except Exception:
+            continue                         # a degenerate (zero-area) facet
+    sew.Perform()
+    out = []
+    ex = TopExp_Explorer(sew.SewedShape(), TopAbs_SHELL)
+    while ex.More():
+        ms = BRepBuilderAPI_MakeSolid()
+        ms.Add(TopoDS.Shell(ex.Current()))
+        sol = Solid(ms.Solid()).fix()
+        if sol.volume < 0:                   # shell wound inward
+            sol = Solid(sol.wrapped.Reversed())
+        out.append(sol.clean())
+        ex.Next()
+    if not out:
+        raise ValueError("mesh did not sew into any closed shell")
+    return out
+
+
+def _exact_extrusion(d, k):
+    """The Solid for a mesh dict's exact straight extrusion, or None (no
+    exact form, another kind, or an extrusion oblique to its profile)."""
+    ex = d.get("exact")
+    if not ex or ex.get("kind") != "extrusion":
+        return None
+    from build123d import (BuildPart, BuildSketch, Mode, Plane, Polygon,
+                           Vector, extrude)
+    pl = ex["plane"]
+    o, x, y = (Vector(*pl["o"]) * k, Vector(*pl["x"]), Vector(*pl["y"]))
+    z = x.cross(y)
+    dvec = Vector(*ex["dir"]) * k
+    if dvec.length < 1e-12 or z.length < 1e-12 or \
+            dvec.normalized().cross(z.normalized()).length > 1e-9:
+        return None                           # oblique: the mesh is exact
+    plane = Plane(origin=o, x_dir=x, z_dir=z)
+    with BuildPart() as bp:
+        with BuildSketch(plane):
+            Polygon(*[(u * k, v * k) for u, v in ex["profile"]], align=None)
+            for h in ex.get("voids") or ():
+                Polygon(*[(u * k, v * k) for u, v in h], align=None,
+                        mode=Mode.SUBTRACT)
+        extrude(amount=dvec.dot(z.normalized()))
+    return bp.part
+
+
 def _solid_from_dict(b3d, d):
     """One build123d Part per solids dict (same schema as emit_ifc)."""
     from build123d import (BuildPart, BuildSketch, Plane, Polygon, extrude)
@@ -144,14 +215,16 @@ def _solid_from_dict(b3d, d):
                 extrude(amount=depth * k)
             parts.append(bp.part)
     elif d["kind"] == "mesh":
-        # triangulated B-rep (SectionPrism/BatteredWall lofts): the same
-        # facets emit_ifc's IfcFacetedBrep carries, so the true volume IS
-        # the analytic volume_cf the primitives declared from their faces.
-        from build123d import Face, Shell, Solid, Wire
-        verts = [(x * k, y * k, z * k) for x, y, z in d["verts"]]
-        faces = [Face(Wire.make_polygon([verts[i] for i in tri], close=True))
-                 for tri in d["tris"]]
-        parts.append(Solid(Shell(faces).fix()))
+        # An exact extrusion (SectionPrism: a section swept straight) is
+        # written AS one - the profile's own edges, voids as inner wires -
+        # as emit_ifc writes IfcExtrudedAreaSolid. Anything else is the
+        # triangulated B-rep, sewn and cleaned (_sewn_solids).
+        exact = _exact_extrusion(d, k)
+        if exact is not None:
+            parts.append(exact)
+        else:
+            verts = [(x * k, y * k, z * k) for x, y, z in d["verts"]]
+            parts.extend(_sewn_solids(verts, d["tris"]))
     elif d["kind"] == "swept_disk":
         # emit_ifc carries the exact IfcSweptDiskSolid; STEP has no lean
         # equivalent, so build the watertight faceted tube the shared

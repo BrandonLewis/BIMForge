@@ -38,6 +38,13 @@ import math
 from dataclasses import dataclass
 
 
+#: Feature size (ft) below which a boolean's output edges are collapsed.
+#: Slicing leaves nanometre slivers where planes graze vertices; they weld
+#: into false cracks in IFC and break a STEP shell, and no drawn detail is
+#: that small.
+SIMPLIFY_FT = 1e-5
+
+
 @dataclass
 class Lift:
     index: int                    # 1 = the bottom lift
@@ -46,6 +53,9 @@ class Lift:
     verts: list
     tris: list
     volume_cf: float
+    #: separate closed bodies in the lift: a lift is level, so where walls
+    #: or wings divide the fill it comes out in pieces, placed together
+    pieces: int = 1
 
     @property
     def thickness_ft(self) -> float:
@@ -147,7 +157,7 @@ def cut_lifts(solid, lift_ft: float, base_elev: float | None = None,
         lo = max(a, z0) if a == planes[0] else a
         slab = m3.Manifold.cube((x1 - x0 + 2 * pad, y1 - y0 + 2 * pad,
                                  b - lo)).translate((x0 - pad, y0 - pad, lo))
-        piece = solid ^ slab
+        piece = (solid ^ slab).simplify(SIMPLIFY_FT)
         if piece.is_empty() or piece.volume() <= 1e-9:
             continue
         mesh = piece.to_mesh64()
@@ -155,7 +165,8 @@ def cut_lifts(solid, lift_ft: float, base_elev: float | None = None,
                         verts=[tuple(map(float, p))
                                for p in mesh.vert_properties[:, :3]],
                         tris=[tuple(map(int, t)) for t in mesh.tri_verts],
-                        volume_cf=float(piece.volume())))
+                        volume_cf=float(piece.volume()),
+                        pieces=len(piece.decompose())))
     return out
 
 
@@ -200,10 +211,12 @@ def split_into_lifts(model, name: str, lift_ft: float, *,
                          f"{lf.thickness_ft:.2f} ft compacted, El "
                          f"{lf.z_bot + base_h:.2f}-{lf.z_top + base_h:.2f}"),
             spatial_part=parent.spatial_part)
+        if lf.pieces > 1:
+            el.body = "solids"               # one lift, separate bodies
         el.lift = {"index": lf.index, "of": len(lifts), "parent": name,
                    "bottom_elev": lf.z_bot + base_h,
                    "top_elev": lf.z_top + base_h,
-                   "thickness_ft": lf.thickness_ft}
+                   "thickness_ft": lf.thickness_ft, "pieces": lf.pieces}
         elements.append(el)
     model.elements = [e for e in model.elements if e.name != name]
     for el in elements:

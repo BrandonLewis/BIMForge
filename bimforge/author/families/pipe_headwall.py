@@ -14,6 +14,13 @@ from bimforge.author.primitives import Prism, SectionPrism
 
 REQUIRED = ("tables", "headwalls")
 
+#: Pipe invert above the top of footing when an opening gives neither
+#: `invert_z_ft` nor `center_z_ft`: 6 in, the usual Caltrans practice (a
+#: project's specs may set another; give it per opening). The concrete
+#: under the invert must have thickness - an opening tangent to the footing
+#: leaves a zero-thickness pinch the solid-body gate reports.
+DEFAULT_INVERT_FT = 0.5
+
 
 def circular_void(dia: float, cu: float, cz: float, n: int = 32) -> list:
     """CCW circle of diameter `dia` centred at (cu, cz) in the stem face
@@ -36,14 +43,42 @@ def arch_void(span: float, rise: float, cu: float, cz_invert: float,
 
 
 def _opening_ring(o: dict, z0: float) -> list:
-    """One opening as a CCW void ring in the stem face (u, z)."""
+    """One opening as a CCW void ring in the stem face (u, z).
+
+    Height above the top of footing (z0): `invert_z_ft` (the pipe invert),
+    or `center_z_ft` (the centre, as some sheets dimension it); neither ->
+    the invert DEFAULT_INVERT_FT up. Was D/3 + 6 in to the CENTRE, which put
+    a 36 in pipe's invert exactly on the footing."""
     cu = float(o["center_ft"])
     if o["shape"] == "cmp_arch":
-        cz_inv = z0 + float(o.get("invert_z_ft", 0.5))     # invert 0.5 ft up
+        cz_inv = z0 + float(o.get("invert_z_ft", DEFAULT_INVERT_FT))
         return arch_void(float(o["span_ft"]), float(o["rise_ft"]), cu, cz_inv)
     dia = float(o["dia_ft"])
-    cz = z0 + float(o.get("center_z_ft", dia / 3.0 + 0.5))  # sheet: D/3 + 6"
+    if o.get("center_z_ft") is not None:
+        cz = z0 + float(o["center_z_ft"])
+    else:
+        cz = z0 + float(o.get("invert_z_ft", DEFAULT_INVERT_FT)) + dia / 2.0
     return circular_void(dia, cu, cz)
+
+
+def _check_openings(name: str, voids: list, length: float, z0: float,
+                    z1: float) -> None:
+    """Every opening inside the stem face with concrete all round: a void
+    touching or crossing the footing, the top of wall or a wall end makes a
+    zero-thickness pinch or cuts the stem in two (not a solid body)."""
+    for k, ring in enumerate(voids, 1):
+        us, zs = [p[0] for p in ring], [p[1] for p in ring]
+        why = []
+        if min(zs) <= z0 + 1e-6:
+            why.append(f"its invert is {min(zs) - z0:+.2f} ft from the top of footing")
+        if max(zs) >= z1 - 1e-6:
+            why.append(f"its top is {z1 - max(zs):+.2f} ft below the top of wall")
+        if min(us) <= 1e-6 or max(us) >= length - 1e-6:
+            why.append("it reaches a wall end")
+        if why:
+            raise ValueError(f"{name}: opening {k} does not fit in the stem - "
+                             f"{'; '.join(why)} (set invert_z_ft / center_z_ft"
+                             f" / center_ft on the opening)")
 
 
 def _main_leg(model: StructureModel, name: str, sec: HeadwallSection,
@@ -51,6 +86,7 @@ def _main_leg(model: StructureModel, name: str, sec: HeadwallSection,
     z0, z1 = sec.F, sec.F + sec.stem_height
     face = [(0.0, z0), (length, z0), (length, z1), (0.0, z1)]
     voids = [_opening_ring(o, z0) for o in openings]
+    _check_openings(f"{name} headwall stem", voids, length, z0, z1)
     stem = SectionPrism(f"{name} headwall stem", face, sec.T, y0=sec.C,
                         voids=voids, ifc="IfcWall", layer="S-CONC")
     # a voided SectionPrism carries length + net volume only (box-culvert
