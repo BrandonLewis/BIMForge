@@ -30,7 +30,10 @@ meshes and must not be used — pipe-supports-pilot lesson), IFC spatial-decompo
 reachability (Project -> Site -> Building -> Storey; the ONLY check that
 looks at the file the way a third-party importer does — issue #132),
 takeoff-map <-> classification coverage (multi-code aware), DXF entity
-sanity. Failure DELETES the outputs and reports.
+sanity, and solid bodies (each element's rendered mesh is one closed
+manifold body unless it declares `body="solids"` or `"surface"`; a warning
+or a failure per `model.solid_body_gate`). Failure DELETES the outputs and
+reports.
 """
 from __future__ import annotations
 
@@ -47,6 +50,9 @@ MESH_TOLERANCE = 0.005
 class GateReport:
     failures: list[str] = field(default_factory=list)
     checks_run: int = 0
+    #: Reported, but not failures: outputs are kept (e.g. the solid-body
+    #: check while a model's `solid_body_gate` is "warn").
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -62,6 +68,9 @@ class GateReport:
                 if phase == "pre" else
                 f"POST-EMIT GATE FAILED - outputs deleted:")
         lines = [head] + [f"  - {f}" for f in self.failures]
+        if self.warnings:
+            lines.append(f"  warnings ({len(self.warnings)}):")
+            lines += [f"  ! {w}" for w in self.warnings]
         lines.append(f"  ({self.checks_run} checks run)")
         return "\n".join(lines)
 
@@ -710,6 +719,40 @@ def _dxf_sanity_check(model, dxf_path: str) -> list[str]:
     return []
 
 
+def _ifc_solid_body_check(model, ifc_path: str) -> list[str]:
+    """Every element's rendered body is what it says it is (Element.body).
+
+    "solid": one closed manifold shell. "solids": closed manifold shells,
+    any number, none touching another. "surface": exempt. Reads the file the
+    way a viewer draws it (the geometry iterator, all of a product's items
+    merged), so it sees what Blender/Bonsai render and what a section cuts:
+    an open surface, a crack, faces stacked on faces, boxes touching boxes.
+    """
+    from bimforge.bim.ifc_mesh import solid_bodies
+    body = {el.name: el.body for el in model.elements}
+    out = []
+    for info in sorted(solid_bodies(ifc_path).values(),
+                       key=lambda i: i["name"]):
+        kind = body.get(info["name"], "solid")
+        t = info["topology"]
+        if kind == "surface" or t["triangles"] == 0:
+            continue
+        why = []
+        if t["open_edges"]:
+            why.append(f"{t['open_edges']} open edges")
+        if t["nonmanifold_edges"]:
+            why.append(f"{t['nonmanifold_edges']} edges shared by 3+ faces")
+        if t.get("empty_components"):
+            why.append(f"{t['empty_components']} pieces enclosing no volume")
+        if kind == "solid" and t["components"] > 1:
+            why.append(f"{t['components']} separate pieces")
+        if why:
+            out.append(f"{info['name']} ({info['ifc_class']}): not a "
+                       f"{'solid body' if kind == 'solid' else 'set of solids'}"
+                       f" - {', '.join(why)}")
+    return out
+
+
 def _run_contained(rep: GateReport, chk, *args) -> None:
     """Run one post-check; a RAISE becomes a failure entry instead of
     propagating. An uncontained exception would bypass delete_outputs and
@@ -743,6 +786,15 @@ def run_post(model, outputs: dict, paycodes=None,
                        mesh_tol)
         _run_contained(rep, _ifc_exact_revolution_check, model,
                        outputs["ifc"])
+        mode = getattr(model, "solid_body_gate", "warn")
+        if mode != "off":
+            with _quiet_stdout():
+                probe = GateReport()
+                _run_contained(probe, _ifc_solid_body_check, model,
+                               outputs["ifc"])
+            rep.checks_run += probe.checks_run
+            (rep.failures if mode == "error" else rep.warnings).extend(
+                probe.failures)
     if outputs.get("takeoff_map"):
         _run_contained(rep, _map_coverage_check, model, outputs["takeoff_map"])
     if outputs.get("dxf"):

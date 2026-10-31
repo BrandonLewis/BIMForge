@@ -203,3 +203,120 @@ def mesh_leg(ifc_path: str) -> dict:
                      "hgt_m": float(hi[2] - lo[2]),
                      "z_min_m": float(lo[2]), "z_max_m": float(hi[2])}}
     return out
+
+
+# ------------------------------------------------------------ solid bodies
+#: Vertex weld for the topology check, metres. The kernel emits each face's
+#: corners separately; two corners closer than this are one vertex.
+WELD_M = 1e-6
+
+
+def mesh_topology(verts, faces, weld: float = WELD_M) -> dict:
+    """Is a triangle mesh a solid body? Welds coincident vertices, then:
+
+    * ``open_edges``        — edges used by ONE triangle: a crack or an open
+                              surface (a terrain ribbon, a missing cap);
+    * ``nonmanifold_edges`` — edges used by THREE or more: faces stacked on
+                              faces or bodies touching along an edge (a stack
+                              of boxes, zero-thickness cells);
+    * ``components``        — separately connected pieces (by shared
+                              vertices after welding);
+    * ``empty_components``  — pieces that enclose no volume (a face doubled
+                              back on itself, a zero-thickness cell): closed
+                              by edge count, but not a body;
+    * ``closed``            — no open and no non-manifold edge and no empty
+                              piece: every piece is a closed 2-manifold
+                              shell around real volume, i.e. a solid.
+
+    Degenerate (zero-area) triangles are dropped first: they bound nothing.
+    """
+    import numpy as np
+    v = np.asarray(verts, dtype=float).reshape(-1, 3)
+    t = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
+    if len(v) == 0 or len(t) == 0:
+        return {"triangles": 0, "open_edges": 0, "nonmanifold_edges": 0,
+                "components": 0, "empty_components": 0, "closed": False}
+    key = np.round(v / weld).astype(np.int64)
+    _, inv = np.unique(key, axis=0, return_inverse=True)
+    inv = inv.reshape(-1)
+    t = inv[t]
+    ok = (t[:, 0] != t[:, 1]) & (t[:, 1] != t[:, 2]) & (t[:, 0] != t[:, 2])
+    t = t[ok]
+    if len(t) == 0:
+        return {"triangles": 0, "open_edges": 0, "nonmanifold_edges": 0,
+                "components": 0, "empty_components": 0, "closed": False}
+    e = np.sort(np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]]),
+                axis=1)
+    _, counts = np.unique(e, axis=0, return_counts=True)
+    open_e = int((counts == 1).sum())
+    nonman = int((counts > 2).sum())
+    # components: union-find over the triangles' vertices
+    parent = np.arange(int(t.max()) + 1)
+
+    def find(x):
+        root = x
+        while parent[root] != root:
+            root = parent[root]
+        while parent[x] != root:
+            parent[x], x = root, parent[x]
+        return root
+
+    for a, b, c in t:
+        ra, rb, rc = find(a), find(b), find(c)
+        parent[rb] = ra
+        parent[find(rc)] = ra
+    used = np.unique(t)
+    roots = {find(int(x)) for x in used}
+    # each piece's enclosed volume (signed-tet sum about the piece's own
+    # first vertex, so far-from-origin coordinates do not cancel)
+    pos = np.zeros((int(t.max()) + 1, 3))
+    pos[inv] = v                                   # welded vertex positions
+    tri_root = np.array([find(int(a)) for a in t[:, 0]])
+    vol, scale = {}, {}
+    for r in roots:
+        tt = t[tri_root == r]
+        p = pos[tt] - pos[tt[0, 0]]
+        vol[r] = abs(np.einsum("ij,ij->i", p[:, 0],
+                               np.cross(p[:, 1], p[:, 2])).sum()) / 6.0
+        scale[r] = float(np.ptp(pos[np.unique(tt)], axis=0).max())
+    # empty: encloses under a billionth of its own bounding cube
+    empty = sum(1 for r in roots if vol[r] <= 1e-9 * scale[r] ** 3)
+    return {"triangles": int(len(t)), "open_edges": open_e,
+            "nonmanifold_edges": nonman, "components": len(roots),
+            "empty_components": int(empty),
+            "closed": open_e == 0 and nonman == 0 and empty == 0}
+
+
+def solid_bodies(ifc_path: str) -> dict:
+    """{GlobalId: {"name", "ifc_class", "topology": mesh_topology(...)}} for
+    every element the geometry iterator yields (all of a product's shapes
+    merged into one mesh, as a viewer draws it)."""
+    import ifcopenshell
+    import ifcopenshell.geom as geom
+    import numpy as np
+
+    f = ifcopenshell.open(str(ifc_path))
+    s = geom.settings()
+    s.set("use-world-coords", True)
+    meshes: dict[str, list] = {}
+    it = geom.iterator(s, f)
+    if not it.initialize():
+        return {}
+    while True:
+        sh = it.get()
+        v = np.asarray(sh.geometry.verts, dtype=float).reshape(-1, 3)
+        fa = np.asarray(sh.geometry.faces, dtype=np.int64).reshape(-1, 3)
+        if len(v) and len(fa):
+            meshes.setdefault(sh.guid, [sh.type, [], []])
+            m = meshes[sh.guid]
+            m[2].append(fa + sum(len(x) for x in m[1]))
+            m[1].append(v)
+        if not it.next():
+            break
+    out = {}
+    for gid, (typ, vs, fs) in meshes.items():
+        el = f.by_guid(gid)
+        out[gid] = {"name": el.Name or f"{typ}-{gid[:6]}", "ifc_class": typ,
+                    "topology": mesh_topology(np.concatenate(vs),
+                                              np.concatenate(fs))}
+    return out
