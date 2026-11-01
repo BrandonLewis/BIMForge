@@ -79,6 +79,9 @@ def build_barrier(tmpl: BarrierTemplate, params: dict, ctx) -> StructureModel:
     model = StructureModel(tmpl.family_id, ctx)
     for run in runs:
         name = run.get("name", tmpl.default_run_name)
+        if "on" in run:
+            _build_on_alignment_run(tmpl, run, name, model, params, ctx)
+            continue
         if "path" in run:
             _build_curved_run(tmpl, run, name, model)
             continue
@@ -240,3 +243,155 @@ def _place_curved_end_blocks(tmpl, run, name, model, section, align, length, L,
                                   pos="end", y_nose=length, y_inboard=length - L):
             if _geomless(e):
                 model.add(e)
+
+
+# ------------------------------------------------- runs ON a project line
+def _project_line(params: dict, name: str):
+    """(Alignment, Profile | None) an `on:` run sweeps along: the spec's
+    `params.alignment` (a shared line by `{ref: NAME}` resolves to the SAME
+    object every model of the project uses, so the IFC carries one
+    IfcAlignment for it) and `params.profile`."""
+    from bimforge.author.alignment import Alignment, Profile
+    p = params.get("alignment")
+    if not p:
+        raise ValueError(f"{name}: an `on:` run needs params.alignment "
+                         f"(alignment: {{ref: NAME}} with project.alignments)")
+    al = p.get("_object") or Alignment(p["pob"], p["run"], name=p.get("name", "P"))
+    prof = p.get("_profile")
+    if prof is None and params.get("profile"):
+        pp = params["profile"]
+        prof = Profile(pp["curves"] if isinstance(pp, dict) else pp)
+    return al, prof
+
+
+def _pieces(al, s0: float, s1: float):
+    """[(a, b, kappa)] constant-curvature pieces of [s0, s1]."""
+    cuts = sorted({s0, s1, *[b for b in al.seg_breaks(s0, s1) if s0 < b < s1]})
+    return [(a, b, al.curvature(0.5 * (a + b))) for a, b in zip(cuts, cuts[1:])]
+
+
+def offset_length(al, s0: float, s1: float, o_left: float) -> float:
+    """Length of the line `o_left` ft LEFT of the alignment between two
+    stations: the integral of (1 - kappa * o) - exact on tangents and arcs."""
+    return sum((b - a) * (1.0 - k * o_left) for a, b, k in _pieces(al, s0, s1))
+
+
+def station_at_offset_length(al, s_from: float, length: float, o_left: float,
+                             s_limit: float) -> float:
+    """The station `length` ft along the offset line from `s_from` toward
+    `s_limit` (either direction)."""
+    fwd = s_limit >= s_from
+    lo, hi = (s_from, s_limit) if fwd else (s_limit, s_from)
+    pieces = _pieces(al, lo, hi)
+    if not fwd:
+        pieces = [(b, a, k) for a, b, k in reversed(pieces)]
+    left = length
+    for a, b, k in pieces:
+        f = 1.0 - k * o_left
+        seg = abs(b - a) * f
+        if left <= seg + 1e-12:
+            return a + (left / f) * (1 if fwd else -1)
+        left -= seg
+    raise ValueError(f"offset length {length:.3f} ft runs past station {s_limit}")
+
+
+def _build_on_alignment_run(tmpl: BarrierTemplate, run: dict, name: str,
+                            model: StructureModel, params: dict, ctx) -> None:
+    """A run swept ON the project's line (spec `on:`):
+
+        on: {from_station: 54762.9, to_station: 54862.9,
+             offset: 24.0, side: Lt,      # the OUTBOARD face (section x = 0)
+             grade: -0.48}                # barrier base = profile + grade
+                                          # (or `elevation:` for a flat run)
+
+    The running barrier and its end blocks follow the alignment's tangents
+    AND arcs and its vertical profile, with the outboard face on the offset
+    line (the section runs inboard toward the line). Pay length is measured
+    along that face: on an arc it differs from the station span by the
+    factor (1 - kappa * offset)."""
+    al, prof = _project_line(params, name)
+    on = run["on"]
+    try:
+        s_from, s_to = float(on["from_station"]), float(on["to_station"])
+        off = float(on["offset"])
+    except KeyError as exc:
+        raise ValueError(f"{name}: on: needs from_station, to_station and offset "
+                         f"({exc.args[0]} missing)") from None
+    if not al.s_start - 1e-6 <= s_from < s_to <= al.s_end + 1e-6:
+        raise ValueError(f"{name}: on: {s_from}..{s_to} is not inside "
+                         f"{al.name} {al.s_start}..{al.s_end}")
+    if off < 0:
+        raise ValueError(f"{name}: on.offset is a distance; give the side")
+    side = str(on.get("side", "Rt")).strip().upper()
+    if side not in ("LT", "L", "LEFT", "RT", "R", "RIGHT"):
+        raise ValueError(f"{name}: on.side {on.get('side')!r} is not Lt/Rt")
+    left = side in ("LT", "L", "LEFT")
+    o = off if left else -off                       # + = left of the line
+    if ("grade" in on) == ("elevation" in on):
+        raise ValueError(f"{name}: on: give grade (profile + dz) or elevation")
+    if "grade" in on:
+        if prof is None:
+            raise ValueError(f"{name}: on.grade needs a profile on {al.name}")
+        dz, profile = float(on["grade"]), prof
+    else:
+        dz, profile = float(on["elevation"]), None  # to_model takes the base off
+
+    def place(ring):
+        """Section (x inboard from the outboard face, z up) -> sweep (x left
+        of the line, z above the profile); a Lt barrier is mirrored, and its
+        vertex order reversed to keep the winding."""
+        pts = [((o - x) if left else (o + x), z + dz) for x, z in ring]
+        return list(reversed(pts)) if left else pts
+
+    start_kind, end_kind = end_kinds(run)
+    for lbl, v in (("start", start_kind), ("end", end_kind)):
+        if v not in _END_VALUES:
+            raise ValueError(f"{name}: {lbl}-end value {v!r} must be one "
+                             f"of {_END_VALUES}")
+    length = offset_length(al, s_from, s_to, o)
+    if tmpl.validate_fn:
+        tmpl.validate_fn(name, dict(run, _length_ft=length))
+    L = tmpl.endblock_len_ft
+    s0 = (station_at_offset_length(al, s_from, L, o, s_to)
+          if start_kind != "none" else s_from)
+    s1 = (station_at_offset_length(al, s_to, L, o, s_from)
+          if end_kind != "none" else s_to)
+    run_len = offset_length(al, s0, s1, o) if s1 > s0 else 0.0
+    if run_len < 2.0:
+        n_blocks = (start_kind != "none") + (end_kind != "none")
+        raise ValueError(f"{name}: {length:.2f} ft along the face is too short "
+                         f"for {n_blocks} end block(s)")
+    section = tmpl.section_fn(run)
+    model.add(_curved.build_running_prism(
+        f"{name} {tmpl.label} barrier", place(section.outline), al, s0, s1,
+        ifc="IfcWall", layer="S-CONC", profile=profile, origin=ctx,
+        length_ft=run_len))
+    for el in tmpl.rebar_fn(name, section, run, run_len):
+        model.add(el)
+    for kind, pos, s_free, s_join in ((start_kind, "start", s_from, s0),
+                                      (end_kind, "end", s_to, s1)):
+        if kind == "none":
+            continue
+        if tmpl.endblock_rings_fn is None:
+            raise ValueError(f"{name}: runs with end blocks need the family "
+                             f"to define endblock_rings_fn")
+        inboard, nose = tmpl.endblock_rings_fn(run, section, kind)
+        span = abs(s_join - s_free)
+
+        def ring_at(s, inboard=inboard, nose=nose, s_join=s_join, span=span):
+            u = min(max(abs(s - s_join) / span, 0.0), 1.0)
+            return place([(a[0] + u * (b[0] - a[0]), a[1] + u * (b[1] - a[1]))
+                          for a, b in zip(inboard, nose)])
+        a, b = sorted((s_free, s_join))
+        model.add(_curved.sweep_morph(
+            f"{name} {tmpl.label} barrier end block ({kind}) [{pos}]",
+            ring_at, al, a, b, ifc="IfcWall", layer="S-CONC",
+            profile=profile, origin=ctx, length_ft=L))
+        y_nose, y_in = (0.0, L) if pos == "start" else (length, length - L)
+        for e in tmpl.endblock_fn(name, run, section, kind=kind, pos=pos,
+                                  y_nose=y_nose, y_inboard=y_in):
+            if _geomless(e):
+                model.add(e)
+    if tmpl.extras_fn:
+        for el in tmpl.extras_fn(name, run, section, length):
+            model.add(el)

@@ -86,8 +86,12 @@ def test_an_item_lands_its_anchor_on_the_station_offset(tmp_path):
     assert (y1[0] - want[0], y1[1] - want[1]) == pytest.approx((-fwd[0], -fwd[1]), abs=1e-9)
     # both elements moved together; geometry itself untouched
     assert (ftg.x_ft, ftg.y_ft, ftg.bearing_deg) == (stem.x_ft, stem.y_ft, stem.bearing_deg)
-    assert stem.placed_on == {"alignment": "ML", "station": 1200.0, "offset": 30.0,
-                              "side": "Rt"}
+    assert {k: stem.placed_on[k] for k in ("alignment", "station", "offset", "side",
+                                            "elevation")} == {
+        "alignment": "ML", "station": 1200.0, "offset": 30.0, "side": "Rt",
+        "elevation": 251.5}
+    # the anchor in each element's own frame (the footing's frame is the stem's)
+    assert stem.placed_on["anchor"] == pytest.approx((5.0, 3.5, 7.0))
     assert m.alignments and m.alignments[0][0] is al
 
 
@@ -199,6 +203,7 @@ def test_est_bim_build_places_a_local_frame_family(tmp_path):
     f = ifcopenshell.open(str(tmp_path / "out" / "demo-box.ifc"))
     assert [a.Name for a in f.by_type("IfcAlignment")] == ["ML"]
     # DB-2 sits 20 ft AHEAD of DB-1 along the tangent (local x = ahead)
+    import ifcopenshell.api
     import ifcopenshell.util.placement as up
     m = {e.Name: up.get_local_placement(e.ObjectPlacement)[:3, 3]
          for e in f.by_type("IfcFooting")}
@@ -234,3 +239,58 @@ def test_placement_needs_the_alignments_file(tmp_path):
     spec_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
     with pytest.raises(ValueError, match="placement: needs project.alignments"):
         reg.load_spec(spec_path)
+
+
+def test_the_post_emit_check_reads_the_ifc_back(tmp_path):
+    """ifc_alignment_problems: the IFC's line and a placed anchor against the
+    model. Clean after emit; a moved element and a model line that is not the
+    file's are caught."""
+    ifcopenshell = pytest.importorskip("ifcopenshell")
+    import ifcopenshell.api
+    import ifcopenshell.util.placement as up
+    from bimforge.author.alignment import Alignment
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.placement import ifc_alignment_problems
+    a = _file(tmp_path)
+    m = _headwall_like()
+    apply_placement(m, {"alignment": "ML", "items": [{
+        "match": "^HW 1 ", "station": 1250.0, "offset": 22.0, "side": "Lt",
+        "anchor": {"of": "^HW 1 stem$", "z": "max"}, "elevation": 246.0,
+        "x": "back", "y": "right"}]}, a)
+    out = tmp_path / "hw.ifc"
+    emit_ifc(m, str(out))
+    assert ifc_alignment_problems(m, out) == []
+    # the stem nudged 0.05 ft east in the FILE
+    f = ifcopenshell.open(str(out))
+    (stem,) = f.by_type("IfcWall")
+    M = up.get_local_placement(stem.ObjectPlacement)
+    M[0, 3] += 0.05 * m.ctx.ft_to_m
+    ifcopenshell.api.run("geometry.edit_object_placement", f, product=stem,
+                         matrix=M, is_si=True)
+    moved = tmp_path / "moved.ifc"
+    f.write(str(moved))
+    (p,) = ifc_alignment_problems(m, moved)
+    assert p.startswith("HW 1 stem: placed anchor in the IFC") and "offset" in p
+    # a model whose line is not the file's
+    drift = Alignment(dict(POB, easting=POB["easting"] + 0.02), RUN, name="ML")
+    m.alignments[:] = [(drift, a["ML"].profile)]
+    assert any("the IFC's line is" in q for q in ifc_alignment_problems(m, out))
+
+
+def test_ties_are_a_pre_gate_check(tmp_path):
+    from bimforge.author.placement import check_ties
+    p = tmp_path / "alignments.yaml"
+    al = _file(tmp_path)["ML"].alignment
+    n, e = al.station_offset(1100.0, 10.0, "Rt")
+    doc = {"alignments": {"ML": {"pob": POB, "run": RUN, "profile": PROFILE,
+           "ties": [{"id": "A", "station": 1100.0, "offset": 10.0, "side": "Rt",
+                     "northing": n + 0.25, "easting": e}],
+           "profile_ties": [{"station": 1050.0, "elev": 240.0}]}}}
+    p.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    a = load_alignments(p)
+    m = _headwall_like()
+    assert check_ties(a)(m) == []                   # not built on the line yet
+    apply_placement(m, {"alignment": "ML", "items": [{
+        "match": "^HW", "station": 1100.0, "elevation": 240.0}]}, a)
+    (prob,) = check_ties(a)(m)
+    assert "tie A is 0.250 ft off the line (tol 0.1)" in prob

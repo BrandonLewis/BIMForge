@@ -96,6 +96,31 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   on the footing. An opening that does not fit inside the stem, with
   concrete all round, is refused with the reason. This moves existing specs'
   default openings up (a 24 in pipe by 4 in), but not their volumes.
+- **Barrier runs ON a project line (`on:`).** A Type 842 / 732SW run can
+  take `on: {from_station, to_station, offset, side, grade | elevation}`
+  in place of `straight_length_ft` / `path`. It sweeps the running barrier
+  and its section-morphing end blocks along the spec's alignment (a shared
+  line by `params.alignment: {ref: NAME}`): tangents, arcs and the vertical
+  profile, with the outboard face (section x = 0) on the offset line. A
+  level run is an exact `IfcSectionedSolidHorizontal` on the same
+  IfcAlignment; on a grade, the plumb section is kept as its mesh
+  (`exact_reason`).
+  - Pay length is measured along the face, `barrier_template.offset_length`
+    (exact on arcs); the end blocks take their length along the face too.
+  - `curved_run.build_running_prism` / `sweep_morph` now take `profile`
+    and `origin`.
+  - Handrail on such a run is refused, as on a curved `path`.
+- **Alignment checks for every model on a line.**
+  - An alignments file can carry the plan's `ties:` (station/offset to
+    N/E, `tol_ft`) and `profile_ties:` (station to elevation). Every model
+    built on the line (declared, adopted, placed on or swept along) is held
+    to them pre-emit (`placement.check_ties`; `est-bim build` adds it).
+  - Post-emit, the gate re-stations the written IFC against every line
+    the model is built on (plan and profile, 0.005 ft) and re-measures
+    every spec-placed element's anchor through its placement IN THE FILE
+    (`placement.ifc_alignment_problems`).
+  - `Element.placed_on` now records the anchor (in the element's own
+    frame) and the elevation.
 - **Station and offset in the IFC (`bimforge.bim.linear_ref`,
   `est-bim stations`).** Every element with a body gets a property set
   `BIMForge_LinearReference` and is linked to its alignment by

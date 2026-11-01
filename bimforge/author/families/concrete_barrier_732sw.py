@@ -113,13 +113,13 @@ def _endblock_732(name, run, section, *, kind, pos, y_nose, y_inboard):
 def _extras_732(name, run, section, length):
     if not run.get("handrail", True):
         return []
-    if "path" in run:
+    if "path" in run or "on" in run:
         # rail_run.build_run is alignment-unaware: on a curved run it would lay
         # a STRAIGHT rail of the arc length floating off the curve. Curved
         # handrail geometry is deferred (#149) -- fail loud rather than emit
         # silently-wrong geometry.
         raise ValueError(
-            f"{name}: handrail geometry on curved runs is not yet supported "
+            f"{name}: handrail geometry on curved / on-line runs is not yet supported "
             f"(issue #149); set handrail: false to build the barrier without it")
     rail_x = min(x for x, _z in section.outline) + 0.5   # 6" in
     # rail spans the FULL run `length` (per B11-59A the tubular handrail

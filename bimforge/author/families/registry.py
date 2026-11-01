@@ -154,7 +154,8 @@ def place_from_spec(model, spec: dict, alignments: dict | None, log=None) -> Non
     spec's `placement:` block."""
     if not alignments:
         return
-    from bimforge.author.placement import adopt_shared, apply_placement
+    from bimforge.author.placement import adopt_shared, apply_placement, check_ties
+    model.checks.append(check_ties(alignments))
     problems = adopt_shared(model, alignments)
     if problems:
         def check_shared_alignment(_model, _p=tuple(problems)):
@@ -170,7 +171,8 @@ def station_ifc(model, ifc_path, log=None) -> dict | None:
     """Write every element's station / offset into the emitted IFC
     (bimforge.bim.linear_ref) when the model declares an alignment, with the
     spec-placed elements' anchors. Returns the report, or None."""
-    if not getattr(model, "alignments", None):
+    from bimforge.author.emit_alignment import model_alignments
+    if not getattr(model, "alignments", None) and not model_alignments([model]):
         return None
     from bimforge.bim.linear_ref import anchors_from_model, annotate
     rep = annotate(str(ifc_path), anchors=anchors_from_model(model))

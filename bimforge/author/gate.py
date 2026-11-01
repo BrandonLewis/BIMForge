@@ -806,6 +806,22 @@ def _run_contained(rep: GateReport, chk, *args) -> None:
     rep.checks_run += 1
 
 
+def _sweeps_on_a_line(model) -> bool:
+    from bimforge.author.emit_alignment import model_alignments
+    try:
+        return bool(model_alignments([model]))
+    except Exception:                      # a geometry the scan cannot read
+        return False
+
+
+def _ifc_alignment_check(model, ifc_path) -> list[str]:
+    """Every alignment the model is built on reads back from the IFC onto
+    the model's own line (plan and profile), and every spec-placed anchor
+    lands where the spec put it."""
+    from bimforge.author.placement import ifc_alignment_problems
+    return ifc_alignment_problems(model, ifc_path)
+
+
 def run_post(model, outputs: dict, paycodes=None,
              mesh_tol: float = MESH_TOLERANCE,
              extra_checks=()) -> GateReport:
@@ -826,6 +842,10 @@ def run_post(model, outputs: dict, paycodes=None,
                        mesh_tol)
         _run_contained(rep, _ifc_exact_revolution_check, model,
                        outputs["ifc"])
+        if getattr(model, "alignments", None) or _sweeps_on_a_line(model):
+            # the IFC's alignments and spec-placed anchors against the model
+            # (bimforge.author.placement.ifc_alignment_problems)
+            _run_contained(rep, _ifc_alignment_check, model, outputs["ifc"])
         mode = getattr(model, "solid_body_gate", "warn")
         if mode != "off":
             with _quiet_stdout():

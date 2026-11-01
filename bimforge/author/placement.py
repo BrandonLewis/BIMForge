@@ -13,6 +13,15 @@ each spec copying its own:
              g_out_pct: -1.621, length_ft: 1220.0, evc_station: 55402.87,
              evc_elev: 155.40}
 
+A line may carry the plan's control ties, which every model built on it is
+held to (a pre-gate check):
+
+        ties:                          # station/offset <-> N/E (LOTB, control)
+          - {id: RC-23-001, station: 54875.22, offset: 54.74, side: Lt,
+             northing: 1907732.72, easting: 6565106.03, tol_ft: 0.10}
+        profile_ties:                  # station <-> lettered CL elevation
+          - {station: 54762.90, elev: 160.16, tol_ft: 0.01}
+
 A family that takes its own line reads it from the file: `{ref: NAME}` in
 `params.alignment` becomes `{pob, run, name}`, in `params.profile`
 `{curves}` (`resolve_refs`). A family that builds in its own local frame
@@ -70,6 +79,40 @@ class SharedAlignment:
         if prof is not None and not isinstance(prof, list):
             raise ValueError(f"alignment {name!r}: profile is a list of curves")
         self.profile = Profile(prof) if prof else None
+        self.ties = list(data.get("ties") or [])
+        self.profile_ties = list(data.get("profile_ties") or [])
+        for t in self.ties:
+            for k in ("station", "northing", "easting"):
+                if k not in t:
+                    raise ValueError(f"alignment {name!r}: tie {t.get('id', t)} needs {k}")
+
+    def tie_problems(self, default_tol: float = 0.10) -> list[str]:
+        """The line against its control ties: plan (station/offset -> N/E)
+        and profile (station -> elevation)."""
+        out = []
+        for t in self.ties:
+            off = float(t.get("offset", 0.0))
+            side = str(t.get("side", "Rt"))
+            if off:
+                n, e = self.alignment.station_offset(float(t["station"]), abs(off),
+                                                     side if off >= 0 else _flip(side))
+            else:
+                n, e = self.alignment.point_az(float(t["station"]))[:2]
+            d = math.hypot(n - float(t["northing"]), e - float(t["easting"]))
+            tol = float(t.get("tol_ft", default_tol))
+            if d > tol:
+                out.append(f"alignment {self.name}: tie {t.get('id', t['station'])} "
+                           f"is {d:.3f} ft off the line (tol {tol:g})")
+        for t in self.profile_ties:
+            if self.profile is None:
+                out.append(f"alignment {self.name}: profile_ties but no profile")
+                break
+            dz = abs(self.profile.elev(float(t["station"])) - float(t["elev"]))
+            tol = float(t.get("tol_ft", 0.01))
+            if dz > tol:
+                out.append(f"alignment {self.name}: profile at {t['station']} is "
+                           f"{dz:.3f} ft off El {t['elev']} (tol {tol:g})")
+        return out
 
     def pair(self) -> tuple:
         return self.alignment, self.profile
@@ -114,7 +157,10 @@ def resolve_refs(params: dict, alignments: dict | None) -> dict:
         sa = _shared(alignments, str(out["alignment"]["ref"]), "params.alignment")
         out["alignment"] = {"pob": dict(sa.data["pob"]),
                             "run": [dict(r) for r in sa.data["run"]],
-                            "name": sa.name}
+                            "name": sa.name,
+                            # the shared object itself, for a family that sweeps
+                            # on it (so the IFC has ONE IfcAlignment for it)
+                            "_object": sa.alignment, "_profile": sa.profile}
     if _is_ref(out.get("profile")):
         sa = _shared(alignments, str(out["profile"]["ref"]), "params.profile")
         if sa.profile is None:
@@ -263,7 +309,10 @@ def apply_placement(model, block: dict, alignments: dict | None) -> list[str]:
             el.z_ft = ez + tz
             el.bearing_deg = eb + theta
             el.placed_on = {"alignment": sa.name, "station": sta,
-                            "offset": off, "side": side}
+                            "offset": off, "side": side, "elevation": elev,
+                            # the anchor in the element's OWN frame (before its
+                            # placement), for the post-emit check
+                            "anchor": _unplace(el, ex, ey, ez, eb, (ax_, ay_, az_))}
             placed.add(el.name)
         _declare(model, sa)
         report.append(f"{it['match']}: {len(els)} elements on {sa.name} at "
@@ -274,6 +323,102 @@ def apply_placement(model, block: dict, alignments: dict | None) -> list[str]:
         if left_over:
             raise ValueError(f"{where}: require_all, but no item places {left_over[:5]}")
     return report
+
+
+def _unplace(el, ex, ey, ez, eb, p) -> tuple:
+    """Item-frame point `p` in the element's own geometry frame, given the
+    element's placement BEFORE this item placed it (ex, ey, ez, eb)."""
+    th = math.radians(-eb)
+    c, s = math.cos(th), math.sin(th)
+    x, y = p[0] - ex, p[1] - ey
+    return (c * x - s * y, s * x + c * y, p[2] - ez)
+
+
+def check_ties(alignments: dict | None):
+    """A pre-gate check: every shared line the model is built on (declared,
+    adopted, placed on or swept along) against its control ties."""
+    def check_alignment_ties(model):
+        from bimforge.author.emit_alignment import model_alignments
+        used = {id(a) for a, _p, _o in model_alignments([model])}
+        out = []
+        for sa in (alignments or {}).values():
+            if id(sa.alignment) in used:
+                out += sa.tie_problems()
+        return out
+    return check_alignment_ties
+
+
+def ifc_alignment_problems(model, ifc_path, *, plan_tol_ft: float = 0.005,
+                           z_tol_ft: float = 0.005, samples: int = 40) -> list[str]:
+    """Post-emit: what the IFC says against what the model meant.
+
+    * every alignment the model is built on, re-stationed from the file
+      (bimforge.bim.alignment_station): plan within `plan_tol_ft`, profile
+      within `z_tol_ft`, at `samples` stations;
+    * every spec-placed element: its anchor, taken through the element's
+      placement IN THE FILE and located on the file's alignment, lands on
+      the authored station / offset / elevation.
+    """
+    import ifcopenshell
+    import ifcopenshell.util.placement as up
+    import numpy as np
+    from bimforge.author.emit_alignment import model_alignments
+    from bimforge.author.sweep import to_model
+    from bimforge.bim.alignment_station import AlignmentStationer, alignments
+    f = ifcopenshell.open(str(ifc_path))
+    found = {a.Name: a for a in alignments(f)}
+    if not found:
+        return []
+    k = model.ctx.ft_to_m
+    out, st_by = [], {}
+    for al, prof, origin in model_alignments([model]):
+        ia = found.get(al.name)
+        if ia is None:
+            out.append(f"alignment {al.name}: not in the IFC")
+            continue
+        st = AlignmentStationer(f, ia)
+        st_by[al.name] = st
+        for i in range(samples + 1):
+            s = al.s_start + (al.s_end - al.s_start) * i / samples
+            fr = st.frame_at_station(s * k / st.unit_scale)
+            n, e, _ = al.point_az(s)
+            want = to_model(origin, n, e, prof.elev(s) if prof else 0.0)
+            d = math.hypot(fr.point[0] / k - want[0], fr.point[1] / k - want[1])
+            if d > plan_tol_ft:
+                out.append(f"alignment {al.name} at {s:.2f}: the IFC's line is "
+                           f"{d:.4f} ft off the model's")
+                break
+            if prof is not None and st.has_profile:
+                dz = abs(fr.point[2] / k - want[2])
+                if dz > z_tol_ft:
+                    out.append(f"alignment {al.name} profile at {s:.2f}: the IFC's "
+                               f"is {dz:.4f} ft off the model's")
+                    break
+    by_name = {p.Name: p for p in f.by_type("IfcElement")}
+    for el in model.elements:
+        p = getattr(el, "placed_on", None)
+        if not p or "anchor" not in p:
+            continue
+        prod, st = by_name.get(el.name), st_by.get(p["alignment"])
+        if prod is None or st is None:
+            continue
+        M = up.get_local_placement(prod.ObjectPlacement)
+        x, y, z = (M @ np.array([c * k for c in p["anchor"]] + [1.0]))[:3]
+        d, off = st.locate(x, y)
+        sta = st.station_at(d) * st.unit_scale / k
+        want_off = (-1 if str(p["side"]).upper() in ("RT", "R", "RIGHT") else 1) \
+            * float(p["offset"])
+        elev = z / k + model.ctx.base_h
+        bad = [f"station {sta:.4f} vs {p['station']}" if abs(sta - p["station"]) > plan_tol_ft
+               else None,
+               f"offset {off / k:+.4f} (+Lt) vs {want_off:+.4f}"
+               if abs(off / k - want_off) > plan_tol_ft else None,
+               f"elevation {elev:.4f} vs {p['elevation']}"
+               if abs(elev - p["elevation"]) > z_tol_ft else None]
+        bad = [b for b in bad if b]
+        if bad:
+            out.append(f"{el.name}: placed anchor in the IFC - " + "; ".join(bad))
+    return out
 
 
 def _declare(model, sa: SharedAlignment) -> None:
