@@ -29,6 +29,8 @@ needs ifcopenshell inside Blender: Bonsai provides it.
 """
 from __future__ import annotations
 
+import math
+
 bl_info = {
     "name": "Alignment Section (bimforge)",
     "author": "bimforge",
@@ -41,9 +43,11 @@ bl_info = {
 
 try:                                    # the add-on zip carries its own copy
     from . import alignment_station as _st
+    from . import developed as _dev
     from . import schedule_state as _ss
 except ImportError:                     # running from the bimforge package
     from bimforge.bim import alignment_station as _st
+    from bimforge.bim import developed as _dev
     from bimforge.bim import schedule_state as _ss
 
 try:
@@ -784,6 +788,27 @@ if bpy is not None:
         date: StringProperty(
             name="Date", default="", update=_on_date,
             description="YYYY-MM-DD; the state at the end of that day")
+        dev_from: StringProperty(name="From", default="",
+                                 description="First station, e.g. 547+30")
+        dev_to: StringProperty(name="To", default="",
+                               description="Last station, e.g. 548+95")
+        dev_offset: FloatProperty(name="Offset", min=0.0, default=0.0,
+                                  description="The developed line's offset, display unit")
+        dev_side: EnumProperty(name="Side", items=[
+            ("LT", "Lt", "The line is left of the alignment"),
+            ("RT", "Rt", "The line is right of the alignment")], default="LT")
+        dev_look: EnumProperty(name="Look from", items=[
+            ("LEFT", "From Lt", "Stand left of the line, look right "
+             "(a Rt wall's formed face from the road)"),
+            ("RIGHT", "From Rt", "Stand right of the line, look left "
+             "(its retained side, the drainage)")], default="LEFT")
+        dev_depth: FloatProperty(name="Depth", min=0.0, default=20.0,
+                                 description="How far beyond the line to draw, display unit")
+        dev_true: BoolProperty(name="True view", default=True,
+                               description=("As seen; off mirrors a view from the left so "
+                                            "stations read left to right"))
+        dev_exag: FloatProperty(name="Vertical x", min=0.1, default=1.0,
+                                description="Vertical exaggeration")
         pt_offset: FloatProperty(name="Offset", min=0.0, default=12.0,
                                  description="Offset to locate, display unit")
         pt_side: EnumProperty(name="Side", items=[
@@ -897,6 +922,54 @@ if bpy is not None:
                         "no BIMForge_LinearReference in the IFC)")
             props.position = min(1.0, max(0.0, d / st.length)) if st.length else 0.0
             self.report({"INFO"}, text)
+            return {"FINISHED"}
+
+    class BIMFORGE_OT_developed_build(bpy.types.Operator):
+        bl_idname = "bimforge.developed_build"
+        bl_label = "Develop"
+        bl_description = ("Draw the developed elevation along the offset line in "
+                          "its own scene: the cut filled per styling, the visible "
+                          "edges beyond, the ground lines and the station ticks")
+
+        def execute(self, context):
+            props = context.scene.bimforge_section
+            try:
+                view, f = developed_view(props)
+                dr = _dev.develop(f, view)
+            except Exception as exc:          # surfaced, never a crash
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+            sc = build_developed(dr)
+            if context.window is not None:
+                context.window.scene = sc
+            self.report({"INFO"}, (f"{view.name}: {dr.length:.2f} along the line, "
+                                   f"{len(dr.cut)} cut, {len(dr.beyond)} lines beyond"))
+            return {"FINISHED"}
+
+    class BIMFORGE_OT_developed_dxf(bpy.types.Operator):
+        bl_idname = "bimforge.developed_dxf"
+        bl_label = "Export DXF"
+        bl_description = "Write the developed elevation as a DXF sheet (needs ezdxf)"
+        filepath: StringProperty(subtype="FILE_PATH", default="developed.dxf")
+
+        def invoke(self, context, event):
+            context.window_manager.fileselect_add(self)
+            return {"RUNNING_MODAL"}
+
+        def execute(self, context):
+            props = context.scene.bimforge_section
+            try:
+                view, f = developed_view(props)
+                lines = _dev.write_dxf([_dev.develop(f, view)],
+                                       bpy.path.abspath(self.filepath))
+            except ImportError:
+                self.report({"ERROR"}, "DXF needs ezdxf in Blender's Python "
+                            "(or run: est-bim elevation set.yaml)")
+                return {"CANCELLED"}
+            except Exception as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+            self.report({"INFO"}, lines[0])
             return {"FINISHED"}
 
     class BIMFORGE_OT_section_view(bpy.types.Operator):
@@ -1098,6 +1171,22 @@ if bpy is not None:
             if _STATE.get("point"):
                 for line in _point_text(props, st).split("  |  "):
                     offs.label(text=line)
+            dev = self.layout.box()
+            dev.label(text="Developed elevation", icon="VIEW_ORTHO")
+            row = dev.row(align=True)
+            row.prop(props, "dev_from")
+            row.prop(props, "dev_to")
+            row = dev.row(align=True)
+            row.prop(props, "dev_offset")
+            row.prop(props, "dev_side", expand=True)
+            dev.row().prop(props, "dev_look", expand=True)
+            row = dev.row(align=True)
+            row.prop(props, "dev_depth")
+            row.prop(props, "dev_exag")
+            dev.prop(props, "dev_true")
+            row = dev.row(align=True)
+            row.operator("bimforge.developed_build", icon="SEQ_LUMA_WAVEFORM")
+            row.operator("bimforge.developed_dxf", icon="EXPORT")
             view = self.layout.column(align=True)
             view.row().prop(props, "look", expand=True)
             view.prop(props, "width")
@@ -1117,6 +1206,103 @@ if bpy is not None:
             more.prop(props, "follow_frames")
             more.prop(props, "overlay")
             more.prop(props, "shift")
+
+
+DEV_SCENE = "BIMForge Developed Elevation"
+
+
+def developed_view(props):
+    """(ElevationView, file) from the panel: the loaded alignment, the panel's
+    stations / offset / side / look / depth, and the 4D date when the date
+    filter is on."""
+    f, _sts = _open(props)
+    st = _stationer(props)
+    u = _unit(props, st)
+    if not props.dev_from or not props.dev_to:
+        raise ValueError("give the From and To stations")
+    a, b = (_dev.parse_station(x, u) for x in (props.dev_from, props.dev_to))
+    if u != st.station_unit:                  # the engine speaks the file's unit
+        k = _st.metres_to(1.0, st.station_unit) / _st.metres_to(1.0, u)
+        a, b = a * k, b * k
+        off, depth = props.dev_offset * k, props.dev_depth * k
+    else:
+        off, depth = props.dev_offset, props.dev_depth
+    view = _dev.ElevationView(
+        name=f"{st.name} {props.dev_offset:g} {props.dev_side.title()}",
+        from_station=a, to_station=b, offset=off, side=props.dev_side.title(),
+        look_from=props.dev_look.lower(), depth=depth, alignment=st.name,
+        true_view=props.dev_true, exaggeration=props.dev_exag,
+        date=(props.date or None) if props.date_filter else None)
+    return view, f
+
+
+def build_developed(dr) -> "bpy.types.Scene":
+    """The drawing in its own scene, in the XZ plane (x along the line,
+    z elevation), seen by an orthographic camera looking +Y: cut fills per
+    styling, ground and visible lines as flat strips, station labels."""
+    import bmesh
+    from mathutils import Vector
+    sc = bpy.data.scenes.get(DEV_SCENE) or bpy.data.scenes.new(DEV_SCENE)
+    for ob in list(sc.collection.objects):
+        bpy.data.objects.remove(ob, do_unlink=True)
+    look = Vector((0.0, 1.0, 0.0))
+    k = 1.0 / _st.metres_to(1.0, dr.unit)            # drawing unit -> metres
+
+    def p3(p, lift=0.0):
+        return Vector((p[0] * k, -lift, p[1] * k))
+
+    def link(name, data):
+        ob = bpy.data.objects.new(name, data)
+        sc.collection.objects.link(ob)
+        return ob
+    for i, (layer, rgb, polys) in enumerate(dr.cut):
+        bm = bmesh.new()
+        edges = []
+        for poly in polys:
+            for ring in poly:
+                vs = [bm.verts.new(p3(q)) for q in ring[:-1]]
+                edges += [bm.edges.new((vs[j], vs[(j + 1) % len(vs)]))
+                          for j in range(len(vs))]
+        bmesh.ops.triangle_fill(bm, use_beauty=True, use_dissolve=False,
+                                edges=edges, normal=-look)
+        me = bpy.data.meshes.new(f"Developed cut {i}")
+        bm.to_mesh(me)
+        bm.free()
+        me.materials.append(_section_material(layer.replace("E-CUT-", ""), rgb))
+        link(me.name, me)
+    width = max(dr.length * k, 1.0) / 1500.0
+    lines = [(tuple(p3(a, 0.01)), tuple(p3(b, 0.01)))
+             for ln in dr.beyond for a, b in zip(ln, ln[1:])]
+    lines += [(tuple(p3(a, 0.02)), tuple(p3(b, 0.02)))
+              for _l, _rgb, ln in dr.ground for a, b in zip(ln, ln[1:])]
+    if lines:
+        verts, faces = strips(lines, look, width)
+        me = bpy.data.meshes.new("Developed lines")
+        me.from_pydata([tuple(v) for v in verts], [], faces)
+        me.materials.append(_section_material("Line", (0.05, 0.05, 0.05)))
+        link(me.name, me)
+    x0, y0, x1, y1 = dr.extent
+    th = max(y1 - y0, 1.0) * k / 25.0
+    for x, sta in dr.ticks:
+        if abs(sta - round(sta / 10.0) * 10.0) > 1e-6:
+            continue
+        cu = bpy.data.curves.new(f"Sta {sta:g}", "FONT")
+        cu.body = _st.format_station(sta, dr.unit, 0)
+        cu.size = th
+        cu.align_x = "CENTER"
+        ob = link(cu.name, cu)
+        ob.location = p3((x, y0), 0.03) - Vector((0, 0, 2.0 * th))
+        ob.rotation_euler = (math.pi / 2, 0.0, 0.0)
+    cam_data = bpy.data.cameras.new("Developed camera")
+    cam_data.type = "ORTHO"
+    cam_data.ortho_scale = max((x1 - x0) * k, (y1 - y0) * k * 2.0) * 1.1
+    cam = link("Developed camera", cam_data)
+    cam.location = Vector(((x0 + x1) / 2 * k, -50.0, (y0 + y1) / 2 * k))
+    cam.rotation_euler = (math.pi / 2, 0.0, 0.0)          # looks +Y
+    sc.camera = cam
+    sc["bimforge_developed"] = {"view": dr.view.name, "length": dr.length,
+                                "unit": dr.unit}
+    return sc
 
 
 LINEAR_REF_PSET = "BIMForge_LinearReference"     # bimforge.bim.linear_ref.PSET
@@ -1235,6 +1421,7 @@ _CLASSES = () if bpy is None else (
     BIMFORGE_OT_section_goto, BIMFORGE_OT_section_view,
     BIMFORGE_OT_section_cut, BIMFORGE_OT_section_offset_locate,
     BIMFORGE_OT_section_to_selected,
+    BIMFORGE_OT_developed_build, BIMFORGE_OT_developed_dxf,
     BIMFORGE_OT_section_offset_inquire, BIMFORGE_OT_section_date_step,
     BIMFORGE_PT_section)
 _HANDLERS: list = []

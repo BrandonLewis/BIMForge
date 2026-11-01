@@ -78,6 +78,7 @@ def addon(tmp_path_factory):
     with zipfile.ZipFile(build_addon(tmp / f"{ADDON}.zip")) as z:
         assert sorted(z.namelist()) == [f"{ADDON}/__init__.py",
                                         f"{ADDON}/alignment_station.py",
+                                        f"{ADDON}/developed.py",
                                         f"{ADDON}/schedule_state.py"]
         z.extractall(tmp / "addons")
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -377,3 +378,28 @@ def test_go_to_selected_reads_the_station_from_the_ifc(addon):
     f, sts = mod._open(props)
     hit = mod.element_station(f, sts, f.by_type("IfcSlab")[0].GlobalId)
     assert hit[2].startswith("deck: 10+10.00 to 13+60.00")
+
+
+def test_developed_elevation_in_its_own_scene(addon):
+    """Develop along the line itself (offset 0) through the fixture deck: a
+    3 ft deep longitudinal section, its true length along the line."""
+    pytest.importorskip("shapely")
+    mod, m, al, _prof = addon
+    home = bpy.context.scene
+    props = home.bimforge_section
+    props.dev_from, props.dev_to = "10+20", "13+50"
+    props.dev_offset, props.dev_side, props.dev_look = 0.0, "LT", "LEFT"
+    props.dev_depth = 10.0
+    try:
+        assert bpy.ops.bimforge.developed_build() == {"FINISHED"}
+        sc = bpy.data.scenes[mod.DEV_SCENE]
+        info = sc["bimforge_developed"]
+        assert info["length"] == pytest.approx(330.0, abs=0.05)   # on the line
+        cuts = [o for o in sc.objects if o.name.startswith("Developed cut")]
+        area = sum(p.area for o in cuts for p in o.data.polygons) / SQ_M_PER_SQ_FT
+        assert area == pytest.approx(3.0 * 330.0, rel=5e-3)
+        assert sc.camera is not None and sc.camera.data.type == "ORTHO"
+        assert any(o.type == "FONT" and o.data.body == "11+00" for o in sc.objects)
+    finally:
+        if bpy.context.window is not None:
+            bpy.context.window.scene = home

@@ -96,6 +96,29 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   on the footing. An opening that does not fit inside the stem, with
   concrete all round, is refused with the reason. This moves existing specs'
   default openings up (a 24 in pipe by 4 in), but not their volumes.
+- **Developed elevations (`bimforge.bim.developed`, `est-bim elevation`,
+  Blender "Developed elevation").** A view unrolls the model along an
+  offset line of an IfcAlignment (a wall face, the line behind it):
+  horizontal = true length along that line (on an arc, not the station
+  span), vertical = elevation.
+  - **Cut:** everything on the line, filled per IFC surface style; a
+    terrain or grade surface cuts as a ground line.
+  - **Beyond:** the visible edges of what stands up to `depth` further
+    on, hidden lines removed (a depth buffer at 0.02" on the sheet).
+  - **Grid and title:** station ticks spaced for the scale, and elevation
+    lines.
+  - `look_from` left / right picks the side you stand on: a wall's formed
+    face, or its retained side and drainage. The view is true (from the
+    left, stations run right to left); `true_view: false` mirrors it.
+  - `date` draws the 4D model as it stands that day.
+  - `est-bim elevation set.yaml [--ifc] [--out] [--date]` writes one DXF
+    from a view set YAML (`load_set`): an overall view plus `segments:` of
+    a station range at a larger scale. Each view is its own paper-space
+    sheet with a viewport at its scale, model in feet, layers `E-CUT-*`
+    (hatched per style), `E-GROUND-*`, `E-BEYOND`, `E-GRID`, `E-TEXT`.
+  - The Blender add-on's Developed elevation box draws the same view in
+    its own scene, with an ortho camera, and exports it to DXF. The add-on
+    zip now carries `developed.py` (shapely; ezdxf for the DXF).
 - **Barrier runs ON a project line (`on:`).** A Type 842 / 732SW run can
   take `on: {from_station, to_station, offset, side, grade | elevation}`
   in place of `straight_length_ft` / `path`. It sweeps the running barrier
