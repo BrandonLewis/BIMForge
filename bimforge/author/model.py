@@ -58,6 +58,9 @@ class Element:
     #: the element-local frame; emitters compose Rz(bearing) with the x/y/z
     #: offset at emit time, so quantities/volumes remain rigid-motion-invariant.
     bearing_deg: float = 0.0
+    #: Where a spec `placement:` put this element: {alignment, station,
+    #: offset, side} (bimforge.author.placement); None = not placed on a line.
+    placed_on: dict | None = None
     #: DXF layer for the plan footprint (stylepack may restyle it).
     layer: str | None = None
     #: Deterministic-GUID key; defaults to "element/<name>".

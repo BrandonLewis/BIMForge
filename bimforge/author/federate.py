@@ -79,6 +79,65 @@ def _alignment_ids(src) -> tuple[set, list]:
     return ids, sorted(tops, key=lambda a: a.id())
 
 
+def _alignment_signature(src, al) -> tuple:
+    """What makes two IfcAlignments the same line: the name, the source's map
+    conversion (its frame), and every segment's design parameters (rounded),
+    in nest order."""
+    def num(v):
+        return round(float(v), 6)
+
+    def flat(v):
+        if v is None or isinstance(v, str):
+            return v
+        if isinstance(v, (int, float)):
+            return num(v)
+        if hasattr(v, "is_a") and v.is_a("IfcCartesianPoint"):
+            return tuple(num(c) for c in v.Coordinates)
+        if hasattr(v, "wrappedValue"):
+            return flat(v.wrappedValue)
+        return v.is_a() if hasattr(v, "is_a") else str(v)
+
+    mc = next(iter(src.by_type("IfcMapConversion")), None)
+    frame = (None if mc is None else
+             (num(mc.Eastings), num(mc.Northings), num(mc.OrthogonalHeight)))
+    segs, stack = [], [al]
+    while stack:
+        e = stack.pop(0)
+        dp = getattr(e, "DesignParameters", None)
+        if dp is not None:
+            segs.append((dp.is_a(),) + tuple(flat(v) for v in dp))
+        for rel in (getattr(e, "IsNestedBy", None) or ()):
+            stack += list(rel.RelatedObjects)
+    return (al.Name, frame, tuple(segs))
+
+
+def _dedupe_alignments(src, tops: list, align_ids: set, seen: dict | None):
+    """(tops to carry, ids NOT to carry): a top alignment whose signature an
+    earlier source already carried is merged into that one - one line, one
+    IfcAlignment. Its curves still come along where a solid sweeps on them
+    (adding the solid copies them); only the positioning elements drop."""
+    if seen is None:
+        return tops, set()
+    keep, drop = [], set()
+    for al in tops:
+        sig = _alignment_signature(src, al)
+        if sig in seen:
+            sub, stack = set(), [al]
+            while stack:
+                e = stack.pop()
+                if e.id() in sub:
+                    continue
+                sub.add(e.id())
+                for rel in (getattr(e, "IsNestedBy", None) or ()) + \
+                        (getattr(e, "IsDecomposedBy", None) or ()):
+                    stack += list(rel.RelatedObjects)
+            drop |= sub
+        else:
+            seen[sig] = al.Name
+            keep.append(al)
+    return keep, drop
+
+
 def _carry_alignment_nests(tgt, src, added: dict, roots: dict,
                            align_ids: set) -> None:
     """The ordered nests (alignment > layouts > segments, alignment >
@@ -263,16 +322,19 @@ def _namespace(roots: dict, storey_name: str, ctx) -> None:
             r.GlobalId = ctx.guid(f"{storey_name}/{r.GlobalId}")
 
 
-def _merge_source(tgt, src, storey_name: str, dest_storey, ctx
+def _merge_source(tgt, src, storey_name: str, dest_storey, ctx, seen=None
                   ) -> tuple[int, list]:
     """The storey path (IFC4 sources, and 4X3 sources with no facility tree):
     every non-feature product is re-contained in this source's storey, except
     alignments (carried whole, placed by the caller). Returns (products,
     the carried top-level alignments)."""
     align_ids, tops = _alignment_ids(src)
+    tops, dropped = _dedupe_alignments(src, tops, align_ids, seen)
+    align_ids -= dropped
     products = [p for p in src.by_type("IfcProduct")
                 if not p.is_a("IfcSpatialElement")
-                and not p.is_a("IfcSpatialStructureElement")]
+                and not p.is_a("IfcSpatialStructureElement")
+                and p.id() not in dropped]
     keep = [p for p in products if not p.is_a("IfcFeatureElement")
             and p.id() not in align_ids]
     added = {p.id(): tgt.add(p) for p in products}
@@ -314,7 +376,7 @@ def _repoint_to_site(tgt, spatial, site) -> None:
         ifcopenshell.util.element.remove_deep2(tgt, old)
 
 
-def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey):
+def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey, seen=None):
     """The IFC4X3 facility path (#318). Returns (products, facilities,
     site_products)."""
     import ifcopenshell.api
@@ -322,9 +384,12 @@ def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey):
     spatial_ids = {s.id() for s in subtree}
     site_ids = _site_contained_ids(src)
     align_ids, tops = _alignment_ids(src)
+    tops, dropped = _dedupe_alignments(src, tops, align_ids, seen)
+    align_ids -= dropped
     products = [p for p in src.by_type("IfcProduct")
                 if not p.is_a("IfcSpatialElement")
-                and not p.is_a("IfcSpatialStructureElement")]
+                and not p.is_a("IfcSpatialStructureElement")
+                and p.id() not in dropped]
     keep = [p for p in products if not p.is_a("IfcFeatureElement")
             and p.id() not in align_ids]
 
@@ -526,6 +591,9 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True
 
     result = FederationResult()
     used_facility_path = False
+    # one IfcAlignment per line: a source re-carrying a line an earlier one
+    # carried (same name, frame and segments) is merged into it
+    seen_alignments: dict = {}
     for src_path, name, src in opened:
         if _uses_facility_tree(src):
             used_facility_path = True
@@ -537,12 +605,13 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True
                 return storey[0]
 
             n, n_fac, n_site, als = _merge_facility_source(
-                f, src, name, ctx, site, make_storey)
+                f, src, name, ctx, site, make_storey, seen_alignments)
             result.facilities += n_fac
             result.site_products += n_site
         else:
             n, als = _merge_source(f, src, name,
-                                   _storey(f, ctx, building, name), ctx)
+                                   _storey(f, ctx, building, name), ctx,
+                                   seen_alignments)
         _place_alignments(f, als, site, ctx)
         result.alignments += len(als)
         result.per_source[name] = n

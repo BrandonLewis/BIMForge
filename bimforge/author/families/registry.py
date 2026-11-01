@@ -17,6 +17,14 @@ The spec file:
     gate: {solid_bodies: warn}   # optional: warn (default) | error | off
     bodies:                 # optional: element-name regex -> body kind
       - {match: "^existing-grade", body: surface}
+    placement:              # optional: put a local-frame family on a line
+      alignment: ROUTE-1    # (bimforge.author.placement; the line comes from
+      items: [...]          #  project.alignments: ./alignments.yaml)
+
+`project.alignments` names the project's shared alignments file: params
+`alignment: {ref: NAME}` / `profile: {ref: NAME}` read from it, `placement:`
+places on it, and a family's own declared line of a shared name is held to
+it and replaced by it (one IfcAlignment per line).
 
 The dispatcher is NOT a geometry language: a family is python; the spec is
 parameters. Orchestration: spec -> family.build -> paycodes.apply -> gate
@@ -107,11 +115,55 @@ def load_spec(path: Path | str) -> dict:
         params["tables"] = yaml.safe_load(tf_path.read_text(encoding="utf-8"))
         params.pop("tables_file")
         spec["params"] = params
+    proj = spec.get("project") or {}
+    if proj.get("alignments"):
+        ap = (base / proj["alignments"]).resolve()
+        if not ap.exists():
+            raise ValueError(f"{path.name}: project.alignments {proj['alignments']!r} "
+                             f"not found at {ap}")
+        proj["alignments"] = str(ap)
+    if spec.get("placement") is not None and not proj.get("alignments"):
+        raise ValueError(f"{path.name}: placement: needs project.alignments")
     if spec.get("spatial_parts") is not None:
         from bimforge.author.spatial import parse_rules
         parse_rules(spec["spatial_parts"], f"{path.name}: spatial_parts")
     spec["_dir"] = str(base)
     return spec
+
+
+def spec_alignments(spec: dict) -> dict | None:
+    """The spec's shared alignments ({name: SharedAlignment}) or None."""
+    path = (spec.get("project") or {}).get("alignments")
+    if not path:
+        return None
+    from bimforge.author.placement import load_alignments
+    return load_alignments(path)
+
+
+def spec_params(spec: dict, alignments: dict | None) -> dict:
+    """The family's params with `{ref: NAME}` alignment/profile resolved."""
+    if not alignments:
+        return spec["params"]
+    from bimforge.author.placement import resolve_refs
+    return resolve_refs(spec["params"], alignments)
+
+
+def place_from_spec(model, spec: dict, alignments: dict | None, log=None) -> None:
+    """After the family built: hold a declared line of a shared name to the
+    shared one (a pre-gate check when it does not agree) and apply the
+    spec's `placement:` block."""
+    if not alignments:
+        return
+    from bimforge.author.placement import adopt_shared, apply_placement
+    problems = adopt_shared(model, alignments)
+    if problems:
+        def check_shared_alignment(_model, _p=tuple(problems)):
+            """A line the family declares under a shared name is the shared line."""
+            return list(_p)
+        model.checks.append(check_shared_alignment)
+    for line in apply_placement(model, spec.get("placement") or {}, alignments):
+        if log:
+            log(f"placed {line}")
 
 
 def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
@@ -125,7 +177,10 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
     builder = get(spec["family"])
     ctx = ProjectContext.from_spec(spec["project"])
     pc = pc_mod.load(spec["paycodes"])
-    model = builder(spec["params"], ctx)
+    alignments = spec_alignments(spec)
+    model = builder(spec_params(spec, alignments), ctx)
+    place_from_spec(model, spec, alignments,
+                    log=lambda m: print(m, file=sys.stderr))
     if spec.get("spatial_parts"):
         # the spec's own rules first: apply() only fills elements that have no
         # part yet, so these win over the paycodes' spatial_parts.

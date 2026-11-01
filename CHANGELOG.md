@@ -96,6 +96,25 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   on the footing. An opening that does not fit inside the stem, with
   concrete all round, is refused with the reason. This moves existing specs'
   default openings up (a 24 in pipe by 4 in), but not their volumes.
+- **Shared alignments and the spec `placement:` block
+  (`bimforge.author.placement`).** A spec names the project's alignments
+  file (`project.alignments:`). Then:
+  - `params.alignment: {ref: NAME}` / `params.profile: {ref: NAME}` give a
+    line-native family the shared line.
+  - `placement:` puts a family built in its own frame on the line: per
+    element-name regex, station, offset and side, an anchor (a local point
+    or a bounding-box point of the elements matching `of`), elevation or
+    `grade:`, local axes and skew. It sets each element's rigid placement
+    (`x_ft`/`y_ft`/`z_ft`/`bearing_deg`, composed with any the family set),
+    so exact solids, rebar and quantities are untouched.
+  - `Element.placed_on` records the station and offset.
+  - A line a family declares under a shared name is held to the shared one
+    (a pre-gate check) and replaced by it.
+
+  `est-bim build` applies all of it (`registry.place_from_spec`).
+- **`federate` merges duplicate alignments.** A source re-carrying a line
+  an earlier source carried (same name, map conversion and segment design
+  parameters) is merged into it: one IfcAlignment per line.
 - **Lifts of a region less what stands in it (`minus`), level prisms,
   and a weld check.** `split_into_lifts(..., minus=solid)` takes `minus`
   out of each slice. A refill around footings, piles and sheets is sliced
