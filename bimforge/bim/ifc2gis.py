@@ -259,7 +259,10 @@ def features_for(model_path, index: dict | None = None):
             attrs["appear_date"] = _Date(sp.appear) if sp and sp.appear else None
             attrs["vanish_date"] = _Date(sp.vanish) if sp and sp.vanish else None
         if station is not None and not prod.is_a("IfcAlignment"):
-            attrs.update(_station_range(station, pts))
+            # the IFC's own BIMForge_LinearReference when the model carries
+            # it (est-bim stations / est-bim build), else measured here
+            attrs.update(_station_from_pset(station, prod)
+                         or _station_range(station, pts))
 
         faces, edges = shape.geometry.faces, shape.geometry.edges
         if faces:
@@ -300,6 +303,31 @@ def _schedule_and_alignment(model):
     except Exception:
         station = None
     return spans, station
+
+
+def _station_from_pset(st, prod) -> dict | None:
+    """_station_range's columns from the element's BIMForge_LinearReference
+    (bimforge.bim.linear_ref), plus the authored anchor (`sta_at_txt`,
+    `off_at_txt`) of a spec-placed element; None without the set."""
+    import ifcopenshell.util.element as ue
+    from bimforge.bim.alignment_station import metres_to
+    from bimforge.bim.linear_ref import PSET
+    ps = ue.get_pset(prod, PSET)
+    if not ps or "StationStart" not in ps:
+        return None
+    u = st.station_unit
+    off = sorted(round(metres_to(float(ps[k]) * st.unit_scale, u), 2)
+                 for k in ("OffsetLeftMin", "OffsetLeftMax"))
+    out = {"alignment": ps.get("Alignment"),
+           "sta_from": round(float(st.convert(ps["StationStart"], u)), 2),
+           "sta_to": round(float(st.convert(ps["StationEnd"], u)), 2),
+           "sta_from_txt": ps.get("StationStartText"),
+           "sta_to_txt": ps.get("StationEndText"),
+           "off_from": off[0], "off_to": off[1]}
+    if "AnchorStationText" in ps:
+        out["sta_at_txt"] = ps["AnchorStationText"]
+        out["off_at_txt"] = ps.get("AnchorOffsetText")
+    return out
 
 
 def _station_range(st, pts) -> dict:

@@ -865,6 +865,40 @@ if bpy is not None:
             props.position = min(1.0, max(0.0, d / st.length))
             return {"FINISHED"}
 
+    class BIMFORGE_OT_section_to_selected(bpy.types.Operator):
+        bl_idname = "bimforge.section_to_selected"
+        bl_label = "Go to Selected"
+        bl_description = ("Slide the section to the selected element: its "
+                          "station from the IFC (BIMForge_LinearReference), "
+                          "else where its bounding box centre locates")
+
+        def execute(self, context):
+            props = context.scene.bimforge_section
+            ob = context.active_object
+            st = _stationer(props)
+            if st is None or ob is None:
+                self.report({"WARNING"}, "select an object and load an alignment")
+                return {"CANCELLED"}
+            f, sts = _open(props)
+            gid = global_id(ob, f, _ifc_name_index(f))
+            hit = element_station(f, sts, gid) if gid else None
+            if hit is not None:
+                idx, d, text = hit
+                if str(idx) != props.alignment:
+                    props.alignment = str(idx)
+                st = sts[idx]
+            else:
+                from mathutils import Vector
+                c = sum((ob.matrix_world @ Vector(v) for v in ob.bound_box),
+                        Vector()) / 8.0 - Vector(props.shift)
+                d, off = st.locate(c.x, c.y)
+                text = (f"{ob.name}: Sta {st.format_station(st.station_at(d))}, "
+                        f"{_st.format_offset(off, st.station_unit)} (measured: "
+                        "no BIMForge_LinearReference in the IFC)")
+            props.position = min(1.0, max(0.0, d / st.length)) if st.length else 0.0
+            self.report({"INFO"}, text)
+            return {"FINISHED"}
+
     class BIMFORGE_OT_section_view(bpy.types.Operator):
         bl_idname = "bimforge.section_view"
         bl_label = "View Section"
@@ -1007,6 +1041,7 @@ if bpy is not None:
             row = box.row(align=True)
             row.prop(props, "goto")
             row.operator("bimforge.section_goto")
+            box.operator("bimforge.section_to_selected", icon="RESTRICT_SELECT_OFF")
             if fr is not None:
                 info = box.column(align=True)
                 elev = _st.metres_to(st.elevation_m(fr.point[2]), u)
@@ -1082,6 +1117,39 @@ if bpy is not None:
             more.prop(props, "follow_frames")
             more.prop(props, "overlay")
             more.prop(props, "shift")
+
+
+LINEAR_REF_PSET = "BIMForge_LinearReference"     # bimforge.bim.linear_ref.PSET
+
+
+def element_station(f, stationers, gid):
+    """(stationer index, distance along (m), report text) of an element from
+    the IFC's own BIMForge_LinearReference (est-bim stations / est-bim build
+    write it): its authored anchor when it has one, else the middle of its
+    station range. None when the element carries no such set."""
+    import ifcopenshell.util.element as ue
+    try:
+        el = f.by_guid(gid)
+    except Exception:
+        return None
+    ps = ue.get_pset(el, LINEAR_REF_PSET)
+    if not ps or "StationStart" not in ps:
+        return None
+    idx = next((i for i, st in enumerate(stationers)
+                if st.name == ps.get("Alignment")), None)
+    if idx is None:
+        return None
+    st = stationers[idx]
+    if "AnchorStation" in ps:
+        station = float(ps["AnchorStation"])
+    else:
+        station = 0.5 * (float(ps["StationStart"]) + float(ps["StationEnd"]))
+    text = (f"{el.Name}: {ps.get('StationStartText')} to "
+            f"{ps.get('StationEndText')}, {ps.get('OffsetText')}")
+    if "AnchorStationText" in ps:
+        text += (f" (placed at {ps['AnchorStationText']} "
+                 f"{ps.get('AnchorOffsetText', '')})")
+    return idx, st.distance_at(station), text
 
 
 def _point_text(props, st) -> str:
@@ -1166,6 +1234,7 @@ _CLASSES = () if bpy is None else (
     SectionProps, BIMFORGE_OT_section_load, BIMFORGE_OT_section_step,
     BIMFORGE_OT_section_goto, BIMFORGE_OT_section_view,
     BIMFORGE_OT_section_cut, BIMFORGE_OT_section_offset_locate,
+    BIMFORGE_OT_section_to_selected,
     BIMFORGE_OT_section_offset_inquire, BIMFORGE_OT_section_date_step,
     BIMFORGE_PT_section)
 _HANDLERS: list = []

@@ -205,6 +205,12 @@ def test_est_bim_build_places_a_local_frame_family(tmp_path):
     d = m["DB-2 demo footing"] - m["DB-1 demo footing"]
     k = 1200 / 3937
     assert math.hypot(d[0], d[1]) == pytest.approx(20.0 * k, abs=1e-9)
+    # the build stationed the elements, with the authored anchors
+    from bimforge.bim.linear_ref import read
+    refs = {f.by_guid(g).Name: ps for g, ps in read(f).items()}
+    assert refs["DB-1 demo footing"]["AnchorStationText"] == "11+00.00"
+    assert refs["DB-2 demo footing"]["AnchorOffsetText"] == "12.00 Lt"
+    assert refs["DB-2 demo footing"]["StationStartText"] == "11+18.00"   # 20 ft on, less 2
 
 
 def test_est_bim_build_reads_a_line_native_familys_alignment_by_ref(tmp_path):

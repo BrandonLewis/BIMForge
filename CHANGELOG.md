@@ -96,6 +96,21 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   on the footing. An opening that does not fit inside the stem, with
   concrete all round, is refused with the reason. This moves existing specs'
   default openings up (a 24 in pipe by 4 in), but not their volumes.
+- **Station and offset in the IFC (`bimforge.bim.linear_ref`,
+  `est-bim stations`).** Every element with a body gets a property set
+  `BIMForge_LinearReference` and is linked to its alignment by
+  `IfcRelPositions`. The set holds the alignment, station range and
+  offset range (+ = left, as IFC's OffsetLateral), with "547+58.20" /
+  "12.00 Lt" texts. A spec-placed element also gets its authored anchor
+  station and offset. Ranges are measured on the file's own bodies. An
+  element goes to the alignment it was placed on, else the nearest.
+  `est-bim build` stations what it writes when the model has an
+  alignment. `est-bim stations model.ifc [--out] [--csv]` stations any
+  IFC4X3 file, a federated one included; a re-run keeps the anchors, and
+  GlobalIds are derived, so a rebuild is byte-stable. `ifc2gis` reads the
+  set when present (new `sta_at_txt` / `off_at_txt` anchor columns). The
+  Blender add-on's **Go to Selected** slides the section to the selected
+  element's station from it, and measures the object when it is absent.
 - **Shared alignments and the spec `placement:` block
   (`bimforge.author.placement`).** A spec names the project's alignments
   file (`project.alignments:`). Then:

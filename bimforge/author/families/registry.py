@@ -166,6 +166,20 @@ def place_from_spec(model, spec: dict, alignments: dict | None, log=None) -> Non
             log(f"placed {line}")
 
 
+def station_ifc(model, ifc_path, log=None) -> dict | None:
+    """Write every element's station / offset into the emitted IFC
+    (bimforge.bim.linear_ref) when the model declares an alignment, with the
+    spec-placed elements' anchors. Returns the report, or None."""
+    if not getattr(model, "alignments", None):
+        return None
+    from bimforge.bim.linear_ref import anchors_from_model, annotate
+    rep = annotate(str(ifc_path), anchors=anchors_from_model(model))
+    if log and rep["elements"]:
+        log(f"stationed {rep['elements']} elements on "
+            + ", ".join(f"{k} ({v})" for k, v in rep["alignments"].items()))
+    return rep
+
+
 def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
     """The est-bim build pipeline. Returns a process exit code."""
     import sys
@@ -210,6 +224,7 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
                            allow_local=bool(outs.get("ifc_allow_local"))),
                   file=sys.stderr)
             written["ifc"] = outs["ifc"]
+            station_ifc(model, outs["ifc"], log=lambda m: print(m, file=sys.stderr))
         if outs.get("takeoff_map"):
             tmap = pc.takeoff_map(model.codes_used())
             p = Path(outs["takeoff_map"])

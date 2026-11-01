@@ -87,6 +87,8 @@ def addon(tmp_path_factory):
     m, al, prof = _model()
     path, f = _emit(tmp, m)
     _schedule_deck(f, path)
+    from bimforge.bim.linear_ref import annotate
+    assert annotate(str(path))["elements"] == 1      # the deck's station range
     _import_meshes(f)
     props = bpy.context.scene.bimforge_section
     props.source = "FILE"
@@ -358,3 +360,20 @@ def test_the_date_filter_hides_what_is_not_built_and_skips_its_cut(addon):
     assert props.date == "2027-09-14" and not deck.visible_get()
     props.date_filter = False                      # everything back
     assert deck.visible_get() and not mod._STATE["hidden"]
+
+
+def test_go_to_selected_reads_the_station_from_the_ifc(addon):
+    mod, m, al, _prof = addon
+    props = bpy.context.scene.bimforge_section
+    deck = bpy.data.objects["deck"]
+    bpy.context.view_layer.objects.active = deck
+    props.position = 0.0
+    assert bpy.ops.bimforge.section_to_selected() == {"FINISHED"}
+    st = mod._stationer(props)
+    k = m.ctx.ft_to_m
+    # the deck runs 1010 -> 1360: the middle of its range, read off the IFC
+    want = (0.5 * (1010.0 + 1360.0) - al.s_start) * k
+    assert props.position * st.length == pytest.approx(want, abs=1e-3)
+    f, sts = mod._open(props)
+    hit = mod.element_station(f, sts, f.by_type("IfcSlab")[0].GlobalId)
+    assert hit[2].startswith("deck: 10+10.00 to 13+60.00")
