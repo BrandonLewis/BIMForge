@@ -96,6 +96,22 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   on the footing. An opening that does not fit inside the stem, with
   concrete all round, is refused with the reason. This moves existing specs'
   default openings up (a 24 in pipe by 4 in), but not their volumes.
+- **Lifts of a region less what stands in it (`minus`), level prisms,
+  and a weld check.** `split_into_lifts(..., minus=solid)` takes `minus`
+  out of each slice. A refill around footings, piles and sheets is sliced
+  as the region and then cut. Slicing the already-differenced body loses
+  volume on its many holes. `sliver_cf` drops a slice's near-zero boolean
+  wedges and counts them in the sum check. `prismatic=True` builds each
+  lift as the level plan section at mid-lift, less `minus`, extruded
+  through the lift (`section_lifts`). It is robust where the 3D cut leaves
+  sub-micron wedges against coincident faces, and its sum is held to
+  `prism_tol` (3%). Exact slices are now checked at the solid-body gate's
+  weld (`weld`, default `WELD_M`). One that pinches falls back to its
+  level prism, is flagged `lift["prismatic"]`, and its exact volume still
+  counts in the sum check. The sum tolerance is now relative.
+- **Compacted fill styling.** `IfcEarthworksFill` defaults to an opaque
+  fill colour, distinct from the existing ground (`IfcGeographicElement`),
+  so a section or 4D playback tells the ground dug from the fill put back.
 - **Lifts in pieces.** A level lift cut through by a wall or wing is
   several bodies placed together. `Lift.pieces` counts them, and such a lift
   element is declared `body="solids"`.

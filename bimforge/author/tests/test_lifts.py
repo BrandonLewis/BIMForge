@@ -171,3 +171,46 @@ def test_a_lift_split_by_a_wall_is_declared_as_pieces():
     assert len(parts) == 2 and all(p.is_valid for p in parts)
     assert sum(p.volume for p in parts) == pytest.approx(
         els[0].quantities["volume_cf"], rel=1e-6)
+
+
+def test_minus_is_taken_out_of_each_slice():
+    # a pit with a footing standing in it, given as REGION minus STRUCTURE
+    import manifold3d as m3
+    region = solid_of([{"kind": "prism", "units": "ft", "base": SQ,
+                        "z_bot": 0.0, "z_top": 4.0}])
+    footing = solid_of([{"kind": "prism", "units": "ft", "base": FOOTING,
+                         "z_bot": 0.0, "z_top": 2.5}])
+    lifts = cut_lifts(region, 0.67, minus=footing)
+    assert sum(l.volume_cf for l in lifts) == pytest.approx(700.0)
+    assert lifts[0].volume_cf == pytest.approx((200 - 40) * 0.67)
+    assert isinstance(region, m3.Manifold)
+
+
+def test_prismatic_lifts_are_level_sections_less_the_structure():
+    # a 1:1 sloped pit (20x10 at the bottom, 28x18 at the 4 ft top) with the
+    # footing standing in it; prisms come out clean and near the exact body
+    region = {"kind": "mesh", "units": "ft",
+              "verts": [(0, 0, 0), (20, 0, 0), (20, 10, 0), (0, 10, 0),
+                        (-4, -4, 4), (24, -4, 4), (24, 14, 4), (-4, 14, 4)],
+              "tris": [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7),
+                       (0, 1, 5), (0, 5, 4), (1, 2, 6), (1, 6, 5),
+                       (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]}
+    footing = solid_of([{"kind": "prism", "units": "ft", "base": FOOTING,
+                         "z_bot": 0.0, "z_top": 2.5}])
+    m = _model(region)
+    exact = (solid_of([region]) - footing).volume()
+    m.element("Abut 1 structure backfill").quantities["volume_cf"] = exact
+    els = split_into_lifts(m, "Abut 1 structure backfill", 0.67,
+                           minus=footing, prismatic=True)
+    (label, got, want, tol), = [q for q in m.stated_quantities
+                                if "level lifts" in q[0]]
+    assert abs(got - want) <= tol and got != pytest.approx(want, rel=1e-6)
+    for e in els:
+        t = mesh_topology(e.geometry["verts"], e.geometry["tris"])
+        assert t["closed"] and t["components"] == 1, e.name
+        zs = {round(v[2], 6) for v in e.geometry["verts"]}
+        assert len(zs) == 2                      # level top and bottom only
+    # the bottom lift goes round the footing: mid-height section 0.335 ft up
+    w = 20 + 2 * 0.335
+    assert els[0].quantities["volume_cf"] == pytest.approx(
+        (w * (10 + 2 * 0.335) - 40) * 0.67)

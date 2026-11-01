@@ -32,6 +32,11 @@ _STEEL = {"rgb": [0.55, 0.60, 0.66], "transparency": 0.0,
           "reflectance": "METAL", "specular": 0.30}
 _EARTH = {"rgb": [0.55, 0.45, 0.32], "transparency": 0.5,
           "material": "Earthwork", "reflectance": "MATT", "specular": 0.95}
+#: Placed and compacted fill (backfill, embankment, refill): lighter and
+#: opaque against the existing ground (_EARTH) it is placed in, so a section
+#: or a 4D playback tells the ground dug from the fill put back.
+_FILL = {"rgb": [0.72, 0.62, 0.45], "transparency": 0.0,
+         "material": "Compacted Fill", "reflectance": "MATT", "specular": 0.95}
 
 _PRECAST = {"rgb": [0.78, 0.77, 0.74], "transparency": 0.0,
             "material": "Precast Concrete", "reflectance": "MATT",
@@ -82,6 +87,7 @@ SURFACE_DEFAULTS: dict[str, dict] = {
     "IfcReinforcingBar": _REBAR,
     "IfcRailing": _STEEL, "IfcDiscreteAccessory": _STEEL,
     "IfcGeographicElement": _EARTH,
+    "IfcEarthworksFill": _FILL,
 }
 NEUTRAL: dict = {"rgb": [0.80, 0.80, 0.80], "transparency": 0.0, "material": None,
                  "reflectance": None, "specular": None}
