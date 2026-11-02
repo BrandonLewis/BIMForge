@@ -4,6 +4,10 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.96 — 2026-11-02
+
+(0.1.95 is skipped: a plugin runtime already carries a wheel labelled 0.1.95.)
+
 ### Added
 
 - **Blender alignment-section add-on (`bimforge.blender`).** A station slider
