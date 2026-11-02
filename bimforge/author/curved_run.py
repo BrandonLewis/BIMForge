@@ -72,7 +72,8 @@ def alignment_from_path(path: list, name: str = "P") -> Alignment:
 
 
 def build_running_prism(name: str, outline: list, align, s0: float, s1,
-                        *, ifc: str, layer: str) -> Element:
+                        *, ifc: str, layer: str, profile=None, origin=None,
+                        length_ft: float | None = None) -> Element:
     """The running barrier as a constant-section plumb SweptSection over
     [s0, s1] of `align` (s1=None -> align.s_end). Volume is SweptSection's
     closed-form Pappus, gate-checked against the faceted loft; length_ft is the
@@ -80,9 +81,10 @@ def build_running_prism(name: str, outline: list, align, s0: float, s1,
     if s1 is None:
         s1 = align.s_end
     sw = SweptSection(name, outline, align, s0, s1, frame="plumb",
-                      origin=None, ifc=ifc, layer=layer)
-    return Element.from_geometry(name, sw, ifc_class=ifc, layer=layer,
-                                 quantities={"length_ft": s1 - s0})
+                      profile=profile, origin=origin, ifc=ifc, layer=layer)
+    return Element.from_geometry(
+        name, sw, ifc_class=ifc, layer=layer,
+        quantities={"length_ft": s1 - s0 if length_ft is None else length_ft})
 
 
 def _morph_stations(align, s0, s1) -> list:
@@ -100,11 +102,13 @@ def _morph_stations(align, s0, s1) -> list:
     return out
 
 
-def _world_ring(align, s: float, ring2d: list) -> list:
-    """Place a plumb (x, z) ring at station s: +x along left_normal, z up."""
+def _world_ring(align, s: float, ring2d: list, profile=None, origin=None) -> list:
+    """Place a plumb (x, z) ring at station s: +x along left_normal, z up
+    (above the profile grade there, when given), in `origin`'s model frame."""
     n0, e0, _az = align.point_az(s)
     ln, le = align.left_normal(s)
-    return [to_model(None, n0 + x * ln, e0 + x * le, z) for x, z in ring2d]
+    z0 = profile.elev(s) if profile is not None else 0.0
+    return [to_model(origin, n0 + x * ln, e0 + x * le, z0 + z) for x, z in ring2d]
 
 
 def _cap_tris(ring2d: list) -> list:
@@ -137,14 +141,16 @@ class _MorphSweep:
     the emitted mesh (no closed form exists for a varying section -- the
     in-discipline fallback, BatteredWall precedent)."""
 
-    def __init__(self, name, ring_at, align, s0, s1):
+    def __init__(self, name, ring_at, align, s0, s1, profile=None, origin=None):
         self.name = name
         self._ss = _morph_stations(align, s0, s1)
+        if profile is not None:          # a vertical curve is not a straight chord
+            self._ss = _densify_on_profile(self._ss, profile)
         # 2-D rings wound CCW in (x, z) so caps/walls face outward; the world
         # rings are index-aligned lifts of these, so ear_clip index triples on
         # a 2-D ring apply verbatim to the matching world ring.
         self._rings2d = [_wound(ring_at(s), ccw=True) for s in self._ss]
-        self._rings = [_world_ring(align, s, r2)
+        self._rings = [_world_ring(align, s, r2, profile, origin)
                        for s, r2 in zip(self._ss, self._rings2d)]
         self.length_ft = float(s1 - s0)
 
@@ -203,10 +209,23 @@ class _MorphSweep:
         return left + list(reversed(right))
 
 
+def _densify_on_profile(ss: list, profile, step: float = 2.0) -> list:
+    """Stations `ss` with no gap over `step` ft, so a loft on a vertical
+    curve follows it (a 2 ft chord on a 1000 ft VC sags < 0.001 ft)."""
+    out = [ss[0]]
+    for a, b in zip(ss, ss[1:]):
+        m = max(1, int(math.ceil((b - a) / step)))
+        out += [a + (b - a) * i / m for i in range(1, m + 1)]
+    return out
+
+
 def sweep_morph(name: str, ring_at, align, s0: float, s1: float,
-                *, ifc: str, layer: str) -> Element:
+                *, ifc: str, layer: str, profile=None, origin=None,
+                length_ft: float | None = None) -> Element:
     """End-block solid as a section-morphing loft along the alignment. Returns
-    an Element carrying face_volume (volume_cf) and length_ft = s1 - s0."""
-    geom = _MorphSweep(name, ring_at, align, s0, s1)
-    return Element.from_geometry(name, geom, ifc_class=ifc, layer=layer,
-                                 quantities={"length_ft": s1 - s0})
+    an Element carrying face_volume (volume_cf) and length_ft (default the
+    station span s1 - s0)."""
+    geom = _MorphSweep(name, ring_at, align, s0, s1, profile, origin)
+    return Element.from_geometry(
+        name, geom, ifc_class=ifc, layer=layer,
+        quantities={"length_ft": s1 - s0 if length_ft is None else length_ft})

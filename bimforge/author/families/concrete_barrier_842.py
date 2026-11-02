@@ -72,7 +72,9 @@ def _validate_842(name, run):
     if base_kind == "trench":
         # length comes from EITHER a straight run (straight_length_ft) or a
         # curved run's `path` (arc-summed) -- the Note-8 floor applies to both.
-        length = (_path_total_length(run["path"]) if "path" in run
+        # (an `on:` run carries its face length, measured on the line)
+        length = (float(run["_length_ft"]) if "_length_ft" in run
+                  else _path_total_length(run["path"]) if "path" in run
                   else float(run["straight_length_ft"]))
         if length < _TRENCH_MIN_LEN:
             raise ValueError(f"{name}: Type 842B (trench) minimum length is "

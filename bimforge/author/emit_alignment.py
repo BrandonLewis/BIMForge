@@ -22,7 +22,9 @@ from bimforge.author.sweep import to_model, to_model_elev
 
 
 def model_alignments(models) -> list[tuple]:
-    """Distinct (alignment, profile, origin) the models' geometry sweeps along.
+    """Distinct (alignment, profile, origin) the models' geometry sweeps along,
+    then those a model declares in `StructureModel.alignments` (origin: the
+    model's ctx).
 
     Found from the geometry rather than declared, so no family has to opt
     in: anything exposing `.alignment` (SweptSection, and wrappers that
@@ -52,6 +54,12 @@ def model_alignments(models) -> list[tuple]:
                 if key not in seen:
                     seen.add(key)
                     out.append((al, prof, origin))
+    for m in models:
+        for al, prof in getattr(m, "alignments", None) or ():
+            key = (id(al), id(prof), id(m.ctx))
+            if key not in seen:
+                seen.add(key)
+                out.append((al, prof, m.ctx))
     return out
 
 

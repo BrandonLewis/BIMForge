@@ -28,6 +28,10 @@ _GEOM_QTY_ATTRS = {
 }
 
 
+#: Element.body values (see Element).
+BODY_KINDS = ("solid", "solids", "surface")
+
+
 @dataclass
 class Element:
     """One physical product: name, parametric geometry, analytic quantities,
@@ -54,6 +58,9 @@ class Element:
     #: the element-local frame; emitters compose Rz(bearing) with the x/y/z
     #: offset at emit time, so quantities/volumes remain rigid-motion-invariant.
     bearing_deg: float = 0.0
+    #: Where a spec `placement:` put this element: {alignment, station,
+    #: offset, side} (bimforge.author.placement); None = not placed on a line.
+    placed_on: dict | None = None
     #: DXF layer for the plan footprint (stylepack may restyle it).
     layer: str | None = None
     #: Deterministic-GUID key; defaults to "element/<name>".
@@ -70,8 +77,18 @@ class Element:
     #: `facility` under IFC4X3 — ignored otherwise. None = contained in the
     #: facility itself (or matched later by a `spatial_parts:` rule).
     spatial_part: Any = None
+    #: What the element's body IS, for the post-emit solid-body check:
+    #: "solid" (default) — ONE closed manifold body; "solids" — several
+    #: closed bodies that may not touch (a group of separate pieces);
+    #: "surface" — deliberately not a solid (a terrain or grade surface),
+    #: exempt. Rebar/conduit inside concrete are separate elements and do
+    #: not affect the concrete's body.
+    body: str = "solid"
 
     def __post_init__(self):
+        if self.body not in BODY_KINDS:
+            raise ValueError(f"{self.name}: body {self.body!r} must be one of "
+                             f"{BODY_KINDS}")
         if self.spatial_part is not None:
             from bimforge.author.spatial import parse_part
             self.spatial_part = parse_part(self.spatial_part,
@@ -140,6 +157,17 @@ class StructureModel:
     #: and volume are unchanged. expected_sign is +1 or -1; |value| <= tol is a
     #: degenerate/ambiguous failure. (#251)
     stated_orientations: list[tuple[str, float, int, float]] = field(default_factory=list)
+    #: Alignments to write as IfcAlignment even though no geometry sweeps
+    #: along them: (bimforge.author.alignment.Alignment, Profile | None).
+    #: A family whose solids are built off its own line frame declares the
+    #: control line here, so the IFC still carries the stations a downstream
+    #: tool (staging, section views, layout) reads. A swept-along alignment
+    #: is found from the geometry and need not be declared.
+    alignments: list = field(default_factory=list)
+    #: The post-emit solid-body check's severity: "warn" (report, keep the
+    #: outputs), "error" (a failure: outputs deleted) or "off". Warn is the
+    #: default while existing families are brought up to solid bodies.
+    solid_body_gate: str = "warn"
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

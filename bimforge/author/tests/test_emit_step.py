@@ -237,3 +237,22 @@ def test_friendly_error_without_build123d(monkeypatch):
     from bimforge.author.emit_step import _require_build123d
     with pytest.raises(RuntimeError, match=r"bimforge\[solids\]"):
         _require_build123d()
+
+
+def test_a_stale_exact_form_is_not_exported():
+    """A wrapper that moves a mesh but leaves its exact form behind: the
+    STEP solid is the mesh where it now is, not the stale extrusion (a
+    translation keeps the volume, so the volume check alone cannot tell)."""
+    pytest.importorskip("build123d")
+    from bimforge.author.emit_step import _solid_from_dict
+    from bimforge.author.primitives import SectionPrism, exact_of
+    import build123d as b3d
+    (d,) = SectionPrism("w", [(0, 0), (2, 0), (2, 3), (0, 3)], 10.0).body_solids()
+    assert exact_of(d) is not None
+    moved = dict(d, verts=[(x + 50.0, y, z) for x, y, z in d["verts"]])
+    assert exact_of(moved) is None                    # the form is stale
+    (part,) = _solid_from_dict(b3d, moved)
+    bb = part.bounding_box()
+    k = 1.0                                           # _solid_from_dict is in ft
+    assert bb.min.X == pytest.approx(50.0 * k, abs=1e-6)
+    assert part.volume == pytest.approx(2 * 3 * 10.0, rel=1e-6)

@@ -14,6 +14,8 @@
   est-bim kml     model.ifc [--out model.kml]
   est-bim kmz     model.ifc [--out model.kmz] [--geoid-shift-m M] [--omit RE] [--massing] [--collada | --gltf]
   est-bim build   spec.yaml [--check-only]
+  est-bim stations model.ifc [--out stationed.ifc] [--csv stations.csv]
+  est-bim elevation set.yaml [--ifc model.ifc] [--out sheets.dxf] [--date YYYY-MM-DD]
 
 and the PDF plan-sheet measurement path (vector PDFs are plotted from CAD —
 the paths ARE the geometry):
@@ -2805,8 +2807,26 @@ def main(argv=None) -> int:
     b.add_argument("--check-only", action="store_true", dest="check_only",
                    help="run the pre-emit validation gate and exit; write nothing")
 
+    stn = sub.add_parser("stations", help="write every element's station / offset "
+                                          "along its IfcAlignment into the IFC")
+    stn.add_argument("ifc", help="an IFC4X3 model with an IfcAlignment")
+    stn.add_argument("--out", help="write here instead of in place")
+    stn.add_argument("--csv", help="also list name, alignment, station and offset "
+                                   "ranges as CSV")
+
+    el = sub.add_parser("elevation", help="developed elevations along an IfcAlignment "
+                                          "-> a DXF sheet set (overall + segments)")
+    el.add_argument("set", help="the view set YAML (bimforge.bim.developed.load_set)")
+    el.add_argument("--ifc", help="model to draw (default: the set's ifc:)")
+    el.add_argument("--out", help="DXF to write (default: the set's out:)")
+    el.add_argument("--date", help="draw the model as it stands that day (4D)")
+
     args = parser.parse_args(argv)
     try:
+        if args.cmd == "elevation":
+            return _run_elevation(args)
+        if args.cmd == "stations":
+            return _run_stations(args)
         if args.cmd == "sample":
             return _run_sample(args)
         if args.cmd == "dxf2bim":
@@ -2869,6 +2889,60 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
         return 1
+    return 0
+
+
+def _run_elevation(args) -> int:
+    """est-bim elevation: a developed-elevation sheet set to DXF."""
+    import dataclasses
+
+    import ifcopenshell
+    from bimforge.bim.developed import develop, load_set, write_dxf
+    try:
+        ifc, views, sheet, out = load_set(args.set)
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.date:
+        views = [dataclasses.replace(v, date=args.date) for v in views]
+    f = ifcopenshell.open(args.ifc or ifc)
+    drawings = []
+    for v in views:
+        try:
+            drawings.append(develop(f, v))
+        except ValueError as exc:
+            print(f"error: {v.name}: {exc}", file=sys.stderr)
+            return 2
+    for line in write_dxf(drawings, args.out or out, sheet):
+        print(line, file=sys.stderr)
+    print(f"wrote {len(drawings)} sheets -> {args.out or out}", file=sys.stderr)
+    return 0
+
+
+def _run_stations(args) -> int:
+    """est-bim stations: bimforge.bim.linear_ref.annotate on a file."""
+    import csv
+
+    import ifcopenshell
+    from bimforge.bim.linear_ref import annotate, read
+    f = ifcopenshell.open(args.ifc)
+    rep = annotate(f)
+    if not rep["elements"]:
+        print("error: no IFC4X3 IfcAlignment to station along (or no element "
+              "with a body)", file=sys.stderr)
+        return 2
+    f.write(args.out or args.ifc)
+    print(f"stationed {rep['elements']} elements: "
+          + ", ".join(f"{k} ({v})" for k, v in rep["alignments"].items())
+          + f" -> {args.out or args.ifc}", file=sys.stderr)
+    if args.csv:
+        cols = ["Name", "GlobalId", "Alignment", "StationStartText", "StationEndText",
+                "OffsetText", "AnchorStationText", "AnchorOffsetText"]
+        with open(args.csv, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(cols)
+            for gid, ps in sorted(read(f).items(), key=lambda kv: f.by_guid(kv[0]).Name or ""):
+                w.writerow([f.by_guid(gid).Name, gid] + [ps.get(c, "") for c in cols[2:]])
     return 0
 
 

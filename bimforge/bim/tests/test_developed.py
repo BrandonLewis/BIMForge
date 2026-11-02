@@ -1,0 +1,140 @@
+"""bimforge.bim.developed: developed elevations along an IfcAlignment."""
+from __future__ import annotations
+
+import uuid
+
+import pytest
+import yaml
+
+ifcopenshell = pytest.importorskip("ifcopenshell")
+pytest.importorskip("shapely")
+
+from bimforge.author.alignment import Alignment  # noqa: E402
+from bimforge.author.emit_ifc import emit_ifc  # noqa: E402
+from bimforge.author.model import Element, StructureModel  # noqa: E402
+from bimforge.author.project import ProjectContext  # noqa: E402
+from bimforge.author.sweep import SweptSection  # noqa: E402
+from bimforge.author.tests.test_emit_alignment import POB, RUN  # noqa: E402
+from bimforge.bim.developed import (ElevationView, develop, load_set,  # noqa: E402
+                                    parse_station, write_dxf)
+
+
+def _ctx():
+    return ProjectContext(name="dev", schema="IFC4X3_ADD2", epsg=2226,
+                          base_e=6_594_000.0, base_n=1_943_000.0, base_h=200.0,
+                          guid_ns=uuid.UUID(int=91))
+
+
+def _wall(al, ctx, name, x0, x1, h, s0=1010.0, s1=1100.0, ifc="IfcWall"):
+    """A level box swept along the line: x0..x1 ft LEFT of it, El 0 to h."""
+    sw = SweptSection(name, [(x0, 0.0), (x1, 0.0), (x1, h), (x0, h)], al, s0, s1,
+                      origin=ctx, ifc=ifc)
+    return Element.from_geometry(name, sw, ifc_class=ifc,
+                                 quantities={"volume_cf": sw.volume_cf})
+
+
+@pytest.fixture(scope="module")
+def ifc(tmp_path_factory):
+    """On the fixture line's 120 ft tangent (1000 -> 1120): a wall 10 ft
+    tall 9-11 ft Lt, a 3 ft box 4-6 ft Lt beyond it (seen from the left),
+    and a curved wall 2 ft tall 19-21 ft Lt over the two curves."""
+    ctx = _ctx()
+    al = Alignment(POB, RUN, name="ML")
+    m = StructureModel("dev", ctx)
+    m.add(_wall(al, ctx, "tall wall", 9.0, 11.0, 10.0))
+    m.add(_wall(al, ctx, "low box", 4.0, 6.0, 3.0, 1030.0, 1080.0, "IfcFooting"))
+    m.add(_wall(al, ctx, "curved wall", 19.0, 21.0, 2.0, 1130.0, 1360.0))
+    m.alignments.append((al, None))
+    out = tmp_path_factory.mktemp("dev") / "dev.ifc"
+    emit_ifc(m, str(out))
+    return ifcopenshell.open(str(out)), al
+
+
+def test_parse_station():
+    assert parse_station("547+62.90") == pytest.approx(54762.90)
+    assert parse_station("1+234.5", "m") == pytest.approx(1234.5)
+    assert parse_station(-12.5) == -12.5 and parse_station("-0+12.50") == -12.5
+
+
+def test_the_cut_is_the_wall_unrolled_along_its_offset_line(ifc):
+    from shapely.geometry import Polygon
+    from bimforge.author.barrier_template import offset_length
+    f, al = ifc
+    dr = develop(f, ElevationView("C", 1140.0, 1350.0, offset=20.0, side="Lt",
+                                  look_from="left", depth=5.0))
+    # true length along 20 ft Lt over a right then a left curve, not 210 ft
+    want = offset_length(al, 1140.0, 1350.0, 20.0)
+    assert dr.length == pytest.approx(want, abs=0.02) and abs(want - 210.0) > 1.0
+    (layer, _rgb, polys), = dr.cut
+    area = sum(Polygon(p[0], p[1:]).area for p in polys)
+    assert area == pytest.approx(2.0 * want, rel=2e-3)          # 2 ft tall all along
+    ys = [pt[1] for p in polys for pt in p[0]]
+    # the section's z are elevations: the wall stands El 0 to 2
+    assert (min(ys), max(ys)) == (pytest.approx(0.0, abs=1e-3), pytest.approx(2.0, abs=1e-3))
+
+
+def test_true_view_runs_stations_by_the_viewers_side(ifc):
+    f, _al = ifc
+    kw = dict(offset=12.0, side="Lt", depth=15.0)
+    left = develop(f, ElevationView("L", 1010.0, 1100.0, look_from="left", **kw))
+    right = develop(f, ElevationView("R", 1010.0, 1100.0, offset=0.0, side="Lt",
+                                     look_from="right", depth=15.0))
+    mirrored = develop(f, ElevationView("M", 1010.0, 1100.0, look_from="left",
+                                        true_view=False, **kw))
+    at = lambda dr, s: next(x for x, st in dr.ticks if st == s)  # noqa: E731
+    assert at(left, 1010.0) == pytest.approx(90.0) and at(left, 1100.0) == pytest.approx(0.0)
+    assert at(right, 1010.0) == pytest.approx(0.0) and at(right, 1100.0) == pytest.approx(90.0)
+    assert at(mirrored, 1010.0) == pytest.approx(0.0)
+
+
+def test_what_is_behind_is_hidden(ifc):
+    f, _al = ifc
+    def tops(dr):
+        """Elevations of the long level lines seen."""
+        return {round(a[1], 2) for ln in dr.beyond for a, b in zip(ln, ln[1:])
+                if abs(a[1] - b[1]) < 1e-6 and abs(b[0] - a[0]) > 5.0}
+    # from the left (12 ft Lt): the tall wall stands in front of the low box
+    left = develop(f, ElevationView("L", 1010.0, 1100.0, offset=12.0, side="Lt",
+                                    look_from="left", depth=15.0))
+    assert 10.0 in tops(left) and 3.0 not in tops(left)
+    assert not left.cut                                    # the cut is in the air
+    # from the right (on the line): the low box is in front, its top seen,
+    # and the tall wall's top above it
+    right = develop(f, ElevationView("R", 1010.0, 1100.0, offset=0.0, side="Lt",
+                                     look_from="right", depth=15.0))
+    assert {3.0, 10.0} <= tops(right)
+
+
+def test_a_sheet_set_to_dxf(ifc, tmp_path):
+    ezdxf = pytest.importorskip("ezdxf")
+    f, _al = ifc
+    views = [ElevationView("OVERALL", 1010.0, 1100.0, offset=10.0, side="Lt",
+                           look_from="right", depth=5.0),
+             ElevationView("DETAIL", 1040.0, 1060.0, offset=10.0, side="Lt",
+                           look_from="right", depth=5.0, scale=2)]
+    out = tmp_path / "set.dxf"
+    rep = write_dxf([develop(f, v) for v in views], str(out))
+    assert rep[0].startswith("01 OVERALL: 1010.00 to 1100.00")
+    assert '1" = 2' in rep[1]
+    doc = ezdxf.readfile(str(out))
+    assert [lay.name for lay in doc.layouts if lay.name != "Model"] == ["01 OVERALL", "02 DETAIL"]
+    vp = [e for e in doc.layouts.get("02 DETAIL") if e.dxftype() == "VIEWPORT"]
+    assert any(abs(v.dxf.view_height / v.dxf.height - 2.0) < 1e-9 for v in vp)
+    layers = {e.dxf.layer for e in doc.modelspace()}
+    assert "E-BEYOND" in layers and any(n.startswith("E-CUT-") for n in layers)
+
+
+def test_a_set_file_makes_the_segments(tmp_path):
+    p = tmp_path / "set.yaml"
+    p.write_text(yaml.safe_dump({
+        "ifc": "m.ifc", "offset": 10, "side": "Rt", "look_from": "left", "depth": 8,
+        "views": [{"name": "OVERALL", "from": "0+00", "to": "95+00.23"}],
+        "segments": {"from": "0+00", "to": "95+00.23", "length": 1000, "overlap": 20,
+                     "scale": 10}}), encoding="utf-8")
+    ifc, views, _sheet, out = load_set(p)
+    assert ifc.endswith("m.ifc") and out.endswith("set.dxf")
+    segs = views[1:]
+    assert len(segs) == 10
+    assert segs[0].from_station == 0.0 and segs[1].from_station == 980.0
+    assert segs[-1].to_station == pytest.approx(9500.23)
+    assert all(v.offset == 10 and v.side == "Rt" and v.depth == 8 for v in views)
