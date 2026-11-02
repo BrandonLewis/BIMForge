@@ -83,8 +83,11 @@ def _sewn_solids(verts, tris) -> list:
 
 def _exact_extrusion(d, k):
     """The Solid for a mesh dict's exact straight extrusion, or None (no
-    exact form, another kind, or an extrusion oblique to its profile)."""
-    ex = d.get("exact")
+    exact form, another kind, an extrusion oblique to its profile, or a
+    form the mesh no longer is: a wrapper moved or graded the vertices and
+    left `exact` behind - exact_of re-checks it, and the mesh is sewn)."""
+    from bimforge.author.primitives import exact_of
+    ex = exact_of(d)
     if not ex or ex.get("kind") != "extrusion":
         return None
     from build123d import (BuildPart, BuildSketch, Mode, Plane, Polygon,

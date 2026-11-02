@@ -221,14 +221,18 @@ def mesh_topology(verts, faces, weld: float = WELD_M) -> dict:
     * ``nonmanifold_edges`` — edges used by THREE or more: faces stacked on
                               faces or bodies touching along an edge (a stack
                               of boxes, zero-thickness cells);
+    * ``nonmanifold_vertices`` — vertices where the faces around them do
+                              not form ONE fan: bodies touching at a point
+                              (two cubes sharing only a corner), which no
+                              edge count sees;
     * ``components``        — separately connected pieces (by shared
                               vertices after welding);
     * ``empty_components``  — pieces that enclose no volume (a face doubled
                               back on itself, a zero-thickness cell): closed
                               by edge count, but not a body;
-    * ``closed``            — no open and no non-manifold edge and no empty
-                              piece: every piece is a closed 2-manifold
-                              shell around real volume, i.e. a solid.
+    * ``closed``            — no open and no non-manifold edge or vertex
+                              and no empty piece: every piece is a closed
+                              2-manifold shell around real volume, a solid.
 
     Triangles that collapse to a repeated vertex after welding are dropped
     (they have no edges of their own). A zero-AREA triangle with three
@@ -241,7 +245,8 @@ def mesh_topology(verts, faces, weld: float = WELD_M) -> dict:
     t = np.asarray(faces, dtype=np.int64).reshape(-1, 3)
     if len(v) == 0 or len(t) == 0:
         return {"triangles": 0, "open_edges": 0, "nonmanifold_edges": 0,
-                "components": 0, "empty_components": 0, "closed": False}
+                "nonmanifold_vertices": 0, "components": 0,
+                "empty_components": 0, "closed": False}
     key = np.round(v / weld).astype(np.int64)
     _, inv = np.unique(key, axis=0, return_inverse=True)
     inv = inv.reshape(-1)
@@ -250,12 +255,14 @@ def mesh_topology(verts, faces, weld: float = WELD_M) -> dict:
     t = t[ok]
     if len(t) == 0:
         return {"triangles": 0, "open_edges": 0, "nonmanifold_edges": 0,
-                "components": 0, "empty_components": 0, "closed": False}
+                "nonmanifold_vertices": 0, "components": 0,
+                "empty_components": 0, "closed": False}
     e = np.sort(np.concatenate([t[:, [0, 1]], t[:, [1, 2]], t[:, [2, 0]]]),
                 axis=1)
     _, counts = np.unique(e, axis=0, return_counts=True)
     open_e = int((counts == 1).sum())
     nonman = int((counts > 2).sum())
+    nm_verts = _fanless_vertices(t)
     # components: union-find over the triangles' vertices
     parent = np.arange(int(t.max()) + 1)
 
@@ -275,7 +282,8 @@ def mesh_topology(verts, faces, weld: float = WELD_M) -> dict:
     roots = {find(int(x)) for x in used}
     # each piece's enclosed volume (signed-tet sum about the piece's own
     # first vertex, so far-from-origin coordinates do not cancel)
-    pos = np.zeros((int(t.max()) + 1, 3))
+    # every welded vertex, used by a surviving triangle or not
+    pos = np.zeros((int(inv.max()) + 1, 3))
     pos[inv] = v                                   # welded vertex positions
     tri_root = np.array([find(int(a)) for a in t[:, 0]])
     vol, scale = {}, {}
@@ -288,9 +296,38 @@ def mesh_topology(verts, faces, weld: float = WELD_M) -> dict:
     # empty: encloses under a billionth of its own bounding cube
     empty = sum(1 for r in roots if vol[r] <= 1e-9 * scale[r] ** 3)
     return {"triangles": int(len(t)), "open_edges": open_e,
-            "nonmanifold_edges": nonman, "components": len(roots),
-            "empty_components": int(empty),
-            "closed": open_e == 0 and nonman == 0 and empty == 0}
+            "nonmanifold_edges": nonman, "nonmanifold_vertices": nm_verts,
+            "components": len(roots), "empty_components": int(empty),
+            "closed": open_e == 0 and nonman == 0 and nm_verts == 0
+            and empty == 0}
+
+
+def _fanless_vertices(t) -> int:
+    """Vertices whose incident triangles fall into more than one fan: the
+    corners at a vertex join when their triangles share an edge through it."""
+    n = len(t)
+    parent = list(range(3 * n))                    # one node per corner
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    by_edge: dict = {}
+    for i in range(n):
+        a, b, c = (int(x) for x in t[i])
+        for k, (v, w1, w2) in enumerate(((a, b, c), (b, c, a), (c, a, b))):
+            for w in (w1, w2):
+                by_edge.setdefault((v, w), []).append(3 * i + k)
+    for corners in by_edge.values():
+        r = find(corners[0])
+        for c in corners[1:]:
+            parent[find(c)] = r
+    fans: dict = {}
+    for i in range(n):
+        for k in range(3):
+            fans.setdefault(int(t[i][k]), set()).add(find(3 * i + k))
+    return sum(1 for f in fans.values() if len(f) > 1)
 
 
 def solid_bodies(ifc_path: str) -> dict:

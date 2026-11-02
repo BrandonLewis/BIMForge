@@ -99,3 +99,57 @@ def test_gis_reads_the_stations_from_the_ifc(tmp_path):
     row = con.execute(f'select sta_from_txt, sta_to_txt, sta_at_txt, off_at_txt '
                       f'from "{table}" where name = "deck"').fetchone()
     assert row == ("10+10.00", "13+60.00", "12+00.00", "CL")
+
+
+def _dense_along(st, d0, d1, far):
+    """9000 plan points on the line between two distances, with the point at
+    `far` (beyond d1) second in the list - where a stride sample skips it."""
+    import numpy as np
+    ds = np.linspace(d0, d1, 9000)
+    pts = np.array([st.point_at(float(x), 0.0) for x in ds])
+    pts[1] = st.point_at(far, 0.0)
+    return pts
+
+
+def test_ranges_use_every_vertex(tmp_path, monkeypatch):
+    import bimforge.bim.linear_ref as lr
+    from bimforge.bim.alignment_station import AlignmentStationer, alignments
+    m, *_ = _model()
+    path, _f = _emit(tmp_path, m)
+    f = ifcopenshell.open(str(path))
+    st = AlignmentStationer(f, alignments(f)[0])
+    (deck,) = f.by_type("IfcSlab")
+    pts = _dense_along(st, 10.0, 50.0, 80.0)
+    monkeypatch.setattr(lr, "_bodies", lambda _f: {deck.id(): pts})
+    (v,) = lr.measure(f).values()
+    assert st.distance_at(v["StationEnd"]) == pytest.approx(80.0, abs=1e-3)
+
+
+def test_gis_ranges_use_every_vertex(tmp_path):
+    from bimforge.bim.alignment_station import AlignmentStationer, alignments
+    from bimforge.bim.ifc2gis import _station_range
+    m, *_ = _model()
+    path, f = _emit(tmp_path, m)
+    st = AlignmentStationer(f, alignments(f)[0])
+    pts = _dense_along(st, 10.0, 50.0, 80.0)
+    r = _station_range(st, pts)
+    assert r["sta_to"] == pytest.approx(st.convert(st.station_at(80.0), "ft"), abs=0.01)
+
+
+def test_a_new_anchor_by_name_replaces_the_carried_one(tmp_path):
+    m, *_ = _model()
+    path, _f = _emit(tmp_path, m)
+    annotate(str(path), anchors={"deck": {"alignment": "ML", "station": 1200.0 * FT,
+                                          "offset_left": 0.0}})
+    annotate(str(path), anchors={"deck": {"alignment": "ML", "station": 1250.0 * FT,
+                                          "offset_left": 3.0 * FT}})
+    f = ifcopenshell.open(str(path))
+    (deck,) = f.by_type("IfcSlab")
+    ps = read(f)[deck.GlobalId]
+    assert (ps["AnchorStationText"], ps["AnchorOffsetText"]) == ("12+50.00", "3.00 Lt")
+    # a GlobalId entry wins over a name entry for the same element
+    annotate(str(path), anchors={
+        "deck": {"alignment": "ML", "station": 1100.0 * FT, "offset_left": 0.0},
+        deck.GlobalId: {"alignment": "ML", "station": 1300.0 * FT, "offset_left": 0.0}})
+    f = ifcopenshell.open(str(path))
+    assert read(f)[deck.GlobalId]["AnchorStationText"] == "13+00.00"

@@ -193,3 +193,84 @@ def test_locate_many_matches_locate(emitted):
     for (d, o), gd, go in zip(want, dd, oo):
         assert gd == pytest.approx(d, abs=2e-3)      # chord sag only
         assert go == pytest.approx(o, abs=2e-3)
+
+
+def test_an_international_foot_project_keeps_its_stations():
+    """A file in the international foot (0.3048 m): its native 50,000 ft
+    station reads 500+00.00, not 499+99.90 through the US survey foot."""
+    from bimforge.bim.alignment_station import INTL_FT_M, foot_m
+    f = _feet_file()
+    ia = api.create(f, "B", include_vertical=False)
+    lay = api.get_horizontal_layout(ia)
+    api.create_layout_segment(f, lay, f.create_entity(
+        "IfcAlignmentHorizontalSegment", StartPoint=f.create_entity(
+            "IfcCartesianPoint", Coordinates=(0.0, 0.0)),
+        StartDirection=0.0, StartRadiusOfCurvature=0.0, EndRadiusOfCurvature=0.0,
+        SegmentLength=200.0, PredefinedType="LINE"))
+    api.add_stationing_referent(f, name="500+00", alignment=ia,
+                                distance_along=0.0, station=50000.0)
+    assert foot_m(f) == INTL_FT_M
+    st = AlignmentStationer(f, ia)
+    assert st.format_station(st.start_station) == "500+00.00"
+    assert st.format_station(st.end_station) == "502+00.00"
+    assert st.convert(st.start_station, "ft") == pytest.approx(50000.0, abs=1e-9)
+    assert st.to_unit(st.frame(st.length).point[0], "ft") == pytest.approx(200.0)
+
+
+def test_a_polyline_corner_keeps_each_pieces_own_tangent():
+    """(0,0) -> (100,0) -> (100,50) m: a point just before the corner is on
+    the INCOMING piece - 99.75 along, on the line - in bulk and singly."""
+    import numpy as np
+    import ifcopenshell.api
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcProject")
+    m = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="LENGTHUNIT")
+    ifcopenshell.api.run("unit.assign_unit", f, units=[m])         # metres
+    ifcopenshell.api.run("context.add_context", f, context_type="Model")
+    pts = [f.create_entity("IfcCartesianPoint", Coordinates=c)
+           for c in [(0.0, 0.0, 0.0), (100.0, 0.0, 0.0), (100.0, 50.0, 0.0)]]
+    st = AlignmentStationer(f, api.create_as_polyline(f, "P", pts))
+    d, o = st.locate_many(np.array([(99.75, 0.0), (100.0, 10.0), (50.0, 3.0),
+                                    (-5.0, 2.0), (101.0, 60.0)]))
+    assert d == pytest.approx([99.75, 110.0, 50.0, 0.0, 150.0], abs=1e-9)
+    assert o == pytest.approx([0.0, 0.0, 3.0, 2.0, -1.0], abs=1e-9)
+    assert st.locate(99.75, 0.0) == pytest.approx((99.75, 0.0), abs=1e-9)
+
+
+def test_an_indexed_poly_curve_follows_its_segments():
+    """The CoordList is a pool: Segments say the path. An arc piece is
+    refused, not stationed as a chord."""
+    import ifcopenshell.api
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcProject")
+    m = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="LENGTHUNIT")
+    ifcopenshell.api.run("unit.assign_unit", f, units=[m])
+    ctx = ifcopenshell.api.run("context.add_context", f, context_type="Model")
+    axis = ifcopenshell.api.run("context.add_context", f, context_type="Model",
+                                context_identifier="Axis", target_view="GRAPH_VIEW",
+                                parent=ctx)
+    # the pool lists the corner LAST; the path is 1 -> 3 -> 2
+    pool = f.create_entity("IfcCartesianPointList3D",
+                           CoordList=[(0.0, 0.0, 0.0), (100.0, 50.0, 0.0),
+                                      (100.0, 0.0, 0.0)])
+
+    def alignment(segments):
+        curve = f.create_entity("IfcIndexedPolyCurve", Points=pool,
+                                Segments=segments)
+        al = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcAlignment",
+                                  name="I")
+        al.Representation = f.create_entity(
+            "IfcProductDefinitionShape", Representations=[f.create_entity(
+                "IfcShapeRepresentation", ContextOfItems=axis,
+                RepresentationIdentifier="Axis", RepresentationType="Curve3D",
+                Items=[curve])])
+        return al
+    lines = [f.create_entity("IfcLineIndex", (1, 3)),
+             f.create_entity("IfcLineIndex", (3, 2))]
+    st = AlignmentStationer(f, alignment(lines))
+    assert st.length == pytest.approx(150.0)
+    assert st.frame(100.0).point[:2] == pytest.approx((100.0, 0.0))
+    assert st.frame(150.0).point[:2] == pytest.approx((100.0, 50.0))
+    arc = [f.create_entity("IfcArcIndex", (1, 3, 2))]
+    with pytest.raises(NotImplementedError, match="IfcArcIndex"):
+        AlignmentStationer(f, alignment(arc))

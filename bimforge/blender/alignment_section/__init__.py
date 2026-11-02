@@ -335,8 +335,9 @@ def place(scene, props, st, fr):
 RULER, LABEL = "Section Offsets", "Offset Label"
 
 
-def _ruler_text(offset_left_m: float, unit: str, step: float) -> str:
-    v = abs(offset_left_m) / (_st.US_SURVEY_FT_M if unit == "ft" else 1.0)
+def _ruler_text(offset_left_m: float, unit: str, step: float,
+                foot: float | None = None) -> str:
+    v = abs(offset_left_m) / ((foot or _st.US_SURVEY_FT_M) if unit == "ft" else 1.0)
     if round(v, 6) == 0:
         return "CL"
     mark = "'" if unit == "ft" else " m"
@@ -357,7 +358,7 @@ def ruler(scene, props, st, fr, look):
                 bpy.data.objects.remove(o)
         return
     u = _unit(props, st)
-    step_m = props.ruler_step * (_st.US_SURVEY_FT_M if u == "ft" else 1.0)
+    step_m = st.from_unit(props.ruler_step, u)
     half = props.width / 2
     n = min(200, int(half // step_m))
     left = Vector(fr.left)
@@ -383,7 +384,7 @@ def ruler(scene, props, st, fr, look):
     for i, o in enumerate(offs):
         name = f"{LABEL} {i:03d}"
         cu = bpy.data.curves.get(name) or bpy.data.curves.new(name, "FONT")
-        cu.body = _ruler_text(o, u, props.ruler_step)
+        cu.body = _ruler_text(o, u, props.ruler_step, st.foot_m)
         cu.align_x = "CENTER"
         cu.size = size
         if not cu.materials:
@@ -867,7 +868,7 @@ if bpy is not None:
             if st is None:
                 return {"CANCELLED"}
             u = _unit(props, st)
-            step_m = props.step * (_st.US_SURVEY_FT_M if u == "ft" else 1.0)
+            step_m = st.from_unit(props.step, u)
             d = props.position * st.length + self.direction * step_m
             props.position = min(1.0, max(0.0, d / st.length))
             return {"FINISHED"}
@@ -883,7 +884,7 @@ if bpy is not None:
             if st is None:
                 return {"CANCELLED"}
             u = _unit(props, st)
-            station_m = props.goto * (_st.US_SURVEY_FT_M if u == "ft" else 1.0)
+            station_m = st.from_unit(props.goto, u)
             d = st.distance_at(station_m / st.unit_scale)
             if not -1e-6 <= d <= st.length + 1e-6:
                 self.report({"WARNING"}, "station is off the alignment")
@@ -918,7 +919,7 @@ if bpy is not None:
                         Vector()) / 8.0 - Vector(props.shift)
                 d, off = st.locate(c.x, c.y)
                 text = (f"{ob.name}: Sta {st.format_station(st.station_at(d))}, "
-                        f"{_st.format_offset(off, st.station_unit)} (measured: "
+                        f"{_st.format_offset(off, st.station_unit, st.foot_m)} (measured: "
                         "no BIMForge_LinearReference in the IFC)")
             props.position = min(1.0, max(0.0, d / st.length)) if st.length else 0.0
             self.report({"INFO"}, text)
@@ -1046,7 +1047,7 @@ if bpy is not None:
             if st is None or fr is None:
                 return {"CANCELLED"}
             u = _unit(props, st)
-            m = props.pt_offset * (_st.US_SURVEY_FT_M if u == "ft" else 1.0)
+            m = st.from_unit(props.pt_offset, u)
             locate(context.scene, props, st, fr.distance,
                    m if props.pt_side == "LT" else -m)
             self.report({"INFO"}, _point_text(props, st))
@@ -1117,7 +1118,7 @@ if bpy is not None:
             box.operator("bimforge.section_to_selected", icon="RESTRICT_SELECT_OFF")
             if fr is not None:
                 info = box.column(align=True)
-                elev = _st.metres_to(st.elevation_m(fr.point[2]), u)
+                elev = st.to_unit(st.elevation_m(fr.point[2]), u)
                 info.label(text=f"Grade EL {elev:,.2f} {u}  "
                                 f"{fr.grade * 100:+.3f} %")
                 info.label(text=f"Bearing {_bearing(fr.azimuth)}")
@@ -1222,7 +1223,7 @@ def developed_view(props):
         raise ValueError("give the From and To stations")
     a, b = (_dev.parse_station(x, u) for x in (props.dev_from, props.dev_to))
     if u != st.station_unit:                  # the engine speaks the file's unit
-        k = _st.metres_to(1.0, st.station_unit) / _st.metres_to(1.0, u)
+        k = st.to_unit(1.0, st.station_unit) / st.to_unit(1.0, u)
         a, b = a * k, b * k
         off, depth = props.dev_offset * k, props.dev_depth * k
     else:
@@ -1246,7 +1247,7 @@ def build_developed(dr) -> "bpy.types.Scene":
     for ob in list(sc.collection.objects):
         bpy.data.objects.remove(ob, do_unlink=True)
     look = Vector((0.0, 1.0, 0.0))
-    k = 1.0 / _st.metres_to(1.0, dr.unit)            # drawing unit -> metres
+    k = (dr.foot_m if dr.unit == "ft" else 1.0)      # drawing unit -> metres
 
     def p3(p, lift=0.0):
         return Vector((p[0] * k, -lift, p[1] * k))
@@ -1342,10 +1343,10 @@ def _point_text(props, st) -> str:
     """'Sta 12+50.00, 12.00 Lt  |  PG EL 160.42  |  top EL 161.07 deck'."""
     d, off, z, hit = _STATE["point"]
     u = _unit(props, st)
-    el = lambda zz: f"{_st.metres_to(st.elevation_m(zz), u):,.2f}"  # noqa: E731
+    el = lambda zz: f"{st.to_unit(st.elevation_m(zz), u):,.2f}"  # noqa: E731
     pg = st.frame(d).point[2]
     parts = [f"Sta {st.format_station(st.station_at(d), u)}, "
-             f"{_st.format_offset(off, u)}", f"PG EL {el(pg)}"]
+             f"{_st.format_offset(off, u, st.foot_m)}", f"PG EL {el(pg)}"]
     if abs(z - pg) > 1e-6:
         parts.append(f"cursor EL {el(z)}")
     if hit is not None:
@@ -1384,7 +1385,7 @@ def _draw_overlay():
         return
     import blf
     u = _unit(props, st)
-    elev = _st.metres_to(st.elevation_m(fr.point[2]), u)
+    elev = st.to_unit(st.elevation_m(fr.point[2]), u)
     text = (f"{st.name}   Sta {st.format_station(fr.station, u)}   "
             f"EL {elev:,.2f}   {fr.grade * 100:+.2f}%   "
             f"looking {'back' if props.look == 'BACK' else 'ahead'}")

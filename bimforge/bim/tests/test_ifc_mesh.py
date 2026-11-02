@@ -143,3 +143,33 @@ def test_qto_only_elements_are_absent_and_empty_file_is_empty(tmp_path):
                    quantities={"count": 2}))
     leg = mesh_leg(_emit(m2, tmp_path, "mixed.ifc"))
     assert set(leg) == {m2.ctx.guid("element/real box")}
+
+
+def _cube(o=(0.0, 0.0, 0.0)):
+    x, y, z = o
+    v = [(x, y, z), (x + 1, y, z), (x + 1, y + 1, z), (x, y + 1, z),
+         (x, y, z + 1), (x + 1, y, z + 1), (x + 1, y + 1, z + 1), (x, y + 1, z + 1)]
+    f = [(0, 2, 1), (0, 3, 2), (4, 5, 6), (4, 6, 7), (0, 1, 5), (0, 5, 4),
+         (1, 2, 6), (1, 6, 5), (2, 3, 7), (2, 7, 6), (3, 0, 4), (3, 4, 7)]
+    return v, f
+
+
+def test_bodies_touching_at_a_point_are_not_a_solid():
+    """Two unit cubes sharing only the corner (1, 1, 1): no open or 3-face
+    edge, one vertex-connected piece - but not a 2-manifold solid."""
+    from bimforge.bim.ifc_mesh import mesh_topology
+    a, fa = _cube()
+    b, fb = _cube((1.0, 1.0, 1.0))
+    t = mesh_topology(a + b, fa + [(i + 8, j + 8, k + 8) for i, j, k in fb],
+                      weld=1e-6)
+    assert (t["open_edges"], t["nonmanifold_edges"]) == (0, 0)
+    assert t["nonmanifold_vertices"] == 1 and not t["closed"]
+    one = mesh_topology(a, fa, weld=1e-6)
+    assert one["closed"] and one["nonmanifold_vertices"] == 0
+
+
+def test_an_unused_vertex_does_not_break_the_check():
+    from bimforge.bim.ifc_mesh import mesh_topology
+    v, f = _cube()
+    t = mesh_topology(v + [(2.0, 2.0, 2.0)], f, weld=1e-6)
+    assert t["closed"] and t["components"] == 1

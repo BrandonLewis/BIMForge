@@ -294,3 +294,30 @@ def test_ties_are_a_pre_gate_check(tmp_path):
         "match": "^HW", "station": 1100.0, "elevation": 240.0}]}, a)
     (prob,) = check_ties(a)(m)
     assert "tie A is 0.250 ft off the line (tol 0.1)" in prob
+
+
+def test_federation_keeps_same_named_lines_that_differ(tmp_path):
+    """Two polyline alignments named alike, with no design parameters, but
+    different points: distinct lines, both carried."""
+    pytest.importorskip("ifcopenshell")
+    import ifcopenshell
+    import ifcopenshell.api.alignment as api
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.federate import federate
+    paths = []
+    for i, x1 in enumerate((100.0, 140.0)):
+        m = _headwall_like(f"HW {i + 1}")
+        p = tmp_path / f"p{i}.ifc"
+        emit_ifc(m, str(p))
+        f = ifcopenshell.open(str(p))
+        pts = [f.create_entity("IfcCartesianPoint", Coordinates=c)
+               for c in [(0.0, 0.0, 0.0), (x1, 0.0, 0.0), (x1, 50.0, 0.0)]]
+        api.create_as_polyline(f, "P", pts)
+        f.write(str(p))
+        paths.append((p, f"HW {i + 1}"))
+    out = tmp_path / "fed.ifc"
+    federate(paths, str(out), _ctx())
+    f = ifcopenshell.open(str(out))
+    assert [a.Name for a in f.by_type("IfcAlignment")
+            if not any(r.RelatingObject.is_a("IfcAlignment")
+                       for r in (a.Nests or ()))] == ["P", "P"]

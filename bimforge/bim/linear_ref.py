@@ -44,7 +44,8 @@ import uuid
 PSET = "BIMForge_LinearReference"
 REL_NAME = "BIMForge linear reference"
 _NS = uuid.UUID("6c1b3f0e-5a4e-4b8f-9d61-2b7d4c0e9a11")
-#: plan points per element sent to locate_many (a terrain has 100k)
+#: plan points per element used to CHOOSE its alignment when there are
+#: several (the ranges use every point)
 MAX_POINTS = 4000
 
 
@@ -81,10 +82,11 @@ def _texts(st, s0, s1, o0, o1) -> dict:
     from bimforge.bim.alignment_station import format_offset
     u = st.station_unit
     om = (o0 * st.unit_scale, o1 * st.unit_scale)        # project -> metres
-    if format_offset(om[0], u) == format_offset(om[1], u):
-        off = format_offset(om[0], u)
+    ft = st.foot_m
+    if format_offset(om[0], u, ft) == format_offset(om[1], u, ft):
+        off = format_offset(om[0], u, ft)
     else:
-        off = f"{format_offset(om[1], u)} to {format_offset(om[0], u)}"
+        off = f"{format_offset(om[1], u, ft)} to {format_offset(om[0], u, ft)}"
     return {"StationStartText": st.format_station(s0),
             "StationEndText": st.format_station(s1), "OffsetText": off}
 
@@ -106,21 +108,22 @@ def measure(f, stationers=None, anchors: dict | None = None) -> dict:
     for eid, pts in _bodies(f).items():
         el = f.by_id(eid)
         anc = anchors.get(el.GlobalId) or anchors.get(el.Name)
-        xy = pts[:, :2]
-        if len(xy) > MAX_POINTS:
-            xy = xy[:: len(xy) // MAX_POINTS + 1]
+        # every distinct plan point: a subsample can miss the vertices that
+        # set the element's extremes (locate_many works in bounded batches)
+        xy = np.unique(np.round(pts[:, :2], 9), axis=0)
         if anc and anc["alignment"] in by_name:
             cands = [by_name[anc["alignment"]]]
         else:
             cands = stationers
-        best = None
-        for st in cands:
-            d, o = st.locate_many(xy)
-            # distances are metres along the curve; offsets metres left
-            score = float(np.median(np.abs(o)))
-            if best is None or score < best[0]:
-                best = (score, st, d, o)
-        _score, st, d, o = best
+        if len(cands) > 1:
+            # which line: the nearest, judged on a sample (a choice, not a range)
+            sample = xy[:: max(1, len(xy) // MAX_POINTS)]
+            st = min(cands, key=lambda c: float(np.median(np.abs(
+                c.locate_many(sample)[1]))))
+        else:
+            st = cands[0]
+        # distances are metres along the curve; offsets metres left
+        d, o = st.locate_many(xy)
         k = 1.0 / st.unit_scale                          # metres -> project
         s0, s1 = st.station_at(float(d.min())), st.station_at(float(d.max()))
         o0, o1 = float(o.min()) * k, float(o.max()) * k
@@ -133,7 +136,8 @@ def measure(f, stationers=None, anchors: dict | None = None) -> dict:
                       "AnchorStationText": st.format_station(float(anc["station"])),
                       "AnchorOffsetLeft": float(anc["offset_left"]),
                       "AnchorOffsetText": format_offset(
-                          float(anc["offset_left"]) * st.unit_scale, st.station_unit)})
+                          float(anc["offset_left"]) * st.unit_scale, st.station_unit,
+                          st.foot_m)})
         out[eid] = v
     return out
 
@@ -154,14 +158,28 @@ _LENGTHS = ("StationStart", "StationEnd", "OffsetLeftMin", "OffsetLeftMax",
 
 
 def _carry_anchors(f, anchors: dict | None) -> dict:
-    """Anchors an earlier run wrote (a federated model's sources), under
-    the new ones."""
+    """{GlobalId: anchor}: anchors an earlier run wrote (a federated model's
+    sources), under the new ones. A new anchor given by element NAME is
+    resolved to its elements' GlobalIds first, so it replaces what was
+    carried for them; one given by GlobalId wins over one given by name."""
     old = {}
     for gid, ps in read(f).items():
         if "AnchorStation" in ps:
             old[gid] = {"alignment": ps["Alignment"], "station": ps["AnchorStation"],
                         "offset_left": ps["AnchorOffsetLeft"]}
-    old.update(anchors or {})
+    new = dict(anchors or {})
+    by_gid, by_name = {}, {}
+    for key, anc in new.items():
+        try:
+            f.by_guid(key)
+            by_gid[key] = anc
+        except RuntimeError:
+            by_name[key] = anc
+    if by_name:
+        for el in f.by_type("IfcElement"):
+            if el.Name in by_name and el.GlobalId not in by_gid:
+                old[el.GlobalId] = by_name[el.Name]
+    old.update(by_gid)
     return old
 
 

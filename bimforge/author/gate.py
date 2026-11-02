@@ -748,6 +748,8 @@ def _ifc_solid_body_check(model, ifc_path: str) -> list[str]:
             why.append(f"{t['open_edges']} open edges")
         if t["nonmanifold_edges"]:
             why.append(f"{t['nonmanifold_edges']} edges shared by 3+ faces")
+        if t.get("nonmanifold_vertices"):
+            why.append(f"{t['nonmanifold_vertices']} points where bodies touch")
         if t.get("empty_components"):
             why.append(f"{t['empty_components']} pieces enclosing no volume")
         if kind == "solid" and t["components"] > 1:

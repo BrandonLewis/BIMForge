@@ -94,6 +94,7 @@ class Drawing:
     extent: tuple = (0.0, 0.0, 1.0, 1.0)         # xmin, ymin, xmax, ymax
     length: float = 0.0
     unit: str = "ft"
+    foot_m: float = 1200.0 / 3937.0              # the file's foot, metres
     elements: int = 0
 
 
@@ -228,8 +229,7 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
     """The view's cut, ground lines and visible edges (see the module
     docstring). `f`: an open IFC4X3 file with the alignment."""
     import numpy as np
-    from .alignment_station import (AlignmentStationer, alignments,
-                                                metres_to)
+    from .alignment_station import AlignmentStationer, alignments
     found = alignments(f)
     if not found:
         raise ValueError("no IFC4X3 IfcAlignment to develop along")
@@ -240,7 +240,7 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
                          f"(has {[a.Name for a in found]})")
     st = AlignmentStationer(f, al)
     unit = st.station_unit
-    to_m = 1.0 / metres_to(1.0, unit)                     # unit -> metres
+    to_m = st.from_unit(1.0, unit)                        # unit -> metres
     proj = lambda s: s * to_m / st.unit_scale             # noqa: E731  unit -> project
     d0 = st.distance_at(proj(view.from_station))
     d1 = st.distance_at(proj(view.to_station))
@@ -256,16 +256,16 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
         max_edge = 1.0 if un.curved() else float("inf")
     sign = -1.0 if (left_viewer and view.true_view) else 1.0
     u_len = float(un.u_of(d1))
-    k = metres_to(1.0, unit)                              # metres -> unit
+    k = st.to_unit(1.0, unit)                             # metres -> unit
     ex = view.exaggeration
-    za = metres_to(st.elevation_m(0.0), unit)             # model z -> elevation:
-    zb = metres_to(st.elevation_m(1.0), unit) - za        # linear (map conversion)
+    za = st.to_unit(st.elevation_m(0.0), unit)            # model z -> elevation:
+    zb = st.to_unit(st.elevation_m(1.0), unit) - za       # linear (map conversion)
 
     def to2d(u, z):
         x = (u * k) if sign > 0 else (u_len - u) * k
         return x, z * ex
 
-    drawing = Drawing(view=view, unit=unit, length=u_len * k)
+    drawing = Drawing(view=view, unit=unit, length=u_len * k, foot_m=st.foot_m)
     # warped bodies: (u, dist-from-viewer, z) per vertex, cut to the view:
     # triangles within the stations (plus a pad) and the depth band only
     pad = 1.0

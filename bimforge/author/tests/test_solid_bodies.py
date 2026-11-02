@@ -31,7 +31,8 @@ def _two(dx):
 def test_a_cube_is_one_closed_body():
     t = mesh_topology(CUBE_V, CUBE_F)
     assert t == {"triangles": 12, "open_edges": 0, "nonmanifold_edges": 0,
-                 "components": 1, "empty_components": 0, "closed": True}
+                 "nonmanifold_vertices": 0, "components": 1,
+                 "empty_components": 0, "closed": True}
 
 
 def test_coincident_corners_are_welded():

@@ -79,36 +79,63 @@ def _alignment_ids(src) -> tuple[set, list]:
     return ids, sorted(tops, key=lambda a: a.id())
 
 
-def _alignment_signature(src, al) -> tuple:
+def _alignment_signature(src, al) -> tuple | None:
     """What makes two IfcAlignments the same line: the name, the source's map
-    conversion (its frame), and every segment's design parameters (rounded),
-    in nest order."""
+    conversion (its frame), the alignment's resolved placement, every
+    segment's design parameters and placement, and its Axis geometry (all
+    rounded), in nest order. None when the alignment carries neither
+    segments nor an Axis curve: its identity cannot be established, so it
+    is never merged."""
+    import ifcopenshell.util.placement as up
+
     def num(v):
         return round(float(v), 6)
 
-    def flat(v):
-        if v is None or isinstance(v, str):
+    def flat(v, depth=0):
+        """A value, an entity (recursively, by its attributes) or a list -
+        as plain rounded data."""
+        if v is None or isinstance(v, (str, bool)):
             return v
         if isinstance(v, (int, float)):
             return num(v)
-        if hasattr(v, "is_a") and v.is_a("IfcCartesianPoint"):
-            return tuple(num(c) for c in v.Coordinates)
+        if isinstance(v, (list, tuple)):
+            return tuple(flat(x, depth) for x in v)
         if hasattr(v, "wrappedValue"):
-            return flat(v.wrappedValue)
-        return v.is_a() if hasattr(v, "is_a") else str(v)
+            return flat(v.wrappedValue, depth)
+        if hasattr(v, "is_a"):
+            if depth > 12:
+                return v.is_a()
+            info = v.get_info(include_identifier=False, recursive=False)
+            return (v.is_a(),) + tuple(
+                flat(info[k], depth + 1) for k in sorted(info)
+                if k not in ("type", "GlobalId", "OwnerHistory"))
+        return str(v)
+
+    def placed(e):
+        pl = getattr(e, "ObjectPlacement", None)
+        if pl is None:
+            return None
+        return tuple(num(x) for x in up.get_local_placement(pl).ravel())
 
     mc = next(iter(src.by_type("IfcMapConversion")), None)
     frame = (None if mc is None else
-             (num(mc.Eastings), num(mc.Northings), num(mc.OrthogonalHeight)))
+             (num(mc.Eastings), num(mc.Northings), num(mc.OrthogonalHeight),
+              num(mc.XAxisAbscissa or 1.0), num(mc.XAxisOrdinate or 0.0),
+              num(mc.Scale or 1.0)))
     segs, stack = [], [al]
     while stack:
         e = stack.pop(0)
         dp = getattr(e, "DesignParameters", None)
         if dp is not None:
-            segs.append((dp.is_a(),) + tuple(flat(v) for v in dp))
+            segs.append((flat(dp), placed(e)))
         for rel in (getattr(e, "IsNestedBy", None) or ()):
             stack += list(rel.RelatedObjects)
-    return (al.Name, frame, tuple(segs))
+    axis = tuple(flat(i) for r in ((al.Representation.Representations
+                                    if al.Representation else ()))
+                 if r.RepresentationIdentifier == "Axis" for i in r.Items)
+    if not segs and not axis:
+        return None
+    return (al.Name, frame, placed(al), tuple(segs), axis)
 
 
 def _dedupe_alignments(src, tops: list, align_ids: set, seen: dict | None):
@@ -121,7 +148,7 @@ def _dedupe_alignments(src, tops: list, align_ids: set, seen: dict | None):
     keep, drop = [], set()
     for al in tops:
         sig = _alignment_signature(src, al)
-        if sig in seen:
+        if sig is not None and sig in seen:
             sub, stack = set(), [al]
             while stack:
                 e = stack.pop()
@@ -133,7 +160,8 @@ def _dedupe_alignments(src, tops: list, align_ids: set, seen: dict | None):
                     stack += list(rel.RelatedObjects)
             drop |= sub
         else:
-            seen[sig] = al.Name
+            if sig is not None:
+                seen[sig] = al.Name
             keep.append(al)
     return keep, drop
 

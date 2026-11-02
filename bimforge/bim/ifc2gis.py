@@ -316,7 +316,7 @@ def _station_from_pset(st, prod) -> dict | None:
     if not ps or "StationStart" not in ps:
         return None
     u = st.station_unit
-    off = sorted(round(metres_to(float(ps[k]) * st.unit_scale, u), 2)
+    off = sorted(round(metres_to(float(ps[k]) * st.unit_scale, u, st.foot_m), 2)
                  for k in ("OffsetLeftMin", "OffsetLeftMax"))
     out = {"alignment": ps.get("Alignment"),
            "sta_from": round(float(st.convert(ps["StationStart"], u)), 2),
@@ -334,9 +334,8 @@ def _station_range(st, pts) -> dict:
     """{alignment, sta_from, sta_to, sta_from_txt, sta_to_txt, off_from,
     off_to} for model-metre points, in the project's station unit."""
     import numpy as np
-    xy = np.asarray(pts, dtype=float)[:, :2]
-    if len(xy) > 4000:                         # a terrain: every 4000th-ish
-        xy = xy[:: int(len(xy) // 4000) + 1]
+    # every distinct plan point: a subsample can miss the extremes
+    xy = np.unique(np.round(np.asarray(pts, dtype=float)[:, :2], 9), axis=0)
     d, o = st.locate_many(xy)
     u = st.station_unit
 
@@ -348,8 +347,8 @@ def _station_range(st, pts) -> dict:
             "sta_from": round(s0, 2), "sta_to": round(s1, 2),
             "sta_from_txt": st.format_station(st.station_at(float(d.min())), u),
             "sta_to_txt": st.format_station(st.station_at(float(d.max())), u),
-            "off_from": round(metres_to(float(o.min()), u), 2),
-            "off_to": round(metres_to(float(o.max()), u), 2)}
+            "off_from": round(metres_to(float(o.min()), u, st.foot_m), 2),
+            "off_to": round(metres_to(float(o.max()), u, st.foot_m), 2)}
 
 
 # ---- GeoPackage writer (stdlib sqlite3, no GDAL) ---------------------------

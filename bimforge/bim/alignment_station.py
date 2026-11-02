@@ -113,9 +113,28 @@ def station_unit(f) -> str:
     return "m"
 
 
-def metres_to(value_m: float, unit: str) -> float:
-    """Metres in 'ft' (US survey) or 'm'."""
-    return value_m / US_SURVEY_FT_M if unit == "ft" else value_m
+def foot_m(f) -> float:
+    """The foot this file's stations are in, in metres: the international
+    foot (0.3048 m) when its length unit - or, for a metre file, its
+    IfcMapConversion scale - is the international foot, else the US survey
+    foot. A native 50,000 ft station then reads 500+00.00 in either."""
+    scale = _unit_scale(f)
+    if abs(scale - INTL_FT_M) < 1e-9:
+        return INTL_FT_M
+    if abs(scale - US_SURVEY_FT_M) < 1e-9:
+        return US_SURVEY_FT_M
+    if f.schema.upper().startswith("IFC4"):
+        for mc in f.by_type("IfcMapConversion"):
+            s = (mc.Scale or 1.0) * scale
+            if abs(s - 1.0 / INTL_FT_M) < 1e-7:
+                return INTL_FT_M
+    return US_SURVEY_FT_M
+
+
+def metres_to(value_m: float, unit: str, foot: float = US_SURVEY_FT_M) -> float:
+    """Metres in 'ft' (of `foot` metres: US survey unless the file says
+    international, see foot_m) or 'm'."""
+    return value_m / foot if unit == "ft" else value_m
 
 
 def format_station(value: float, unit: str = "ft", places: int | None = None
@@ -143,6 +162,7 @@ class AlignmentStationer:
         self.name = alignment.Name or f"#{alignment.id()}"
         self.unit_scale = _unit_scale(f)            # project unit -> metres
         self.station_unit = station_unit(f)
+        self.foot_m = foot_m(f)                     # the file's own foot
         self.start_station = self._start_station()
         curve = _axis_curve(alignment)
         if curve is None:
@@ -189,8 +209,17 @@ class AlignmentStationer:
         return format_station(self.convert(station, unit), unit)
 
     def convert(self, value: float, unit: str) -> float:
-        """A project-unit length (station, elevation) in 'ft' or 'm'."""
-        return metres_to(value * self.unit_scale, unit)
+        """A project-unit length (station, elevation) in 'ft' or 'm' (the
+        file's own foot)."""
+        return metres_to(value * self.unit_scale, unit, self.foot_m)
+
+    def to_unit(self, value_m: float, unit: str) -> float:
+        """Metres in 'ft' (the file's own foot) or 'm'."""
+        return metres_to(value_m, unit, self.foot_m)
+
+    def from_unit(self, value: float, unit: str) -> float:
+        """'ft' (the file's own foot) or 'm' in metres."""
+        return value * self.foot_m if unit == "ft" else value
 
     def elevation_m(self, z: float) -> float:
         """Model-frame z (metres) as a true elevation in metres.
@@ -254,6 +283,9 @@ class AlignmentStationer:
         lines, a few iterations on curves). A point beyond either end
         clamps there, its offset still measured square to the end tangent.
         """
+        if self._poly is not None:              # straight pieces: exact
+            d, o = self._locate_poly([(x, y)])
+            return float(d[0]), float(o[0])
         step = step or max(0.25, self.length / 2000.0)
         n = max(1, int(math.ceil(self.length / step)))
         best = min((self.length * i / n for i in range(n + 1)),
@@ -285,6 +317,8 @@ class AlignmentStationer:
         which is off by offset x half the chord angle. Points past an end
         clamp to it."""
         import numpy as np
+        if self._poly is not None:              # straight pieces: exact
+            return self._locate_poly(xy)
         step = step or max(min(0.5, self.length / 200.0), self.length / 4000.0)
         n = max(1, int(math.ceil(self.length / step)))
         ds = np.linspace(0.0, self.length, n + 1)
@@ -320,6 +354,46 @@ class AlignmentStationer:
             off[i:i + 256] = tan[:, 0] * rel[:, 1] - tan[:, 1] * rel[:, 0]
         return dist, off
 
+    def _locate_poly(self, xy):
+        """locate_many for a polyline alignment: each point projected onto
+        the polyline's own straight pieces in plan, each with ITS tangent -
+        sampling across a corner would give the incoming piece the outgoing
+        tangent. Past an end, a point clamps there, its offset square to
+        that end piece."""
+        import numpy as np
+        if getattr(self, "_poly_plan", None) is None:
+            pts = [p for _d, p in self._poly]
+            if self._xf is not None:
+                pts = [_apply(self._xf, p, 1.0) for p in pts]
+            P = np.array([p[:2] for p in pts], dtype=float)
+            D = np.array([d for d, _p in self._poly], dtype=float)
+            A, B = P[:-1], P[1:]
+            L = np.hypot(*(B - A).T)
+            keep = L > 0
+            self._poly_plan = (A[keep], B[keep], D[:-1][keep], L[keep])
+        A, B, D0, L = self._poly_plan
+        T = (B - A) / L[:, None]
+        q = np.asarray(xy, dtype=float).reshape(-1, 2)
+        dist = np.empty(len(q))
+        off = np.empty(len(q))
+        last = len(A) - 1
+        for i in range(0, len(q), 256):
+            qq = q[i:i + 256, None, :]
+            s = ((qq - A) * T).sum(-1)                         # along each piece
+            sc = np.clip(s, 0.0, L)
+            foot = A + sc[..., None] * T
+            j = ((qq - foot) ** 2).sum(-1).argmin(1)
+            r = np.arange(len(j))
+            along = s[r, j]
+            # only the end pieces extend past the ends
+            lo = np.where(j == 0, -np.inf, 0.0)
+            hi = np.where(j == last, np.inf, L[j])
+            along = np.clip(along, lo, hi)
+            dist[i:i + 256] = np.clip(D0[j] + along, 0.0, self.length)
+            rel = q[i:i + 256] - A[j]
+            off[i:i + 256] = T[j, 0] * rel[:, 1] - T[j, 1] * rel[:, 0]
+        return dist, off
+
     def _kernel(self, d):
         m = self._eval.evaluate(d)
         return ((m[0][3], m[1][3], m[2][3]), (m[0][0], m[1][0], m[2][0]))
@@ -330,7 +404,24 @@ class AlignmentStationer:
         if curve.is_a("IfcPolyline"):
             pts = [tuple(p.Coordinates) for p in curve.Points]
         elif curve.is_a("IfcIndexedPolyCurve"):
-            pts = [tuple(c) for c in curve.Points.CoordList]
+            pool = [tuple(c) for c in curve.Points.CoordList]
+            if not curve.Segments:
+                pts = pool                      # no Segments: the list in order
+            else:
+                # the CoordList is a point POOL: Segments (1-based) say which
+                # points connect and how. Line pieces are followed; an arc
+                # piece is refused rather than stationed as a chord.
+                pts = []
+                for seg in curve.Segments:
+                    kind = seg.is_a()
+                    if kind != "IfcLineIndex":
+                        raise NotImplementedError(
+                            f"alignment {self.name!r}: cannot station an "
+                            f"IfcIndexedPolyCurve {kind} segment")
+                    idx = list(seg.wrappedValue)
+                    if pts and idx and pool[idx[0] - 1] == pts[-1]:
+                        idx = idx[1:]           # joined end to start
+                    pts += [pool[i - 1] for i in idx]
         else:
             raise NotImplementedError(
                 f"alignment {self.name!r}: cannot station a {curve.is_a()}")
@@ -362,9 +453,10 @@ class AlignmentStationer:
         return p, t
 
 
-def format_offset(offset_left_m: float, unit: str = "ft") -> str:
+def format_offset(offset_left_m: float, unit: str = "ft",
+                  foot: float = US_SURVEY_FT_M) -> str:
     """'12.00 Lt' / '3.50 Rt' / 'CL' from a metres-left offset."""
-    v = metres_to(abs(offset_left_m), unit)
+    v = metres_to(abs(offset_left_m), unit, foot)
     if round(v, 2) == 0:
         return "CL"
     return f"{v:.2f} {'Lt' if offset_left_m > 0 else 'Rt'}"

@@ -132,8 +132,11 @@ def test_affine_moves_the_plan_footprint_with_the_solid():
     (d,) = Affine.placed(_sp(), (100.0, 50.0, 0.0), angle_deg=90.0).body_solids()
     (ring,) = d["plan"]
     # x in [0, 4], y in [2, 12] turned +90 deg: x' = 100 - y, y' = 50 + x
-    assert sorted(ring) == pytest.approx(sorted(
-        [(98.0, 50.0), (98.0, 54.0), (88.0, 54.0), (88.0, 50.0)]))
+    # flattened: pytest.approx does not take a list of tuples
+    got = [c for p in sorted(ring) for c in p]
+    want = [c for p in sorted([(98.0, 50.0), (98.0, 54.0), (88.0, 54.0),
+                               (88.0, 50.0)]) for c in p]
+    assert got == pytest.approx(want)
 
 
 def test_grading_across_the_section_degrades_to_the_placed_mesh(tmp_path):
