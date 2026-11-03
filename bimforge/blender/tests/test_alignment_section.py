@@ -581,3 +581,36 @@ def test_cut_now_sets_the_hatch_period(addon):
     finally:
         props.width = w
         props.live_cut = True
+
+
+def test_exit_closes_the_section_and_the_slider_brings_it_back(addon):
+    """Exit removes every helper the section drew (camera, plane frame,
+    cut, lines, ruler, labels, axis), turns the 4D filter off, gives the
+    scene its own camera back and stops the viewport label; the slider
+    rebuilds it all."""
+    mod, *_ = addon
+    sc = bpy.context.scene
+    props = sc.bimforge_section
+    own = bpy.data.objects.new("Own camera", bpy.data.cameras.new("Own camera"))
+    sc.collection.objects.link(own)
+    sc.camera = own
+    props.position = 0.4
+    bpy.ops.bimforge.section_view()
+    assert sc.camera.name == mod.CAM
+    props.date_filter = True
+    try:
+        assert bpy.ops.bimforge.section_exit() == {"FINISHED"}
+        assert bpy.data.collections.get(mod.COLL) is None
+        for name in (mod.CAM, mod.PLANE, mod.CUT, mod.LINES, mod.AXIS):
+            assert bpy.data.objects.get(name) is None, name
+        assert sc.camera == own
+        assert not props.date_filter and not mod._STATE["hidden"]
+        assert mod._STATE["frame"] is None              # no viewport label
+        assert not [m for m in bpy.data.materials
+                    if m.name.startswith("Section ") and m.users == 0]
+        props.position = 0.5                            # back again
+        for name in (mod.CAM, mod.PLANE, mod.CUT, mod.AXIS):
+            assert bpy.data.objects.get(name) is not None, name
+        assert mod._STATE["frame"] is not None
+    finally:
+        bpy.data.objects.remove(own)

@@ -852,6 +852,8 @@ def update(scene):
     if st is None:
         return
     define_sliders(props, st)
+    if bpy.data.objects.get(AXIS) is None:       # after Exit
+        build_axis(scene, props, st)
     place(scene, props, st, st.frame_at_fraction(props.position))
 
 
@@ -1222,13 +1224,15 @@ if bpy is not None:
     class BIMFORGE_OT_section_exit(bpy.types.Operator):
         bl_idname = "bimforge.section_exit"
         bl_label = "Exit"
-        bl_description = ("Leave the section camera (and the developed-elevation "
-                          "scene) for a free 3D view of the model")
+        bl_description = ("Leave the section completely: a free 3D view of "
+                          "the whole model, the section camera, plane, cut, "
+                          "ruler and labels removed. The slider or View "
+                          "Section brings it back")
+        full: bpy.props.BoolProperty(default=True, options={"SKIP_SAVE"})
 
         def execute(self, context):
-            done = exit_views(context)
-            self.report({"INFO"}, "back to " + ", ".join(done) if done
-                        else "already in a free view")
+            done = close_section(context) if self.full else exit_views(context)
+            self.report({"INFO"}, "; ".join(done) if done else "section closed")
             return {"FINISHED"}
 
     class BIMFORGE_OT_section_view(bpy.types.Operator):
@@ -1237,10 +1241,14 @@ if bpy is not None:
         bl_description = "Look through the section camera"
 
         def execute(self, context):
+            if bpy.data.objects.get(CAM) is None:
+                update(context.scene)             # after Exit: build it again
             cam = bpy.data.objects.get(CAM)
             if cam is None:
                 self.report({"ERROR"}, "load an alignment first")
                 return {"CANCELLED"}
+            if context.scene.camera not in (None, cam):
+                _STATE["home_camera"] = context.scene.camera.name
             context.scene.camera = cam
             area = context.area if context.area and \
                 context.area.type == "VIEW_3D" else next(
@@ -1346,7 +1354,8 @@ if bpy is not None:
             props = context.scene.bimforge_section
             if context.scene.name == DEV_SCENE:
                 self.layout.operator("bimforge.section_exit",
-                                     text="Back to the model", icon="LOOP_BACK")
+                                     text="Back to the model",
+                                     icon="LOOP_BACK").full = False
                 return
             col = self.layout.column(align=True)
             col.row().prop(props, "source", expand=True)
@@ -1543,6 +1552,47 @@ def exit_views(context) -> list[str]:
         if r3d.view_perspective == "CAMERA":
             r3d.view_perspective = "PERSP"
             done.append("free view")
+    return done
+
+
+def close_section(context) -> list[str]:
+    """Leave the section completely: out of the camera (and the developed
+    scene), the 4D filter off so the whole model shows, the scene's own
+    camera back, and every helper the section drew - camera, plane frame,
+    cut, lines, ruler, labels, marker, axis - removed with its data. The
+    alignment stays loaded: the slider or View Section brings it back."""
+    done = exit_views(context)
+    scene = context.window.scene if context.window else context.scene
+    props = scene.bimforge_section
+    if props.date_filter:
+        _STATE["frame"] = None                # so turning it off does not re-cut
+        props.date_filter = False
+        done.append("4D filter off")
+    cam = bpy.data.objects.get(CAM)
+    if cam is not None and scene.camera is cam:
+        scene.camera = bpy.data.objects.get(_STATE.get("home_camera") or "")
+    coll = bpy.data.collections.get(COLL)
+    n = 0
+    if coll is not None:
+        for ob in list(coll.all_objects):
+            data = ob.data
+            bpy.data.objects.remove(ob, do_unlink=True)
+            n += 1
+            if data is not None and data.users == 0:
+                for kind in (bpy.data.meshes, bpy.data.curves, bpy.data.cameras):
+                    if data.name in kind and kind[data.name] == data:
+                        kind.remove(data)
+                        break
+        bpy.data.collections.remove(coll)
+    for mat in list(bpy.data.materials):          # the section's own fills
+        if mat.users == 0 and (mat.name.startswith("Section ")
+                               or mat.name == "Section Cut"):
+            bpy.data.materials.remove(mat)
+    _STATE["frame"] = None
+    _STATE["point"] = None
+    _redraw()
+    if n:
+        done.append(f"{n} section objects removed")
     return done
 
 

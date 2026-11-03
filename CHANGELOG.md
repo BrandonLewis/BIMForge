@@ -40,12 +40,14 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   the 3D cursor and reads the surface as it slides. The typed Go / Locate
   fields stay for exact values. Their ranges follow the loaded alignment, the
   unit and the view width.
-- **Exit** (next to View Section) leaves the section camera for a free 3D
-  view. In the developed-elevation scene the panel offers **Back to the
-  model**, returning to the scene Develop was run from.
-
-### Changed
-
+- **Exit** (next to View Section) leaves the section completely. It goes
+  back to a free 3D view, turns the 4D date filter off so the whole model
+  shows, and gives the scene its own camera back. It removes everything the
+  section drew (camera, plane frame, cut, lines, ruler, labels, marker,
+  axis) and stops the viewport label. The alignment stays loaded, so the
+  slider or View Section rebuilds it. In the developed-elevation scene,
+  **Back to the model** returns to the scene Develop was run from and
+  leaves the section as it was.
 - **Default colours a section can tell apart.** Native earth
   (0.56/0.44/0.30) and compacted fill (0.80/0.69/0.46, a light straw) are
   now far apart, as are concrete, lean concrete / CDF (0.90/0.85/0.62, pale
