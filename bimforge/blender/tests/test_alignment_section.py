@@ -488,3 +488,41 @@ def test_fills_are_unlit_hatched_and_tiny_bars_dotted(addon):
     finally:
         for ob in made:
             bpy.data.objects.remove(ob)
+
+
+def test_station_and_offset_sliders(addon):
+    """The station slider runs first to last station in the display unit and
+    drives the section; the offset slider runs across the view, - Lt / + Rt,
+    and carries the 3D cursor."""
+    mod, m, al, _prof = addon
+    props = bpy.context.scene.bimforge_section
+    st = mod._stationer(props)
+    rna = props.bl_rna.properties["station"]
+    assert (rna.hard_min, rna.hard_max) == (pytest.approx(st.convert(st.start_station, "ft")),
+                                            pytest.approx(st.convert(st.end_station, "ft")))
+    props.station = 1200.0
+    assert st.convert(mod._STATE["frame"].station, "ft") == pytest.approx(1200.0, abs=1e-3)
+    assert props.station == pytest.approx(1200.0, abs=1e-3)
+    props.station = 1e9                                   # clamps to the end
+    assert props.station == pytest.approx(st.convert(st.end_station, "ft"), abs=1e-3)
+    props.station = 1200.0
+    # offset: range is half the view width each way, in feet
+    half = st.to_unit(props.width / 2, "ft")
+    assert props.bl_rna.properties["offset"].hard_max == pytest.approx(half, rel=1e-4)
+    props.offset = -6.0                                   # 6 ft Lt
+    assert (props.pt_offset, props.pt_side) == (pytest.approx(6.0), "LT")
+    fr = mod._STATE["frame"]
+    want = st.point_at(fr.distance, 6.0 * st.foot_m)
+    cur = bpy.context.scene.cursor.location
+    assert (cur.x, cur.y) == (pytest.approx(want[0] + props.shift[0], abs=1e-4),
+                              pytest.approx(want[1] + props.shift[1], abs=1e-4))
+    props.offset = 4.0
+    assert (props.pt_offset, props.pt_side, props.offset) == (
+        pytest.approx(4.0), "RT", pytest.approx(4.0))
+    # a wider view widens the offset slider
+    w = props.width
+    try:
+        props.width = w * 2
+        assert props.bl_rna.properties["offset"].hard_max == pytest.approx(2 * half, rel=1e-4)
+    finally:
+        props.width = w

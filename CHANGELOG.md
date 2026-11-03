@@ -32,6 +32,12 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
     lines. Hatches show in Material Preview and Rendered; Solid mode shows
     the flat colour. A cut bar narrower than 0.35% of the view width is
     drawn as a dot that size.
+- **Station and offset sliders.** The section's slider is now in stations
+  (first to last, in the display unit) instead of a 0-1 fraction, and the
+  Offsets box has an offset slider across the view (- Lt, + Rt) that moves
+  the 3D cursor and reads the surface as it slides. The typed Go / Locate
+  fields stay for exact values. Their ranges follow the loaded alignment, the
+  unit and the view width.
 - **Exit** (next to View Section) leaves the section camera for a free 3D
   view. In the developed-elevation scene the panel offers **Back to the
   model**, returning to the scene Develop was run from.

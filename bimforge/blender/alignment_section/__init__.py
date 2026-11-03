@@ -14,6 +14,9 @@ station the add-on:
   concrete, rebar, asphalt, gravel — from the item's material (Bonsai's
   IfcSurfaceStyle), else from what its name says it is;
 * reports station, elevation of the grade line, grade and bearing;
+* slides by STATION (a slider from the first station to the last, in the
+  display unit) and by OFFSET (a slider across the view, Lt to Rt, that
+  carries the 3D cursor and reads the surface as it moves);
 * shows the model as it stands on a date of the IFC's 4D schedule (what is
   not yet built, or already removed, is hidden and not cut);
 * draws an offset ruler (CL, 10' Lt, 10' Rt, ...) across the section, puts
@@ -841,6 +844,7 @@ def update(scene):
     st = _stationer(props)
     if st is None:
         return
+    define_sliders(props, st)
     place(scene, props, st, st.frame_at_fraction(props.position))
 
 
@@ -858,6 +862,78 @@ def _on_alignment(self, context):
 def _on_view(self, context):
     if _STATE["frame"] is not None:
         update(context.scene)
+
+
+# ---------------------------------------------------------------- sliders
+def _quiet_stationer(props):
+    """The loaded stationer, or None - never opens a file (sliders are read
+    while the panel draws)."""
+    sts = _STATE["stationers"]
+    if not sts:
+        return None
+    return sts[min(int(props.alignment or 0), len(sts) - 1)]
+
+
+def _sta_get(self) -> float:
+    st = _quiet_stationer(self)
+    if st is None:
+        return 0.0
+    return st.convert(st.station_at(self.position * st.length), _unit(self, st))
+
+
+def _sta_set(self, value: float) -> None:
+    st = _quiet_stationer(self)
+    if st is None or not st.length:
+        return
+    d = st.distance_at(st.from_unit(value, _unit(self, st)) / st.unit_scale)
+    self.position = min(1.0, max(0.0, d / st.length))
+
+
+def _off_get(self) -> float:
+    return self.pt_offset * (-1.0 if self.pt_side == "LT" else 1.0)
+
+
+def _off_set(self, value: float) -> None:
+    """Offset slider, - = Lt, + = Rt (Lt on the left looking up-station):
+    the typed offset and side follow it, and the 3D cursor moves there."""
+    self.pt_offset = abs(value)
+    self.pt_side = "LT" if value < 0 else "RT"
+    st, fr = _quiet_stationer(self), _STATE["frame"]
+    if st is None or fr is None:
+        return
+    m = st.from_unit(abs(value), _unit(self, st))
+    try:
+        locate(bpy.context.scene, self, st, fr.distance, -m if value > 0 else m)
+    except Exception as exc:            # a slider never raises into the UI
+        _STATE["error"] = str(exc)
+
+
+_SLIDER_KEY: list = [None]
+
+
+def define_sliders(props, st) -> None:
+    """(Re)define the station and offset sliders for this alignment, unit
+    and view width: Blender takes a slider's range from its definition, so
+    the range follows the alignment by redefining it."""
+    u = _unit(props, st)
+    a, b = sorted((st.convert(st.start_station, u), st.convert(st.end_station, u)))
+    half = max(st.to_unit(props.width / 2.0, u), 1.0)
+    key = (round(a, 6), round(b, 6), round(half, 4), u)
+    if _SLIDER_KEY[0] == key:
+        return
+    _SLIDER_KEY[0] = key
+    SectionProps.station = FloatProperty(
+        name="Station", min=a, max=b, soft_min=a, soft_max=b, precision=2,
+        step=100, get=_sta_get, set=_sta_set,
+        description=(f"Station along the alignment, {u} "
+                     f"({st.format_station(st.start_station, u)} to "
+                     f"{st.format_station(st.end_station, u)})"))
+    SectionProps.offset = FloatProperty(
+        name="Offset", min=-half, max=half, soft_min=-half, soft_max=half,
+        precision=2, step=100, get=_off_get, set=_off_set,
+        description=(f"Offset across the view, {u}: - Lt, + Rt (Lt on the "
+                     "left looking up-station). Moves the 3D cursor there "
+                     "and reads the surface"))
 
 
 # --------------------------------------------------------------- property
@@ -1284,7 +1360,7 @@ if bpy is not None:
             if fr is not None:
                 box.label(text=f"Sta {st.format_station(fr.station, u)}",
                           icon="CURVE_PATH")
-            box.prop(props, "position", slider=True)
+            box.prop(props, "station", slider=True)
             row = box.row(align=True)
             row.operator("bimforge.section_step", text="",
                          icon="TRIA_LEFT").direction = -1
@@ -1342,6 +1418,7 @@ if bpy is not None:
             row.prop(props, "ruler_step")
             if props.ruler:
                 offs.prop(props, "ruler_height")
+            offs.prop(props, "offset", slider=True)
             row = offs.row(align=True)
             row.prop(props, "pt_offset")
             row.prop(props, "pt_side", expand=True)
@@ -1658,6 +1735,11 @@ def register():
     global _DRAW_HANDLE
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
+    _SLIDER_KEY[0] = None
+    SectionProps.station = FloatProperty(name="Station", get=_sta_get,
+                                         set=_sta_set, precision=2)
+    SectionProps.offset = FloatProperty(name="Offset", get=_off_get,
+                                        set=_off_set, precision=2)
     bpy.types.Scene.bimforge_section = bpy.props.PointerProperty(
         type=SectionProps)
     fc, lp = _persistent(_frame_change), _persistent(_load_post)
