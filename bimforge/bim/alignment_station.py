@@ -62,6 +62,20 @@ def alignments(f) -> list:
     return [a for a in f.by_type("IfcAlignment") if _axis_curve(a) is not None]
 
 
+def _map_shape(settings, inst):
+    """The geometry kernel's view of `inst`, on any ifcopenshell this runs
+    in: 0.9 takes the entity, 0.8 (Bonsai 0.8.x bundles 0.8.5) the raw
+    wrapped instance - handing 0.8 the entity fails with "in method
+    'map_shape', argument 2 of type 'IfcUtil::IfcBaseClass *'".
+    ifcopenshell.geom.map_shape unwraps correctly in both."""
+    import ifcopenshell.geom
+    fn = getattr(ifcopenshell.geom, "map_shape", None)
+    if fn is not None:
+        return fn(settings, inst)
+    from ifcopenshell import ifcopenshell_wrapper as w
+    return w.map_shape(settings, getattr(inst, "wrapped_data", inst))
+
+
 def _axis_curve(alignment):
     for rep in _representations(alignment):
         if rep.RepresentationIdentifier == "Axis" and rep.Items:
@@ -173,7 +187,7 @@ class AlignmentStationer:
         if curve.is_a() in ("IfcGradientCurve", "IfcCompositeCurve",
                             "IfcSegmentedReferenceCurve"):
             s = ifcopenshell.geom.settings()
-            fn = w.map_shape(s, curve)
+            fn = _map_shape(s, curve)
             self._eval = w.function_item_evaluator(s, fn)
             self.length = float(fn.length())
         else:

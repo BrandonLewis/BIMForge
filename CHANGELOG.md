@@ -4,6 +4,16 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **The Blender add-on in Bonsai 0.8.x.** Loading an alignment failed with
+  "in method 'map_shape', argument 2 of type 'IfcUtil::IfcBaseClass *'":
+  Bonsai 0.8.x bundles ifcopenshell 0.8.5, whose kernel binding takes the
+  raw wrapped instance. `AlignmentStationer` now maps the curve through
+  `ifcopenshell.geom.map_shape`, which unwraps in 0.8 and 0.9 alike. The
+  add-on's reading side (stationing, 4D spans, developed elevations) gives
+  identical results under 0.8.5 and 0.9.
+
 ## 0.1.96 — 2026-11-02
 
 (0.1.95 is skipped: a plugin runtime already carries a wheel labelled 0.1.95.)
