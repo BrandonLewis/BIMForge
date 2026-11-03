@@ -187,3 +187,89 @@ def test_a_cross_section_to_dxf(ifc, tmp_path):
     lay = doc.layouts.get("01 S")
     titles = [e.dxf.text for e in lay if e.dxftype() == "TEXT"]
     assert any("SECTION AT STA 10+50.00, LOOKING AHEAD" in t for t in titles)
+
+
+@pytest.fixture(scope="module")
+def wall_section(tmp_path_factory):
+    """A wall in a trench at 1010-1100: native ground wider than any view,
+    compacted fill, a stem, one bar, and an unstyled 'drain rock' body."""
+    ctx = _ctx()
+    al = Alignment(POB, RUN, name="ML")
+    m = StructureModel("sec", ctx)
+
+    def body(name, ring, ifc):
+        sw = SweptSection(name, ring, al, 1010.0, 1100.0, origin=ctx, ifc=ifc)
+        m.add(Element.from_geometry(name, sw, ifc_class=ifc,
+                                    quantities={"volume_cf": sw.volume_cf}))
+    box = lambda x0, x1, z0, z1: [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]  # noqa: E731
+    body("existing ground", [(-40, -12), (40, -12), (40, 0), (6, 0), (6, -6),
+                             (-6, -6), (-6, 0), (-40, 0)], "IfcGeographicElement")
+    body("backfill", box(-6, -1, -6, 0), "IfcEarthworksFill")
+    body("stem", box(-1, 1, -6, 8), "IfcWall")
+    body("drain rock", box(1, 6, -6, 0), "IfcBuildingElementProxy")
+    body("bar", box(0.5, 0.6, -3.0, -2.9), "IfcReinforcingBar")
+    m.alignments.append((al, None))
+    out = tmp_path_factory.mktemp("sec") / "sec.ifc"
+    emit_ifc(m, str(out))
+    return ifcopenshell.open(str(out))
+
+
+def test_section_fills_read_as_what_they_are(wall_section):
+    from bimforge.author import ifc_styles as S
+    dr = cross_section(wall_section, SectionView("S", 1050.0, width=30.0, depth=1.0))
+    layers = {layer: rgb for layer, rgb, _rings in dr.cut}
+    assert set(layers) == {"E-CUT-Earthwork", "E-CUT-Compacted-Fill", "E-CUT-Concrete",
+                           "E-CUT-Gravel", "E-CUT-Reinforcing-Steel"}
+    # the see-through earth style still fills in its own colour, not half dark
+    assert layers["E-CUT-Earthwork"] == pytest.approx(tuple(S._EARTH["rgb"]), abs=0.01)
+    # unstyled: what its name says (as the Blender add-on reads it)
+    from bimforge.bim.section_style import by_kind
+    assert layers["E-CUT-Gravel"] == pytest.approx(by_kind("Gravel").rgb)
+    # the ground is wider than the view, yet closes and fills to its edges
+    (_l, _r, rings), = [c for c in dr.cut if c[0] == "E-CUT-Earthwork"]
+    xs = [p[0] for ring in rings for p in ring[0]]
+    assert (min(xs), max(xs)) == (pytest.approx(0.0), pytest.approx(30.0))
+
+
+def test_the_dxf_hatches_each_kind_and_dots_the_rebar(wall_section, tmp_path):
+    ezdxf = pytest.importorskip("ezdxf")
+    from bimforge.bim.section_style import MIN_DOT_IN, by_kind, hatch_scale
+    out = tmp_path / "sec.dxf"
+    write_dxf([cross_section(wall_section, SectionView("S", 1050.0, width=30.0,
+                                                       depth=1.0, scale=4))], str(out))
+    doc = ezdxf.readfile(str(out))
+    pats = {h.dxf.layer: h for h in doc.modelspace().query("HATCH")
+            if h.dxf.layer.endswith("-PATT")}
+    assert pats["E-CUT-Concrete-PATT"].dxf.pattern_name == "CONCRETE1"
+    assert pats["E-CUT-Earthwork-PATT"].dxf.pattern_name == "EARTH"
+    assert pats["E-CUT-Compacted-Fill-PATT"].dxf.pattern_name == "AR-SAND"
+    assert pats["E-CUT-Gravel-PATT"].dxf.pattern_name == "GRAVEL"
+    assert pats["E-CUT-Concrete-PATT"].dxf.pattern_scale == pytest.approx(
+        hatch_scale(by_kind("Concrete"), 4))
+    # the 0.1 ft bar is smaller than the minimum dot: a solid disc that size
+    bar = pats["E-CUT-Reinforcing-Steel-PATT"]
+    assert bar.dxf.solid_fill == 1
+    (arc,) = bar.paths[0].edges
+    assert arc.radius == pytest.approx(MIN_DOT_IN / 2 * 4)
+    # the colour fill stays on its own layer (freeze it for black and white)
+    assert any(h.dxf.layer == "E-CUT-Concrete" for h in doc.modelspace().query("HATCH"))
+
+
+def test_the_style_table():
+    from bimforge.author import ifc_styles as S
+    from bimforge.bim.section_style import KINDS, classify, hatch_scale, style_of
+    import ezdxf.tools.pattern as P
+    names = set(P.ISO_PATTERN)
+    assert all(k.dxf == "SOLID" or k.dxf in names for k in KINDS)
+    assert classify("S-EW-FILL")[0] == "Compacted Fill"
+    assert classify("S-BACKFILL-LEAN")[0] == "Lean Concrete"
+    assert classify("S-BACKFILL-CONC")[0] == "Concrete Backfill"
+    assert classify("Structure backfill")[0] == "Compacted Fill"
+    assert classify("existing ground (remaining)")[0] == "Earthwork"
+    assert S.resolve_surface("S-EW-FILL", None)["rgb"] == S._FILL["rgb"]
+    assert hatch_scale(style_of("concrete"), 25.4) == pytest.approx(0.8)
+    # neighbours in a wall section are told apart by colour alone
+    rgb = {k.kind: k.rgb for k in KINDS}
+    for a, b in [("Concrete", "Concrete Backfill"), ("Concrete", "Lean Concrete"),
+                 ("Earthwork", "Compacted Fill"), ("Compacted Fill", "Lean Concrete")]:
+        assert sum(abs(x - y) for x, y in zip(rgb[a], rgb[b])) > 0.25, (a, b)

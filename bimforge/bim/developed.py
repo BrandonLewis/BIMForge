@@ -168,12 +168,20 @@ def _all_bodies(f, date):
                 v = np.asarray(g.verts, dtype=float).reshape(-1, 3)
                 mats = list(g.materials)
                 ids = np.asarray(g.material_ids, dtype=np.int64)
-                rgb = [tuple(m.diffuse.components) if m.diffuse is not None
-                       else (0.6, 0.6, 0.6) for m in mats] or [(0.6, 0.6, 0.6)]
+                rgb = [_surface_rgb(m) for m in mats] or [(0.6, 0.6, 0.6)]
                 tri_rgb = ([rgb[i] if 0 <= i < len(rgb) else rgb[0] for i in ids]
                            if len(ids) == len(t) else [rgb[0]] * len(t))
                 mat = ue.get_material(el)
                 layer = _layer_name(getattr(mat, "Name", None) or el.is_a())
+                if not getattr(mat, "Name", None) and all(
+                        _unstyled(c) for c in rgb):
+                    # no material, no styling: what its name says it is
+                    # (drain rock, AB, CDF), as the Blender add-on reads it
+                    from .section_style import style_of
+                    k = style_of(el.Name, el.is_a())
+                    if k is not None:
+                        layer = _layer_name(k.kind)
+                        tri_rgb = [k.rgb] * len(t)
                 # a surface (terrain, finished grade) cuts as a LINE; a body
                 # with any solid item is never one, even when the geometry
                 # kernel draws it open (IfcSectionedSolidHorizontal, #9820)
@@ -187,6 +195,22 @@ def _all_bodies(f, date):
                 break
     _BODY_CACHE[key] = out
     return out
+
+
+def _surface_rgb(m) -> tuple:
+    """A style's own colour: the SURFACE colour, not the diffuse the kernel
+    scales by (1 - transparency) - a cut face is solid, so see-through earth
+    must still fill as earth, not half-dark."""
+    for c in (getattr(m, "surface", None), m.diffuse):
+        if c is not None:
+            return tuple(c.components)
+    return (0.6, 0.6, 0.6)
+
+
+def _unstyled(rgb) -> bool:
+    """The kernel's default grey (no IfcSurfaceStyle)."""
+    return all(abs(c - d) < 1e-3 for c, d in zip(rgb, (0.6, 0.6, 0.6))) or \
+        all(abs(c - d) < 1e-3 for c, d in zip(rgb, (0.8, 0.8, 0.8)))
 
 
 def _layer_name(s: str) -> str:
@@ -399,8 +423,11 @@ def cross_section(f, view: SectionView) -> Drawing:
         rel = v[:, :2] - P
         dist, across = rel @ T, rel @ R
         tz, tx = dist[t], across[t]
-        keep = ((tz.max(1) >= 0.0) & (tz.min(1) <= depth)
-                & (tx.max(1) >= -half - 1.0) & (tx.min(1) <= half + 1.0))
+        # the cut: every triangle the plane crosses, however wide, so a body
+        # wider than the view (the ground) closes; beyond: within the width
+        crosses = (tz.max(1) >= 0.0) & (tz.min(1) <= 0.0)
+        keep = crosses | ((tz.max(1) >= 0.0) & (tz.min(1) <= depth)
+                          & (tx.max(1) >= -half - 1.0) & (tx.min(1) <= half + 1.0))
         if not keep.any():
             continue
         idx = np.nonzero(keep)[0]
@@ -735,19 +762,9 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
         oy = y_cursor - y0
         y_cursor = oy + y1 + 2.0 * sheet.height * (v.scale or fit_scale(dr, sheet))
         dy = lambda p: (p[0], p[1] + oy)            # noqa: E731
+        scale = v.scale or fit_scale(dr, sheet)
         for layer, rgb, rings in dr.cut:
-            if layer not in doc.layers:
-                doc.layers.add(layer).rgb = tuple(int(c * 255) for c in rgb)
-            for ring in rings:
-                h = msp.add_hatch(dxfattribs={"layer": layer})
-                h.rgb = tuple(int(c * 255) for c in rgb)
-                h.paths.add_polyline_path([dy(p) for p in ring[0]], is_closed=True)
-                for hole in ring[1:]:
-                    h.paths.add_polyline_path([dy(p) for p in hole], is_closed=True)
-                for loop in ring:
-                    msp.add_lwpolyline([dy(p) for p in loop], close=True,
-                                       dxfattribs={"layer": layer, "color": 7,
-                                                   "lineweight": 50})
+            _cut_to_dxf(doc, msp, layer, rgb, rings, dy, scale)
         for layer, rgb, line in dr.ground:
             if layer not in doc.layers:
                 doc.layers.add(layer).rgb = tuple(int(c * 255) for c in rgb)
@@ -756,7 +773,6 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
         for line in dr.beyond:
             msp.add_lwpolyline([dy(p) for p in line],
                                dxfattribs={"layer": "E-BEYOND", "lineweight": 18})
-        scale = v.scale or fit_scale(dr, sheet)
         th = 0.10 * scale                            # 0.10" text on the sheet
         # labelled ticks at least an inch apart on the sheet, minor ones between
         from .alignment_station import format_station
@@ -823,6 +839,67 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
         doc.layouts.delete("Layout1")             # ezdxf's empty default sheet
     doc.saveas(path)
     return report
+
+
+def _cut_to_dxf(doc, msp, layer, rgb, rings, dy, scale) -> None:
+    """One material's cut: a solid fill in its colour on `layer` (a colour
+    plot; freeze it for black and white), its hatch pattern in ink on
+    `layer`-PATT (bimforge.bim.section_style: concrete stipple, earth, fill,
+    gravel ...), and the cut outline heavy. Rebar plots solid, and a bar
+    smaller than MIN_DOT_IN on paper as a dot that size."""
+    from .section_style import MIN_DOT_IN, hatch_scale, style_of
+    kind = style_of(layer.replace("E-CUT-", "").replace("-", " "))
+    col = tuple(int(c * 255) for c in rgb)
+    patt = f"{layer}-PATT"
+    for name, colour in ((layer, col), (patt, None)):
+        if name not in doc.layers:
+            lay = doc.layers.add(name, color=7)
+            if colour:
+                lay.rgb = colour
+    rebar = kind is not None and kind.dxf == "SOLID"
+    r_min = MIN_DOT_IN / 2.0 * scale
+    for ring in rings:
+        outer = [dy(p) for p in ring[0]]
+        h = msp.add_hatch(dxfattribs={"layer": layer})
+        h.rgb = col
+        h.paths.add_polyline_path(outer, is_closed=True)
+        for hole in ring[1:]:
+            h.paths.add_polyline_path([dy(p) for p in hole], is_closed=True)
+        if rebar:
+            area, cx, cy = _ring_centroid(outer)
+            ink = msp.add_hatch(color=7, dxfattribs={"layer": patt})
+            if math.sqrt(abs(area) / math.pi) < r_min:
+                ink.paths.add_edge_path().add_arc((cx, cy), r_min, 0.0, 360.0)
+                continue                      # the dot is the bar: no outline
+            ink.paths.add_polyline_path(outer, is_closed=True)
+        elif kind is not None:
+            ink = msp.add_hatch(color=7, dxfattribs={"layer": patt,
+                                                     "lineweight": 9})
+            ink.set_pattern_fill(kind.dxf, scale=hatch_scale(kind, scale))
+            ink.paths.add_polyline_path(outer, is_closed=True)
+            for hole in ring[1:]:
+                ink.paths.add_polyline_path([dy(p) for p in hole], is_closed=True)
+        for loop in ring:
+            msp.add_lwpolyline([dy(p) for p in loop], close=True,
+                               dxfattribs={"layer": layer, "color": 7,
+                                           "lineweight": 50})
+
+
+def _ring_centroid(pts):
+    """(signed area, cx, cy) of a closed ring."""
+    a = cx = cy = 0.0
+    n = len(pts)
+    for i in range(n):
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
+        c = x0 * y1 - x1 * y0
+        a += c
+        cx += (x0 + x1) * c
+        cy += (y0 + y1) * c
+    a *= 0.5
+    if abs(a) < 1e-18:
+        xs, ys = zip(*pts)
+        return 0.0, sum(xs) / n, sum(ys) / n
+    return a, cx / (6 * a), cy / (6 * a)
 
 
 def _nice(x: float) -> float:

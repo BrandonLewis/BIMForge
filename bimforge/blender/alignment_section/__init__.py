@@ -49,10 +49,12 @@ try:                                    # the add-on zip carries its own copy
     from . import alignment_station as _st
     from . import developed as _dev
     from . import schedule_state as _ss
+    from . import section_style as _sty
 except ImportError:                     # running from the bimforge package
     from bimforge.bim import alignment_station as _st
     from bimforge.bim import developed as _dev
     from bimforge.bim import schedule_state as _ss
+    from bimforge.bim import section_style as _sty
 
 try:
     import bpy
@@ -172,44 +174,16 @@ def _cut_material():
 
 
 #: Section fill by what the thing IS, for a cut item whose own styling says
-#: nothing (no material, or Blender's / ifcopenshell's default 0.8 grey).
-#: Matched on the material name, then the object name; first hit wins, so
-#: rebar is tried before steel and asphalt before concrete. The rgb of the
-#: shared kinds are bimforge.author.ifc_styles' (a test holds them equal).
-FILL_PALETTE: list[tuple[str, str, tuple]] = [
-    # existing work to be removed reads apart from new work of any kind
-    ("Existing (to remove)", r"to be removed|\bdemo(lish|lition)?\b|"
-     r"^existing \d", (0.86, 0.62, 0.55)),
-    ("Reinforcing Steel", r"rebar|reinforc|\brebr\b|\brein\b|ifcreinforcing",
-     (0.75, 0.15, 0.12)),
-    ("Asphalt", r"asphalt|\bhma\b|\bac\b|bitum|\bpave(ment)?\b|\bpaving\b",
-     (0.16, 0.16, 0.17)),
-    ("Gravel", r"gravel|aggregate|\bagg\b|\bab\b|base course|class 2|"
-     r"\bbase\b|crushed|rock|riprap|\brsp\b|ballast|drain rock",
-     (0.62, 0.55, 0.42)),
-    ("Structural Steel", r"steel|\bstl\b|metal|\bmetl\b|girder|"
-     r"ifcrailing|ifcmember|ifcplate", (0.55, 0.60, 0.66)),
-    ("Timber", r"timber|wood|lagging", (0.55, 0.40, 0.24)),
-    ("Earthwork", r"earth|soil|embank|excav|terrain|\bfill\b|\bew\b|"
-     r"(?<!concrete )backfill|\bgrade\b|"
-     r"ifcgeographic|ifcearthworks", (0.55, 0.45, 0.32)),
-    ("Concrete", r"concrete|\bconc\b|\bpcc\b|\bcip\b|precast|grout|"
-     r"ifcslab|ifcwall|ifcfooting|ifcbeam|ifccolumn|ifcpile|deck|barrier|"
-     r"headwall|culvert|abutment", (0.75, 0.73, 0.68)),
-]
-UNSTYLED = ("Unstyled", (0.60, 0.60, 0.60))
+#: nothing (no material, or Blender's / ifcopenshell's default 0.8 grey):
+#: bimforge.bim.section_style, shared with the DXF sheets. (kind, regex, rgb)
+FILL_PALETTE: list[tuple[str, str, tuple]] = [(k.kind, k.pattern, k.rgb)
+                                              for k in _sty.KINDS]
+UNSTYLED = _sty.UNSTYLED
 _DEFAULT_GREY = (0.8, 0.8, 0.8)
-
-
-def classify(*names) -> tuple[str, tuple] | None:
-    """(kind, rgb) for the first palette entry any of `names` matches."""
-    import re
-    for name in names:
-        low = (name or "").lower().replace("_", " ")
-        for kind, pattern, rgb in FILL_PALETTE:
-            if re.search(pattern, low):
-                return kind, rgb
-    return None
+classify = _sty.classify
+#: section ink: the hatch's colour, this fraction of the fill's
+INK = 0.30
+PERIOD_NODE = "BIMForge hatch period"
 
 
 def _styled_rgb(mat):
@@ -250,21 +224,124 @@ def fill_for(mat, ob) -> tuple[str, tuple]:
     return hit if hit is not None else UNSTYLED
 
 
-def _section_material(name: str, rgb) -> "bpy.types.Material":
-    """An opaque, flat section fill in `rgb` (opaque even when the source is
-    see-through, like earthwork: a cut face is solid)."""
+def _section_material(name: str, rgb, paint: str | None = None
+                      ) -> "bpy.types.Material":
+    """An opaque section fill in `rgb` (opaque even when the source is
+    see-through, like earthwork: a cut face is solid). UNLIT - an emission,
+    so the viewport light never tints it - with the kind's hatch inked over
+    it (bimforge.bim.section_style; `paint` overrides, "" is flat). Solid
+    mode shows the flat colour; Material Preview and Rendered the hatch."""
+    if paint is None:
+        k = _sty.style_of(name)
+        paint = k.paint if k else ""
     key = f"Section · {name}"
     mat = bpy.data.materials.get(key)
     if mat is None:
         mat = bpy.data.materials.new(key)
-        if getattr(mat, "node_tree", None) is None:
-            mat.use_nodes = True
+    if getattr(mat, "node_tree", None) is None:
+        mat.use_nodes = True
     mat.diffuse_color = (*rgb, 1.0)
-    bsdf = _principled(mat)
-    if bsdf is not None:
-        bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
-        bsdf.inputs["Roughness"].default_value = 1.0
+    sig = f"{paint} {rgb[0]:.4f} {rgb[1]:.4f} {rgb[2]:.4f}"
+    if mat.get("bimforge_paint") != sig:
+        _paint(mat, tuple(rgb), paint)
+        mat["bimforge_paint"] = sig
     return mat
+
+
+def _linear(rgb) -> tuple:
+    """sRGB (what an IFC colour and a DXF fill are) to Blender's linear
+    scene colour, so a fill shows the colour the style names, not a paler
+    one."""
+    return tuple(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+                 for c in rgb)
+
+
+def _paint(mat, rgb, paint: str) -> None:
+    """Emission in `rgb`, mixed toward ink where the procedural hatch
+    `paint` is. The hatch is laid out in CAMERA space, every
+    `PERIOD_NODE` metres (set to the view's width by set_hatch_period), so it
+    reads at one size on screen like a hatch on paper."""
+    rgb = _linear(rgb)
+    nt = mat.node_tree
+    N, L = nt.nodes, nt.links
+    N.clear()
+    out = N.new("ShaderNodeOutputMaterial")
+    emit = N.new("ShaderNodeEmission")
+    L.new(emit.outputs["Emission"], out.inputs["Surface"])
+    if paint in ("", "solid"):
+        emit.inputs["Color"].default_value = (*rgb, 1.0)
+        return
+    period = N.new("ShaderNodeValue")
+    period.name = period.label = PERIOD_NODE
+    period.outputs[0].default_value = 0.3
+    tc = N.new("ShaderNodeTexCoord")
+    sep = N.new("ShaderNodeSeparateXYZ")
+    L.new(tc.outputs["Camera"], sep.inputs[0])
+
+    def math(op, a, b=None):
+        n = N.new("ShaderNodeMath")
+        n.operation = op
+        for i, x in enumerate((a, b)):
+            if x is None:
+                continue
+            if isinstance(x, (int, float)):
+                n.inputs[i].default_value = float(x)
+            else:
+                L.new(x, n.inputs[i])
+        return n.outputs[0]
+    u = math("DIVIDE", sep.outputs["X"], period.outputs[0])
+    v = math("DIVIDE", sep.outputs["Y"], period.outputs[0])
+
+    def lines(a, b, spacing, width):
+        """Ink on lines u*a + v*b = n * spacing, `width` of a spacing."""
+        t = math("ADD", math("MULTIPLY", u, a), math("MULTIPLY", v, b))
+        return math("LESS_THAN", math("FRACT", math("DIVIDE", t, spacing)), width)
+
+    def voronoi(scale, feature, below):
+        cv = N.new("ShaderNodeCombineXYZ")
+        L.new(u, cv.inputs["X"])
+        L.new(v, cv.inputs["Y"])
+        vo = N.new("ShaderNodeTexVoronoi")
+        vo.voronoi_dimensions = "2D"
+        vo.feature = feature
+        vo.inputs["Scale"].default_value = scale
+        L.new(cv.outputs[0], vo.inputs["Vector"])
+        return math("LESS_THAN", vo.outputs["Distance"], below)
+    if paint == "lines":
+        f = lines(1.0, 1.0, 1.0, 0.12)
+    elif paint == "cross":
+        f = math("MAXIMUM", lines(1.0, 1.0, 1.0, 0.10), lines(1.0, -1.0, 1.0, 0.10))
+    elif paint == "earth":       # sparse crossed lines, heavier one way
+        f = math("MAXIMUM", lines(1.0, 1.0, 2.0, 0.07), lines(1.0, -1.0, 4.0, 0.04))
+    elif paint == "stipple":     # aggregate: scattered dots, a few large
+        f = math("MAXIMUM", voronoi(1.6, "F1", 0.10), voronoi(0.45, "F1", 0.09))
+    elif paint == "sand":
+        f = voronoi(1.3, "F1", 0.13)
+    elif paint == "gravel":
+        f = voronoi(0.8, "DISTANCE_TO_EDGE", 0.05)
+    else:
+        f = None
+    if f is None:
+        emit.inputs["Color"].default_value = (*rgb, 1.0)
+        return
+    mix = N.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    L.new(f, mix.inputs["Factor"])
+    a_col = next(i for i in mix.inputs if i.identifier == "A_Color")
+    b_col = next(i for i in mix.inputs if i.identifier == "B_Color")
+    a_col.default_value = (*rgb, 1.0)
+    b_col.default_value = (*(c * INK for c in rgb), 1.0)
+    res = next(o for o in mix.outputs if o.identifier == "Result_Color")
+    L.new(res, emit.inputs["Color"])
+
+
+def set_hatch_period(metres: float) -> None:
+    """Every section hatch repeats every `metres` (camera space)."""
+    for mat in bpy.data.materials:
+        if mat.name.startswith("Section · ") and mat.node_tree is not None:
+            n = mat.node_tree.nodes.get(PERIOD_NODE)
+            if n is not None:
+                n.outputs[0].default_value = max(metres, 1e-4)
 
 
 def _basis(fr, look_back):
@@ -331,6 +408,7 @@ def place(scene, props, st, fr):
 
     if props.live_cut:
         cut(scene, props, Vector(fr.point) + off, look)
+    set_hatch_period(w / 120.0)
     ruler(scene, props, st, fr, look)
     _STATE["frame"] = fr
     _redraw()
@@ -469,6 +547,7 @@ def cut(scene, props, co, look):
     by_style = props.fill_style == "STYLE"
     fills: dict[tuple, int] = {}          # (name, rgb) -> output slot
     groups: list[tuple[int, list]] = []
+    bars: list[tuple[int, list]] = []     # rebar cuts: dotted when tiny
     for ob in pool:
         if ob.type != "MESH" or not ob.visible_get():
             continue
@@ -507,7 +586,10 @@ def cut(scene, props, co, look):
                 mat = slots[mi] if 0 <= mi < len(slots) else None
                 fill = fill_for(mat, ob) if by_style else ("Cut", None)
                 slot = fills.setdefault(fill, len(fills))
+                k = _sty.style_of(fill[0], ob.name) if by_style else None
                 groups.append((slot, new_edges))
+                if k is not None and k.kind == "Reinforcing Steel":
+                    bars.append((slot, new_edges))
         finally:
             bm.free()
     lift: dict = {}                       # vert -> shift toward the camera
@@ -525,6 +607,11 @@ def cut(scene, props, co, look):
         for e in new_edges:
             for v in e.verts:
                 lift[v] = max(lift.get(v, 0.0), d)
+    if props.fill:
+        r_min = props.width * DOT_FRACTION
+        for slot, new_edges in bars:
+            for verts in _components(new_edges):
+                _dot(out, verts, r_min, look, slot, lift)
     for v, d in lift.items():
         v.co -= look * d
     segs = [(tuple(e.verts[0].co), tuple(e.verts[1].co))
@@ -543,6 +630,49 @@ def cut(scene, props, co, look):
     ob.show_in_front = False
     outline(scene, props, segs, co, look)
     return ob
+
+
+#: a cut bar narrower than this fraction of the view width is drawn as a dot
+#: this size (a #8 bar is a pixel at 130 ft: a dot reads as the bar it is)
+DOT_FRACTION = 0.0035
+
+
+def _components(edges) -> list[list]:
+    """The verts of each connected loop among `edges`."""
+    parent: dict = {}
+
+    def find(x):
+        while parent.setdefault(x, x) is not x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for e in edges:
+        a, b = (find(v) for v in e.verts)
+        if a is not b:
+            parent[a] = b
+    groups: dict = {}
+    for v in parent:
+        groups.setdefault(find(v), []).append(v)
+    return list(groups.values())
+
+
+def _dot(bm, verts, r_min, look, slot, lift) -> None:
+    """A filled disc of radius `r_min` over a bar's cut when the cut is
+    smaller, in the section plane, over every other fill."""
+    from mathutils import Vector
+    c = sum((v.co for v in verts), Vector()) / len(verts)
+    if max((v.co - c).length for v in verts) >= r_min:
+        return
+    x = look.orthogonal().normalized()
+    y = look.cross(x).normalized()
+    ring = [bm.verts.new(c + (x * math.cos(t) + y * math.sin(t)) * r_min)
+            for t in (2 * math.pi * i / 12 for i in range(12))]
+    face = bm.faces.new(ring if (ring[1].co - ring[0].co).cross(
+        ring[2].co - ring[1].co).dot(-look) > 0 else ring[::-1])
+    face.material_index = slot
+    d = _layer(0.0) + NEAR_GAP * 0.02          # under the outline (0.8)
+    for v in ring:
+        lift[v] = d
 
 
 LINES = "Section Lines"
@@ -1391,6 +1521,7 @@ def build_developed(dr) -> "bpy.types.Scene":
     cam_data = bpy.data.cameras.new("Developed camera")
     cam_data.type = "ORTHO"
     cam_data.ortho_scale = max((x1 - x0) * k, (y1 - y0) * k * 2.0) * 1.1
+    set_hatch_period(cam_data.ortho_scale / 150.0)
     cam = link("Developed camera", cam_data)
     cam.location = Vector(((x0 + x1) / 2 * k, -50.0, (y0 + y1) / 2 * k))
     cam.rotation_euler = (math.pi / 2, 0.0, 0.0)          # looks +Y

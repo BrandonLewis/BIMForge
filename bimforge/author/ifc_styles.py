@@ -30,20 +30,23 @@ _REBAR = {"rgb": [0.75, 0.15, 0.12], "transparency": 0.0,
 _STEEL = {"rgb": [0.55, 0.60, 0.66], "transparency": 0.0,
           "material": "Structural Steel",
           "reflectance": "METAL", "specular": 0.30}
-_EARTH = {"rgb": [0.55, 0.45, 0.32], "transparency": 0.5,
+_EARTH = {"rgb": [0.56, 0.44, 0.30], "transparency": 0.5,
           "material": "Earthwork", "reflectance": "MATT", "specular": 0.95}
-#: Placed and compacted fill (backfill, embankment, refill): lighter and
-#: opaque against the existing ground (_EARTH) it is placed in, so a section
-#: or a 4D playback tells the ground dug from the fill put back.
-_FILL = {"rgb": [0.72, 0.62, 0.45], "transparency": 0.0,
+#: Placed and compacted fill (backfill, embankment, refill): a light straw,
+#: opaque, against the dark native ground (_EARTH) it is placed in, so a
+#: section or a 4D playback tells the ground dug from the fill put back.
+#: Concrete (_CONCRETE), lean concrete / CDF (_LEAN, pale cream) and concrete
+#: backfill (_BACKFILL, blue-grey) are kept as far apart as fill and earth:
+#: a section must tell each from the next. Hatches: bim/section_style.py.
+_FILL = {"rgb": [0.80, 0.69, 0.46], "transparency": 0.0,
          "material": "Compacted Fill", "reflectance": "MATT", "specular": 0.95}
 
 _PRECAST = {"rgb": [0.78, 0.77, 0.74], "transparency": 0.0,
             "material": "Precast Concrete", "reflectance": "MATT",
             "specular": 0.80}
-_LEAN = {"rgb": [0.82, 0.81, 0.78], "transparency": 0.0,
+_LEAN = {"rgb": [0.90, 0.85, 0.62], "transparency": 0.0,
          "material": "Lean Concrete", "reflectance": "MATT", "specular": 0.90}
-_BACKFILL = {"rgb": [0.70, 0.69, 0.65], "transparency": 0.0,
+_BACKFILL = {"rgb": [0.58, 0.64, 0.70], "transparency": 0.0,
              "material": "Concrete Backfill", "reflectance": "MATT",
              "specular": 0.90}
 _TIMBER = {"rgb": [0.55, 0.40, 0.24], "transparency": 0.0,
@@ -80,7 +83,7 @@ SURFACE_DEFAULTS: dict[str, dict] = {
     # everything else
     "S-LAGGING-TIMB": _TIMBER,
     "S-BEARING-PAD": _ELASTOMER,
-    "S-EW-FILL": _EARTH,
+    "S-EW-FILL": _FILL,
     "S-PIPE-REF": _REFERENCE,
     "terrain": _EARTH,
     "IfcWall": _CONCRETE, "IfcFooting": _CONCRETE,

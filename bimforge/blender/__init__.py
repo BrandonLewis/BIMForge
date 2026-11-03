@@ -28,6 +28,7 @@ def build_addon(out: str | Path) -> Path:
     station = here.parent / "bim" / "alignment_station.py"
     sched = here.parent / "bim" / "schedule_state.py"
     dev = here.parent / "bim" / "developed.py"
+    style = here.parent / "bim" / "section_style.py"
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
@@ -35,4 +36,5 @@ def build_addon(out: str | Path) -> Path:
         z.write(station, f"{ADDON}/alignment_station.py")
         z.write(sched, f"{ADDON}/schedule_state.py")
         z.write(dev, f"{ADDON}/developed.py")
+        z.write(style, f"{ADDON}/section_style.py")
     return out

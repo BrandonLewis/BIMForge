@@ -79,7 +79,8 @@ def addon(tmp_path_factory):
         assert sorted(z.namelist()) == [f"{ADDON}/__init__.py",
                                         f"{ADDON}/alignment_station.py",
                                         f"{ADDON}/developed.py",
-                                        f"{ADDON}/schedule_state.py"]
+                                        f"{ADDON}/schedule_state.py",
+                                        f"{ADDON}/section_style.py"]
         z.extractall(tmp / "addons")
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sys.path.insert(0, str(tmp / "addons"))
@@ -277,7 +278,8 @@ def test_palette_agrees_with_the_ifc_styles():
     rgb = {k: v for k, _p, v in FILL_PALETTE}
     for kind, src in [("Concrete", S._CONCRETE), ("Reinforcing Steel", S._REBAR),
                       ("Structural Steel", S._STEEL), ("Earthwork", S._EARTH),
-                      ("Timber", S._TIMBER)]:
+                      ("Timber", S._TIMBER), ("Compacted Fill", S._FILL),
+                      ("Lean Concrete", S._LEAN), ("Concrete Backfill", S._BACKFILL)]:
         assert rgb[kind] == pytest.approx(tuple(src["rgb"]))
     assert classify("S-REBAR")[0] == "Reinforcing Steel"
     assert classify("IfcReinforcingBar/B1")[0] == "Reinforcing Steel"
@@ -285,13 +287,17 @@ def test_palette_agrees_with_the_ifc_styles():
     assert classify("Class 2 AB")[0] == "Gravel"
     assert classify("RSP Class IV")[0] == "Gravel"
     assert classify("IfcSlab/Deck")[0] == "Concrete"
-    assert classify("S-EW-FILL")[0] == "Earthwork"
+    assert classify("S-EW-FILL")[0] == "Compacted Fill"
+    assert classify("IfcEarthworksFill/CW-W wall backfill")[0] == "Compacted Fill"
+    assert classify("IfcGeographicElement/existing ground (remaining)")[0] == "Earthwork"
+    assert classify("Lean Concrete")[0] == "Lean Concrete"
+    assert classify("S-BACKFILL-LEAN")[0] == "Lean Concrete"
     assert classify("Widget") is None
     assert classify("Existing reinforced concrete (Br 12-3456), to be removed")[0] \
         == "Existing (to remove)"
     assert classify("existing 12-3456 slab stage 1")[0] == "Existing (to remove)"
-    assert classify("Structure backfill (bridge)")[0] == "Earthwork"
-    assert classify("Concrete Backfill")[0] == "Concrete"
+    assert classify("Structure backfill (bridge)")[0] == "Compacted Fill"
+    assert classify("Concrete Backfill")[0] == "Concrete Backfill"
 
 
 def test_offsets_ruler_locate_and_inquire(addon):
@@ -442,3 +448,43 @@ def test_exit_leaves_the_camera_and_the_developed_scene(addon):
     win.scene = dev
     mod.exit_views(bpy.context)
     assert win.scene == home
+
+
+def test_fills_are_unlit_hatched_and_tiny_bars_dotted(addon):
+    """Section fills are emissions (no viewport light tints them), hatched
+    per kind in camera space at a period that follows the view width; a bar
+    smaller than the minimum dot is drawn as a dot that size."""
+    mod, *_ = addon
+    props = bpy.context.scene.bimforge_section
+    props.goto = 1200.0
+    bpy.ops.bimforge.section_goto()
+    fr = mod._STATE["frame"]
+    made = [_box("bar", fr, -0.01, 0.01, -0.5, -0.48, [_mat("Reinforcing Steel")])]
+    try:
+        props.fill_style = "STYLE"
+        bpy.ops.bimforge.section_cut()
+        me = bpy.data.objects[mod.CUT].data
+        r = props.width * mod.DOT_FRACTION
+        bar = [p for p in me.polygons
+               if me.materials[p.material_index].name == "Section · Reinforcing Steel"]
+        import math as _m
+        assert sum(p.area for p in bar) == pytest.approx(
+            0.02 * 0.02 + 12 * 0.5 * r * r * _m.sin(2 * _m.pi / 12), rel=1e-3)
+        conc = bpy.data.materials["Section · Concrete"]
+        kinds = {n.bl_idname for n in conc.node_tree.nodes}
+        assert {"ShaderNodeEmission", "ShaderNodeTexVoronoi",
+                "ShaderNodeTexCoord"} <= kinds
+        assert "ShaderNodeBsdfPrincipled" not in kinds
+        # the colour the style names, in Blender's linear space
+        mix = next(n for n in conc.node_tree.nodes if n.bl_idname == "ShaderNodeMix")
+        a = next(i for i in mix.inputs if i.identifier == "A_Color")
+        assert tuple(a.default_value[:3]) == pytest.approx(
+            mod._linear((0.75, 0.73, 0.68)), abs=1e-4)
+        period = conc.node_tree.nodes[mod.PERIOD_NODE].outputs[0].default_value
+        assert period == pytest.approx(props.width / 120.0, rel=1e-4)
+        rebar = bpy.data.materials["Section · Reinforcing Steel"]
+        assert not any(n.bl_idname == "ShaderNodeTexVoronoi"
+                       for n in rebar.node_tree.nodes)        # solid
+    finally:
+        for ob in made:
+            bpy.data.objects.remove(ob)
