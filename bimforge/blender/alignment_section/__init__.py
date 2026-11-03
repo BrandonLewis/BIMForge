@@ -20,6 +20,10 @@ station the add-on:
   the 3D cursor at a station + offset Lt/Rt and reads the top surface
   there, and inquires the cursor back to station + offset.
 
+Export Section DXF writes what the section camera shows (the station,
+width, depth and look) to a DXF sheet; Exit leaves the camera view, and the
+developed-elevation scene, back to the model.
+
 The slider can follow the timeline, so scrubbing frames sweeps the section
 along the alignment (and rendering the frames makes a fly-through).
 
@@ -942,6 +946,8 @@ if bpy is not None:
                 return {"CANCELLED"}
             sc = build_developed(dr)
             if context.window is not None:
+                if context.window.scene.name != DEV_SCENE:
+                    _STATE["home_scene"] = context.window.scene.name
                 context.window.scene = sc
             self.report({"INFO"}, (f"{view.name}: {dr.length:.2f} along the line, "
                                    f"{len(dr.cut)} cut, {len(dr.beyond)} lines beyond"))
@@ -971,6 +977,45 @@ if bpy is not None:
                 self.report({"ERROR"}, str(exc))
                 return {"CANCELLED"}
             self.report({"INFO"}, lines[0])
+            return {"FINISHED"}
+
+    class BIMFORGE_OT_section_dxf(bpy.types.Operator):
+        bl_idname = "bimforge.section_dxf"
+        bl_label = "Export Section DXF"
+        bl_description = ("Write the cross section the camera shows (this station, "
+                          "the view width, depth and look) as a DXF sheet "
+                          "(needs ezdxf)")
+        filepath: StringProperty(subtype="FILE_PATH", default="section.dxf")
+
+        def invoke(self, context, event):
+            context.window_manager.fileselect_add(self)
+            return {"RUNNING_MODAL"}
+
+        def execute(self, context):
+            props = context.scene.bimforge_section
+            try:
+                view, f = section_view_def(props)
+                lines = _dev.write_dxf([_dev.cross_section(f, view)],
+                                       bpy.path.abspath(self.filepath))
+            except ImportError:
+                self.report({"ERROR"}, "DXF needs ezdxf in Blender's Python")
+                return {"CANCELLED"}
+            except Exception as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+            self.report({"INFO"}, lines[0])
+            return {"FINISHED"}
+
+    class BIMFORGE_OT_section_exit(bpy.types.Operator):
+        bl_idname = "bimforge.section_exit"
+        bl_label = "Exit"
+        bl_description = ("Leave the section camera (and the developed-elevation "
+                          "scene) for a free 3D view of the model")
+
+        def execute(self, context):
+            done = exit_views(context)
+            self.report({"INFO"}, "back to " + ", ".join(done) if done
+                        else "already in a free view")
             return {"FINISHED"}
 
     class BIMFORGE_OT_section_view(bpy.types.Operator):
@@ -1086,6 +1131,10 @@ if bpy is not None:
 
         def draw(self, context):
             props = context.scene.bimforge_section
+            if context.scene.name == DEV_SCENE:
+                self.layout.operator("bimforge.section_exit",
+                                     text="Back to the model", icon="LOOP_BACK")
+                return
             col = self.layout.column(align=True)
             col.row().prop(props, "source", expand=True)
             if props.source == "FILE":
@@ -1124,7 +1173,10 @@ if bpy is not None:
                 info.label(text=f"Bearing {_bearing(fr.azimuth)}")
                 info.label(text=(f"{st.format_station(st.start_station, u)}"
                                  f" to {st.format_station(st.end_station, u)}"))
-            self.layout.operator("bimforge.section_view", icon="VIEW_CAMERA")
+            row = self.layout.row(align=True)
+            row.operator("bimforge.section_view", icon="VIEW_CAMERA")
+            row.operator("bimforge.section_exit", icon="LOOP_BACK")
+            self.layout.operator("bimforge.section_dxf", icon="EXPORT")
             if _STATE["events"]:
                 dbox = self.layout.box()
                 dbox.label(text="4D date", icon="TIME")
@@ -1220,7 +1272,8 @@ def developed_view(props):
     st = _stationer(props)
     u = _unit(props, st)
     if not props.dev_from or not props.dev_to:
-        raise ValueError("give the From and To stations")
+        raise ValueError("a developed elevation needs From and To stations "
+                         "(for the cross section, use Export Section DXF)")
     a, b = (_dev.parse_station(x, u) for x in (props.dev_from, props.dev_to))
     if u != st.station_unit:                  # the engine speaks the file's unit
         k = st.to_unit(1.0, st.station_unit) / st.to_unit(1.0, u)
@@ -1235,6 +1288,47 @@ def developed_view(props):
         true_view=props.dev_true, exaggeration=props.dev_exag,
         date=(props.date or None) if props.date_filter else None)
     return view, f
+
+
+def section_view_def(props):
+    """(SectionView, file) of the section the camera shows: the slider's
+    station, the panel's width / depth / look (Blender metres to the station
+    unit) and the 4D date when the date filter is on."""
+    f, _sts = _open(props)
+    st = _stationer(props)
+    fr = _STATE["frame"]
+    if st is None or fr is None:
+        raise ValueError("load an alignment first")
+    u = st.station_unit                       # the engine speaks the file's unit
+    sta = st.convert(fr.station, u)
+    view = _dev.SectionView(
+        name=f"{st.name} STA {st.format_station(fr.station)}", station=sta,
+        width=st.to_unit(props.width, u), depth=st.to_unit(max(props.depth, 0.0), u),
+        look_back=props.look == "BACK", alignment=st.name,
+        date=(props.date or None) if props.date_filter else None)
+    return view, f
+
+
+def exit_views(context) -> list[str]:
+    """Back to the model: from the developed-elevation scene to the scene it
+    was built from, and every 3D view out of the camera into a free view."""
+    done = []
+    win = context.window
+    if win is not None and win.scene.name == DEV_SCENE:
+        back = bpy.data.scenes.get(_STATE.get("home_scene") or "") or next(
+            (sc for sc in bpy.data.scenes if sc.name != DEV_SCENE), None)
+        if back is not None:
+            win.scene = back
+            done.append(f"scene {back.name}")
+    screen = win.screen if win is not None else context.screen
+    for area in (screen.areas if screen is not None else ()):
+        if area.type != "VIEW_3D":
+            continue
+        r3d = area.spaces.active.region_3d
+        if r3d.view_perspective == "CAMERA":
+            r3d.view_perspective = "PERSP"
+            done.append("free view")
+    return done
 
 
 def build_developed(dr) -> "bpy.types.Scene":
@@ -1423,6 +1517,7 @@ _CLASSES = () if bpy is None else (
     BIMFORGE_OT_section_cut, BIMFORGE_OT_section_offset_locate,
     BIMFORGE_OT_section_to_selected,
     BIMFORGE_OT_developed_build, BIMFORGE_OT_developed_dxf,
+    BIMFORGE_OT_section_dxf, BIMFORGE_OT_section_exit,
     BIMFORGE_OT_section_offset_inquire, BIMFORGE_OT_section_date_step,
     BIMFORGE_PT_section)
 _HANDLERS: list = []

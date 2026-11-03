@@ -403,3 +403,42 @@ def test_developed_elevation_in_its_own_scene(addon):
     finally:
         if bpy.context.window is not None:
             bpy.context.window.scene = home
+
+
+def test_export_section_dxf_is_the_section_the_camera_shows(addon, tmp_path):
+    """No From / To: the cross section at the slider's station, the view's
+    width and look, to a DXF sheet."""
+    pytest.importorskip("shapely")
+    ezdxf = pytest.importorskip("ezdxf")
+    mod, m, al, _prof = addon
+    props = bpy.context.scene.bimforge_section
+    props.dev_from = props.dev_to = ""
+    props.position = 0.5
+    props.look = "AHEAD"
+    view, f = mod.section_view_def(props)
+    st = mod._stationer(props)
+    assert view.station == pytest.approx(st.convert(mod._STATE["frame"].station, "ft"))
+    assert view.width == pytest.approx(st.to_unit(props.width, "ft"))
+    out = tmp_path / "sec.dxf"
+    assert bpy.ops.bimforge.section_dxf(filepath=str(out)) == {"FINISHED"}
+    doc = ezdxf.readfile(str(out))
+    (lay,) = [x for x in doc.layouts if x.name != "Model"]
+    titles = [e.dxf.text for e in lay if e.dxftype() == "TEXT"]
+    assert any("SECTION AT STA" in t and "LOOKING AHEAD" in t for t in titles)
+    assert any(e.dxf.layer.startswith("E-CUT-") for e in doc.modelspace())
+    # the developed export still asks for its range, and says where to go
+    with pytest.raises(ValueError, match="Export Section DXF"):
+        mod.developed_view(props)
+
+
+def test_exit_leaves_the_camera_and_the_developed_scene(addon):
+    mod, *_ = addon
+    win = bpy.context.window
+    if win is None:
+        pytest.skip("no window in background mode")
+    home = win.scene
+    mod._STATE["home_scene"] = home.name
+    dev = bpy.data.scenes.get(mod.DEV_SCENE) or bpy.data.scenes.new(mod.DEV_SCENE)
+    win.scene = dev
+    mod.exit_views(bpy.context)
+    assert win.scene == home

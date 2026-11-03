@@ -15,7 +15,8 @@ from bimforge.author.model import Element, StructureModel  # noqa: E402
 from bimforge.author.project import ProjectContext  # noqa: E402
 from bimforge.author.sweep import SweptSection  # noqa: E402
 from bimforge.author.tests.test_emit_alignment import POB, RUN  # noqa: E402
-from bimforge.bim.developed import (ElevationView, develop, load_set,  # noqa: E402
+from bimforge.bim.developed import (ElevationView, SectionView,  # noqa: E402
+                                    cross_section, develop, load_set,
                                     parse_station, write_dxf)
 
 
@@ -138,3 +139,51 @@ def test_a_set_file_makes_the_segments(tmp_path):
     assert segs[0].from_station == 0.0 and segs[1].from_station == 980.0
     assert segs[-1].to_station == pytest.approx(9500.23)
     assert all(v.offset == 10 and v.side == "Rt" and v.depth == 8 for v in views)
+
+
+def _cut_spans(dr):
+    """{layer-ish: (xmin, xmax, ymin, ymax, area)} of the section's cut."""
+    from shapely.geometry import Polygon
+    out = []
+    for _layer, _rgb, polys in dr.cut:
+        for p in polys:
+            poly = Polygon(p[0], p[1:])
+            x0, y0, x1, y1 = poly.bounds
+            out.append((round(x0, 3), round(x1, 3), round(y0, 3), round(y1, 3),
+                        round(poly.area, 2)))
+    return sorted(out)
+
+
+def test_a_cross_section_is_what_the_section_camera_sees(ifc):
+    """At 1050, 30 ft wide, looking ahead: Lt is on the viewer's left, so
+    the tall wall (9-11 Lt) cuts at x 4-6 and the low box (4-6 Lt) at 9-11,
+    with CL at x 15. Looking back mirrors it."""
+    f, _al = ifc
+    ahead = cross_section(f, SectionView("A", 1050.0, width=30.0, depth=10.0))
+    assert ahead.length == pytest.approx(30.0) and ahead.tick_kind == "offset"
+    assert _cut_spans(ahead) == [(4.0, 6.0, 0.0, 10.0, 20.0), (9.0, 11.0, 0.0, 3.0, 6.0)]
+    ticks = dict((o, x) for x, o in ahead.ticks)
+    assert (ticks[0.0], ticks[10.0], ticks[-10.0]) == (15.0, 5.0, 25.0)
+    back = cross_section(f, SectionView("B", 1050.0, width=30.0, depth=10.0,
+                                        look_back=True))
+    assert _cut_spans(back) == [(19.0, 21.0, 0.0, 3.0, 6.0), (24.0, 26.0, 0.0, 10.0, 20.0)]
+    # nothing is cut where nothing stands, but what lies beyond is drawn
+    gap = cross_section(f, SectionView("G", 1005.0, width=30.0, depth=10.0))
+    assert not gap.cut and gap.beyond
+    with pytest.raises(ValueError, match="not along"):
+        cross_section(f, SectionView("X", 5000.0))
+
+
+def test_a_cross_section_to_dxf(ifc, tmp_path):
+    ezdxf = pytest.importorskip("ezdxf")
+    f, _al = ifc
+    out = tmp_path / "sec.dxf"
+    rep = write_dxf([cross_section(f, SectionView("S", 1050.0, width=30.0,
+                                                  depth=10.0))], str(out))
+    assert rep[0].startswith("01 S: section at 10+50.00, 30.00 wide")
+    doc = ezdxf.readfile(str(out))
+    texts = {e.dxf.text for e in doc.modelspace() if e.dxftype() == "TEXT"}
+    assert {"CL", "10 Lt", "10 Rt"} <= texts
+    lay = doc.layouts.get("01 S")
+    titles = [e.dxf.text for e in lay if e.dxftype() == "TEXT"]
+    assert any("SECTION AT STA 10+50.00, LOOKING AHEAD" in t for t in titles)

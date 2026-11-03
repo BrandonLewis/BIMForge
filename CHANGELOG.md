@@ -4,6 +4,20 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **Cross sections to DXF.** `bimforge.bim.developed.cross_section(f,
+  SectionView(...))` draws the section square to the alignment at one
+  station: the cut filled per styling, ground lines, the visible edges
+  beyond, and offset ticks (CL, 10 Lt, 10 Rt) on the same DXF sheets as the
+  developed elevations. In the Blender add-on, **Export Section DXF** writes
+  what the section camera shows (the slider's station, Width, Depth,
+  Ahead/Back, the 4D date). It needs no From/To; those belong to the
+  developed elevation, whose message now points here.
+- **Exit** (next to View Section) leaves the section camera for a free 3D
+  view. In the developed-elevation scene the panel offers **Back to the
+  model**, returning to the scene Develop was run from.
+
 ### Fixed
 
 - **The Blender add-on in Bonsai 0.8.x.** Loading an alignment failed with

@@ -36,6 +36,14 @@ split first so they bend with it (`max_edge`).
 
 `est-bim elevation set.yaml` draws a whole sheet set: an overall view and
 enlarged segments (see `load_set`).
+
+`cross_section` draws the other view, a SECTION square to the alignment at one
+station (what the Blender add-on's section camera shows): the same cut,
+ground lines and visible edges beyond, to the same DXF sheets, with offset
+ticks (CL, 10 Lt, 10 Rt) along the bottom instead of stations.
+
+    sec = SectionView("STA 1+00", station=100.0, width=40, depth=1)
+    write_dxf([cross_section(ifc, sec)], "section.dxf")
 """
 from __future__ import annotations
 
@@ -82,6 +90,33 @@ class ElevationView:
 
 
 @dataclass
+class SectionView:
+    """A cross section square to the alignment (in plan) at `station`:
+    x across the view, the viewer's left to right (looking ahead, Lt is on
+    the left), `width` wide and centred on the line; y elevation. Lengths in
+    the station unit."""
+    name: str
+    station: float
+    width: float = 40.0                     # across, centred on the line
+    depth: float = 1.0                      # how far beyond the cut to draw
+    look_back: bool = False                 # look down-station
+    alignment: str | None = None
+    scale: float | None = None
+    exaggeration: float = 1.0
+    date: str | None = None
+    resolution: float | None = None
+    title: str | None = None
+
+    @property
+    def from_station(self) -> float:
+        return self.station
+
+    @property
+    def to_station(self) -> float:
+        return self.station
+
+
+@dataclass
 class Drawing:
     """One view, in its own 2D frame: x = length along the developed line
     (0 at from_station, flipped for a true view from the left), y =
@@ -96,6 +131,7 @@ class Drawing:
     unit: str = "ft"
     foot_m: float = 1200.0 / 3937.0              # the file's foot, metres
     elements: int = 0
+    tick_kind: str = "station"                   # "offset": ticks are offsets left
 
 
 # ---------------------------------------------------------------- geometry
@@ -225,20 +261,22 @@ class _Unroll:
         return float(np.ptp(np.unwrap(np.radians(az)))) > 1e-6
 
 
+def _stationer_for(f, name):
+    from .alignment_station import AlignmentStationer, alignments
+    found = alignments(f)
+    if not found:
+        raise ValueError("no IFC4X3 IfcAlignment to draw along")
+    al = next((a for a in found if a.Name == name), None) if name else found[0]
+    if al is None:
+        raise ValueError(f"no IfcAlignment {name!r} (has {[a.Name for a in found]})")
+    return AlignmentStationer(f, al)
+
+
 def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing:
     """The view's cut, ground lines and visible edges (see the module
     docstring). `f`: an open IFC4X3 file with the alignment."""
     import numpy as np
-    from .alignment_station import AlignmentStationer, alignments
-    found = alignments(f)
-    if not found:
-        raise ValueError("no IFC4X3 IfcAlignment to develop along")
-    al = next((a for a in found if a.Name == view.alignment), None) \
-        if view.alignment else found[0]
-    if al is None:
-        raise ValueError(f"no IfcAlignment {view.alignment!r} "
-                         f"(has {[a.Name for a in found]})")
-    st = AlignmentStationer(f, al)
+    st = _stationer_for(f, view.alignment)
     unit = st.station_unit
     to_m = st.from_unit(1.0, unit)                        # unit -> metres
     proj = lambda s: s * to_m / st.unit_scale             # noqa: E731  unit -> project
@@ -325,6 +363,92 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
     if zs:
         drawing.extent = (0.0, min(zs), drawing.length, max(zs))
     return drawing
+
+
+def cross_section(f, view: SectionView) -> Drawing:
+    """The section square to the alignment at `view.station`: the cut
+    filled per styling, open surfaces as ground lines, the visible edges up
+    to `depth` beyond, offset ticks along the bottom. The plane is the one
+    the Blender add-on's section camera stands on: vertical, square to the
+    PLAN tangent."""
+    import numpy as np
+    st = _stationer_for(f, view.alignment)
+    unit = st.station_unit
+    to_m = st.from_unit(1.0, unit)                        # unit -> metres
+    k = 1.0 / to_m                                        # metres -> unit
+    d = st.distance_at(view.station * to_m / st.unit_scale)
+    if not -1e-6 <= d <= st.length + 1e-6:
+        raise ValueError(f"{view.name}: station {view.station} is not along {st.name}")
+    fr = st.frame(d)
+    T = np.array(fr.plan_tangent[:2]) * (-1.0 if view.look_back else 1.0)
+    R = np.array([T[1], -T[0]])                           # the viewer's right
+    P = np.array(fr.point[:2])
+    half = view.width * to_m / 2.0
+    depth = view.depth * to_m
+    ex = view.exaggeration
+    za = st.to_unit(st.elevation_m(0.0), unit)            # model z -> elevation
+    zb = st.to_unit(st.elevation_m(1.0), unit) - za
+
+    def to2d(u, z):
+        return u * k, z * ex
+
+    drawing = Drawing(view=view, unit=unit, length=2.0 * half * k,
+                      foot_m=st.foot_m, tick_kind="offset")
+    warped = []
+    for name, layer, surface, v, t, trgb in _all_bodies(f, view.date):
+        rel = v[:, :2] - P
+        dist, across = rel @ T, rel @ R
+        tz, tx = dist[t], across[t]
+        keep = ((tz.max(1) >= 0.0) & (tz.min(1) <= depth)
+                & (tx.max(1) >= -half - 1.0) & (tx.min(1) <= half + 1.0))
+        if not keep.any():
+            continue
+        idx = np.nonzero(keep)[0]
+        warped.append((name, layer, surface, across + half, dist,
+                       za + zb * v[:, 2], t[idx], [trgb[i] for i in idx], None))
+    drawing.elements = len(warped)
+    for _name, layer, surface, u, dist, z, t, trgb, _in in warped:
+        segs, rgbs = _plane_cut(u, dist, z, t, trgb)
+        if not segs:
+            continue
+        segs = [(to2d(*a), to2d(*b)) for a, b in segs]
+        rgb = max(set(rgbs), key=rgbs.count)
+        rings = [] if surface else _polygons(segs, 0.0, drawing.length)
+        if not rings:
+            segs = _clip_segments_x(segs, 0.0, drawing.length)
+            if not segs:
+                continue
+        if rings:
+            drawing.cut.append((layer, rgb, rings))
+        else:                     # a surface, or a body whose cut does not close
+            for line in _chain(segs):
+                drawing.ground.append((layer.replace("E-CUT-", "E-GROUND-"), rgb, line))
+    drawing.beyond = _visible_edges(warped, to2d, drawing, view, depth * k, k)
+    # an offset tick every whole unit: (x, offset left); looking ahead the
+    # left is on the viewer's left
+    w2 = view.width / 2.0
+    o = math.ceil(-w2 - 1e-9)
+    while o <= w2 + 1e-9:
+        drawing.ticks.append((float(w2 + (o if view.look_back else -o)), float(o)))
+        o += 1
+    drawing.ticks.sort()
+    zs = [p[1] for _l, _r, polys in drawing.cut for poly in polys for loop in poly
+          for p in loop]
+    zs += [p[1] for _l, _r, line in drawing.ground for p in line]
+    zs += [p[1] for line in drawing.beyond for p in line]
+    if zs:
+        drawing.extent = (0.0, min(zs), drawing.length, max(zs))
+    else:
+        g = st.to_unit(st.elevation_m(fr.point[2]), unit) * ex
+        drawing.extent = (0.0, g - 1.0, drawing.length, g + 1.0)
+    return drawing
+
+
+def offset_label(offset_left: float) -> str:
+    """'CL', '10 Lt', '7.5 Rt' from an offset left (whole units bare)."""
+    if abs(offset_left) < 1e-9:
+        return "CL"
+    return f"{abs(offset_left):g} {'Lt' if offset_left > 0 else 'Rt'}"
 
 
 def _plane_cut(u, dist, z, t, trgb):
@@ -647,7 +771,9 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
             msp.add_line((x, y0 + oy - (th if is_major else th / 2)), (x, y0 + oy),
                          dxfattribs={"layer": "E-GRID"})
             if is_major:
-                msp.add_text(format_station(sta, dr.unit, 0), height=th,
+                label = (offset_label(sta) if dr.tick_kind == "offset"
+                         else format_station(sta, dr.unit, 0))
+                msp.add_text(label, height=th,
                              dxfattribs={"layer": "E-TEXT"}).set_placement(
                     (x, y0 + oy - 2.5 * th), align=TextEntityAlignment.TOP_CENTER)
         ystep = _nice(max((y1 - y0) / 6.0, 3.0 * th))
@@ -659,7 +785,10 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
                          dxfattribs={"layer": "E-TEXT"}).set_placement(
                 (-th, e + oy), align=TextEntityAlignment.MIDDLE_RIGHT)
             e += ystep
-        title = v.title or (
+        sec_title = (f"{v.name}: SECTION AT STA {format_station(v.station, dr.unit)}, "
+                     f"LOOKING {'BACK' if v.look_back else 'AHEAD'}"
+                     if isinstance(v, SectionView) else None)
+        title = v.title or sec_title or (
             f"{v.name}: DEVELOPED ELEVATION {v.offset:.2f} {v.side.upper()}, "
             f"LOOKING {'RIGHT' if v.look_from.lower().startswith('l') else 'LEFT'}"
             f"{'' if v.true_view else ' (MIRRORED: STATIONS LEFT TO RIGHT)'}")
@@ -684,8 +813,10 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
                      + (f"   AS OF {v.date}" if v.date else ""),
                      height=0.16).set_placement((sheet.margin + 0.3, sheet.margin + 0.45))
         fits = (x1 - x0) / scale <= vw + 1e-6 and (y1 - y0) / scale <= vh + 1e-6
-        report.append(f"{lay.name}: {v.from_station:.2f} to {v.to_station:.2f}, "
-                      f"{dr.length:.2f} along the line, 1\" = {scale:g}"
+        span = (f"section at {format_station(v.station, dr.unit)}, {dr.length:.2f} wide"
+                if isinstance(v, SectionView) else
+                f"{v.from_station:.2f} to {v.to_station:.2f}, {dr.length:.2f} along the line")
+        report.append(f"{lay.name}: {span}, 1\" = {scale:g}"
                       + ("" if fits else "  (DOES NOT FIT the sheet at this scale)"))
     _ = colors
     if drawings and "Layout1" in doc.layouts:
