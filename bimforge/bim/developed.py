@@ -171,17 +171,8 @@ def _all_bodies(f, date):
                 rgb = [_surface_rgb(m) for m in mats] or [(0.6, 0.6, 0.6)]
                 tri_rgb = ([rgb[i] if 0 <= i < len(rgb) else rgb[0] for i in ids]
                            if len(ids) == len(t) else [rgb[0]] * len(t))
-                mat = ue.get_material(el)
-                layer = _layer_name(getattr(mat, "Name", None) or el.is_a())
-                if not getattr(mat, "Name", None) and all(
-                        _unstyled(c) for c in rgb):
-                    # no material, no styling: what its name says it is
-                    # (drain rock, AB, CDF), as the Blender add-on reads it
-                    from .section_style import style_of
-                    k = style_of(el.Name, el.is_a())
-                    if k is not None:
-                        layer = _layer_name(k.kind)
-                        tri_rgb = [k.rgb] * len(t)
+                layer, tri_rgb = _cut_layer(el, ue.get_material(el), mats, rgb,
+                                            tri_rgb)
                 # a surface (terrain, finished grade) cuts as a LINE; a body
                 # with any solid item is never one, even when the geometry
                 # kernel draws it open (IfcSectionedSolidHorizontal, #9820)
@@ -205,6 +196,25 @@ def _surface_rgb(m) -> tuple:
         if c is not None:
             return tuple(c.components)
     return (0.6, 0.6, 0.6)
+
+
+def _cut_layer(el, mat, mats, rgb, tri_rgb):
+    """(layer, tri_rgb) of a cut: the layer names the material (its
+    IfcMaterial, else its IfcSurfaceStyle, else its class), and when that
+    name does not say what it is, the kind its style, element name or class
+    does (drain rock, AB, CDF), as the Blender add-on reads it - whatever
+    its colour. Only an unstyled body takes the kind's colour."""
+    from .section_style import style_of
+    style = next((m.name for m in mats if getattr(m, "name", None)
+                  and not _unstyled(_surface_rgb(m))), None)
+    base = getattr(mat, "Name", None) or style or el.is_a()
+    k = style_of(base, style, el.Name, el.is_a())
+    layer = _layer_name(base)
+    if k is not None and style_of(base) is not k:
+        layer = _layer_name(k.kind)
+    if k is not None and all(_unstyled(c) for c in rgb):
+        tri_rgb = [k.rgb] * len(tri_rgb)
+    return layer, tri_rgb
 
 
 def _unstyled(rgb) -> bool:
@@ -290,9 +300,10 @@ def _stationer_for(f, name):
     found = alignments(f)
     if not found:
         raise ValueError("no IFC4X3 IfcAlignment to draw along")
-    al = next((a for a in found if a.Name == name), None) if name else found[0]
+    label = lambda a: a.Name or f"#{a.id()}"  # noqa: E731  AlignmentStationer.name
+    al = next((a for a in found if label(a) == name), None) if name else found[0]
     if al is None:
-        raise ValueError(f"no IfcAlignment {name!r} (has {[a.Name for a in found]})")
+        raise ValueError(f"no IfcAlignment {name!r} (has {[label(a) for a in found]})")
     return AlignmentStationer(f, al)
 
 
@@ -534,8 +545,8 @@ def _polygons(segs, x0, x1):
     merged = merged.intersection(box(x0, min(ys) - 1.0, x1, max(ys) + 1.0))
     out = []
     for p in getattr(merged, "geoms", [merged]):
-        if not isinstance(p, Polygon):
-            continue
+        if not isinstance(p, Polygon) or p.is_empty or p.area <= 1e-8:
+            continue                  # clipped away: outside the view
         p = orient(p, 1.0)
         out.append([list(p.exterior.coords)] + [list(i.coords) for i in p.interiors])
     return out
@@ -845,10 +856,11 @@ def _cut_to_dxf(doc, msp, layer, rgb, rings, dy, scale) -> None:
     """One material's cut: a solid fill in its colour on `layer` (a colour
     plot; freeze it for black and white), its hatch pattern in ink on
     `layer`-PATT (bimforge.bim.section_style: concrete stipple, earth, fill,
-    gravel ...), and the cut outline heavy. Rebar plots solid, and a bar
+    gravel ...) with the heavy cut outline, so freezing the colour layers
+    leaves a black-and-white section. Rebar plots solid, and a bar
     smaller than MIN_DOT_IN on paper as a dot that size."""
     from .section_style import MIN_DOT_IN, hatch_scale, style_of
-    kind = style_of(layer.replace("E-CUT-", "").replace("-", " "))
+    kind = style_of(layer.replace("E-CUT-", ""))
     col = tuple(int(c * 255) for c in rgb)
     patt = f"{layer}-PATT"
     for name, colour in ((layer, col), (patt, None)):
@@ -859,6 +871,8 @@ def _cut_to_dxf(doc, msp, layer, rgb, rings, dy, scale) -> None:
     rebar = kind is not None and kind.dxf == "SOLID"
     r_min = MIN_DOT_IN / 2.0 * scale
     for ring in rings:
+        if not ring or len(ring[0]) < 3:
+            continue
         outer = [dy(p) for p in ring[0]]
         h = msp.add_hatch(dxfattribs={"layer": layer})
         h.rgb = col
@@ -879,9 +893,9 @@ def _cut_to_dxf(doc, msp, layer, rgb, rings, dy, scale) -> None:
             ink.paths.add_polyline_path(outer, is_closed=True)
             for hole in ring[1:]:
                 ink.paths.add_polyline_path([dy(p) for p in hole], is_closed=True)
-        for loop in ring:
+        for loop in ring:               # on the ink layer: kept in B/W
             msp.add_lwpolyline([dy(p) for p in loop], close=True,
-                               dxfattribs={"layer": layer, "color": 7,
+                               dxfattribs={"layer": patt, "color": 7,
                                            "lineweight": 50})
 
 

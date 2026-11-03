@@ -273,3 +273,51 @@ def test_the_style_table():
     for a, b in [("Concrete", "Concrete Backfill"), ("Concrete", "Lean Concrete"),
                  ("Earthwork", "Compacted Fill"), ("Compacted Fill", "Lean Concrete")]:
         assert sum(abs(x - y) for x, y in zip(rgb[a], rgb[b])) > 0.25, (a, b)
+
+
+def test_review_round_trips_and_edges(wall_section, tmp_path):
+    """PR #3 review: a bar outside the view is not an empty cut, outlines
+    live on the ink layer, kind labels re-classify, layer spellings
+    normalise, and an unnamed alignment resolves by its '#id' label."""
+    ezdxf = pytest.importorskip("ezdxf")
+    from types import SimpleNamespace as NS
+    from bimforge.bim import developed as D
+    from bimforge.bim.section_style import KINDS, style_of
+    # 30 ft wide misses nothing; 0.5 ft wide at CL leaves the bar (0.5 Lt) out
+    narrow = cross_section(wall_section, SectionView("N", 1050.0, width=0.6, depth=1.0))
+    assert all(ring and len(ring[0]) >= 3 for _l, _r, rings in narrow.cut for ring in rings)
+    assert "E-CUT-Reinforcing-Steel" not in {c[0] for c in narrow.cut}
+    out = tmp_path / "n.dxf"
+    write_dxf([narrow], str(out))                         # no crash
+    # cut outlines on the -PATT (ink) layer, so a frozen colour layer keeps them
+    write_dxf([cross_section(wall_section, SectionView("S", 1050.0, width=30.0))],
+              str(out))
+    doc = ezdxf.readfile(str(out))
+    heavy = [e for e in doc.modelspace().query("LWPOLYLINE") if e.dxf.lineweight == 50]
+    assert heavy and all(e.dxf.layer.endswith("-PATT") for e in heavy)
+    # every kind's own label, and its DXF layer spelling, classify as itself
+    for k in KINDS:
+        assert style_of(k.kind) is k, k.kind
+        assert style_of(D._layer_name(k.kind).replace("E-CUT-", "")) is k, k.kind
+    # a named style with no IfcMaterial: its style name says what it is
+    el = NS(Name="W1", is_a=lambda *a: "IfcWall")
+    styled = NS(name="Lean Concrete", surface=NS(components=(0.9, 0.85, 0.62)), diffuse=None)
+    layer, _ = D._cut_layer(el, None, [styled], [(0.9, 0.85, 0.62)], [(0.9, 0.85, 0.62)])
+    assert layer == "E-CUT-Lean-Concrete"
+    # a generic material name: the element name says it, colour kept
+    rock = NS(Name="drain rock", is_a=lambda *a: "IfcBuildingElementProxy")
+    layer, tri = D._cut_layer(rock, NS(Name="Material"), [], [(0.3, 0.3, 0.3)], [(0.3, 0.3, 0.3)])
+    assert layer == "E-CUT-Gravel" and tri == [(0.3, 0.3, 0.3)]
+
+
+def test_an_unnamed_alignment_resolves_by_its_label(wall_section):
+    from bimforge.bim.alignment_station import AlignmentStationer, alignments
+    from bimforge.bim.developed import _stationer_for
+    al = alignments(wall_section)[0]
+    name, al.Name = al.Name, None
+    try:
+        label = AlignmentStationer(wall_section, al).name
+        assert label == f"#{al.id()}"
+        assert _stationer_for(wall_section, label).alignment == al
+    finally:
+        al.Name = name

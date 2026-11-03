@@ -526,3 +526,41 @@ def test_station_and_offset_sliders(addon):
         assert props.bl_rna.properties["offset"].hard_max == pytest.approx(2 * half, rel=1e-4)
     finally:
         props.width = w
+
+
+def test_review_paint_follows_the_object_and_views_keep_their_hatch(addon):
+    """PR #3 review: a coloured generic material on a wall still hatches as
+    concrete; Lean-Concrete (a developed layer) hatches as lean concrete;
+    the developed scene's hatch period is its own; the offset slider spans
+    the view, not more."""
+    mod, *_ = addon
+    props = bpy.context.scene.bimforge_section
+    props.goto = 1200.0
+    bpy.ops.bimforge.section_goto()
+    fr = mod._STATE["frame"]
+    made = [_box("IfcWall/Stem", fr, 2.5, 3.0, -1.0, 0.0, [_mat("Material", (0.5, 0.4, 0.3))])]
+    try:
+        bpy.ops.bimforge.section_cut()
+        me = bpy.data.objects[mod.CUT].data
+        names = [m.name for m in me.materials]
+        assert "Section · Material [stipple]" in names
+        mat = bpy.data.materials["Section · Material [stipple]"]
+        assert any(n.bl_idname == "ShaderNodeTexVoronoi" for n in mat.node_tree.nodes)
+    finally:
+        for ob in made:
+            bpy.data.objects.remove(ob)
+    lean = mod._section_material("Lean-Concrete", (0.9, 0.85, 0.62), prefix=mod.DEV_PREFIX)
+    assert lean.name == "Elevation · Lean-Concrete" and lean["bimforge_paint"].startswith("sand")
+    sec = mod._section_material("Concrete", (0.75, 0.73, 0.68))
+    mod.set_hatch_period(0.123, mod.DEV_PREFIX)
+    mod.set_hatch_period(0.456)
+    assert lean.node_tree.nodes[mod.PERIOD_NODE].outputs[0].default_value == pytest.approx(0.123)
+    assert sec.node_tree.nodes[mod.PERIOD_NODE].outputs[0].default_value == pytest.approx(0.456)
+    st = mod._stationer(props)
+    w = props.width
+    try:
+        props.width = 0.5
+        assert props.bl_rna.properties["offset"].hard_max == pytest.approx(
+            st.to_unit(0.25, "ft"), rel=1e-4)
+    finally:
+        props.width = w

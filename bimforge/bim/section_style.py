@@ -38,7 +38,7 @@ class Kind(NamedTuple):
 
 KINDS: list[Kind] = [
     # existing work to be removed reads apart from new work of any kind
-    Kind("Existing (to remove)", r"to be removed|\bdemo(lish|lition)?\b|"
+    Kind("Existing (to remove)", r"to (be )?remove|\bdemo(lish|lition)?\b|"
          r"^existing \d", (0.86, 0.62, 0.55), "CONC_DEMOLITION", 1.0, "cross"),
     Kind("Reinforcing Steel", r"rebar|reinforc|\brebr\b|\brein\b|ifcreinforcing",
          (0.75, 0.15, 0.12), "SOLID", 1.0, "solid"),
@@ -72,9 +72,11 @@ _BY_NAME = {k.kind: k for k in KINDS}
 
 
 def style_of(*names) -> Kind | None:
-    """The first kind any of `names` matches."""
+    """The first kind any of `names` matches (each name in turn)."""
     for name in names:
-        low = (name or "").lower().replace("_", " ")
+        # "_" and "-" read as spaces: a DXF / Blender layer ("Lean-Concrete",
+        # "S-BACKFILL-LEAN") classifies as its name does
+        low = re.sub(r"[_-]+", " ", (name or "").lower())
         for k in KINDS:
             if re.search(k.pattern, low):
                 return k

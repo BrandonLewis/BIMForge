@@ -227,17 +227,20 @@ def fill_for(mat, ob) -> tuple[str, tuple]:
     return hit if hit is not None else UNSTYLED
 
 
-def _section_material(name: str, rgb, paint: str | None = None
-                      ) -> "bpy.types.Material":
+def _section_material(name: str, rgb, paint: str | None = None,
+                      prefix: str = "Section") -> "bpy.types.Material":
     """An opaque section fill in `rgb` (opaque even when the source is
     see-through, like earthwork: a cut face is solid). UNLIT - an emission,
     so the viewport light never tints it - with the kind's hatch inked over
     it (bimforge.bim.section_style; `paint` overrides, "" is flat). Solid
     mode shows the flat colour; Material Preview and Rendered the hatch."""
+    k = _sty.style_of(name)
+    own = k.paint if k else ""
     if paint is None:
-        k = _sty.style_of(name)
-        paint = k.paint if k else ""
-    key = f"Section · {name}"
+        paint = own
+    # a view's own materials (the developed scene keeps its hatch size);
+    # a paint the name would not give gets its own material
+    key = f"{prefix} · {name}" + ("" if paint == own else f" [{paint}]")
     mat = bpy.data.materials.get(key)
     if mat is None:
         mat = bpy.data.materials.new(key)
@@ -338,10 +341,11 @@ def _paint(mat, rgb, paint: str) -> None:
     L.new(res, emit.inputs["Color"])
 
 
-def set_hatch_period(metres: float) -> None:
-    """Every section hatch repeats every `metres` (camera space)."""
+def set_hatch_period(metres: float, prefix: str = "Section") -> None:
+    """The hatches of one view's materials (`prefix`) repeat every
+    `metres` (camera space); the other view's keep theirs."""
     for mat in bpy.data.materials:
-        if mat.name.startswith("Section · ") and mat.node_tree is not None:
+        if mat.name.startswith(f"{prefix} · ") and mat.node_tree is not None:
             n = mat.node_tree.nodes.get(PERIOD_NODE)
             if n is not None:
                 n.outputs[0].default_value = max(metres, 1e-4)
@@ -548,7 +552,7 @@ def cut(scene, props, co, look):
             else scene.objects)
     out = bmesh.new()
     by_style = props.fill_style == "STYLE"
-    fills: dict[tuple, int] = {}          # (name, rgb) -> output slot
+    fills: dict[tuple, int] = {}          # (name, rgb, paint) -> output slot
     groups: list[tuple[int, list]] = []
     bars: list[tuple[int, list]] = []     # rebar cuts: dotted when tiny
     for ob in pool:
@@ -588,8 +592,10 @@ def cut(scene, props, co, look):
             for mi, new_edges in sorted(per_mat.items()):
                 mat = slots[mi] if 0 <= mi < len(slots) else None
                 fill = fill_for(mat, ob) if by_style else ("Cut", None)
-                slot = fills.setdefault(fill, len(fills))
                 k = _sty.style_of(fill[0], ob.name) if by_style else None
+                # the hatch: what the material says, else the object name
+                fill = (*fill, k.paint if k else "")
+                slot = fills.setdefault(fill, len(fills))
                 groups.append((slot, new_edges))
                 if k is not None and k.kind == "Reinforcing Steel":
                     bars.append((slot, new_edges))
@@ -623,9 +629,9 @@ def cut(scene, props, co, look):
     me.materials.clear()          # clearing AFTER to_mesh zeroes the indices
     out.to_mesh(me)
     out.free()
-    for (name, rgb), _slot in sorted(fills.items(), key=lambda kv: kv[1]):
+    for (name, rgb, paint), _slot in sorted(fills.items(), key=lambda kv: kv[1]):
         me.materials.append(_cut_material() if rgb is None
-                            else _section_material(name, rgb))
+                            else _section_material(name, rgb, paint))
     if not me.materials:
         me.materials.append(_cut_material())
     ob = _obj(scene, CUT, lambda: me)
@@ -917,7 +923,7 @@ def define_sliders(props, st) -> None:
     the range follows the alignment by redefining it."""
     u = _unit(props, st)
     a, b = sorted((st.convert(st.start_station, u), st.convert(st.end_station, u)))
-    half = max(st.to_unit(props.width / 2.0, u), 1.0)
+    half = st.to_unit(props.width / 2.0, u)          # the view, no wider
     key = (round(a, 6), round(b, 6), round(half, 4), u)
     if _SLIDER_KEY[0] == key:
         return
@@ -1469,6 +1475,7 @@ if bpy is not None:
 
 
 DEV_SCENE = "BIMForge Developed Elevation"
+DEV_PREFIX = "Elevation"             # the developed scene's own fill materials
 
 
 def developed_view(props):
@@ -1570,7 +1577,8 @@ def build_developed(dr) -> "bpy.types.Scene":
         me = bpy.data.meshes.new(f"Developed cut {i}")
         bm.to_mesh(me)
         bm.free()
-        me.materials.append(_section_material(layer.replace("E-CUT-", ""), rgb))
+        me.materials.append(_section_material(layer.replace("E-CUT-", ""), rgb,
+                                              prefix=DEV_PREFIX))
         link(me.name, me)
     width = max(dr.length * k, 1.0) / 1500.0
     lines = [(tuple(p3(a, 0.01)), tuple(p3(b, 0.01)))
@@ -1598,7 +1606,7 @@ def build_developed(dr) -> "bpy.types.Scene":
     cam_data = bpy.data.cameras.new("Developed camera")
     cam_data.type = "ORTHO"
     cam_data.ortho_scale = max((x1 - x0) * k, (y1 - y0) * k * 2.0) * 1.1
-    set_hatch_period(cam_data.ortho_scale / 150.0)
+    set_hatch_period(cam_data.ortho_scale / 150.0, DEV_PREFIX)
     cam = link("Developed camera", cam_data)
     cam.location = Vector(((x0 + x1) / 2 * k, -50.0, (y0 + y1) / 2 * k))
     cam.rotation_euler = (math.pi / 2, 0.0, 0.0)          # looks +Y
