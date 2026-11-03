@@ -293,3 +293,47 @@ def test_gate_catches_a_plumb_sweep_drawn_pitched(tmp_path, monkeypatch):
     assert _body(f).Items[0].is_a("IfcSectionedSolidHorizontal")
     fails = gate._ifc_exact_sweep_check(m, out)
     assert any("lean" in msg for msg in fails), fails
+
+
+def _world_bbox(f):
+    import ifcopenshell.geom
+    import numpy as np
+    st = ifcopenshell.geom.settings()
+    st.set("use-world-coords", True)
+    (p,) = f.by_type("IfcSlab")
+    v = np.array(ifcopenshell.geom.create_shape(st, p).geometry.verts)
+    v = v.reshape(-1, 3)
+    return v.min(0), v.max(0)
+
+
+@pytest.mark.parametrize("kw", [{}, {"frame": "plumb", "profile": None,
+                                     "camber": None}])
+def test_ifc_sweeps_mesh_writes_the_faceted_body_for_08_viewers(tmp_path, kw):
+    """ifcopenshell 0.8.5 (Bonsai 0.8.x) misplaces every
+    IfcSectionedSolidHorizontal cross-section by an offset that grows with
+    distance along the curve; `ifc_sweeps = "mesh"` writes the sweep as the
+    faceted brep instead, where it is drawn the same by every version."""
+    import numpy as np
+    m, sw = _model(**kw)
+    assert sw.exact_reason is None
+    (tmp_path / "exact").mkdir()
+    _out, exact = _emit(tmp_path / "exact", m)
+    m.ifc_sweeps = "mesh"
+    out, f = _emit(tmp_path, m)
+    rep = _body(f)
+    assert [i.is_a() for i in rep.Items] == ["IfcFacetedBrep"]
+    assert rep.RepresentationType == "Brep"
+    assert not f.by_type("IfcSectionedSolidHorizontal")
+    assert len(f.by_type("IfcAlignment")) == 1          # the line is kept
+    # the same solid in the same place: only chord sag on the curves
+    (lo0, hi0), (lo1, hi1) = _world_bbox(exact), _world_bbox(f)
+    assert np.abs(lo0 - lo1).max() < 0.01 and np.abs(hi0 - hi1).max() < 0.01
+    post = gate.run_post(m, {"ifc": str(out)})
+    assert post.passed, post.failures
+
+
+def test_ifc_sweeps_rejects_an_unknown_mode(tmp_path):
+    m, _sw = _model()
+    m.ifc_sweeps = "faceted"
+    with pytest.raises(ValueError, match="ifc_sweeps"):
+        _emit(tmp_path, m)

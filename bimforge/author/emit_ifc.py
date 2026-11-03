@@ -449,6 +449,10 @@ def _revolved_solid(f, d, k):
         Angle=float(d["angle"]))
 
 
+#: StructureModel.ifc_sweeps values
+IFC_SWEEP_MODES = ("exact", "mesh")
+
+
 def _sectioned_solid(f, d, k, curve):
     """One IfcSectionedSolidHorizontal along the alignment's IfcCurve (#332).
 
@@ -1342,6 +1346,13 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         scope = m.name if combined else ""
         by_name: dict[str, object] = {}
         hosts = {h for h, _op in m.openings}
+        sweeps = getattr(m, "ifc_sweeps", "exact")
+        if sweeps not in IFC_SWEEP_MODES:
+            raise ValueError(f"{m.name}: ifc_sweeps {sweeps!r} must be one of "
+                             f"{IFC_SWEEP_MODES}")
+        # "mesh": every sweep as its faceted brep, for ifcopenshell 0.8.x
+        # viewers (StructureModel.ifc_sweeps)
+        m_curves = curves if sweeps == "exact" else None
         for el in m.elements:
             # an Element is never the RelatedOpeningElement of an
             # IfcRelVoidsElement (only m.openings are), so every
@@ -1371,7 +1382,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             # boolean against an open shell is silently dropped — the
             # opening would not show
             items = (solids_for(f, el, ctx.ft_to_m,
-                                None if el.name in hosts else curves)
+                                None if el.name in hosts else m_curves)
                      if el.geometry is not None else [])
             if items:
                 # an open surface (ribbon -> IfcTriangulatedFaceSet) cannot

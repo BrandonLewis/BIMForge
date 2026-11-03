@@ -4,6 +4,45 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **`StructureModel.ifc_sweeps = "mesh"`: alignment sweeps for ifcopenshell
+  0.8.x viewers.** The default `"exact"` is unchanged: an exact
+  `SweptSection` is still written as an `IfcSectionedSolidHorizontal` on the
+  `IfcAlignment` curve. `"mesh"` writes every sweep as the faceted brep that
+  IFC4, DXF and STEP already get, and keeps the `IfcAlignment`. A spec sets
+  it with `ifc: {sweeps: mesh}` (`est-bim build`). An unknown value raises at
+  emit.
+
+### Known limitations
+
+- **ifcopenshell 0.8.5, which Bonsai 0.8.x bundles, misplaces every
+  `IfcSectionedSolidHorizontal`.** This is a kernel bug. The emitter's output
+  is not the cause. 0.8.5 evaluates the directrix itself exactly as 0.9 does,
+  but it puts each cross-section at the right point plus an offset that grows
+  with `DistanceAlong`, and the direction of that offset changes with the
+  curve's heading. A section point (u, v) at distance d along a due-east
+  line lands at (d, u + d, v), not (d, u, v). On a due-north line it lands at
+  (-u, d, v + d), not (-u, d, v). So the solid draws rotated and moved off
+  its line. Examples:
+  - The `test_developed` tall wall (9-11 ft Lt, El 0-10, 10+10 to 11+00):
+    0.9 draws x 12.47..17.83, z -60.96..-57.91. 0.8.5 draws x -3.06..-2.39,
+    z -27.48..2.58.
+  - Files that pass every IFC 4.3 rule are misplaced too: a "normal"-frame
+    sweep on an `IfcGradientCurve`, on a tangent and on curves, with
+    implicit placement axes.
+
+  Read models (extrusions, faceted breps) and plumb-on-grade sweeps, which
+  are already written as meshes, draw the same in both versions. For a model
+  meant for a 0.8.x viewer, set `ifc_sweeps = "mesh"`. The fixture wall then
+  draws identically under 0.8.5 and 0.9.
+- **A sweep with no vertical profile fails `IfcSectionedSolid.DirectrixIs3D`.**
+  Its directrix is the 2D horizontal `IfcCompositeCurve`, which
+  `ifcopenshell.validate --rules` reports as an error. ifcopenshell 0.9 draws
+  it correctly anyway. This is separate from the 0.8.5 placement bug: graded
+  sweeps on a 3D `IfcGradientCurve` are rule-valid and are still misplaced
+  by 0.8.5. Not fixed yet.
+
 ## 0.1.96 — 2026-11-02
 
 (0.1.95 is skipped: a plugin runtime already carries a wheel labelled 0.1.95.)

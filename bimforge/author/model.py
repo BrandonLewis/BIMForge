@@ -168,6 +168,15 @@ class StructureModel:
     #: outputs), "error" (a failure: outputs deleted) or "off". Warn is the
     #: default while existing families are brought up to solid bodies.
     solid_body_gate: str = "warn"
+    #: How an alignment sweep is written under IFC4X3: "exact" (default) as
+    #: an IfcSectionedSolidHorizontal on the IfcAlignment's curve, or "mesh"
+    #: as the faceted brep it is everywhere else (IFC4, DXF, STEP). "mesh" is
+    #: for viewers on ifcopenshell 0.8.x (Bonsai 0.8.x bundles 0.8.5), which
+    #: misplaces every IfcSectionedSolidHorizontal cross-section: it adds a
+    #: spurious offset that grows with distance along the curve, so the
+    #: solid lands rotated and moved off the line. The IfcAlignment itself
+    #: is still written.
+    ifc_sweeps: str = "exact"
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

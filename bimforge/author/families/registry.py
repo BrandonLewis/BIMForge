@@ -204,6 +204,8 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
         apply_spatial_parts(model, parse_rules(spec["spatial_parts"]))
     pc_mod.apply(model, pc)
     gate.configure_solid_bodies(model, spec)
+    # ifc: {sweeps: mesh} - faceted sweeps for ifcopenshell 0.8.x viewers
+    model.ifc_sweeps = str((spec.get("ifc") or {}).get("sweeps", "exact")).lower()
 
     rep = gate.run_pre(model, pc)
     print(rep.format("pre"), file=sys.stderr)
