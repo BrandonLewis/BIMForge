@@ -48,6 +48,9 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   slider or View Section rebuilds it. In the developed-elevation scene,
   **Back to the model** returns to the scene Develop was run from and
   leaves the section as it was.
+
+### Changed
+
 - **Default colours a section can tell apart.** Native earth
   (0.56/0.44/0.30) and compacted fill (0.80/0.69/0.46, a light straw) are
   now far apart, as are concrete, lean concrete / CDF (0.90/0.85/0.62, pale
