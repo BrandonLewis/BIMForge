@@ -208,7 +208,8 @@ def _cut_layer(el, mat, mats, rgb, tri_rgb):
     style = next((m.name for m in mats if getattr(m, "name", None)
                   and not _unstyled(_surface_rgb(m))), None)
     base = getattr(mat, "Name", None) or style or el.is_a()
-    k = style_of(base, style, el.Name, el.is_a())
+    # the class last: an unstyled IfcWall named "Lean Concrete" is lean
+    k = style_of(getattr(mat, "Name", None), style, el.Name, el.is_a())
     layer = _layer_name(base)
     if k is not None and style_of(base) is not k:
         layer = _layer_name(k.kind)
@@ -880,9 +881,11 @@ def _cut_to_dxf(doc, msp, layer, rgb, rings, dy, scale) -> None:
         for hole in ring[1:]:
             h.paths.add_polyline_path([dy(p) for p in hole], is_closed=True)
         if rebar:
-            area, cx, cy = _ring_centroid(outer)
+            _area, cx, cy = _ring_centroid(outer)
             ink = msp.add_hatch(color=7, dxfattribs={"layer": patt})
-            if math.sqrt(abs(area) / math.pi) < r_min:
+            # a dot only when the whole cut fits inside it (a long thin bar
+            # keeps its length and outline), as the Blender add-on's _dot
+            if max(math.hypot(x - cx, y - cy) for x, y in outer) < r_min:
                 ink.paths.add_edge_path().add_arc((cx, cy), r_min, 0.0, 360.0)
                 continue                      # the dot is the bar: no outline
             ink.paths.add_polyline_path(outer, is_closed=True)

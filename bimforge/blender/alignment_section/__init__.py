@@ -637,6 +637,7 @@ def cut(scene, props, co, look):
     ob = _obj(scene, CUT, lambda: me)
     ob.data = me
     ob.show_in_front = False
+    set_hatch_period(props.width / 120.0)  # Cut Now too, not only place()
     outline(scene, props, segs, co, look)
     return ob
 

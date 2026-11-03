@@ -564,3 +564,20 @@ def test_review_paint_follows_the_object_and_views_keep_their_hatch(addon):
             st.to_unit(0.25, "ft"), rel=1e-4)
     finally:
         props.width = w
+
+
+def test_cut_now_sets_the_hatch_period(addon):
+    mod, *_ = addon
+    props = bpy.context.scene.bimforge_section
+    w = props.width
+    try:
+        props.live_cut = False
+        props.width = w * 1.5
+        mod.set_hatch_period(0.3)
+        bpy.ops.bimforge.section_cut()
+        conc = bpy.data.materials["Section · Concrete"]
+        assert conc.node_tree.nodes[mod.PERIOD_NODE].outputs[0].default_value == \
+            pytest.approx(props.width / 120.0, rel=1e-4)
+    finally:
+        props.width = w
+        props.live_cut = True

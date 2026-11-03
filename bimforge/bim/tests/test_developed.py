@@ -321,3 +321,22 @@ def test_an_unnamed_alignment_resolves_by_its_label(wall_section):
         assert _stationer_for(wall_section, label).alignment == al
     finally:
         al.Name = name
+
+
+def test_review_two_names_before_class_and_long_bars_keep_their_length(tmp_path):
+    """PR #3 second review: an unstyled element's name beats its class; a
+    long thin bar is not shrunk to a dot."""
+    ezdxf = pytest.importorskip("ezdxf")
+    from types import SimpleNamespace as NS
+    from bimforge.bim import developed as D
+    el = NS(Name="Lean Concrete", is_a=lambda *a: "IfcWall")
+    layer, tri = D._cut_layer(el, None, [], [(0.6, 0.6, 0.6)], [(0.6, 0.6, 0.6)])
+    assert layer == "E-CUT-Lean-Concrete" and tri == [(0.90, 0.85, 0.62)]
+    doc = ezdxf.new("R2018")
+    msp = doc.modelspace()
+    bar = [[(0.0, 0.0), (20.0, 0.0), (20.0, 0.05), (0.0, 0.05), (0.0, 0.0)]]
+    D._cut_to_dxf(doc, msp, "E-CUT-Reinforcing-Steel", (0.75, 0.15, 0.12), [bar],
+                  lambda p: p, 50.0)
+    ink = [h for h in msp.query("HATCH") if h.dxf.layer.endswith("-PATT")]
+    assert ink and all(type(p).__name__ == "PolylinePath" for h in ink for p in h.paths)
+    assert any(e.dxf.layer.endswith("-PATT") for e in msp.query("LWPOLYLINE"))
