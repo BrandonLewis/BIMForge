@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.97 — 2026-11-03
+
 ### Added
 
 - **Cross sections to DXF.** `bimforge.bim.developed.cross_section(f,
