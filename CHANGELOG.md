@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.98 — 2026-11-03
+
 Contour reconciliation work built in the estimating-plugin monorepo after the
 0.1.94 split, brought upstream (estimating-plugin #400, #402, #404).
 
