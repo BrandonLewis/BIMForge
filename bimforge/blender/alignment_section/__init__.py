@@ -534,6 +534,117 @@ def _straddles(ob, co, no) -> bool:
     return min(s) <= 0.0 <= max(s)
 
 
+def _bisect(bm, co, look) -> list:
+    """The edges where the plane (point `co`, normal `look`) cuts `bm`."""
+    import bmesh
+    bm.verts.index_update()
+    side = [(v.co - co).dot(look) for v in bm.verts]
+    faces = [f for f in bm.faces
+             if min(side[v.index] for v in f.verts) < 0.0
+             < max(side[v.index] for v in f.verts)]
+    if not faces:
+        return []
+    edges = {e for f in faces for e in f.edges}
+    verts = {v for f in faces for v in f.verts}
+    res = bmesh.ops.bisect_plane(bm, geom=list(verts) + list(edges) + faces,
+                                 dist=1e-6, plane_co=co, plane_no=look)
+    return [g for g in res["geom_cut"] if isinstance(g, bmesh.types.BMEdge)]
+
+
+# ------------------------------------------------------------- excavation
+#: Excavation is ground REMOVED: an IfcEarthworksCut voids the ground
+#: (IfcRelVoidsElement), so the ground already shows the hole and the cut is
+#: never a solid. The section draws its outline as the limit of excavation.
+LIMITS = "Excavation Limits"
+LIMIT_RGB = (0.95, 0.45, 0.05)
+#: what the volume removed fills as in SOLID mode
+SOLID_FILL = ("Excavation (removed)", (0.86, 0.62, 0.55), "cross")
+_FEATURE_PREFIXES = ("IfcEarthworksCut/", "IfcOpeningElement/",
+                     "IfcVoidingFeature/")
+
+
+def _cut_features() -> list:
+    """[(GlobalId, name, verts, tris)] of every IfcEarthworksCut in the open
+    IFC, world metres - read from the file, so they are there whether or not
+    the viewer imported the cuts as objects. Cached per file."""
+    f = _STATE.get("file")
+    if f is None:
+        return []
+    if _STATE.get("cuts_key") == id(f):
+        return _STATE["cuts"]
+    out = []
+    try:
+        cuts = [e for e in f.by_type("IfcEarthworksElement") if _dev.is_excavation(e)]
+        cuts += f.by_type("IfcEarthworksCut")
+    except RuntimeError:                  # IFC4: no such class
+        cuts = []
+    names = set()
+    if cuts:
+        import ifcopenshell.geom as geom
+        s = geom.settings()
+        s.set("use-world-coords", True)
+        for e in cuts:
+            try:
+                g = geom.create_shape(s, e).geometry
+            except Exception:             # no body: nothing to draw
+                continue
+            v, t = list(g.verts), list(g.faces)
+            names.add(f"{e.is_a()}/{e.Name}")
+            out.append((e.GlobalId, e.Name or "excavation",
+                        [tuple(v[i:i + 3]) for i in range(0, len(v), 3)],
+                        [tuple(t[i:i + 3]) for i in range(0, len(t), 3)]))
+    _STATE.update(cuts_key=id(f), cuts=out, cut_names=names)
+    return out
+
+
+def is_feature(ob) -> bool:
+    """A viewer's object for ground removed (an excavation, either an
+    IfcEarthworksCut or the pay-item IfcEarthworksElement EXCAVATION) or an
+    opening: not a solid to cut. Bonsai names them 'IfcEarthworksCut/...'."""
+    import re
+    if ob.name.startswith(_FEATURE_PREFIXES):
+        return True
+    _cut_features()
+    if re.sub(r"\.\d{3}$", "", ob.name) in _STATE.get("cut_names", ()):
+        return True
+    f = _STATE.get("file")
+    try:
+        eid = ob.BIMObjectProperties.ifc_definition_id
+        e = f.by_id(eid) if eid and f is not None else None
+        return bool(e is not None and (e.is_a("IfcFeatureElementSubtraction")
+                                       or _dev.is_excavation(e)))
+    except Exception:
+        return False
+
+
+def _dug(gid, props) -> bool:
+    """An excavation is dug unless the 4D date is before its task."""
+    if not (props.date_filter and props.date and _STATE.get("spans")):
+        return True
+    try:
+        day = _ss.shift_day(props.date, 0)
+    except ValueError:
+        return True
+    return _ss.standing(_STATE["spans"].get(gid), day)
+
+
+def _dashes(segs, dash, gap):
+    """Each segment broken into dashes `dash` long, `gap` apart."""
+    out = []
+    for a, b in segs:
+        a, b = _v(a), _v(b)
+        d = b - a
+        n = d.length
+        if n < 1e-9:
+            continue
+        u = d / n
+        s = 0.0
+        while s < n:
+            out.append((a + u * s, a + u * min(n, s + dash)))
+            s += dash + gap
+    return out
+
+
 def cut(scene, props, co, look):
     """Bisect every candidate mesh at the plane (point `co`, normal `look`)
     into one "Section Cut" mesh: the cut edges, and faces filled from each
@@ -555,10 +666,22 @@ def cut(scene, props, co, look):
     fills: dict[tuple, int] = {}          # (name, rgb, paint) -> output slot
     groups: list[tuple[int, list]] = []
     bars: list[tuple[int, list]] = []     # rebar cuts: dotted when tiny
+    hidden = _STATE.setdefault("feature_hidden", set())
     for ob in pool:
-        if ob.type != "MESH" or not ob.visible_get():
+        if ob.type != "MESH":
             continue
         if helper and ob.name in helper.objects:
+            continue
+        if is_feature(ob):                # a void, not a solid: drawn below
+            show = props.excavation == "SOLID"
+            if not show and ob.visible_get():
+                ob.hide_set(True)
+                hidden.add(ob.name)
+            elif show and ob.name in hidden:
+                ob.hide_set(False)
+                hidden.discard(ob.name)
+            continue
+        if not ob.visible_get():
             continue
         if not _straddles(ob, co, look):
             continue
@@ -567,20 +690,9 @@ def cut(scene, props, co, look):
         try:
             bm.from_object(ob, depsgraph)
             bm.transform(ob.matrix_world)
-            bm.verts.index_update()
-            side = [(v.co - co).dot(look) for v in bm.verts]
-            faces = [f for f in bm.faces
-                     if min(side[v.index] for v in f.verts) < 0.0
-                     < max(side[v.index] for v in f.verts)]
-            if not faces:
+            cut_edges = _bisect(bm, co, look)
+            if not cut_edges:
                 continue
-            edges = {e for f in faces for e in f.edges}
-            verts = {v for f in faces for v in f.verts}
-            res = bmesh.ops.bisect_plane(
-                bm, geom=list(verts) + list(edges) + faces, dist=1e-6,
-                plane_co=co, plane_no=look)
-            cut_edges = [g for g in res["geom_cut"]
-                         if isinstance(g, bmesh.types.BMEdge)]
             vmap, per_mat = {}, {}
             for e in cut_edges:
                 a, b = (vmap.get(v) or vmap.setdefault(
@@ -601,6 +713,43 @@ def cut(scene, props, co, look):
                     bars.append((slot, new_edges))
         finally:
             bm.free()
+    from mathutils import Vector
+    shift = Vector(props.shift)
+    limit_segs = []
+    for gid, _name, V, T in _cut_features():
+        dug = _dug(gid, props)
+        if dug and props.excavation == "HIDDEN":
+            continue
+        bm = bmesh.new()
+        try:
+            vs = [bm.verts.new(Vector(p) + shift) for p in V]
+            for tri in T:
+                try:
+                    bm.faces.new([vs[i] for i in tri])
+                except ValueError:        # a duplicate face
+                    pass
+            cut_edges = _bisect(bm, co, look)
+            if not cut_edges:
+                continue
+            if props.excavation == "LIMITS":
+                limit_segs += [(tuple(e.verts[0].co), tuple(e.verts[1].co))
+                               for e in cut_edges]
+            if not dug or props.excavation == "SOLID":
+                # not yet dug: still ground; SOLID: the volume removed
+                k = _sty.by_kind("Earthwork")
+                fill = ((k.kind, k.rgb, k.paint) if not dug else SOLID_FILL) \
+                    if by_style else ("Cut", None, "")
+                new_edges = []
+                vmap = {}
+                for e in cut_edges:
+                    a, b = (vmap.get(v) or vmap.setdefault(v, out.verts.new(v.co))
+                            for v in e.verts)
+                    if a is not b:
+                        new_edges.append(out.edges.new((a, b)))
+                groups.append((fills.setdefault(fill, len(fills)), new_edges))
+        finally:
+            bm.free()
+    excavation_limits(scene, props, limit_segs, co, look)
     lift: dict = {}                       # vert -> shift toward the camera
     for slot, new_edges in groups:
         area = 0.0
@@ -737,6 +886,21 @@ def outline(scene, props, segs, co, look):
     ob = _strip_mesh(scene, LINES, segs, look, props.width / 1000,
                      (0.04, 0.04, 0.05))
     ob.hide_viewport = ob.hide_render = not props.outline
+
+
+def excavation_limits(scene, props, segs, co, look):
+    """The excavations' outline in the cut as a dashed orange line (the
+    limit of excavation, a pay line), over the fills like the outline."""
+    lift = -look * (NEAR_GAP * 0.85)
+
+    def put(q):
+        q = _v(q)
+        return q - look * (q - co).dot(look) + lift
+    segs = [(put(a), put(b)) for a, b in segs]
+    dash = max(props.width / 150.0, 1e-3)
+    ob = _strip_mesh(scene, LIMITS, _dashes(segs, dash, dash * 0.6), look,
+                     props.width / 600, LIMIT_RGB)
+    ob.hide_viewport = ob.hide_render = not segs
 
 
 def _layer(area: float) -> float:
@@ -1043,6 +1207,14 @@ if bpy is not None:
         outline: BoolProperty(name="Outline", default=True,
                               update=_on_view,
                               description="Draw every cut edge as a line")
+        excavation: EnumProperty(name="Excavation", items=[
+            ("LIMITS", "Limits", "Excavation is ground removed: the ground "
+             "shows the hole, and the excavation's outline is drawn as the "
+             "dashed limit of excavation (pay line)"),
+            ("SOLID", "Solid", "Show each excavation as the volume removed, "
+             "filled in the cut and shown in the viewport"),
+            ("HIDDEN", "Hidden", "Ground removed, no limit line; the "
+             "excavation objects hidden")], default="LIMITS", update=_on_view)
         fill_style: EnumProperty(name="Fill", items=[
             ("STYLE", "By styling", "Each item's own styling: its material "
              "(the IFC surface style), else what its name says it is "
@@ -1474,6 +1646,7 @@ if bpy is not None:
             row.prop(props, "fill")
             row.prop(props, "outline")
             cutc.prop(props, "fill_style", text="")
+            cutc.row().prop(props, "excavation", expand=True)
             cutc.prop(props, "target")
             if not props.live_cut:
                 cutc.operator("bimforge.section_cut", icon="MOD_BOOLEAN")
@@ -1588,6 +1761,11 @@ def close_section(context) -> list[str]:
         if mat.users == 0 and (mat.name.startswith("Section ")
                                or mat.name == "Section Cut"):
             bpy.data.materials.remove(mat)
+    for name in list(_STATE.get("feature_hidden", ())):
+        ob = bpy.data.objects.get(name)
+        if ob is not None:
+            ob.hide_set(False)
+    _STATE["feature_hidden"] = set()
     _STATE["frame"] = None
     _STATE["point"] = None
     _redraw()

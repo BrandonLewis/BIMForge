@@ -1342,12 +1342,28 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         scope = m.name if combined else ""
         by_name: dict[str, object] = {}
         hosts = {h for h, _op in m.openings}
+        names = {el.name for el in m.elements}
+        voiding = {}                          # cut element name -> host name
         for el in m.elements:
-            # an Element is never the RelatedOpeningElement of an
-            # IfcRelVoidsElement (only m.openings are), so every
-            # IfcEarthworksCut Element is unhosted (#364)
-            wanted, object_type = _unhosted_cut_class(ctx.schema, el.ifc_class,
-                                                      el.name)
+            host = getattr(el, "voids", None)
+            if not host:
+                continue
+            if el.ifc_class != "IfcEarthworksCut":
+                raise ValueError(f"{el.name}: only an IfcEarthworksCut voids a "
+                                 f"host (is {el.ifc_class})")
+            if host not in names or host == el.name:
+                raise ValueError(f"{el.name}: voids {host!r}, which is not "
+                                 f"another element of {m.name!r}")
+            voiding[el.name] = host
+        hosts |= set(voiding.values())
+        for el in m.elements:
+            # an IfcEarthworksCut voids a host only when it names one
+            # (Element.voids); unhosted, it is rewritten (#364)
+            if el.name in voiding:
+                wanted, object_type = el.ifc_class, None
+            else:
+                wanted, object_type = _unhosted_cut_class(ctx.schema, el.ifc_class,
+                                                          el.name)
             ifc_class = _class_for_schema(ctx.schema, wanted, el.name)
             product = run("root.create_entity", f, ifc_class=ifc_class,
                           predefined_type=el.predefined_type, name=el.name)
@@ -1360,8 +1376,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             # placement-honesty notes, sheet cites) onto IfcRoot.Description.
             # `or None` keeps an unset description a true null, not "".
             product.Description = el.description or None
-            run("spatial.assign_container", f, products=[product],
-                relating_structure=home.container_for(el))
+            if el.name not in voiding:        # a feature hangs off its host
+                run("spatial.assign_container", f, products=[product],
+                    relating_structure=home.container_for(el))
             appear = resolve_surface(el.layer, el.ifc_class, pack_ifc, el.material)
             if appear["material"]:
                 by_material.setdefault(appear["material"], []).append(product)
@@ -1370,8 +1387,11 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             # an IfcSectionedSolidHorizontal as an open shell (#9820), and a
             # boolean against an open shell is silently dropped — the
             # opening would not show
+            # ...and so does a cut that voids one: a boolean against an open
+            # shell empties the host altogether
             items = (solids_for(f, el, ctx.ft_to_m,
-                                None if el.name in hosts else curves)
+                                None if el.name in hosts or el.name in voiding
+                                else curves)
                      if el.geometry is not None else [])
             if items:
                 # an open surface (ribbon -> IfcTriangulatedFaceSet) cannot
@@ -1471,6 +1491,13 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         scope = m.name if combined else ""
         home = homes[idx]
         by_name = by_name_by_model[idx]
+        for el in m.elements:                 # excavation as ground removed
+            host_name = getattr(el, "voids", None)
+            if host_name:
+                cut = by_name[el.name]
+                run("feature.add_feature", f, feature=cut,
+                    element=by_name[host_name])
+                _place_product(run, f, cut, el, ctx.ft_to_m)   # after, as below
         for host_name, opening in m.openings:
             op = run("root.create_entity", f, ifc_class="IfcOpeningElement",
                      name=opening.name)

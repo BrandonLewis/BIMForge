@@ -4,6 +4,49 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **Excavation is drawn as ground removed, not as a block in the hole.**
+  The section and elevation readers (`bimforge.bim.developed`, DXF) and the
+  Blender add-on never fill an excavation. "Excavation" means either:
+  - an `IfcEarthworksCut`, or
+  - the pay-item `IfcEarthworksElement` with ObjectType EXCAVATION (#364).
+
+  The excavation's outline in the cut is drawn as the dashed limit of
+  excavation: the `E-EXCV-LIMIT` DXF layer, or an orange line in Blender.
+  With a 4D date before its dig task, the excavation is still ground and is
+  filled as the ground it voids. The add-on reads the excavations from the
+  IFC, so they are drawn whether or not the viewer imported them. Its new
+  **Excavation** setting picks:
+  - **Limits** (the default);
+  - **Solid** (the volume removed, filled and shown, as before);
+  - **Hidden**.
+
+  In Limits and Hidden, Bonsai's excavation objects are hidden in the
+  viewport; Exit shows them again.
+- **`Element.voids`: an `IfcEarthworksCut` that voids a host.** Naming the
+  host (the existing-ground solid) emits the cut as itself, related by
+  `IfcRelVoidsElement`. It is kept out of the spatial tree, and it keeps its
+  quantities and pay code (the takeoff counts it as excavation). The cut and
+  its host are written as meshes: a boolean against an exact sweep, which
+  draws as an open shell, empties the host. Unhosted cuts are written as
+  before (#364).
+
+### Known limitations
+
+- **Viewers' booleans are unreliable on terrain-scale voids.** These were
+  measured on B2279's creek-wall ground (a 1 ft raster): a cut sharing the
+  ground's top face is silently dropped. With low-poly voids clear of that
+  face:
+  - ifcopenshell 0.9 drew one run's strip right, but dropped the other run's
+    void;
+  - 0.8.5 (Bonsai 0.8.x) drew the first strip wrong by 1,496 CF, and
+    returned corrupt geometry for the second.
+
+  So for ground, keep the pay-item excavation body and a ground already
+  less the dig (the readers above draw that correctly). Use `voids` where a
+  viewer's boolean is sound.
+
 ## 0.1.98 — 2026-11-03
 
 Contour reconciliation work built in the estimating-plugin monorepo after the

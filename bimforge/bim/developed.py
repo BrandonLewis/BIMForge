@@ -131,11 +131,17 @@ class Drawing:
     unit: str = "ft"
     foot_m: float = 1200.0 / 3937.0              # the file's foot, metres
     elements: int = 0
+    limits: list = field(default_factory=list)   # excavation limits [(x, y)...]
     tick_kind: str = "station"                   # "offset": ticks are offsets left
 
 
 # ---------------------------------------------------------------- geometry
 _BODY_CACHE: dict = {}
+#: an excavation's outline in a cut: the limit of excavation (a pay line),
+#: never a fill - the cut is ground removed (IfcEarthworksCut voiding it)
+LIMIT = "limit"
+LIMIT_LAYER = "E-EXCV-LIMIT"
+LIMIT_RGB = (0.95, 0.45, 0.05)
 
 
 def _all_bodies(f, date):
@@ -155,14 +161,28 @@ def _all_bodies(f, date):
     s = geom.settings()
     s.set("use-world-coords", True)
     it = geom.iterator(s, f)
-    out = []
+    out, undug = [], []
     if it.initialize():
         while True:
             sh = it.get()
             el = f.by_id(sh.id)
             g = sh.geometry
             t = np.asarray(g.faces, dtype=np.int64).reshape(-1, 3)
-            if (el.is_a("IfcElement") and len(t)
+            if el.is_a("IfcFeatureElementSubtraction") or is_excavation(el):
+                # excavation is ground REMOVED: never a body. Its outline is
+                # the limit of excavation; until it is dug (a 4D date before
+                # its task) it is still ground, drawn as its host is.
+                if is_excavation(el) and len(t):
+                    v = np.asarray(g.verts, dtype=float).reshape(-1, 3)
+                    out.append((el.Name or el.is_a(), LIMIT_LAYER, LIMIT, v, t,
+                                [LIMIT_RGB] * len(t)))
+                    dug = spans is None or standing(spans.get(el.GlobalId), date)
+                    if not dug:
+                        hosts = [r.RelatingBuildingElement
+                                 for r in getattr(el, "VoidsElements", None) or ()]
+                        undug.append((el.Name or el.is_a(),
+                                      hosts[0].Name if hosts else None, v, t))
+            elif (el.is_a("IfcElement") and len(t)
                     and not (spans is not None
                              and not standing(spans.get(el.GlobalId), date))):
                 v = np.asarray(g.verts, dtype=float).reshape(-1, 3)
@@ -192,6 +212,11 @@ def _all_bodies(f, date):
                                 (not solid) and _is_surface(v, pt), v, pt, ptr))
             if not it.next():
                 break
+    host_style = {name: (layer, trgb[0]) for name, layer, surf, _v, _t, trgb in out
+                  if surf is not LIMIT and trgb}
+    for name, host, v, t in undug:
+        layer, rgb = host_style.get(host, (_layer_name("Earthwork"), (0.56, 0.44, 0.30)))
+        out.append((f"{name} (not yet dug)", layer, False, v, t, [rgb] * len(t)))
     _BODY_CACHE[key] = out
     return out
 
@@ -213,6 +238,16 @@ def _named(f, m):
         pass
     return SimpleNamespace(name=name, surface=getattr(m, "surface", None),
                            diffuse=m.diffuse)
+
+
+def is_excavation(el) -> bool:
+    """Excavation: an IfcEarthworksCut (voiding the ground), or the pay-item
+    body emit_ifc writes for an unhosted one (IfcEarthworksElement,
+    ObjectType EXCAVATION, #364) - ground removed either way."""
+    if el.is_a("IfcEarthworksCut"):
+        return True
+    return (el.is_a("IfcEarthworksElement")
+            and (getattr(el, "ObjectType", None) or "").upper() == "EXCAVATION")
 
 
 def _surface_rgb(m) -> tuple:
@@ -406,6 +441,10 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
         if not segs:
             continue
         segs = [(to2d(*a), to2d(*b)) for a, b in segs]
+        if surface is LIMIT:              # the limit of excavation: a line
+            segs = _clip_segments_x(segs, 0.0, drawing.length)
+            drawing.limits += _chain(segs) if segs else []
+            continue
         rgb = max(set(rgbs), key=rgbs.count)
         rings = [] if surface else _polygons(segs, 0.0, drawing.length)
         if not rings:
@@ -418,7 +457,8 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
             for line in _chain(segs):
                 drawing.ground.append((layer.replace("E-CUT-", "E-GROUND-"), rgb, line))
     # ----------------------------------------------------- visible beyond
-    drawing.beyond = _visible_edges(warped, to2d, drawing, view, depth * k, k)
+    drawing.beyond = _visible_edges([w for w in warped if w[2] is not LIMIT], to2d,
+                                    drawing, view, depth * k, k)
     # ---------------------------------------------------------- ticks
     drawing.ticks = _ticks(st, un, view, d0, d1, to2d, unit, k)
     zs = [p[1] for _l, _r, polys in drawing.cut for poly in polys for loop in poly
@@ -480,6 +520,10 @@ def cross_section(f, view: SectionView) -> Drawing:
         if not segs:
             continue
         segs = [(to2d(*a), to2d(*b)) for a, b in segs]
+        if surface is LIMIT:              # the limit of excavation: a line
+            segs = _clip_segments_x(segs, 0.0, drawing.length)
+            drawing.limits += _chain(segs) if segs else []
+            continue
         rgb = max(set(rgbs), key=rgbs.count)
         rings = [] if surface else _polygons(segs, 0.0, drawing.length)
         if not rings:
@@ -491,7 +535,8 @@ def cross_section(f, view: SectionView) -> Drawing:
         else:                     # a surface, or a body whose cut does not close
             for line in _chain(segs):
                 drawing.ground.append((layer.replace("E-CUT-", "E-GROUND-"), rgb, line))
-    drawing.beyond = _visible_edges(warped, to2d, drawing, view, depth * k, k)
+    drawing.beyond = _visible_edges([w for w in warped if w[2] is not LIMIT], to2d,
+                                    drawing, view, depth * k, k)
     # an offset tick every whole unit: (x, offset left); looking ahead the
     # left is on the viewer's left
     w2 = view.width / 2.0
@@ -843,6 +888,13 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
         for line in dr.beyond:
             msp.add_lwpolyline([dy(p) for p in line],
                                dxfattribs={"layer": "E-BEYOND", "lineweight": 18})
+        if dr.limits and LIMIT_LAYER not in doc.layers:
+            lay = doc.layers.add(LIMIT_LAYER, color=30, linetype="DASHED")
+            lay.description = "Limit of excavation (pay line)"
+        for line in dr.limits:
+            msp.add_lwpolyline([dy(p) for p in line],
+                               dxfattribs={"layer": LIMIT_LAYER, "lineweight": 25,
+                                           "linetype": "DASHED"})
         th = 0.10 * scale                            # 0.10" text on the sheet
         # labelled ticks at least an inch apart on the sheet, minor ones between
         from .alignment_station import format_station

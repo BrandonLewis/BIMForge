@@ -614,3 +614,136 @@ def test_exit_closes_the_section_and_the_slider_brings_it_back(addon):
         assert mod._STATE["frame"] is not None
     finally:
         bpy.data.objects.remove(own)
+
+
+def test_excavation_is_ground_removed(addon, tmp_path):
+    """An IfcEarthworksCut voiding the ground (a hole in the ground, not a
+    block in it): LIMITS draws its outline as the dashed limit of excavation
+    and hides the cut object; SOLID fills the volume removed; HIDDEN draws
+    nothing; before its dig date (4D) the hole is still ground."""
+    mod, m, al, _prof = addon
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.model import Element, StructureModel
+    from bimforge.author.sweep import SweptSection
+    sc = bpy.context.scene
+    props = sc.bimforge_section
+    home_path = props.ifc_path
+    dm = StructureModel("dug", m.ctx)
+
+    def body(name, ring, ifc, **kw):
+        sw = SweptSection(name, ring, al, 1010.0, 1360.0, origin=m.ctx, ifc=ifc)
+        dm.add(Element.from_geometry(name, sw, ifc_class=ifc,
+                                     quantities={"volume_cf": sw.volume_cf}, **kw))
+    box = lambda x0, x1, z0, z1: [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]  # noqa: E731
+    body("existing ground", box(-20, 20, -12, 0), "IfcGeographicElement")
+    body("structure excavation", box(-6, 6, -6, 0), "IfcEarthworksCut")
+    dm.element("structure excavation").voids = "existing ground"
+    dm.alignments.append((al, None))
+    path = tmp_path / "dug.ifc"
+    emit_ifc(dm, str(path))
+    f = ifcopenshell.open(str(path))
+    before = set(bpy.data.objects.keys())
+    _import_meshes(f)
+    made = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before]
+    cut_ob = next(o for o in made if o.name.startswith("structure excavation"))
+    cut_ob.name = "IfcEarthworksCut/structure excavation"   # as Bonsai names it
+    ft2 = SQ_M_PER_SQ_FT
+    try:
+        props.ifc_path = str(path)
+        assert bpy.ops.bimforge.section_load() == {"FINISHED"}
+        props.goto = 1200.0
+        bpy.ops.bimforge.section_goto()
+
+        def fills():
+            me = bpy.data.objects[mod.CUT].data
+            area = {}
+            for poly in me.polygons:
+                n = me.materials[poly.material_index].name
+                area[n] = area.get(n, 0.0) + poly.area / ft2
+            return area
+        props.excavation = "LIMITS"
+        bpy.ops.bimforge.section_cut()
+        a = fills()
+        assert not cut_ob.visible_get()                     # no block in the hole
+        assert not any("Excavation" in n for n in a)
+        assert a["Section · Earthwork"] == pytest.approx(40 * 12 - 12 * 6, rel=1e-2)  # the hole
+        lim = bpy.data.objects[mod.LIMITS]
+        assert lim.visible_get() and len(lim.data.polygons) > 10   # dashed
+        props.excavation = "SOLID"
+        bpy.ops.bimforge.section_cut()
+        assert cut_ob.visible_get()
+        solid = {n: v for n, v in fills().items() if n.startswith("Section · Excavation (removed)")}
+        assert sum(solid.values()) == pytest.approx(12 * 6, rel=1e-2)
+        assert not bpy.data.objects[mod.LIMITS].visible_get()
+        props.excavation = "HIDDEN"
+        bpy.ops.bimforge.section_cut()
+        assert not cut_ob.visible_get() and not bpy.data.objects[mod.LIMITS].visible_get()
+        # 4D: dug on 2027-01-10; on 2027-01-05 the hole is still ground
+        props.excavation = "LIMITS"
+        gid = f.by_type("IfcEarthworksCut")[0].GlobalId
+        mod._STATE["spans"] = {gid: mod._ss.Span("2027-01-10", None, ("dig",))}
+        props.date = "2027-01-05"
+        props.date_filter = True
+        bpy.ops.bimforge.section_cut()
+        assert fills()["Section · Earthwork"] == pytest.approx(40 * 12, rel=1e-2)   # whole
+        props.date_filter = False
+    finally:
+        props.excavation = "LIMITS"
+        props.date_filter = False
+        for ob in made:
+            bpy.data.objects.remove(ob)
+        props.ifc_path = home_path
+        bpy.ops.bimforge.section_load()
+
+
+def test_a_pay_item_excavation_body_is_not_a_block_in_the_hole(addon, tmp_path):
+    """B2279's model: the ground already less the dig, the excavation an
+    unhosted body (IfcEarthworksElement EXCAVATION). LIMITS hides the body,
+    fills only the ground and draws the limit of excavation."""
+    mod, m, al, _prof = addon
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.model import Element, StructureModel
+    from bimforge.author.sweep import SweptSection
+    sc = bpy.context.scene
+    props = sc.bimforge_section
+    home_path = props.ifc_path
+    dm = StructureModel("holed", m.ctx)
+
+    def body(name, ring, ifc):
+        sw = SweptSection(name, ring, al, 1010.0, 1360.0, origin=m.ctx, ifc=ifc)
+        dm.add(Element.from_geometry(name, sw, ifc_class=ifc,
+                                     quantities={"volume_cf": sw.volume_cf}))
+    body("existing ground (remaining)", [(-20, -12), (20, -12), (20, 0), (6, 0), (6, -6),
+                                         (-6, -6), (-6, 0), (-20, 0)], "IfcGeographicElement")
+    body("structure excavation", [(-6, -6), (6, -6), (6, 0), (-6, 0)], "IfcEarthworksCut")
+    dm.alignments.append((al, None))
+    path = tmp_path / "holed.ifc"
+    emit_ifc(dm, str(path))
+    f = ifcopenshell.open(str(path))
+    before = set(bpy.data.objects.keys())
+    _import_meshes(f)
+    made = [bpy.data.objects[n] for n in set(bpy.data.objects.keys()) - before]
+    exc = next(o for o in made if o.name.startswith("structure excavation"))
+    exc.name = "IfcEarthworksElement/structure excavation"   # as Bonsai names it
+    try:
+        props.ifc_path = str(path)
+        assert bpy.ops.bimforge.section_load() == {"FINISHED"}
+        props.goto = 1200.0
+        bpy.ops.bimforge.section_goto()
+        props.excavation = "LIMITS"
+        bpy.ops.bimforge.section_cut()
+        me = bpy.data.objects[mod.CUT].data
+        area = {}
+        for poly in me.polygons:
+            n = me.materials[poly.material_index].name
+            area[n] = area.get(n, 0.0) + poly.area / SQ_M_PER_SQ_FT
+        assert not exc.visible_get()
+        earth = sum(v for n, v in area.items() if "Earthwork" in n)
+        assert earth == pytest.approx(40 * 12 - 12 * 6, rel=1e-2)    # the hole, no block
+        assert not any("xcavation" in n for n in area)
+        assert bpy.data.objects[mod.LIMITS].visible_get()
+    finally:
+        for ob in made:
+            bpy.data.objects.remove(ob)
+        props.ifc_path = home_path
+        bpy.ops.bimforge.section_load()

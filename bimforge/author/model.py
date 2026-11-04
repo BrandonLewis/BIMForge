@@ -70,6 +70,13 @@ class Element:
     #: expanded-polystyrene void). Carried on the model document; emitters
     #: that have a description slot may write it, others ignore it.
     description: str | None = None
+    #: An excavation that is ground REMOVED, not a body: the name of the
+    #: element it voids (the existing-ground solid). An IfcEarthworksCut with
+    #: `voids` is emitted as itself, related to that host by
+    #: IfcRelVoidsElement, so viewers draw the ground with the hole and do not
+    #: draw the cut as a solid, while its quantities and pay codes stay on it.
+    #: Without `voids` an IfcEarthworksCut is emitted as before (#364).
+    voids: str | None = None
     #: IFC4X3 facility part this element is contained in (issue #318): a part
     #: name (``"ABUTMENT"``, ``"Abut 1"``) or a mapping ``{name,
     #: predefined_type?, usage_type?}``; normalized to a
