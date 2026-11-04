@@ -478,3 +478,19 @@ def test_a_pay_item_excavation_body_is_ground_removed_too(tmp_path, monkeypatch)
                                           date="2027-01-05"))
     assert area(before) == pytest.approx(40 * 12, rel=1e-3)
     D._BODY_CACHE.clear()
+
+
+def test_an_enclosed_cavity_stays_a_hole():
+    """A body with a cavity wholly inside it (ground around a backfilled
+    overexcavation) cuts as an outline with a hole, not a solid: polygonize
+    returns the cavity as a face too."""
+    from shapely.geometry import Polygon
+    from bimforge.bim.developed import _polygons
+    def ring(x0, x1, y0, y1):
+        p = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+        return list(zip(p, p[1:] + p[:1]))
+    rings = _polygons(ring(0, 10, 0, 10) + ring(4, 6, 4, 6), 0.0, 10.0)
+    assert sum(Polygon(r[0], r[1:]).area for r in rings) == pytest.approx(100 - 4)
+    # two separate bodies side by side both stay solid
+    rings = _polygons(ring(0, 4, 0, 4) + ring(5, 9, 0, 4), 0.0, 10.0)
+    assert sum(Polygon(r[0], r[1:]).area for r in rings) == pytest.approx(32)

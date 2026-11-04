@@ -32,6 +32,14 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   draws as an open shell, empties the host. Unhosted cuts are written as
   before (#364).
 
+### Fixed
+
+- **A cavity wholly inside a body cuts as a hole.** Sections and
+  elevations filled an enclosed cavity as part of the body around it: the
+  cavity's boundary is a face of the arrangement too. B2279's root-crown
+  overexcavation, below the footing, showed as ground instead of its CLSM
+  backfill. Faces are now kept by even-odd nesting.
+
 ### Known limitations
 
 - **Viewers' booleans are unreliable on terrain-scale voids.** These were

@@ -615,6 +615,14 @@ def _polygons(segs, x0, x1):
     polys = [p for p in polygonize(lines) if p.area > 1e-8]
     if not polys:
         return []
+    # even-odd: polygonize returns every face of the arrangement, and an
+    # enclosed cavity's boundary is a face too (a backfilled overex inside the
+    # ground). A face is solid when an odd number of face outlines enclose it.
+    outlines = [Polygon(p.exterior) for p in polys]
+    polys = [p for p in polys
+             if sum(o.contains(p.representative_point()) for o in outlines) % 2 == 1]
+    if not polys:
+        return []
     merged = unary_union(polys)
     ys = [c[1] for a, b in segs for c in (a, b)]
     merged = merged.intersection(box(x0, min(ys) - 1.0, x1, max(ys) + 1.0))
