@@ -9,7 +9,15 @@ are read by eye and transcribed into an anchors YAML — the audit trail:
     index_interval_ft: 5.0    # optional; enables the index-multiple check
     contours: [{elev, page: [x, y] | xy: [e, n], id?, ...}]
     spots:    [{elev, page | xy, id?}]
+    breaks:   [{page: [[x, y], ...] | xy: [[e, n], ...], note?}]
 
+``breaks`` are optional break lines: polylines (2 or more points) drawn
+across ground where contours are missing — a roadway cut, an erased area.
+They are not contours; ``contour-surface`` passes each to the neighbour
+graph as a barrier (``break 1``, ``break 2``, ... with the note), so the
+lines either side of the gap are not counted as one interval apart. Being
+in sheet coordinates, they survive a re-extraction that renumbers the
+lines.
 ``page`` is unrotated page points, y down. ``elev: null`` marks a candidate
 nobody has read yet (an ``est-bim label-crops`` skeleton): it is skipped and
 counted, never guessed. A record's ``id`` (``L012``, ``S004`` in a skeleton)
@@ -33,6 +41,7 @@ class Anchors:
     contours: list = field(default_factory=list)   # [{"elev", "xy", "id"}]
     spots: list = field(default_factory=list)
     unread: int = 0
+    breaks: list = field(default_factory=list)     # [{"points", "note", "label"}]
 
 
 def _sheet(v):
@@ -100,6 +109,17 @@ def place_anchors(raw: dict, *, extra_spots=(), page_to_world=None) -> Anchors:
     sheet = _sheet(raw.get("sheet"))
     unread = 0
 
+    def to_world(x, y):
+        if page_to_world is None:
+            raise ValueError(
+                "anchor records give page coordinates but nothing places "
+                "them — pass --tie, or use a v2 manifest (its georef "
+                "places page points; with several manifests the anchors "
+                "file's sheet: picks one)"
+                + (f" — no v2 manifest is for sheet {sheet}"
+                   if sheet is not None else ""))
+        return page_to_world(x, y)
+
     def place(rec, where):
         nonlocal unread
         if not isinstance(rec, dict):
@@ -113,15 +133,7 @@ def place_anchors(raw: dict, *, extra_spots=(), page_to_world=None) -> Anchors:
             e, n = _pair(rec["xy"], f"anchors {where}: xy")
         elif "page" in rec:
             x, y = _pair(rec["page"], f"anchors {where}: page")
-            if page_to_world is None:
-                raise ValueError(
-                    "anchor records give page coordinates but nothing places "
-                    "them — pass --tie, or use a v2 manifest (its georef "
-                    "places page points; with several manifests the anchors "
-                    "file's sheet: picks one)"
-                    + (f" — no v2 manifest is for sheet {sheet}"
-                       if sheet is not None else ""))
-            e, n = page_to_world(x, y)
+            e, n = to_world(x, y)
         else:
             raise ValueError(f"anchor record needs xy or page: {rec!r}")
         rid = rec.get("id")
@@ -144,6 +156,39 @@ def place_anchors(raw: dict, *, extra_spots=(), page_to_world=None) -> Anchors:
     spots += [p for p in (place(r, f"--spots record {k}")
                           for k, r in enumerate(extra_spots)) if p]
 
+    def place_break(rec, k):
+        where = f"anchors breaks[{k}]"
+        if not isinstance(rec, dict):
+            raise ValueError(f"{where}: expected a record {{page | xy: "
+                             f"[[x, y], ...], note?}}, got {rec!r}")
+        if "page" in rec and "xy" in rec:
+            raise ValueError(f"{where}: give page or xy, not both")
+        if "page" not in rec and "xy" not in rec:
+            raise ValueError(f"{where}: needs page or xy (a list of 2 or "
+                             f"more points), got {rec!r}")
+        key = "page" if "page" in rec else "xy"
+        pts = rec[key]
+        if not isinstance(pts, (list, tuple)):
+            raise ValueError(f"{where}: {key} must be a list of points "
+                             f"[[x, y], ...] (got {pts!r})")
+        if len(pts) < 2:
+            raise ValueError(f"{where}: needs at least 2 points (got "
+                             f"{len(pts)})")
+        pts = [_pair(q, f"{where}: {key} point {j}") for j, q in enumerate(pts)]
+        if all(q == pts[0] for q in pts[1:]):
+            raise ValueError(f"{where}: has zero length (every point is the "
+                             f"same) — a break line runs across the gap, "
+                             f"got {key}: {rec[key]!r}")
+        if key == "page":
+            pts = [to_world(x, y) for x, y in pts]
+        note = rec.get("note")
+        note = None if note is None else str(note)
+        label = f"break {k + 1}" + (f" ({note})" if note else "")
+        return {"points": [(float(e), float(n)) for e, n in pts],
+                "note": note, "label": label}
+
+    breaks = [place_break(r, k) for k, r in enumerate(records("breaks"))]
+
     def interval(key):
         v = raw.get(key)
         if v is None:
@@ -154,7 +199,8 @@ def place_anchors(raw: dict, *, extra_spots=(), page_to_world=None) -> Anchors:
         return f
 
     return Anchors(sheet, str(vd), interval("interval_ft"),
-                   interval("index_interval_ft"), contours, spots, unread)
+                   interval("index_interval_ft"), contours, spots, unread,
+                   breaks)
 
 
 def manifest_page_to_world(manifest: dict):

@@ -10,7 +10,10 @@ contour polylines (``(points Nx2, source, layer)`` records, as in
                            interval), which are one contour (``same``:
                            duplicate linework; ``joints``: a contour broken
                            into pieces), and which touch or cross
-                           (``contacts`` — no limit, a finding).
+                           (``contacts`` — no limit, a finding); a
+                           barrier (a grading layer, a break line) between
+                           two lines sets their ``faces`` pair aside
+                           (``barred`` — a finding, never silent).
   :func:`reconcile`        every lettered contour limits every contour it
                            reaches (``|z - z_a| <= hops * interval``); the
                            intersection, filtered by the pen role, pins,
@@ -24,7 +27,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-__all__ = ["Contact", "NeighbourGraph", "neighbour_graph", "LineRange",
+__all__ = ["Contact", "Barred", "NeighbourGraph", "neighbour_graph", "LineRange",
           "Reconciliation", "reconcile", "CHECKS", "Finding", "build_findings"]
 
 _EPS = 1e-6
@@ -339,6 +342,157 @@ class Contact:
     xy: tuple
 
 
+_BARRIER_STEP_FT = 5.0     # barrier segments split to this for the search
+
+
+def _barrier_segments(barriers):
+    """``(P0, P1, owner, labels)`` for ``barriers`` (``[(points, label)]``):
+    every segment, split to at most ``_BARRIER_STEP_FT`` (the same
+    geometry, so a short search radius finds it), the barrier it belongs to,
+    and each barrier's label. Zero-length segments are dropped, so a
+    barrier of one point, or of coincident points, has no segment and
+    blocks nothing."""
+    import numpy as np
+    p0, p1, owner, labels = [], [], [], []
+    for b, (points, label) in enumerate(barriers):
+        labels.append(str(label))
+        d = _densify(points, _BARRIER_STEP_FT)
+        if len(d) < 2:
+            continue
+        keep = np.sqrt(((d[1:] - d[:-1]) ** 2).sum(axis=1)) > _EPS
+        if not keep.any():
+            continue
+        p0.append(d[:-1][keep])
+        p1.append(d[1:][keep])
+        owner.append(np.full(int(keep.sum()), b))
+    if not p0:
+        z = np.zeros((0, 2))
+        return z, z, np.zeros(0, dtype=int), labels
+    return np.vstack(p0), np.vstack(p1), np.concatenate(owner), labels
+
+
+def _in_band(A, B, P0, P1, tol):
+    """Row-wise: segment ``P0–P1`` enters the band of half-width ``tol``
+    around the interior of connector ``A→B`` — the connector less ``tol``
+    at each end (a rectangle, no rounded caps). A connector no longer than
+    ``2·tol`` has no interior and nothing enters it.
+
+    So a barrier crossing the connector mid-way, or passing within ``tol``
+    of it there, blocks; one within ``tol`` of either end lies on that
+    contour, as two contours that close are in contact, and is not
+    between the two lines. Clipped Liang–Barsky style in the connector's
+    frame (``t`` along it, ``v`` across)."""
+    import numpy as np
+    d = B - A
+    L = np.sqrt((d ** 2).sum(axis=1))
+    ok = L > 2 * tol
+    Ls = np.where(ok, L, 1.0)
+    u = d / Ls[:, None]
+    nrm = np.column_stack([-u[:, 1], u[:, 0]])
+    r0, r1 = P0 - A, P1 - A
+    t0, t1 = (r0 * u).sum(axis=1), (r1 * u).sum(axis=1)
+    v0, v1 = (r0 * nrm).sum(axis=1), (r1 * nrm).sum(axis=1)
+    lo, hi = np.zeros(len(A)), np.ones(len(A))
+    for x0, x1, m, M in ((t0, t1, tol, L - tol), (v0, v1, -tol, tol)):
+        dx = x1 - x0
+        flat = np.abs(dx) <= 1e-12
+        with np.errstate(divide="ignore", invalid="ignore"):
+            a = (m - x0) / np.where(flat, 1.0, dx)
+            b = (M - x0) / np.where(flat, 1.0, dx)
+        lo = np.where(flat, lo, np.maximum(lo, np.minimum(a, b)))
+        hi = np.where(flat, hi, np.minimum(hi, np.maximum(a, b)))
+        ok &= ~flat | ((m <= x0) & (x0 <= M))
+    return ok & (lo <= hi)
+
+
+_BAR_CHUNK = 1 << 18       # connector x segment pairs tested at a time
+
+
+def _barrier_hits(A, B, bar, tol):
+    """For connectors ``A[c]``→``B[c]``, the barriers (owner ids) in the
+    way of each (:func:`_in_band`): a list of sorted tuples, ``()`` where
+    nothing is.
+
+    Candidates come from a cKDTree over the barrier segments' midpoints,
+    queried 256 rows at a time (a segment within ``tol`` of a connector has
+    its midpoint within the connector's half-length + the longest
+    half-segment + ``tol`` of the connector's midpoint) or, without scipy,
+    a bounding-box sweep; each candidate is then tested exactly.
+    """
+    import numpy as np
+    P0, P1, owner, _, tree, half = bar
+    out: list = [() for _ in range(len(A))]
+    if len(A) == 0 or len(P0) == 0:
+        return out
+    if tree is not None:
+        mid = (A + B) / 2.0
+        reach = np.sqrt(((B - A) ** 2).sum(axis=1)) / 2.0 + half + tol
+        cis, sis = [], []
+        for r0 in range(0, len(A), 256):           # bounded memory per query
+            got = tree.query_ball_point(mid[r0:r0 + 256], reach[r0:r0 + 256])
+            n = np.fromiter((len(g) for g in got), dtype=int, count=len(got))
+            if n.sum():
+                cis.append(np.repeat(np.arange(r0, r0 + len(got)), n))
+                sis.append(np.fromiter((j for g in got for j in g), dtype=int,
+                                       count=int(n.sum())))
+        if not cis:
+            return out
+        ci, si = np.concatenate(cis), np.concatenate(sis)
+    else:
+        # sweep on x: a segment can meet a connector only if their extents
+        # (the connector's widened by tol) overlap; then box-test
+        slo, shi = np.minimum(P0, P1), np.maximum(P0, P1)
+        clo, chi = np.minimum(A, B) - tol, np.maximum(A, B) + tol
+        order = np.argsort(slo[:, 0], kind="stable")
+        keys = slo[order, 0]
+        widest = float((shi[:, 0] - slo[:, 0]).max())
+        start = np.searchsorted(keys, clo[:, 0] - widest, side="left")
+        stop = np.searchsorted(keys, chi[:, 0], side="right")
+        cis, sis = [], []
+        for c in range(len(A)):
+            j = order[start[c]:stop[c]]
+            j = j[(slo[j, 0] <= chi[c, 0]) & (clo[c, 0] <= shi[j, 0])
+                  & (slo[j, 1] <= chi[c, 1]) & (clo[c, 1] <= shi[j, 1])]
+            if len(j):
+                cis.append(np.full(len(j), c))
+                sis.append(j)
+        if not cis:
+            return out
+        ci, si = np.concatenate(cis), np.concatenate(sis)
+    hits: dict = {}
+    for k0 in range(0, len(ci), _BAR_CHUNK):
+        c, j = ci[k0:k0 + _BAR_CHUNK], si[k0:k0 + _BAR_CHUNK]
+        ok = _in_band(A[c], B[c], P0[j], P1[j], tol)
+        for cc, oo in zip(c[ok].tolist(), owner[j[ok]].tolist()):
+            hits.setdefault(cc, set()).add(oo)
+    for cc, owners in hits.items():
+        out[cc] = tuple(sorted(owners))
+    return out
+
+
+@dataclass
+class Barred:
+    """A ``faces`` pair set aside: a barrier lies between the two lines (or
+    ``--no-face`` dropped it), so they are not counted as one interval
+    apart. ``by`` names what set it aside (barrier labels, most votes
+    first, or ``"--no-face"``); ``length_ft`` is the facing set aside,
+    ``kept_ft`` what still faced past the barrier (< ``min_facing_ft``);
+    ``xy`` is where (the mean midpoint of the blocked connectors).
+
+    ``partial`` — the barrier leaked: the pair still faces along
+    ``kept_ft`` >= ``min_facing_ft``, so it stays a ``faces`` pair, but at
+    least as much (``length_ft``) was blocked. Recorded so blocked facing
+    is never dropped silently: the barrier probably stops short of the
+    ends of the interrupted contours."""
+
+    pair: tuple
+    by: list
+    length_ft: float
+    kept_ft: float
+    xy: tuple
+    partial: bool = False
+
+
 @dataclass
 class NeighbourGraph:
     """The neighbour relation between ``n`` contours (see :func:`neighbour_graph`)."""
@@ -349,6 +503,53 @@ class NeighbourGraph:
     joints: set = field(default_factory=set)
     contacts: list = field(default_factory=list)
     params: dict = field(default_factory=dict)
+    barred: list = field(default_factory=list)
+    # every pair's unblocked facing votes: {pair: (length_ft, (x, y) mean
+    # connector midpoint)} — a working table, not part of the value
+    facing: dict = field(default_factory=dict, repr=False, compare=False)
+
+    def set_aside_faces(self, pairs, reason="--no-face"):
+        """Drop each ``(a, b)`` from ``faces`` and record it in ``barred``
+        with ``reason``. An index out of range is a ``ValueError``; a pair
+        that is not a ``faces`` pair is left alone and returned as a
+        warning (a list of strings) — naming the barrier when one already
+        set it aside. A pair with no facing votes recorded (a graph not
+        built by :func:`neighbour_graph`) is a ``ValueError``: there is no
+        length or place to report. Dropping a pair a barrier only partly
+        blocked replaces that ``partial`` record."""
+        warnings, dropped = [], []
+        for a, b in pairs:
+            a, b = int(a), int(b)
+            for k in (a, b):
+                if not 0 <= k < self.n:
+                    raise ValueError(f"{reason} {a},{b}: line {k} is out of "
+                                     f"range (0..{self.n - 1})")
+            if a == b:
+                raise ValueError(f"{reason} {a},{b}: needs two different lines")
+            key = (min(a, b), max(a, b))
+            if key not in self.faces:
+                prior = [r for r in self.barred
+                         if r.pair == key and not r.partial]
+                if prior:
+                    warnings.append(f"{reason} {a},{b}: already set aside by "
+                                    + ", ".join(prior[0].by))
+                else:
+                    warnings.append(f"{reason} {a},{b}: not a faces pair — "
+                                    "nothing set aside")
+                continue
+            if key not in self.facing:
+                raise ValueError(f"{reason} {a},{b}: no facing votes recorded "
+                                 "for this pair — build the graph with "
+                                 "neighbour_graph")
+            self.faces.discard(key)
+            self.barred = [r for r in self.barred if r.pair != key]
+            length, xy = self.facing[key]
+            self.barred.append(Barred(key, [reason], float(length), 0.0,
+                                      (float(xy[0]), float(xy[1]))))
+            dropped.append([key[0], key[1]])
+        if dropped:
+            self.params.setdefault("no_face", []).extend(dropped)
+        return warnings
 
     def adjacency(self):
         """``{line: [(neighbour, hops)]}`` — ``faces`` cost 1, ``same`` 0."""
@@ -363,7 +564,7 @@ class NeighbourGraph:
 
 
 def neighbour_graph(polys, *, sample_ft=1.0, contact_ft=0.5, min_facing_ft=4.0,
-                    target_ft=0.5) -> NeighbourGraph:
+                    target_ft=0.5, barriers=()) -> NeighbourGraph:
     """Which contours face each other, which are one contour, which touch.
 
     Every line is sampled every ``sample_ft``; each sample finds the nearest
@@ -386,12 +587,45 @@ def neighbour_graph(polys, *, sample_ft=1.0, contact_ft=0.5, min_facing_ft=4.0,
     so a steep crossing that falls between samples (no contact vote at all)
     is still a ``cross`` (with ``length_ft`` 0). A shorter graze that does
     not cross — a single-point V-touch — can still be ``faces``.
+
+    ``barriers`` (``[(points Nx2, label)]``) are obstacles, not contours:
+    no node, no value, no index. A facing vote from sample ``s`` to its
+    nearest point ``t`` is *blocked* when a barrier enters the connector's
+    interior — crosses it, or passes within ``contact_ft`` of it, more than
+    ``contact_ft`` from either end (:func:`_in_band`). A barrier merely near
+    but not between them blocks nothing, and neither does one lying along
+    either contour (within ``contact_ft`` of it): it is on that line, not
+    between the two. A pair whose unblocked facing falls below
+    ``min_facing_ft`` when blocked and unblocked together reach it is not
+    ``faces``: it is recorded in ``barred`` (:class:`Barred`), naming the
+    barrier(s), for review. A pair that keeps ``min_facing_ft`` unblocked
+    stays ``faces``, but when at least as much was blocked it is recorded
+    too, ``partial`` — blocked facing is never dropped silently. Where
+    a roadway cut erases a band of contours, the lines either side of the
+    gap face across empty ground and would count one hop; the proposed
+    grading (or a drawn break line) through the gap stops that. Contacts,
+    ``same`` and ``joints`` never depend on barriers.
     """
     import numpy as np
     n = len(polys)
     g = NeighbourGraph(n=n, params={"sample_ft": sample_ft,
                                     "contact_ft": contact_ft,
                                     "min_facing_ft": min_facing_ft})
+    bar = None
+    if barriers:
+        P0, P1, owner, bar_labels = _barrier_segments(barriers)
+        counts: dict = {}
+        for lab in bar_labels:
+            counts[lab] = counts.get(lab, 0) + 1
+        g.params["barriers"] = counts
+        try:
+            from scipy.spatial import cKDTree
+            btree = cKDTree((P0 + P1) / 2.0) if len(P0) else None
+        except ImportError:
+            btree = None
+        half = (float(np.sqrt(((P1 - P0) ** 2).sum(axis=1)).max()) / 2.0
+                if len(P0) else 0.0)
+        bar = (P0, P1, owner, bar_labels, btree, half)
     if n < 2:
         return g
     dense = [_densify(p, target_ft) for p, _, _ in polys]
@@ -407,7 +641,8 @@ def neighbour_graph(polys, *, sample_ft=1.0, contact_ft=0.5, min_facing_ft=4.0,
     except ImportError:
         tree = None
 
-    facing: dict = {}
+    facing: dict = {}        # pair -> [votes, sum of connector midpoints x, y]
+    walled: dict = {}        # pair -> [votes, sum x, sum y, {barrier: votes}]
     contact: dict = {}      # (i, o) directed -> [(x, y, i_near_end, o_near_end)]
     for i, (p, _, _) in enumerate(polys):
         S = _densify(p, sample_ft)
@@ -415,6 +650,7 @@ def neighbour_graph(polys, *, sample_ft=1.0, contact_ft=0.5, min_facing_ft=4.0,
             continue
         s_end = _near_ends(S)
         d0, tied = _nearest_others(S, i, xy, own, tree)
+        votes = []          # facing votes: (sample, target, pair)
         for k in range(len(S)):
             if not math.isfinite(d0[k]):
                 continue
@@ -425,8 +661,26 @@ def neighbour_graph(polys, *, sample_ft=1.0, contact_ft=0.5, min_facing_ft=4.0,
                         (float(S[k, 0]), float(S[k, 1]),
                          bool(s_end[k]), bool(near_end[t])))
                 elif not at_end[t]:
-                    key = (min(i, o), max(i, o))
-                    facing[key] = facing.get(key, 0) + 1
+                    votes.append((k, int(t), (min(i, o), max(i, o))))
+        if not votes:
+            continue
+        ks = np.array([v[0] for v in votes])
+        ts = np.array([v[1] for v in votes])
+        mids = (S[ks] + xy[ts]) / 2.0
+        hit = (_barrier_hits(S[ks], xy[ts], bar, contact_ft) if bar is not None
+               else [()] * len(votes))
+        for (_, _, key), (mx, my), by in zip(votes, mids.tolist(), hit):
+            if by:
+                w = walled.setdefault(key, [0, 0.0, 0.0, {}])
+                for b in by:
+                    w[3][b] = w[3].get(b, 0) + 1
+            else:
+                w = facing.setdefault(key, [0, 0.0, 0.0])
+            w[0] += 1
+            w[1] += mx
+            w[2] += my
+    g.facing = {key: (v[0] * sample_ft, (v[1] / v[0], v[2] / v[0]))
+                for key, v in sorted(facing.items())}
 
     lengths = [max(_length(p), sample_ft) for p, _, _ in polys]
     for a, b in sorted({(min(i, o), max(i, o)) for i, o in contact}):
@@ -453,8 +707,10 @@ def neighbour_graph(polys, *, sample_ft=1.0, contact_ft=0.5, min_facing_ft=4.0,
                                        float(pts[:, 1].mean()))))
     blocked = g.same | g.joints | {c.pair for c in g.contacts}
     checked = {(min(i, o), max(i, o)) for i, o in contact}   # crossing-tested above
-    for a, b in sorted(facing):
-        if facing[(a, b)] * sample_ft < min_facing_ft or (a, b) in blocked:
+    for a, b in sorted(set(facing) | set(walled)):
+        kept = facing.get((a, b), [0])[0]
+        wall = walled.get((a, b), [0])[0]
+        if (kept + wall) * sample_ft < min_facing_ft or (a, b) in blocked:
             continue
         if (a, b) not in checked:
             # a steep crossing can fall between samples, every one of them
@@ -463,6 +719,19 @@ def neighbour_graph(polys, *, sample_ft=1.0, contact_ft=0.5, min_facing_ft=4.0,
             if x is not None:
                 g.contacts.append(Contact((a, b), "cross", 0.0, x))
                 continue
+        full = kept * sample_ft < min_facing_ft
+        if wall and (full or wall >= kept):
+            # a barrier lies between them: set aside (or, leaking, kept)
+            # — named, for review either way
+            w = walled[(a, b)]
+            by = sorted(w[3], key=lambda o: (-w[3][o], o))
+            names = list(dict.fromkeys(bar[3][o] for o in by))
+            g.barred.append(Barred((a, b), names, wall * sample_ft,
+                                   kept * sample_ft,
+                                   (w[1] / wall, w[2] / wall),
+                                   partial=not full))
+        if full:
+            continue
         g.faces.add((a, b))
     g.contacts.sort(key=lambda c: c.pair)
     return g
@@ -703,12 +972,19 @@ CHECKS = {
              "wrong layer",
     "touch": "contours meet: expect a wall or grade break; if there is "
              "none, a drafting error",
+    "barrier": "two contours facing each other across this ground were not "
+               "counted as neighbours, because a barrier (a grading layer, a "
+               "break line) or --no-face sets them aside: confirm contours "
+               "really are missing between them (a cut, a fill, an erased "
+               "area); if not, the barrier is wrong. A partial one (the "
+               "pair is kept) means the barrier stops short of the ends of "
+               "the interrupted contours",
     "label-unmatched": "the anchor's position, or a missing contour",
     "label-not-index": "the reading, or the line's pen/layer",
     "label-off-interval": "the reading",
 }
-_KINDS = ("conflict", "spot-tie", "cross", "touch", "label-unmatched",
-          "label-not-index", "label-off-interval")
+_KINDS = ("conflict", "spot-tie", "cross", "touch", "barrier",
+          "label-unmatched", "label-not-index", "label-off-interval")
 
 
 @dataclass
@@ -724,6 +1000,8 @@ class Finding:
     check: str = ""
     paths: list = field(default_factory=list)
     page: tuple | None = None
+    chains: list = field(default_factory=list)
+    partial: bool = False      # a barrier finding whose barrier leaked
 
     def as_dict(self):
         def pt(p):
@@ -737,7 +1015,10 @@ class Finding:
                 "labels": [dict(lab) for lab in self.labels],
                 "xy": pt(self.xy), "page": pt(self.page),
                 "detail": self.detail, "check": self.check,
-                "paths": list(self.paths)}
+                "paths": list(self.paths),
+                "chains": [dict(c) for c in self.chains],
+                **({"partial": bool(self.partial)} if self.kind == "barrier"
+                   else {})}
 
 
 def _groups(items, xy_of, radius):
@@ -769,20 +1050,111 @@ def _path_text(rec, elev, src, dst, bound):
     return f"{head}{body}: {h} hop{'' if h == 1 else 's'} → {bound}"
 
 
+def _source_value(rec, elev, src):
+    """A source's value and its extra hops: a spot is one hop off its line."""
+    if isinstance(src, tuple):
+        return float(rec.pins[src[1]]["elev"]), 1
+    return float(elev[src]), 0
+
+
+def _chain(rec, elev, a, b):
+    """The shortest neighbour chain between sources ``a`` and ``b`` and the
+    feet per hop it implies, or None when one does not reach the other.
+
+    Two sources in conflict are further apart in value than one interval per
+    hop allows, so the chain between them is steeper than the interval. A
+    chain well over the interval (2 ft/hop on a 1 ft interval) usually means
+    a ``faces`` edge on it spans a gap — contours missing between two
+    lines that face each other across open ground (a roadway prism, an
+    erased area) — rather than a
+    misread label; the chain names the lines to look at.
+    """
+    line_b = rec.pins[b[1]]["line"] if isinstance(b, tuple) else b
+    h = rec.reach.get(a, {}).get(line_b)
+    if h is None:
+        return None
+    za, xa = _source_value(rec, elev, a)
+    zb, xb = _source_value(rec, elev, b)
+    hops = int(h) + xa + xb
+    if hops <= 0:
+        return None
+    nodes = rec.path(a, line_b)
+    body = [f"{k}({elev[k]:g})" if k in elev else str(k) for k in nodes]
+    if isinstance(a, tuple):
+        body.insert(0, f"spot {za:g}")
+    if isinstance(b, tuple):
+        body.append(f"spot {zb:g}")
+    dz = abs(za - zb)
+    rate = dz / hops
+    text = (f"chain {' – '.join(body)}: {hops} hop{'' if hops == 1 else 's'} "
+            f"for {dz:g} ft = {rate:.2f} ft/hop against the "
+            f"{rec.interval:g} ft interval")
+    if rate > rec.interval + _EPS:
+        text += (" — more than one interval per hop: a faces edge on this "
+                 "chain likely spans a gap (contours missing between two "
+                 "lines that face each other), or a label is misread")
+    return {"from": _src_json(a), "to": _src_json(b),
+            "lines": [int(k) for k in nodes], "hops": hops,
+            "dz_ft": round(dz, 6), "ft_per_hop": round(rate, 6),
+            "interval_ft": float(rec.interval), "text": text}
+
+
+def _src_json(src):
+    """A source key as plain JSON: a line index, or ``"spot k"``."""
+    return f"spot {src[1]}" if isinstance(src, tuple) else int(src)
+
+
+def _conflict_chains(rec, elev, comp):
+    """One chain per pair of sources in conflict within ``comp``, steepest
+    first: a lettered line and the source whose limit it breaks, and the two
+    sources whose limits empty an unlabelled line."""
+    pairs: list = []
+    by_line = {c["line"]: c for c in rec.label_conflicts}
+    for k in comp:
+        lr = rec.lines[k]
+        if k in by_line:
+            c = by_line[k]
+            if c["lo"] is not None and elev[k] < c["lo"] - _EPS:
+                pairs.append((c["lo_from"][0], k))
+            if c["hi"] is not None and elev[k] > c["hi"] + _EPS:
+                pairs.append((c["hi_from"][0], k))
+        elif lr.status == "conflict" and lr.lo_from and lr.hi_from:
+            pairs.append((lr.lo_from[0], lr.hi_from[0]))
+    seen, chains = set(), []
+    for a, b in pairs:
+        key = frozenset((a, b))
+        if a == b or key in seen:
+            continue
+        seen.add(key)
+        ch = _chain(rec, elev, a, b)
+        if ch is not None:
+            chains.append(ch)
+    chains.sort(key=lambda c: -c["ft_per_hop"])         # stable: steepest first
+    return chains
+
+
 def build_findings(polys, graph, elev, rec=None, *, labels=(), label_rows=(),
                    index_rows=(), line_ids=None, group_ft=40.0, recheck=None):
     """Every place the contours do not add up, located and grouped.
 
     ``conflict`` — the lettered values in conflict and the unlabelled lines
     whose ranges went empty, grouped by connectivity through ``faces`` /
-    ``same``; each carries the neighbour paths behind its limits, and, when
+    ``same``; each carries the neighbour paths behind its limits, the chain
+    between each pair of conflicting sources with the feet per hop it
+    implies against the interval (``chains``: steeper than the interval
+    usually means a ``faces`` edge across a gap), and, when
     ``recheck`` is given and setting aside exactly one of its labels
     reconciles the whole cluster, says which label to check first.
     ``spot-tie`` — a spot exactly equidistant from multiple contours, so it
     is reported for review but not used as a pin. ``cross`` / ``touch`` —
     graph contacts, grouped single-linkage within
     ``group_ft`` (half a review crop), so contours meeting at one wall are
-    one finding. ``label-unmatched`` — a label that attached to no line
+    one finding. ``barrier`` — ``graph.barred``: faces pairs a barrier
+    layer, a break line or ``--no-face`` set aside, grouped the same way,
+    each naming its lines, what set it aside and the facing it set aside;
+    ``partial`` ones (``Finding.partial``) are pairs a barrier blocked at
+    least half of but that still face, kept — grouped on their own.
+    ``label-unmatched`` — a label that attached to no line
     (``label_rows`` zipped with ``labels``). ``label-not-index`` — the
     ``index_rows`` of :func:`~bimforge.terrain.contours.check_index_labels`.
     ``label-off-interval`` — ``rec.off_interval``.
@@ -837,6 +1209,13 @@ def build_findings(polys, graph, elev, rec=None, *, labels=(), label_rows=(),
             labs = [k for k in comp if k in elev]
             detail = (f"{len(labs)} lettered value(s) and {len(comp) - len(labs)} "
                       "line(s) the labels leave no value for")
+            chains = _conflict_chains(rec, elev, comp)
+            if chains:
+                detail += (f"; steepest chain {chains[0]['ft_per_hop']:.2f} "
+                           f"ft/hop against the {rec.interval:g} ft interval "
+                           f"({chains[0]['hops']} hop"
+                           f"{'' if chains[0]['hops'] == 1 else 's'} for "
+                           f"{chains[0]['dz_ft']:g} ft)")
             if recheck is not None and labs:
                 fixes = [k for k in labs
                          if not empty(recheck({a: z for a, z in elev.items()
@@ -847,7 +1226,8 @@ def build_findings(polys, graph, elev, rec=None, *, labels=(), label_rows=(),
                                f"{elev[k]:g} label on line {k} — check that "
                                "reading first")
             found.append(Finding("", "conflict", comp, [label_of(k) for k in labs],
-                                 centre_of(comp), detail, CHECKS["conflict"], paths))
+                                 centre_of(comp), detail, CHECKS["conflict"], paths,
+                                 chains=chains))
 
     for kind in ("cross", "touch"):
         cs = [c for c in graph.contacts if c.kind == kind]
@@ -863,6 +1243,33 @@ def build_findings(polys, graph, elev, rec=None, *, labels=(), label_rows=(),
             found.append(Finding("", kind, lines,
                                  [label_of(k) for k in lines if k in elev],
                                  xy, detail, CHECKS[kind]))
+
+    def line_text(k):
+        return f"{k} ({elev[k]:g})" if k in elev else str(k)
+
+    def barred_text(b):
+        head = f"lines {line_text(b.pair[0])} and {line_text(b.pair[1])}: "
+        if b.partial:
+            return (head + f"{b.length_ft:.0f} ft of facing blocked by "
+                    f"{', '.join(b.by)}, but {b.kept_ft:.0f} ft still faces "
+                    "— the pair is kept; extend the barrier/break line to "
+                    "cover it")
+        return (head + f"{b.length_ft:.0f} ft of facing set aside by "
+                f"{', '.join(b.by)}"
+                + (f" ({b.kept_ft:.0f} ft left unblocked)" if b.kept_ft else ""))
+
+    for partial in (False, True):
+        rows = [b for b in graph.barred if b.partial == partial]
+        for grp in _groups(rows, lambda b: b.xy, group_ft):
+            lines = sorted({k for b in grp for k in b.pair})
+            detail = "; ".join(barred_text(b) for b in grp[:6]) + (
+                f"; and {len(grp) - 6} more" if len(grp) > 6 else "")
+            xy = (float(np.mean([b.xy[0] for b in grp])),
+                  float(np.mean([b.xy[1] for b in grp])))
+            found.append(Finding("", "barrier", lines,
+                                 [label_of(k) for k in lines if k in elev],
+                                 xy, detail, CHECKS["barrier"],
+                                 partial=partial))
 
     for lab, row in zip(labels, label_rows):
         if row["accepted"]:
