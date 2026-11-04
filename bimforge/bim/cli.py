@@ -27,7 +27,7 @@ the paths ARE the geometry):
 and the terrain source path (plan-sheet contours -> TIN -> QA vs 3DEP):
 
   est-bim contours        --pdf plans.pdf --sheet 28 [--profile] [--calib calib.yaml] [--tie PX,PY=N,E ... [--tie-model affine] [--crs-epsg N]] [--viewport N] [--geopdf-bbox page] [--no-geopdf] [--clip x0,y0,x1,y1] --layer 'EXIST=0.753@0.72|EXIST=ocg:GLOB' ... [--surface NAME=existing] [--role NAME=index] [--max-residual-ft F] [--out contours.dxf] [--json contours.json]
-  est-bim contour-surface --contours contours.json ... --anchors anchors.yaml [--spots spots.yaml] [--propagate --interval 1] [--surface existing|proposed] [--include-review] --out tin.npz [--dxf surface.dxf] [--report surface.md] [--max-rmse 1.0] [--contact-ft 0.5] [--strict] [--spot-pins] [--review-dir DIR [--pdf plans.pdf]]
+  est-bim contour-surface --contours contours.json ... --anchors anchors.yaml [--spots spots.yaml] [--propagate --interval 1] [--surface existing|proposed] [--include-review] --out tin.npz [--dxf surface.dxf] [--report surface.md] [--max-rmse 1.0] [--contact-ft 0.5] [--min-facing-ft 4] [--barrier-layers PROP ...] [--no-face A,B ...] [--strict] [--spot-pins] [--review-dir DIR [--pdf plans.pdf]]
   est-bim terrain-diff    --surface surface.xyz|tin.npz (--grid grid.npz [--vshift-json vshift.json] [--units ftUS] | --against other.npz [--step 5] [--tie-tol 0.5] [--zones zones.yaml] [--report r.md]) [--csv diff.csv] [--png diff.png]
   est-bim label-crops     --contours contours.json --pdf plans.pdf --sheet 94 [--sources mask,gap] [--labels 'ocg:GLOB'] [--spots 'ocg:GLOB'] [--dpi 300] --out-dir crops/ --anchors anchors.skeleton.yaml
 
@@ -1110,6 +1110,11 @@ def _run_contours(args) -> int:
     def _log(msg):
         print(msg, file=sys.stderr)
 
+    if args.min_path_pt > 0:
+        _log(f"  WARNING: --min-path-pt {args.min_path_pt:g} drops short "
+             "connector paths and can fragment contours and lose line "
+             "work — check the polyline count/length against "
+             "--min-path-pt 0")
     try:
         sv = extract_sheet(args.pdf, args.sheet - 1,
                            min_path_pt=args.min_path_pt)
@@ -1380,6 +1385,19 @@ def _leave_one_out(polys, graph, lettered, interval, spots, *, roles,
     return {"rows": rows, "stats": score_stats([r["err"] for r in rows])}
 
 
+def _face_pair(text):
+    """``--no-face A,B``: two contour line numbers."""
+    import argparse
+    parts = str(text).split(",")
+    try:
+        if len(parts) != 2:
+            raise ValueError
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"expected A,B (two contour line numbers), got {text!r}") from None
+
+
 def _run_contour_surface(args) -> int:
     """Labelled contour manifests -> TIN npz + spot score report (held-out
     spots, or leave-one-out with ``--spot-pins --propagate``)."""
@@ -1423,15 +1441,31 @@ def _run_contour_surface(args) -> int:
         except ValueError as exc:
             print(f"error: --review-dir: {exc}", file=sys.stderr)
             return 1
+    barrier_layers = list(dict.fromkeys(args.barrier_layers or []))
+    both = [name for name in barrier_layers if name in set(args.layers or [])]
+    if both:
+        print(f"error: layer {', '.join(both)} is in both --layers and "
+              "--barrier-layers — a layer is either contours or a barrier",
+              file=sys.stderr)
+        return 1
 
     try:
         polys, manifests, layer_meta = [], [], {}
+        barriers: list = []          # [(points, label)] — obstacles, not contours
+        barrier_seen: set = set()
+        barrier_lines: Counter = Counter()
         wanted = set(args.layers or [])
         skipped_review = 0
         for p in args.contours:
             m = json.loads(Path(p).read_text(encoding="utf-8"))
             manifests.append(m)
             for name, d in m["layers"].items():
+                if name in barrier_layers:
+                    barrier_seen.add(name)
+                    barrier_lines[name] += len(d["lines"])
+                    barriers += [(np.asarray(ln["points"], dtype=float),
+                                  f"layer {name}") for ln in d["lines"]]
+                    continue
                 if wanted and name not in wanted:
                     continue
                 if name == "REVIEW" and not args.include_review:
@@ -1443,6 +1477,13 @@ def _run_contour_surface(args) -> int:
                 for ln in d["lines"]:
                     polys.append((np.asarray(ln["points"], dtype=float),
                                   src, name))
+        missing = [name for name in barrier_layers if name not in barrier_seen]
+        if missing:
+            raise ValueError(
+                f"--barrier-layers {', '.join(missing)}: no such layer in "
+                f"any --contours manifest (layers: "
+                + ", ".join(sorted({n for m in manifests for n in m["layers"]}))
+                + ")")
         raw = load_anchors(args.anchors)
         extra_spots = []
         if args.spots:
@@ -1472,14 +1513,20 @@ def _run_contour_surface(args) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    for name in barrier_layers:
+        if not barrier_lines[name]:
+            _log(f"warning: --barrier-layers {name}: layer has no lines — "
+                 "it blocks nothing")
     if skipped_review:
         _log(f"skipped {skipped_review} REVIEW line(s); pass --include-review "
              "to use them")
     if anchors.unread:
         _log(f"{anchors.unread} anchor record(s) have elev: null (unread) — "
              "skipped")
-    uses_page = any("page" in r for r in (raw.get("contours") or [])
-                    + list(raw.get("spots") or []))
+    uses_page = any(isinstance(r, dict) and "page" in r
+                    for r in list(raw.get("contours") or [])
+                    + list(raw.get("spots") or [])
+                    + list(raw.get("breaks") or []))
     if uses_page and placed_by and not args.tie:
         _log(f"page anchors placed by the {placed_by}")
 
@@ -1538,7 +1585,32 @@ def _run_contour_surface(args) -> int:
         _log("--spot-pins: there are no spot elevations to pin")
     line_roles = {i: (layer_meta.get((src, lay)) or {}).get("role")
                   for i, (_, src, lay) in enumerate(polys)}
-    graph = neighbour_graph(polys, contact_ft=args.contact_ft)
+    barriers += [(np.asarray(b["points"], dtype=float), b["label"])
+                 for b in anchors.breaks]
+    graph = neighbour_graph(polys, contact_ft=args.contact_ft,
+                            min_facing_ft=args.min_facing_ft,
+                            barriers=barriers)
+    try:
+        for w in graph.set_aside_faces(args.no_face or []):
+            _log(f"warning: {w}")
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    barrier_input = bool(barriers or args.no_face)
+    set_aside = [b for b in graph.barred if not b.partial]
+    leaky = [b for b in graph.barred if b.partial]
+    if barrier_input:
+        def _by(rows):
+            c: Counter = Counter()
+            for b in rows:
+                first = b.by[0]
+                c["break lines" if first.startswith("break ") else first] += 1
+            return (" (" + ", ".join(f"{k}: {v}" for k, v in c.items()) + ")"
+                    if c else "")
+        _log(f"barriers: {len(set_aside)} faces pair(s) set aside"
+             + _by(set_aside)
+             + (f"; {len(leaky)} pair(s) kept though partly blocked — "
+                "extend the barrier" + _by(leaky) if leaky else ""))
 
     def _reconcile(e, reuse=None):
         return reconcile(polys, graph, e, interval, roles=line_roles,
@@ -1697,7 +1769,10 @@ def _run_contour_surface(args) -> int:
             "spot_scoring": scoring,
             "graph": {**graph.params, "same": len(graph.same),
                       "joints": len(graph.joints),
-                      "refused_merges": merge_stats["refused"]},
+                      "refused_merges": merge_stats["refused"],
+                      **({"barred": len(set_aside),
+                          "partly_barred": len(leaky)} if barrier_input
+                         else {})},
             "flat_triangle_share": round(flat, 4), "crs_epsg": crs_epsg}
     out = save_tin_npz(args.out, pts, tin.simplices, info, tin_lines, pt_line)
     print(f"wrote {out}")
@@ -1815,9 +1890,22 @@ def _run_contour_surface(args) -> int:
             lines.append("off — no contour interval (interval_ft or --interval)")
         else:
             c, gp = rec.counts(), graph.params
+            bar_txt = ""
+            if barrier_input:
+                kinds = Counter("break lines" if lab.startswith("break ")
+                                else lab for lab in (gp.get("barriers") or {})
+                                for _ in range(gp["barriers"][lab]))
+                parts = [f"{k} ({v} line{'' if v == 1 else 's'})"
+                         for k, v in kinds.items()]
+                if args.no_face:
+                    parts.append(f"--no-face {len(args.no_face)} pair(s)")
+                bar_txt = (f" · barriers: {', '.join(parts)} — "
+                           f"{len(set_aside)} faces pair(s) set aside"
+                           + (f", {len(leaky)} kept though partly blocked"
+                              if leaky else ""))
             lines += [f"neighbour graph: contact_ft {gp['contact_ft']:g} · "
                       f"min_facing_ft {gp['min_facing_ft']:g} · "
-                      f"sample_ft {gp['sample_ft']:g}", "",
+                      f"sample_ft {gp['sample_ft']:g}" + bar_txt, "",
                       "| pinned | ambiguous | conflict | unreached | "
                       "lettered in conflict |", "|---|---|---|---|---|",
                       f"| {c['pinned']} | {c['ambiguous']} | {c['conflict']} | "
@@ -1844,8 +1932,9 @@ def _run_contour_surface(args) -> int:
                              f"{f.xy[0]:.1f} | {f.xy[1]:.1f} | {page} | "
                              f"{f.check} |")
             for f in findings:
-                if f.detail or f.paths:
+                if f.detail or f.paths or f.chains:
                     lines += ["", f"**{f.id} · {f.kind}** — {f.detail}"]
+                    lines += [f"- {c['text']}" for c in f.chains]
                     lines += [f"- {p}" for p in f.paths]
         else:
             lines.append("none")
@@ -1877,10 +1966,16 @@ def _run_contour_surface(args) -> int:
             print(f"error: spot RMSE {st['rmse']:.2f} ft exceeds "
                   f"--max-rmse {args.max_rmse:g} ft", file=sys.stderr)
             return 2
-    if args.strict and findings:
+    # a barrier set-aside was asked for: reported, but not a failure; a
+    # partial one (the barrier leaked) is — it did not do what was asked
+    gating = [f for f in findings if f.kind != "barrier" or f.partial]
+    if args.strict and gating:
         where = (f"see {args.report}" if args.report
                  else "rerun with --report for the details")
-        print(f"error: --strict: {len(findings)} finding(s) ({kinds_txt}) — "
+        gate_txt = ", ".join(f"{v} {k}" for k, v in Counter(
+            ("partial barrier" if f.kind == "barrier" else f.kind)
+            for f in gating).items())
+        print(f"error: --strict: {len(gating)} finding(s) ({gate_txt}) — "
               f"{where}", file=sys.stderr)
         return 2
     return 0
@@ -2585,10 +2680,13 @@ def main(argv=None) -> int:
                     metavar="DEG",
                     help="max direction change across a --gap jump "
                          "(default 25)")
-    co.add_argument("--min-path-pt", type=float, default=2.0,
+    co.add_argument("--min-path-pt", type=float, default=0.0,
                     dest="min_path_pt",
                     help="drop source paths shorter than this, page points "
-                         "(default 2)")
+                         "(default 0, keep every path: contour line work is "
+                         "built from short connector paths, so a length "
+                         "filter fragments contours; raise it only to drop "
+                         "hatch noise)")
     co.add_argument("--tie", action="append", default=[],
                     metavar="PX,PY=N,E",
                     help="survey tie page point -> northing,easting; two or "
@@ -2646,7 +2744,10 @@ def main(argv=None) -> int:
                          "interval_ft, optional index_interval_ft and sheet, "
                          "contours/spots: [{elev, xy|page}] — page records "
                          "are placed by --tie or the v2 manifest's georef; "
-                         "elev: null records are unread and skipped")
+                         "elev: null records are unread and skipped; "
+                         "optional breaks: [{page|xy: [[x, y], ...], note}] "
+                         "are break lines drawn across a gap in the "
+                         "contours (see --barrier-layers)")
     cs.add_argument("--spots",
                     help="spot elevations YAML — the scorecard (held out; "
                          "with --spot-pins also a consistency check on the "
@@ -2706,9 +2807,37 @@ def main(argv=None) -> int:
                          "neighbours, and a finding where they touch or cross; "
                          "also how close a merge join may pass another line "
                          "(default 0.5)")
+    cs.add_argument("--min-facing-ft", type=float, default=4.0,
+                    dest="min_facing_ft", metavar="FT",
+                    help="two contours facing each other across open ground "
+                         "along at least this much of their length are "
+                         "neighbours (one interval apart at most); raise it "
+                         "when short runs facing across a gap in the "
+                         "linework (a roadway prism, an erased area) make "
+                         "the labels conflict (default 4)")
+    cs.add_argument("--barrier-layers", nargs="+", default=[],
+                    dest="barrier_layers", metavar="LAYER",
+                    help="manifest layers that are obstacles, not contours "
+                         "(e.g. the proposed-grading contours through a "
+                         "roadway cut): never in the TIN; two contours "
+                         "facing each other across one are not counted as "
+                         "one interval apart, and each pair set aside is a "
+                         "'barrier' finding. Anchors-file breaks: lines "
+                         "work the same way. A barrier or break line must "
+                         "reach the ends of the interrupted contours: where "
+                         "it stops short they still face, and the pair is "
+                         "kept (a partial 'barrier' finding)")
+    cs.add_argument("--no-face", action="append", default=[], dest="no_face",
+                    type=_face_pair, metavar="A,B",
+                    help="set aside the faces pair between contour lines A "
+                         "and B (the line numbers in the report, after "
+                         "fragment merging); repeatable; a one-off — an "
+                         "anchors-file break line survives re-extraction")
     cs.add_argument("--strict", action="store_true",
                     help="exit 2 when there is any finding (after writing "
-                         "every output)")
+                         "every output); barrier findings you asked for do "
+                         "not count — they are reported, not failures — but "
+                         "a partial one (a barrier that leaked) does")
     cs.add_argument("--spot-pins", action="store_true", dest="spot_pins",
                     help="check the contours against the spot elevations: a "
                          "spot limits its nearest line to within one "

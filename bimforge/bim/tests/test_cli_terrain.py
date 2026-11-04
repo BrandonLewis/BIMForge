@@ -142,6 +142,68 @@ def test_contours_profile_says_raster(contours_env, capsys):
     assert "raster" in capsys.readouterr().out
 
 
+def test_contours_min_path_pt_defaults_to_zero(contours_env, capsys):
+    # #398: a nonzero --min-path-pt drops the short connector paths that
+    # contour runs are built from, fragmenting them — so contours must keep
+    # every path by default (min_path_pt == 0), unlike calibrate/vectors.
+    fake_vectors = sys.modules["bimforge.bim.plansheet.vectors"]
+    orig = fake_vectors.extract_sheet
+    calls = []
+
+    def spy(pdf, page, min_path_pt=2.0):
+        calls.append(min_path_pt)
+        return orig(pdf, page, min_path_pt=min_path_pt)
+
+    fake_vectors.extract_sheet = spy
+    rc = cli.main(["contours", "--pdf", "x.pdf", "--sheet", "7", "--profile"])
+    assert rc == 0
+    assert calls == [0.0]
+    assert "--min-path-pt" not in capsys.readouterr().err
+
+
+def test_contours_nonzero_min_path_pt_warns(contours_env, capsys):
+    # #398: raising --min-path-pt above 0 can silently fragment/lose line
+    # work, so the CLI must warn on stderr when the operator sets it.
+    fake_vectors = sys.modules["bimforge.bim.plansheet.vectors"]
+    orig = fake_vectors.extract_sheet
+    calls = []
+
+    def spy(pdf, page, min_path_pt=2.0):
+        calls.append(min_path_pt)
+        return orig(pdf, page, min_path_pt=min_path_pt)
+
+    fake_vectors.extract_sheet = spy
+    rc = cli.main(["contours", "--pdf", "x.pdf", "--sheet", "7", "--profile",
+                   "--min-path-pt", "2"])
+    assert rc == 0
+    assert calls == [2.0]
+    err = capsys.readouterr().err
+    assert "--min-path-pt 2" in err
+    assert "fragment" in err or "connector" in err
+
+
+def test_calibrate_and_vectors_still_default_min_path_pt_to_2(monkeypatch):
+    # #398 narrowed the fragmenting default to `contours` only; calibrate
+    # and vectors keep the hatch-noise filter on by default.
+    import argparse
+
+    class _Stop(Exception):
+        pass
+
+    def capture(self, *a, **kw):
+        raise _Stop(self)
+
+    monkeypatch.setattr(argparse.ArgumentParser, "parse_args", capture)
+    with pytest.raises(_Stop) as stop:
+        cli.main([])
+    parser = stop.value.args[0]
+    sub = next(a for a in parser._actions
+               if isinstance(a, argparse._SubParsersAction))
+    assert sub.choices["calibrate"].get_default("min_path_pt") == 2.0
+    assert sub.choices["vectors"].get_default("min_path_pt") == 2.0
+    assert sub.choices["contours"].get_default("min_path_pt") == 0.0
+
+
 def test_contours_writes_dxf_and_manifest(contours_env, tmp_path, capsys):
     ezdxf = pytest.importorskip("ezdxf")
     dxf = tmp_path / "c.dxf"
@@ -1604,3 +1666,299 @@ def test_contours_non_finite_clip_is_exit_1(contours_env, capsys, value):
                    "--clip", value])
     assert rc == 1
     assert "finite" in capsys.readouterr().err
+
+
+def test_contour_surface_report_shows_each_conflict_chain_ft_per_hop(tmp_path):
+    # #397: a conflict says how many feet per hop its chain implies, so a
+    # faces edge across a gap can be found without tracing the lines by hand
+    pytest.importorskip("scipy")
+    man = tmp_path / "m.json"
+    _write_v2_manifest(man, ys=_FIVE)
+    anchors = tmp_path / "a.yaml"
+    _write_yaml(anchors, {"vertical_datum": "NGVD29", "interval_ft": 10.0,
+                          "contours": _five_page_anchors(
+                              [100.0, 110.0, 150.0, 130.0, 140.0])})
+    out, report = tmp_path / "t.npz", tmp_path / "r.md"
+    assert cli.main(["contour-surface", "--contours", str(man), "--anchors",
+                     str(anchors), "--out", str(out),
+                     "--report", str(report)]) == 0
+    text = report.read_text(encoding="utf-8")
+    assert ("- chain 2(150) – 1(110): 1 hop for 40 ft = 40.00 ft/hop against "
+            "the 10 ft interval — more than one interval per hop") in text
+
+
+def test_contour_surface_min_facing_ft_sets_the_neighbour_graph(tmp_path, capsys):
+    # #397: --min-facing-ft is exposed; a facing run shorter than it is no hop
+    pytest.importorskip("scipy")
+    man = tmp_path / "m.json"
+    _write_v2_manifest(man)                    # three 400-ft lines, 40 ft apart
+    anchors = tmp_path / "a.yaml"
+    _write_yaml(anchors, {"vertical_datum": "NGVD29", "interval_ft": 10.0,
+                          "contours": [_PAGE_ANCHORS[0], _PAGE_ANCHORS[2]]})
+    base = ["contour-surface", "--contours", str(man), "--anchors",
+            str(anchors)]
+    out = tmp_path / "t.npz"
+    assert cli.main(base + ["--out", str(out)]) == 0
+    info = json.loads(str(np.load(out, allow_pickle=False)["info"]))
+    assert info["graph"]["min_facing_ft"] == 4.0
+    assert info["reconcile"]["pinned"] == 1            # the middle line: 110
+    capsys.readouterr()
+    out2 = tmp_path / "t2.npz"
+    assert cli.main(base + ["--out", str(out2), "--min-facing-ft", "1000"]) == 0
+    info = json.loads(str(np.load(out2, allow_pickle=False)["info"]))
+    assert info["graph"]["min_facing_ft"] == 1000.0
+    assert info["reconcile"]["pinned"] == 0 and info["reconcile"]["unreached"] == 1
+
+
+# ------------------------------------- barriers across a gap (#397 part b)
+# contours 100..110; the 103..107 bank stops at x = 100 (a roadway cut took
+# the rest), so past it 102 and 108 face across empty ground: one hop for 6 ft
+_GAP_Y = {100: 0.0, 101: 20.0, 102: 40.0, 103: 44.0, 104: 46.0, 105: 48.0,
+          106: 50.0, 107: 52.0, 108: 56.0, 109: 76.0, 110: 96.0}
+_GAP_PROP = [[105.0, 48.0], [150.0, 48.0], [200.0, 48.0]]   # through the gap
+
+
+def _gap_manifest(path, *, prop=True):
+    lines = [{"points": [[float(x), y] for x in
+                         (range(0, 101, 10) if 103 <= z <= 107
+                          else range(0, 201, 10))]}
+             for z, y in _GAP_Y.items()]
+    extra = {"PROP": {"lines": [{"points": _GAP_PROP}]}} if prop else {}
+    m = {"manifest_version": 2, "sheet": 1, "source_kind": "vector",
+         "georef": {"method": "calibration", "model": "similarity",
+                    "frame": "sheet_local_ft", "ft_per_pt": 2.0,
+                    "transform": [2.0, 0.0, 0.0, 0.0, -2.0, 0.0],
+                    "residuals_ft": []},
+         "layers": {"EXIST": {"lines": lines}, **extra}}
+    path.write_text(json.dumps(m), encoding="utf-8")
+
+
+def _gap_anchors(path, **extra):
+    # labels 100, 105, 110 at world x = 50 -> page (25, -y / 2)
+    _write_yaml(path, {"sheet": 1, "vertical_datum": "NGVD29",
+                       "interval_ft": 1.0, **extra,
+                       "contours": [{"id": f"L{z}", "elev": float(z),
+                                     "page": [25.0, -_GAP_Y[z] / 2.0]}
+                                    for z in (100, 105, 110)]})
+
+
+def _gap_run(tmp_path, *extra, anchors_extra=None, prop=True):
+    man, anchors = tmp_path / "m.json", tmp_path / "a.yaml"
+    _gap_manifest(man, prop=prop)
+    _gap_anchors(anchors, **(anchors_extra or {}))
+    out, report = tmp_path / "t.npz", tmp_path / "r.md"
+    rc = cli.main(["contour-surface", "--contours", str(man), "--anchors",
+                   str(anchors), "--out", str(out), "--report", str(report),
+                   *extra])
+    return rc, out, report
+
+
+def _info(out):
+    return json.loads(str(np.load(out, allow_pickle=False)["info"]))
+
+
+def test_contour_surface_a_gap_conflicts_without_a_barrier(tmp_path):
+    # the counterfactual: the same sheet, nothing in the gap
+    pytest.importorskip("scipy")
+    rc, out, report = _gap_run(tmp_path, "--layers", "EXIST")
+    assert rc == 0
+    assert _info(out)["reconcile"]["label_conflicts"] == 2
+    findings = report.read_text(encoding="utf-8").split("## Findings")[1]
+    assert "| F01 | conflict |" in findings
+
+
+def test_contour_surface_barrier_layers_set_the_gap_aside(tmp_path, capsys):
+    pytest.importorskip("scipy")
+    from bimforge.terrain.contours import load_tin_npz
+    rc, out, report = _gap_run(tmp_path, "--barrier-layers", "PROP")
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "11 polylines from 1 manifest(s)" in err       # PROP is no contour
+    assert "barriers: 1 faces pair(s) set aside (layer PROP: 1)" in err
+    info = _info(out)
+    assert info["reconcile"]["label_conflicts"] == 0
+    assert info["reconcile"]["conflict"] == 0 and info["reconcile"]["pinned"] == 8
+    assert info["graph"]["barriers"] == {"layer PROP": 1}
+    assert info["graph"]["barred"] == 1
+    t = load_tin_npz(out)
+    # the TIN is the lettered contours only: the PROP line is no contour
+    assert sorted(ln["elev"] for ln in t.lines) == [100.0, 105.0, 110.0]
+    assert {ln["source"] for ln in t.lines} == {"sheet 1 / EXIST"}
+    text = report.read_text(encoding="utf-8")
+    findings = text.split("## Findings")[1]
+    assert "| conflict |" not in findings                 # the only finding:
+    assert "| F01 | barrier | 2, 8 |" in findings         # the gap, set aside
+    assert "| F02 |" not in findings
+    assert "lines 2 and 8:" in text and "set aside by layer PROP" in text
+    assert "barriers: layer PROP (1 line)" in text
+
+
+def test_contour_surface_barrier_layers_with_layers_keeps_both_apart(tmp_path):
+    pytest.importorskip("scipy")
+    rc, out, _ = _gap_run(tmp_path, "--layers", "EXIST",
+                          "--barrier-layers", "PROP")
+    assert rc == 0
+    assert _info(out)["reconcile"]["label_conflicts"] == 0
+
+
+def test_contour_surface_unknown_barrier_layer_is_exit_1(tmp_path, capsys):
+    rc, _, _ = _gap_run(tmp_path, "--barrier-layers", "PROPMIN")
+    assert rc == 1
+    assert "--barrier-layers PROPMIN: no such layer" in capsys.readouterr().err
+
+
+def test_contour_surface_a_layer_cannot_be_contour_and_barrier(tmp_path, capsys):
+    rc, _, _ = _gap_run(tmp_path, "--layers", "EXIST", "PROP",
+                        "--barrier-layers", "PROP")
+    assert rc == 1
+    assert ("PROP is in both --layers and --barrier-layers"
+            in capsys.readouterr().err)
+
+
+def test_contour_surface_anchors_break_lines_are_barriers(tmp_path, capsys):
+    pytest.importorskip("scipy")
+    # the same polyline as PROP, drawn in page points: world (2x, -2y)
+    brk = {"breaks": [{"page": [[x / 2.0, -y / 2.0] for x, y in _GAP_PROP],
+                       "note": "roadway cut"}]}
+    rc, out, report = _gap_run(tmp_path, "--review-dir",
+                               str(tmp_path / "review"),
+                               anchors_extra=brk, prop=False)
+    assert rc == 0
+    assert ("barriers: 1 faces pair(s) set aside (break lines: 1)"
+            in capsys.readouterr().err)
+    info = _info(out)
+    assert info["reconcile"]["label_conflicts"] == 0
+    assert info["reconcile"]["pinned"] == 8
+    assert info["graph"]["barriers"] == {"break 1 (roadway cut)": 1}
+    text = report.read_text(encoding="utf-8")
+    assert "set aside by break 1 (roadway cut)" in text
+    review = (tmp_path / "review" / "review.md").read_text(encoding="utf-8")
+    assert "## F01 · barrier" in review
+    assert "set aside by break 1 (roadway cut)" in review
+    (f,) = json.loads((tmp_path / "review" / "findings.json")
+                      .read_text(encoding="utf-8"))["findings"]
+    assert f["kind"] == "barrier" and f["lines"] == [2, 8]
+    assert f["page"] is not None and 50.0 < f["page"][0] < 100.0
+
+
+def test_contour_surface_no_face_sets_one_pair_aside(tmp_path, capsys):
+    pytest.importorskip("scipy")
+    rc, out, report = _gap_run(tmp_path, "--layers", "EXIST",
+                               "--no-face", "2,8")
+    assert rc == 0
+    assert ("barriers: 1 faces pair(s) set aside (--no-face: 1)"
+            in capsys.readouterr().err)
+    info = _info(out)
+    assert info["reconcile"]["label_conflicts"] == 0
+    assert info["reconcile"]["pinned"] == 8
+    assert info["graph"]["no_face"] == [[2, 8]]
+    assert "set aside by --no-face" in report.read_text(encoding="utf-8")
+
+
+def test_contour_surface_no_face_warns_on_a_pair_that_does_not_face(
+        tmp_path, capsys):
+    pytest.importorskip("scipy")
+    rc, out, _ = _gap_run(tmp_path, "--layers", "EXIST", "--no-face", "0,5")
+    assert rc == 0
+    assert "warning: --no-face 0,5: not a faces pair" in capsys.readouterr().err
+    assert _info(out)["reconcile"]["label_conflicts"] == 2
+
+
+def test_contour_surface_no_face_out_of_range_is_exit_1(tmp_path, capsys):
+    pytest.importorskip("scipy")
+    rc, _, _ = _gap_run(tmp_path, "--layers", "EXIST", "--no-face", "2,11")
+    assert rc == 1
+    assert "line 11 is out of range (0..10)" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bad", ["2", "a,b", "1,2,3"])
+def test_contour_surface_malformed_no_face_is_a_usage_error(tmp_path, capsys,
+                                                            bad):
+    with pytest.raises(SystemExit) as exc:
+        _gap_run(tmp_path, "--layers", "EXIST", "--no-face", bad)
+    assert exc.value.code == 2
+    assert "expected A,B" in capsys.readouterr().err
+
+
+def test_contour_surface_without_barriers_reports_no_barrier_line(tmp_path,
+                                                                  capsys):
+    pytest.importorskip("scipy")
+    rc, out, report = _gap_run(tmp_path, "--layers", "EXIST")
+    assert rc == 0
+    assert "barriers:" not in capsys.readouterr().err
+    info = _info(out)
+    assert "barriers" not in info["graph"] and "barred" not in info["graph"]
+    assert "barrier" not in report.read_text(encoding="utf-8")
+
+
+# ------------------------------------------- review of #397 b (round 2)
+_GAP_PROP_SHORT = [[130.0, 48.0], [200.0, 48.0]]     # stops short: leaks
+
+
+def _gap_run_with(tmp_path, prop_points, *extra):
+    man, anchors = tmp_path / "m.json", tmp_path / "a.yaml"
+    _gap_manifest(man)
+    m = json.loads(man.read_text(encoding="utf-8"))
+    m["layers"]["PROP"]["lines"] = ([{"points": prop_points}]
+                                    if prop_points else [])
+    man.write_text(json.dumps(m), encoding="utf-8")
+    _gap_anchors(anchors)
+    out, report = tmp_path / "t.npz", tmp_path / "r.md"
+    rc = cli.main(["contour-surface", "--contours", str(man), "--anchors",
+                   str(anchors), "--out", str(out), "--report", str(report),
+                   *extra])
+    return rc, out, report
+
+
+def test_contour_surface_strict_ignores_a_barrier_the_user_asked_for(
+        tmp_path, capsys):
+    pytest.importorskip("scipy")
+    rc, out, report = _gap_run(tmp_path, "--barrier-layers", "PROP",
+                               "--strict")
+    assert rc == 0                         # the set-aside was asked for
+    assert "findings: 1 (1 barrier)" in capsys.readouterr().err
+    assert _info(out)["findings"] == 1     # still reported everywhere
+    assert "| F01 | barrier | 2, 8 |" in report.read_text(encoding="utf-8")
+
+
+def test_contour_surface_a_leaky_barrier_is_reported_and_fails_strict(
+        tmp_path, capsys):
+    pytest.importorskip("scipy")
+    rc, out, report = _gap_run_with(tmp_path, _GAP_PROP_SHORT,
+                                    "--barrier-layers", "PROP", "--strict")
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert ("barriers: 0 faces pair(s) set aside; 1 pair(s) kept though "
+            "partly blocked — extend the barrier (layer PROP: 1)") in err
+    assert "error: --strict" in err
+    info = _info(out)
+    assert info["graph"]["barred"] == 0 and info["graph"]["partly_barred"] == 1
+    assert info["reconcile"]["label_conflicts"] == 2     # the gap still hops
+    text = report.read_text(encoding="utf-8")
+    assert "still faces — the pair is kept; extend the barrier/break line" in text
+
+
+def test_contour_surface_warns_on_an_empty_barrier_layer(tmp_path, capsys):
+    pytest.importorskip("scipy")
+    rc, out, _ = _gap_run_with(tmp_path, None, "--barrier-layers", "PROP")
+    assert rc == 0
+    assert ("warning: --barrier-layers PROP: layer has no lines"
+            in capsys.readouterr().err)
+
+
+def test_contour_surface_no_face_on_a_barred_pair_names_the_barrier(
+        tmp_path, capsys):
+    pytest.importorskip("scipy")
+    rc, out, _ = _gap_run(tmp_path, "--barrier-layers", "PROP",
+                          "--no-face", "2,8")
+    assert rc == 0
+    assert ("warning: --no-face 2,8: already set aside by layer PROP"
+            in capsys.readouterr().err)
+
+
+def test_contour_surface_help_explains_barriers_and_strict(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["contour-surface", "--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "must reach the ends of the interrupted contours" in out
+    assert "barrier findings you asked for do not count" in out

@@ -268,3 +268,15 @@ def test_ellipsize_trims_to_width():
     assert _ellipsize("short", 100, measure) == "short"
     out = _ellipsize("a very long caption that overflows", 10, measure)
     assert measure(out) <= 10 and out.endswith("…")
+
+
+def test_write_review_shows_the_conflict_chain_and_its_ft_per_hop(tmp_path):
+    # #397: 25 and 20 are 4 hops apart, 1.25 ft/hop against a 1 ft interval
+    polys, g, elev, rec, fs = _case()
+    paths = write_review(tmp_path, fs, line_rows(polys, g, rec, elev))
+    md = paths["review"].read_text(encoding="utf-8")
+    assert ("- chain 4(20) – 3 – 2 – 1 – 0(25): 4 hops for 5 ft = 1.25 ft/hop "
+            "against the 1 ft interval") in md
+    data = json.loads(paths["findings"].read_text(encoding="utf-8"))
+    (c,) = data["findings"][0]["chains"]
+    assert (c["hops"], c["dz_ft"], c["ft_per_hop"]) == (4, 5.0, 1.25)

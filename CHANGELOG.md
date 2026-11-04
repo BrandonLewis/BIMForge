@@ -4,6 +4,35 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+Contour reconciliation work built in the estimating-plugin monorepo after the
+0.1.94 split, brought upstream (estimating-plugin #400, #402, #404).
+
+### Added
+
+- `est-bim contour-surface` can stop contours facing each other across a gap in the linework
+  (a roadway cut) from counting as one interval apart: `--barrier-layers LAYER ...` loads
+  manifest layers (such as the proposed-grading contours) as obstacles, never contours or TIN
+  lines; a `breaks:` list of page- or world-coordinate polylines in the anchors file does the
+  same and survives re-extraction; and `--no-face A,B` drops one pair by line number. Every pair
+  set aside is a `barrier` finding naming its lines, what set it aside and the facing it set
+  aside, and the run logs a one-line summary. A barrier blocks only where it crosses the
+  interior of the gap between two lines, never where it lies along a contour. A barrier that
+  stops short leaves the pair in place and is reported as a partial `barrier` finding. Only
+  partial findings fail `--strict` (estimating-plugin #397).
+
+### Fixed
+
+- `est-bim contours` keeps every drawing path by default (`--min-path-pt` 0, was 2): the length
+  filter dropped the short connector paths contour runs are built from, fragmenting contours and
+  silently losing line work, and now warns when set (estimating-plugin #398).
+- `est-bim contour-surface` exposes the neighbour graph's `--min-facing-ft` (default 4) beside
+  `--contact-ft`, and every reconciliation conflict now lists the chain between each pair of
+  conflicting sources with the feet per hop it implies against the contour interval (in the
+  report, `review.md`, and `findings.json` `chains`). A chain steeper than the interval is called
+  out as a likely `faces` edge spanning a gap in the linework, such as two contours facing each
+  other across a roadway prism, so the failure can be diagnosed without tracing lines by hand
+  (estimating-plugin #397).
+
 ## 0.1.97 — 2026-11-03
 
 ### Added
