@@ -340,3 +340,39 @@ def test_review_two_names_before_class_and_long_bars_keep_their_length(tmp_path)
     ink = [h for h in msp.query("HATCH") if h.dxf.layer.endswith("-PATT")]
     assert ink and all(type(p).__name__ == "PolylinePath" for h in ink for p in h.paths)
     assert any(e.dxf.layer.endswith("-PATT") for e in msp.query("LWPOLYLINE"))
+
+
+def test_review_three_classification_materials_and_occlusion(wall_section):
+    """PR #3 third review: the kind survives the 40-character layer name;
+    reinforced concrete is concrete; a multi-material product cuts per
+    material; a cut face hides what lies behind it."""
+    import numpy as np
+    from types import SimpleNamespace as NS
+    from bimforge.bim import developed as D
+    from bimforge.bim.section_style import style_of
+    # 1. classified on the layer as written, not the full name
+    long = "Existing reinforced concrete (Br 12-3456), to be removed"
+    el = NS(Name="E1", is_a=lambda *a: "IfcWall")
+    layer, _ = D._cut_layer(el, NS(Name=long), [], [(0.6, 0.6, 0.6)], [(0.6, 0.6, 0.6)])
+    assert style_of(layer.replace("E-CUT-", "")).kind == "Existing (to remove)"
+    # 4. reinforced concrete is concrete; reinforcing steel is rebar
+    assert style_of("Reinforced Concrete").kind == "Concrete"
+    assert style_of("Reinforcing Steel").kind == "Reinforcing Steel"
+    assert style_of("Reinforcement").kind == "Reinforcing Steel"
+    # 2. the bar's solid added into the stem: the stem cuts as concrete AND rebar
+    f = ifcopenshell.file.from_string(wall_section.to_string())
+    stem = next(e for e in f.by_type("IfcWall") if e.Name == "stem")
+    bar = next(e for e in f.by_type("IfcReinforcingBar"))
+    s_rep = stem.Representation.Representations[0]
+    b_item = bar.Representation.Representations[0].Items[0]
+    s_rep.Items = list(s_rep.Items) + [b_item]
+    D._BODY_CACHE.clear()
+    layers = {layer for name, layer, *_ in D._all_bodies(f, None) if name == "stem"}
+    assert layers == {"E-CUT-Concrete", "E-CUT-Reinforcing-Steel"}
+    D._BODY_CACHE.clear()
+    # 3. a cut face at depth 0 in the buffer, its hole left open
+    zbuf = np.full((10, 10), np.inf)
+    ring = [[(1, 1), (9, 1), (9, 9), (1, 9), (1, 1)],
+            [(4, 4), (6, 4), (6, 6), (4, 6), (4, 4)]]
+    D._raster_cut(zbuf, [("E-CUT-Concrete", (0.7, 0.7, 0.7), [ring])], 1.0, 0.0)
+    assert zbuf[2, 2] == 0.0 and np.isinf(zbuf[5, 5]) and np.isinf(zbuf[0, 0])

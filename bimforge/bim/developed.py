@@ -166,13 +166,17 @@ def _all_bodies(f, date):
                     and not (spans is not None
                              and not standing(spans.get(el.GlobalId), date))):
                 v = np.asarray(g.verts, dtype=float).reshape(-1, 3)
-                mats = list(g.materials)
+                mats = [_named(f, m) for m in g.materials]
                 ids = np.asarray(g.material_ids, dtype=np.int64)
                 rgb = [_surface_rgb(m) for m in mats] or [(0.6, 0.6, 0.6)]
                 tri_rgb = ([rgb[i] if 0 <= i < len(rgb) else rgb[0] for i in ids]
                            if len(ids) == len(t) else [rgb[0]] * len(t))
-                layer, tri_rgb = _cut_layer(el, ue.get_material(el), mats, rgb,
-                                            tri_rgb)
+                # a multi-material product (concrete and steel solids) cuts
+                # per material: each part its own layer, colour and hatch
+                parts = ([(ids == i, [mats[i]], [rgb[i]], None)
+                          for i in sorted(set(ids.tolist())) if 0 <= i < len(mats)]
+                         if len(ids) == len(t) and len(set(ids.tolist())) > 1
+                         else [(None, mats, rgb, ue.get_material(el))])
                 # a surface (terrain, finished grade) cuts as a LINE; a body
                 # with any solid item is never one, even when the geometry
                 # kernel draws it open (IfcSectionedSolidHorizontal, #9820)
@@ -180,12 +184,35 @@ def _all_bodies(f, date):
                             for r in (el.Representation.Representations
                                       if el.Representation else ())
                             for i in r.Items)
-                out.append((el.Name or el.is_a(), layer,
-                            (not solid) and _is_surface(v, t), v, t, tri_rgb))
+                for sel, pm, prgb, pmat in parts:
+                    pt = t if sel is None else t[sel]
+                    ptr = tri_rgb if sel is None else [prgb[0]] * len(pt)
+                    layer, ptr = _cut_layer(el, pmat, pm, prgb, ptr)
+                    out.append((el.Name or el.is_a(), layer,
+                                (not solid) and _is_surface(v, pt), v, pt, ptr))
             if not it.next():
                 break
     _BODY_CACHE[key] = out
     return out
+
+
+def _named(f, m):
+    """A kernel material with its IfcSurfaceStyle's NAME ("Concrete"): the
+    kernel names it after its rendering ("IfcSurfaceStyleRendering-170"),
+    which says nothing; instance_id() is the style (0.8 and 0.9 alike)."""
+    from types import SimpleNamespace
+    name = getattr(m, "name", None)
+    try:
+        iid = m.instance_id() if callable(m.instance_id) else m.instance_id
+        e = f.by_id(int(iid))
+        if e.is_a("IfcSurfaceStyleShading"):
+            e = next((x for x in f.get_inverse(e) if x.is_a("IfcSurfaceStyle")), e)
+        if e.is_a("IfcSurfaceStyle") and e.Name:
+            name = e.Name
+    except Exception:                   # no id, or not a style: keep the kernel's
+        pass
+    return SimpleNamespace(name=name, surface=getattr(m, "surface", None),
+                           diffuse=m.diffuse)
 
 
 def _surface_rgb(m) -> tuple:
@@ -211,7 +238,9 @@ def _cut_layer(el, mat, mats, rgb, tri_rgb):
     # the class last: an unstyled IfcWall named "Lean Concrete" is lean
     k = style_of(getattr(mat, "Name", None), style, el.Name, el.is_a())
     layer = _layer_name(base)
-    if k is not None and style_of(base) is not k:
+    # judged on the layer as written (sanitised, 40 characters): the hatch
+    # builders classify that, and a cut name can read differently
+    if k is not None and style_of(layer.replace("E-CUT-", "")) is not k:
         layer = _layer_name(k.kind)
     if k is not None and all(_unstyled(c) for c in rgb):
         tri_rgb = [k.rgb] * len(tri_rgb)
@@ -595,6 +624,7 @@ def _visible_edges(warped, to2d, drawing, view, depth_u, k):
     zbuf = np.full((ny, nx), np.inf)
     for tri in tris2d:
         _raster(zbuf, tri, res, y0)
+    _raster_cut(zbuf, drawing.cut, res, y0)
     tol = 2.0 * res + 1e-6
     out = []
     for (p, q) in edges:
@@ -639,6 +669,34 @@ def _merge_runs(segs, res):
     m = linemerge(MultiLineString(lines))
     geoms = m.geoms if isinstance(m, MultiLineString) else [m]
     return [list(g.simplify(res * 0.05).coords) for g in geoms]
+
+
+def _raster_cut(zbuf, cut, res, y0) -> None:
+    """The cut faces into the depth buffer at depth 0 (holes left open), so
+    what lies behind a filled cut is hidden by it - the cut is a face, not
+    the open edge of a clipped solid."""
+    import numpy as np
+    import shapely
+    from shapely.geometry import Polygon
+    ny, nx = zbuf.shape
+    for _layer, _rgb, rings in cut:
+        for ring in rings:
+            if not ring or len(ring[0]) < 3:
+                continue
+            poly = Polygon(ring[0], [h for h in ring[1:] if len(h) >= 3])
+            if poly.is_empty:
+                continue
+            a, b, c, d = poly.bounds
+            i0, i1 = max(0, int(a / res)), min(nx - 1, int(math.ceil(c / res)))
+            j0 = max(0, int((b - y0) / res))
+            j1 = min(ny - 1, int(math.ceil((d - y0) / res)))
+            if i1 < i0 or j1 < j0:
+                continue
+            X, Y = np.meshgrid((np.arange(i0, i1 + 1) + 0.5) * res,
+                               (np.arange(j0, j1 + 1) + 0.5) * res + y0)
+            inside = shapely.contains_xy(poly, X, Y)
+            sub = zbuf[j0:j1 + 1, i0:i1 + 1]
+            sub[inside] = np.minimum(sub[inside], 0.0)
 
 
 def _clip_tri(poly, depth):

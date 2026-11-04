@@ -40,7 +40,7 @@ KINDS: list[Kind] = [
     # existing work to be removed reads apart from new work of any kind
     Kind("Existing (to remove)", r"to (be )?remove|\bdemo(lish|lition)?\b|"
          r"^existing \d", (0.86, 0.62, 0.55), "CONC_DEMOLITION", 1.0, "cross"),
-    Kind("Reinforcing Steel", r"rebar|reinforc|\brebr\b|\brein\b|ifcreinforcing",
+    Kind("Reinforcing Steel", r"rebar|reinforc(ing|ement)|\brebr\b|\brein\b|ifcreinforcing",
          (0.75, 0.15, 0.12), "SOLID", 1.0, "solid"),
     Kind("Asphalt", r"asphalt|\bhma\b|\bac\b|bitum|\bpave(ment)?\b|\bpaving\b",
          (0.16, 0.16, 0.17), "ASPHALT", 1.0, "sand"),

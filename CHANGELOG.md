@@ -61,6 +61,18 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ### Fixed
 
+- **Cut faces hide what lies behind them** in developed elevations and
+  cross sections. The cut polygons are painted into the depth buffer at
+  depth 0, so an edge beyond the plane (rebar inside a wall, a footing's far
+  edge) no longer draws over the fill.
+- **A multi-material product cuts per material** (concrete and steel parts
+  of one element each get their own layer, colour and hatch). The kernel's
+  materials are named after their IfcSurfaceStyle ("Concrete"), not its
+  rendering ("IfcSurfaceStyleRendering-170").
+- **"Reinforced concrete" classifies as concrete**, not rebar. A cut's kind
+  is judged on its layer name as written (sanitised, 40 characters), so a
+  long name keeps its hatch.
+
 - **Cut fills of see-through styles.** The DXF used the kernel's diffuse
   colour, which is scaled by (1 - transparency), so the 50 % transparent
   earth filled half-dark. It now uses the style's surface colour.
