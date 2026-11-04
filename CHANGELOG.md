@@ -4,6 +4,90 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.97 — 2026-11-03
+
+### Added
+
+- **Cross sections to DXF.** `bimforge.bim.developed.cross_section(f,
+  SectionView(...))` draws the section square to the alignment at one
+  station: the cut filled per styling, ground lines, the visible edges
+  beyond, and offset ticks (CL, 10 Lt, 10 Rt) on the same DXF sheets as the
+  developed elevations. In the Blender add-on, **Export Section DXF** writes
+  what the section camera shows (the slider's station, Width, Depth,
+  Ahead/Back, the 4D date). It needs no From/To; those belong to the
+  developed elevation, whose message now points here.
+- **Sections read like drafted sections.** A shared table
+  (`bimforge.bim.section_style`) says what each cut is (concrete, lean
+  concrete / CDF, concrete backfill, compacted fill, native earth, gravel,
+  asphalt, steel, timber, rebar, existing work to remove), by its material
+  name, else its object name, and how it is drawn:
+  - **DXF:** a standard pattern per kind (CONCRETE1, SACNCR, AR-CONC,
+    AR-SAND, EARTH, GRAVEL, ASPHALT, ANSI32, WOOD1, CONC_DEMOLITION), plotting
+    at its nominal size at any sheet scale on a `-PATT` layer in ink. The
+    colour fill stays on the cut layer (freeze it for black and white).
+    Rebar plots solid, and a bar smaller than 0.04" on paper as a dot that
+    size.
+  - **Blender:** the section fills are unlit (emission), so the viewport
+    light no longer tints them, in the style's true colour (sRGB converted to
+    linear). They are hatched procedurally in camera space at a size that
+    follows the view width: stipple, sand, earth crosshatch, gravel cells,
+    lines. Hatches show in Material Preview and Rendered; Solid mode shows
+    the flat colour. A cut bar narrower than 0.35% of the view width is
+    drawn as a dot that size.
+- **Station and offset sliders.** The section's slider is now in stations
+  (first to last, in the display unit) instead of a 0-1 fraction, and the
+  Offsets box has an offset slider across the view (- Lt, + Rt) that moves
+  the 3D cursor and reads the surface as it slides. The typed Go / Locate
+  fields stay for exact values. Their ranges follow the loaded alignment, the
+  unit and the view width.
+- **Exit** (next to View Section) leaves the section completely. It goes
+  back to a free 3D view, turns the 4D date filter off so the whole model
+  shows, and gives the scene its own camera back. It removes everything the
+  section drew (camera, plane frame, cut, lines, ruler, labels, marker,
+  axis) and stops the viewport label. The alignment stays loaded, so the
+  slider or View Section rebuilds it. In the developed-elevation scene,
+  **Back to the model** returns to the scene Develop was run from and
+  leaves the section as it was.
+
+### Changed
+
+- **Default colours a section can tell apart.** Native earth
+  (0.56/0.44/0.30) and compacted fill (0.80/0.69/0.46, a light straw) are
+  now far apart, as are concrete, lean concrete / CDF (0.90/0.85/0.62, pale
+  cream) and concrete backfill (0.58/0.64/0.70, blue-grey); concrete
+  backfill used to be 0.05 off concrete. `S-EW-FILL` resolves to compacted
+  fill, not native earth. Models take the new colours when they are
+  rebuilt; their styles are written into the IFC.
+
+### Fixed
+
+- **Cut faces hide what lies behind them** in developed elevations and
+  cross sections. The cut polygons are painted into the depth buffer at
+  depth 0, so an edge beyond the plane (rebar inside a wall, a footing's far
+  edge) no longer draws over the fill.
+- **A multi-material product cuts per material** (concrete and steel parts
+  of one element each get their own layer, colour and hatch). The kernel's
+  materials are named after their IfcSurfaceStyle ("Concrete"), not its
+  rendering ("IfcSurfaceStyleRendering-170").
+- **"Reinforced concrete" classifies as concrete**, not rebar. A cut's kind
+  is judged on its layer name as written (sanitised, 40 characters), so a
+  long name keeps its hatch.
+
+- **Cut fills of see-through styles.** The DXF used the kernel's diffuse
+  colour, which is scaled by (1 - transparency), so the 50 % transparent
+  earth filled half-dark. It now uses the style's surface colour.
+- **A cross section closes bodies wider than the view.** The native ground
+  was cut only within the view width, so it never closed and drew as a line.
+  Everything the plane crosses is now cut, then clipped (as `develop` does).
+
+- **The Blender add-on in Bonsai 0.8.x.** Loading an alignment failed with
+  "in method 'map_shape', argument 2 of type 'IfcUtil::IfcBaseClass *'":
+  Bonsai 0.8.x bundles ifcopenshell 0.8.5, whose kernel binding takes the
+  raw wrapped instance. `AlignmentStationer` now maps the curve through
+  `ifcopenshell.geom.map_shape`, which unwraps in 0.8 and 0.9 alike. The
+  add-on's reading side (stationing, 4D spans, developed elevations) gives
+  identical results under 0.8.5 and 0.9.
+
 ## 0.1.96 — 2026-11-02
 
 (0.1.95 is skipped: a plugin runtime already carries a wheel labelled 0.1.95.)

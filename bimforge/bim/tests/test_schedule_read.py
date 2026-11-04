@@ -258,7 +258,10 @@ def test_schedule_selection(sample_ifc):
 
 def _staged(ifc_path, out_name="staged.4d.ifc"):
     """Columns split across two piling stages, a removal task linked to the
-    deck it tears out, and a deck pour."""
+    deck it tears out, and a deck pour. Returns (path, column GlobalIds):
+    ids, not entities - the file they live in is freed on return, and an
+    entity of a freed file handed to another file's API is a dangling
+    pointer (a segfault in ifcopenshell, depending on when it is collected)."""
     sched = CanonicalSchedule(
         name="Staged", tasks=[
             ScheduleTask(id="P1", name="Piling stage 1",
@@ -288,7 +291,7 @@ def _staged(ifc_path, out_name="staged.4d.ifc"):
                           related_object=el)
     out = os.path.join(os.path.dirname(ifc_path), out_name)
     m.write(out)
-    return out, cols
+    return out, [c.GlobalId for c in cols]
 
 
 def _to_outputs(path, out_name):
@@ -320,7 +323,7 @@ def test_task_elements_reads_inputs_and_outputs_alike(sample_ifc):
     assert {l["direction"] for ls in links_out.values() for l in ls} == \
         {"output"}
     assert sorted(l["global_id"] for l in links_in["P1"]) == \
-        sorted(c.GlobalId for c in cols[:2])
+        sorted(cols[:2])
     # the same tasks read back from both
     assert read_schedule(m_in).to_dict() == read_schedule(m_out).to_dict()
     # and the KML/KMZ start dates follow output links too
@@ -381,14 +384,14 @@ def test_two_constructive_tasks_earliest_claims_with_warning(sample_ifc):
     path, cols = _staged(sample_ifc, "dup.4d.ifc")
     m = ifcopenshell.open(path)
     p2 = next(t for t in m.by_type("IfcTask") if t.Name == "Piling stage 2")
-    sq.assign_process(m, relating_process=p2, related_object=cols[0])
+    sq.assign_process(m, relating_process=p2, related_object=m.by_guid(cols[0]))
     out = path.replace(".4d.ifc", ".dup2.ifc")
     m.write(out)
     takeoff, warnings = takeoff_by_task(out, _tmap())
     row = next(r for r in takeoff["rows"] if r["cost_code"] == "05 12 00")
     assert row["tasks"] == {"P1": 2.0, "P2": 2.0}
     assert [w for w in warnings
-            if cols[0].GlobalId in w and "claimed by the earliest-starting, P1"
+            if cols[0] in w and "claimed by the earliest-starting, P1"
             in w]
 
 
@@ -397,7 +400,7 @@ def test_takeoff_by_task_with_a_replanned_schedule(sample_ifc):
     path, cols = _staged(sample_ifc, "replan.4d.ifc")
     m = ifcopenshell.open(path)
     p2 = next(t for t in m.by_type("IfcTask") if t.Name == "Piling stage 2")
-    sq.assign_process(m, relating_process=p2, related_object=cols[0])
+    sq.assign_process(m, relating_process=p2, related_object=m.by_guid(cols[0]))
     out = path.replace(".4d.ifc", ".r2.ifc")
     m.write(out)
     plan = read_schedule(ifcopenshell.open(out))
@@ -457,8 +460,8 @@ def test_renamed_replan_in_a_multi_schedule_file_matches_by_global_id(
     copy_p1 = next(t for t in m.by_type("IfcTask")
                    if t.Name == "Piling stage 1"
                    and t.TaskTime and t != _task_named(m, "Staged", "P1"))
-    for el in cols[2:]:
-        sq.assign_process(m, relating_process=copy_p1, related_object=el)
+    for gid in cols[2:]:
+        sq.assign_process(m, relating_process=copy_p1, related_object=m.by_guid(gid))
     out = path.replace(".4d.ifc", ".m2.ifc")
     m.write(out)
 

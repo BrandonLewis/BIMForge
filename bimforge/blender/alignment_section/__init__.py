@@ -14,11 +14,18 @@ station the add-on:
   concrete, rebar, asphalt, gravel — from the item's material (Bonsai's
   IfcSurfaceStyle), else from what its name says it is;
 * reports station, elevation of the grade line, grade and bearing;
+* slides by STATION (a slider from the first station to the last, in the
+  display unit) and by OFFSET (a slider across the view, Lt to Rt, that
+  carries the 3D cursor and reads the surface as it moves);
 * shows the model as it stands on a date of the IFC's 4D schedule (what is
   not yet built, or already removed, is hidden and not cut);
 * draws an offset ruler (CL, 10' Lt, 10' Rt, ...) across the section, puts
   the 3D cursor at a station + offset Lt/Rt and reads the top surface
   there, and inquires the cursor back to station + offset.
+
+Export Section DXF writes what the section camera shows (the station,
+width, depth and look) to a DXF sheet; Exit leaves the camera view, and the
+developed-elevation scene, back to the model.
 
 The slider can follow the timeline, so scrubbing frames sweeps the section
 along the alignment (and rendering the frames makes a fly-through).
@@ -45,10 +52,12 @@ try:                                    # the add-on zip carries its own copy
     from . import alignment_station as _st
     from . import developed as _dev
     from . import schedule_state as _ss
+    from . import section_style as _sty
 except ImportError:                     # running from the bimforge package
     from bimforge.bim import alignment_station as _st
     from bimforge.bim import developed as _dev
     from bimforge.bim import schedule_state as _ss
+    from bimforge.bim import section_style as _sty
 
 try:
     import bpy
@@ -168,44 +177,16 @@ def _cut_material():
 
 
 #: Section fill by what the thing IS, for a cut item whose own styling says
-#: nothing (no material, or Blender's / ifcopenshell's default 0.8 grey).
-#: Matched on the material name, then the object name; first hit wins, so
-#: rebar is tried before steel and asphalt before concrete. The rgb of the
-#: shared kinds are bimforge.author.ifc_styles' (a test holds them equal).
-FILL_PALETTE: list[tuple[str, str, tuple]] = [
-    # existing work to be removed reads apart from new work of any kind
-    ("Existing (to remove)", r"to be removed|\bdemo(lish|lition)?\b|"
-     r"^existing \d", (0.86, 0.62, 0.55)),
-    ("Reinforcing Steel", r"rebar|reinforc|\brebr\b|\brein\b|ifcreinforcing",
-     (0.75, 0.15, 0.12)),
-    ("Asphalt", r"asphalt|\bhma\b|\bac\b|bitum|\bpave(ment)?\b|\bpaving\b",
-     (0.16, 0.16, 0.17)),
-    ("Gravel", r"gravel|aggregate|\bagg\b|\bab\b|base course|class 2|"
-     r"\bbase\b|crushed|rock|riprap|\brsp\b|ballast|drain rock",
-     (0.62, 0.55, 0.42)),
-    ("Structural Steel", r"steel|\bstl\b|metal|\bmetl\b|girder|"
-     r"ifcrailing|ifcmember|ifcplate", (0.55, 0.60, 0.66)),
-    ("Timber", r"timber|wood|lagging", (0.55, 0.40, 0.24)),
-    ("Earthwork", r"earth|soil|embank|excav|terrain|\bfill\b|\bew\b|"
-     r"(?<!concrete )backfill|\bgrade\b|"
-     r"ifcgeographic|ifcearthworks", (0.55, 0.45, 0.32)),
-    ("Concrete", r"concrete|\bconc\b|\bpcc\b|\bcip\b|precast|grout|"
-     r"ifcslab|ifcwall|ifcfooting|ifcbeam|ifccolumn|ifcpile|deck|barrier|"
-     r"headwall|culvert|abutment", (0.75, 0.73, 0.68)),
-]
-UNSTYLED = ("Unstyled", (0.60, 0.60, 0.60))
+#: nothing (no material, or Blender's / ifcopenshell's default 0.8 grey):
+#: bimforge.bim.section_style, shared with the DXF sheets. (kind, regex, rgb)
+FILL_PALETTE: list[tuple[str, str, tuple]] = [(k.kind, k.pattern, k.rgb)
+                                              for k in _sty.KINDS]
+UNSTYLED = _sty.UNSTYLED
 _DEFAULT_GREY = (0.8, 0.8, 0.8)
-
-
-def classify(*names) -> tuple[str, tuple] | None:
-    """(kind, rgb) for the first palette entry any of `names` matches."""
-    import re
-    for name in names:
-        low = (name or "").lower().replace("_", " ")
-        for kind, pattern, rgb in FILL_PALETTE:
-            if re.search(pattern, low):
-                return kind, rgb
-    return None
+classify = _sty.classify
+#: section ink: the hatch's colour, this fraction of the fill's
+INK = 0.30
+PERIOD_NODE = "BIMForge hatch period"
 
 
 def _styled_rgb(mat):
@@ -246,21 +227,128 @@ def fill_for(mat, ob) -> tuple[str, tuple]:
     return hit if hit is not None else UNSTYLED
 
 
-def _section_material(name: str, rgb) -> "bpy.types.Material":
-    """An opaque, flat section fill in `rgb` (opaque even when the source is
-    see-through, like earthwork: a cut face is solid)."""
-    key = f"Section · {name}"
+def _section_material(name: str, rgb, paint: str | None = None,
+                      prefix: str = "Section") -> "bpy.types.Material":
+    """An opaque section fill in `rgb` (opaque even when the source is
+    see-through, like earthwork: a cut face is solid). UNLIT - an emission,
+    so the viewport light never tints it - with the kind's hatch inked over
+    it (bimforge.bim.section_style; `paint` overrides, "" is flat). Solid
+    mode shows the flat colour; Material Preview and Rendered the hatch."""
+    k = _sty.style_of(name)
+    own = k.paint if k else ""
+    if paint is None:
+        paint = own
+    # a view's own materials (the developed scene keeps its hatch size);
+    # a paint the name would not give gets its own material
+    key = f"{prefix} · {name}" + ("" if paint == own else f" [{paint}]")
     mat = bpy.data.materials.get(key)
     if mat is None:
         mat = bpy.data.materials.new(key)
-        if getattr(mat, "node_tree", None) is None:
-            mat.use_nodes = True
+    if getattr(mat, "node_tree", None) is None:
+        mat.use_nodes = True
     mat.diffuse_color = (*rgb, 1.0)
-    bsdf = _principled(mat)
-    if bsdf is not None:
-        bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
-        bsdf.inputs["Roughness"].default_value = 1.0
+    sig = f"{paint} {rgb[0]:.4f} {rgb[1]:.4f} {rgb[2]:.4f}"
+    if mat.get("bimforge_paint") != sig:
+        _paint(mat, tuple(rgb), paint)
+        mat["bimforge_paint"] = sig
     return mat
+
+
+def _linear(rgb) -> tuple:
+    """sRGB (what an IFC colour and a DXF fill are) to Blender's linear
+    scene colour, so a fill shows the colour the style names, not a paler
+    one."""
+    return tuple(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+                 for c in rgb)
+
+
+def _paint(mat, rgb, paint: str) -> None:
+    """Emission in `rgb`, mixed toward ink where the procedural hatch
+    `paint` is. The hatch is laid out in CAMERA space, every
+    `PERIOD_NODE` metres (set to the view's width by set_hatch_period), so it
+    reads at one size on screen like a hatch on paper."""
+    rgb = _linear(rgb)
+    nt = mat.node_tree
+    N, L = nt.nodes, nt.links
+    N.clear()
+    out = N.new("ShaderNodeOutputMaterial")
+    emit = N.new("ShaderNodeEmission")
+    L.new(emit.outputs["Emission"], out.inputs["Surface"])
+    if paint in ("", "solid"):
+        emit.inputs["Color"].default_value = (*rgb, 1.0)
+        return
+    period = N.new("ShaderNodeValue")
+    period.name = period.label = PERIOD_NODE
+    period.outputs[0].default_value = 0.3
+    tc = N.new("ShaderNodeTexCoord")
+    sep = N.new("ShaderNodeSeparateXYZ")
+    L.new(tc.outputs["Camera"], sep.inputs[0])
+
+    def math(op, a, b=None):
+        n = N.new("ShaderNodeMath")
+        n.operation = op
+        for i, x in enumerate((a, b)):
+            if x is None:
+                continue
+            if isinstance(x, (int, float)):
+                n.inputs[i].default_value = float(x)
+            else:
+                L.new(x, n.inputs[i])
+        return n.outputs[0]
+    u = math("DIVIDE", sep.outputs["X"], period.outputs[0])
+    v = math("DIVIDE", sep.outputs["Y"], period.outputs[0])
+
+    def lines(a, b, spacing, width):
+        """Ink on lines u*a + v*b = n * spacing, `width` of a spacing."""
+        t = math("ADD", math("MULTIPLY", u, a), math("MULTIPLY", v, b))
+        return math("LESS_THAN", math("FRACT", math("DIVIDE", t, spacing)), width)
+
+    def voronoi(scale, feature, below):
+        cv = N.new("ShaderNodeCombineXYZ")
+        L.new(u, cv.inputs["X"])
+        L.new(v, cv.inputs["Y"])
+        vo = N.new("ShaderNodeTexVoronoi")
+        vo.voronoi_dimensions = "2D"
+        vo.feature = feature
+        vo.inputs["Scale"].default_value = scale
+        L.new(cv.outputs[0], vo.inputs["Vector"])
+        return math("LESS_THAN", vo.outputs["Distance"], below)
+    if paint == "lines":
+        f = lines(1.0, 1.0, 1.0, 0.12)
+    elif paint == "cross":
+        f = math("MAXIMUM", lines(1.0, 1.0, 1.0, 0.10), lines(1.0, -1.0, 1.0, 0.10))
+    elif paint == "earth":       # sparse crossed lines, heavier one way
+        f = math("MAXIMUM", lines(1.0, 1.0, 2.0, 0.07), lines(1.0, -1.0, 4.0, 0.04))
+    elif paint == "stipple":     # aggregate: scattered dots, a few large
+        f = math("MAXIMUM", voronoi(1.6, "F1", 0.10), voronoi(0.45, "F1", 0.09))
+    elif paint == "sand":
+        f = voronoi(1.3, "F1", 0.13)
+    elif paint == "gravel":
+        f = voronoi(0.8, "DISTANCE_TO_EDGE", 0.05)
+    else:
+        f = None
+    if f is None:
+        emit.inputs["Color"].default_value = (*rgb, 1.0)
+        return
+    mix = N.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    L.new(f, mix.inputs["Factor"])
+    a_col = next(i for i in mix.inputs if i.identifier == "A_Color")
+    b_col = next(i for i in mix.inputs if i.identifier == "B_Color")
+    a_col.default_value = (*rgb, 1.0)
+    b_col.default_value = (*(c * INK for c in rgb), 1.0)
+    res = next(o for o in mix.outputs if o.identifier == "Result_Color")
+    L.new(res, emit.inputs["Color"])
+
+
+def set_hatch_period(metres: float, prefix: str = "Section") -> None:
+    """The hatches of one view's materials (`prefix`) repeat every
+    `metres` (camera space); the other view's keep theirs."""
+    for mat in bpy.data.materials:
+        if mat.name.startswith(f"{prefix} · ") and mat.node_tree is not None:
+            n = mat.node_tree.nodes.get(PERIOD_NODE)
+            if n is not None:
+                n.outputs[0].default_value = max(metres, 1e-4)
 
 
 def _basis(fr, look_back):
@@ -327,6 +415,7 @@ def place(scene, props, st, fr):
 
     if props.live_cut:
         cut(scene, props, Vector(fr.point) + off, look)
+    set_hatch_period(w / 120.0)
     ruler(scene, props, st, fr, look)
     _STATE["frame"] = fr
     _redraw()
@@ -463,8 +552,9 @@ def cut(scene, props, co, look):
             else scene.objects)
     out = bmesh.new()
     by_style = props.fill_style == "STYLE"
-    fills: dict[tuple, int] = {}          # (name, rgb) -> output slot
+    fills: dict[tuple, int] = {}          # (name, rgb, paint) -> output slot
     groups: list[tuple[int, list]] = []
+    bars: list[tuple[int, list]] = []     # rebar cuts: dotted when tiny
     for ob in pool:
         if ob.type != "MESH" or not ob.visible_get():
             continue
@@ -502,8 +592,13 @@ def cut(scene, props, co, look):
             for mi, new_edges in sorted(per_mat.items()):
                 mat = slots[mi] if 0 <= mi < len(slots) else None
                 fill = fill_for(mat, ob) if by_style else ("Cut", None)
+                k = _sty.style_of(fill[0], ob.name) if by_style else None
+                # the hatch: what the material says, else the object name
+                fill = (*fill, k.paint if k else "")
                 slot = fills.setdefault(fill, len(fills))
                 groups.append((slot, new_edges))
+                if k is not None and k.kind == "Reinforcing Steel":
+                    bars.append((slot, new_edges))
         finally:
             bm.free()
     lift: dict = {}                       # vert -> shift toward the camera
@@ -521,6 +616,11 @@ def cut(scene, props, co, look):
         for e in new_edges:
             for v in e.verts:
                 lift[v] = max(lift.get(v, 0.0), d)
+    if props.fill:
+        r_min = props.width * DOT_FRACTION
+        for slot, new_edges in bars:
+            for verts in _components(new_edges):
+                _dot(out, verts, r_min, look, slot, lift)
     for v, d in lift.items():
         v.co -= look * d
     segs = [(tuple(e.verts[0].co), tuple(e.verts[1].co))
@@ -529,16 +629,60 @@ def cut(scene, props, co, look):
     me.materials.clear()          # clearing AFTER to_mesh zeroes the indices
     out.to_mesh(me)
     out.free()
-    for (name, rgb), _slot in sorted(fills.items(), key=lambda kv: kv[1]):
+    for (name, rgb, paint), _slot in sorted(fills.items(), key=lambda kv: kv[1]):
         me.materials.append(_cut_material() if rgb is None
-                            else _section_material(name, rgb))
+                            else _section_material(name, rgb, paint))
     if not me.materials:
         me.materials.append(_cut_material())
     ob = _obj(scene, CUT, lambda: me)
     ob.data = me
     ob.show_in_front = False
+    set_hatch_period(props.width / 120.0)  # Cut Now too, not only place()
     outline(scene, props, segs, co, look)
     return ob
+
+
+#: a cut bar narrower than this fraction of the view width is drawn as a dot
+#: this size (a #8 bar is a pixel at 130 ft: a dot reads as the bar it is)
+DOT_FRACTION = 0.0035
+
+
+def _components(edges) -> list[list]:
+    """The verts of each connected loop among `edges`."""
+    parent: dict = {}
+
+    def find(x):
+        while parent.setdefault(x, x) is not x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for e in edges:
+        a, b = (find(v) for v in e.verts)
+        if a is not b:
+            parent[a] = b
+    groups: dict = {}
+    for v in parent:
+        groups.setdefault(find(v), []).append(v)
+    return list(groups.values())
+
+
+def _dot(bm, verts, r_min, look, slot, lift) -> None:
+    """A filled disc of radius `r_min` over a bar's cut when the cut is
+    smaller, in the section plane, over every other fill."""
+    from mathutils import Vector
+    c = sum((v.co for v in verts), Vector()) / len(verts)
+    if max((v.co - c).length for v in verts) >= r_min:
+        return
+    x = look.orthogonal().normalized()
+    y = look.cross(x).normalized()
+    ring = [bm.verts.new(c + (x * math.cos(t) + y * math.sin(t)) * r_min)
+            for t in (2 * math.pi * i / 12 for i in range(12))]
+    face = bm.faces.new(ring if (ring[1].co - ring[0].co).cross(
+        ring[2].co - ring[1].co).dot(-look) > 0 else ring[::-1])
+    face.material_index = slot
+    d = _layer(0.0) + NEAR_GAP * 0.02          # under the outline (0.8)
+    for v in ring:
+        lift[v] = d
 
 
 LINES = "Section Lines"
@@ -707,6 +851,9 @@ def update(scene):
     st = _stationer(props)
     if st is None:
         return
+    define_sliders(props, st)
+    if bpy.data.objects.get(AXIS) is None:       # after Exit
+        build_axis(scene, props, st)
     place(scene, props, st, st.frame_at_fraction(props.position))
 
 
@@ -724,6 +871,78 @@ def _on_alignment(self, context):
 def _on_view(self, context):
     if _STATE["frame"] is not None:
         update(context.scene)
+
+
+# ---------------------------------------------------------------- sliders
+def _quiet_stationer(props):
+    """The loaded stationer, or None - never opens a file (sliders are read
+    while the panel draws)."""
+    sts = _STATE["stationers"]
+    if not sts:
+        return None
+    return sts[min(int(props.alignment or 0), len(sts) - 1)]
+
+
+def _sta_get(self) -> float:
+    st = _quiet_stationer(self)
+    if st is None:
+        return 0.0
+    return st.convert(st.station_at(self.position * st.length), _unit(self, st))
+
+
+def _sta_set(self, value: float) -> None:
+    st = _quiet_stationer(self)
+    if st is None or not st.length:
+        return
+    d = st.distance_at(st.from_unit(value, _unit(self, st)) / st.unit_scale)
+    self.position = min(1.0, max(0.0, d / st.length))
+
+
+def _off_get(self) -> float:
+    return self.pt_offset * (-1.0 if self.pt_side == "LT" else 1.0)
+
+
+def _off_set(self, value: float) -> None:
+    """Offset slider, - = Lt, + = Rt (Lt on the left looking up-station):
+    the typed offset and side follow it, and the 3D cursor moves there."""
+    self.pt_offset = abs(value)
+    self.pt_side = "LT" if value < 0 else "RT"
+    st, fr = _quiet_stationer(self), _STATE["frame"]
+    if st is None or fr is None:
+        return
+    m = st.from_unit(abs(value), _unit(self, st))
+    try:
+        locate(bpy.context.scene, self, st, fr.distance, -m if value > 0 else m)
+    except Exception as exc:            # a slider never raises into the UI
+        _STATE["error"] = str(exc)
+
+
+_SLIDER_KEY: list = [None]
+
+
+def define_sliders(props, st) -> None:
+    """(Re)define the station and offset sliders for this alignment, unit
+    and view width: Blender takes a slider's range from its definition, so
+    the range follows the alignment by redefining it."""
+    u = _unit(props, st)
+    a, b = sorted((st.convert(st.start_station, u), st.convert(st.end_station, u)))
+    half = st.to_unit(props.width / 2.0, u)          # the view, no wider
+    key = (round(a, 6), round(b, 6), round(half, 4), u)
+    if _SLIDER_KEY[0] == key:
+        return
+    _SLIDER_KEY[0] = key
+    SectionProps.station = FloatProperty(
+        name="Station", min=a, max=b, soft_min=a, soft_max=b, precision=2,
+        step=100, get=_sta_get, set=_sta_set,
+        description=(f"Station along the alignment, {u} "
+                     f"({st.format_station(st.start_station, u)} to "
+                     f"{st.format_station(st.end_station, u)})"))
+    SectionProps.offset = FloatProperty(
+        name="Offset", min=-half, max=half, soft_min=-half, soft_max=half,
+        precision=2, step=100, get=_off_get, set=_off_set,
+        description=(f"Offset across the view, {u}: - Lt, + Rt (Lt on the "
+                     "left looking up-station). Moves the 3D cursor there "
+                     "and reads the surface"))
 
 
 # --------------------------------------------------------------- property
@@ -942,6 +1161,8 @@ if bpy is not None:
                 return {"CANCELLED"}
             sc = build_developed(dr)
             if context.window is not None:
+                if context.window.scene.name != DEV_SCENE:
+                    _STATE["home_scene"] = context.window.scene.name
                 context.window.scene = sc
             self.report({"INFO"}, (f"{view.name}: {dr.length:.2f} along the line, "
                                    f"{len(dr.cut)} cut, {len(dr.beyond)} lines beyond"))
@@ -973,16 +1194,61 @@ if bpy is not None:
             self.report({"INFO"}, lines[0])
             return {"FINISHED"}
 
+    class BIMFORGE_OT_section_dxf(bpy.types.Operator):
+        bl_idname = "bimforge.section_dxf"
+        bl_label = "Export Section DXF"
+        bl_description = ("Write the cross section the camera shows (this station, "
+                          "the view width, depth and look) as a DXF sheet "
+                          "(needs ezdxf)")
+        filepath: StringProperty(subtype="FILE_PATH", default="section.dxf")
+
+        def invoke(self, context, event):
+            context.window_manager.fileselect_add(self)
+            return {"RUNNING_MODAL"}
+
+        def execute(self, context):
+            props = context.scene.bimforge_section
+            try:
+                view, f = section_view_def(props)
+                lines = _dev.write_dxf([_dev.cross_section(f, view)],
+                                       bpy.path.abspath(self.filepath))
+            except ImportError:
+                self.report({"ERROR"}, "DXF needs ezdxf in Blender's Python")
+                return {"CANCELLED"}
+            except Exception as exc:
+                self.report({"ERROR"}, str(exc))
+                return {"CANCELLED"}
+            self.report({"INFO"}, lines[0])
+            return {"FINISHED"}
+
+    class BIMFORGE_OT_section_exit(bpy.types.Operator):
+        bl_idname = "bimforge.section_exit"
+        bl_label = "Exit"
+        bl_description = ("Leave the section completely: a free 3D view of "
+                          "the whole model, the section camera, plane, cut, "
+                          "ruler and labels removed. The slider or View "
+                          "Section brings it back")
+        full: bpy.props.BoolProperty(default=True, options={"SKIP_SAVE"})
+
+        def execute(self, context):
+            done = close_section(context) if self.full else exit_views(context)
+            self.report({"INFO"}, "; ".join(done) if done else "section closed")
+            return {"FINISHED"}
+
     class BIMFORGE_OT_section_view(bpy.types.Operator):
         bl_idname = "bimforge.section_view"
         bl_label = "View Section"
         bl_description = "Look through the section camera"
 
         def execute(self, context):
+            if bpy.data.objects.get(CAM) is None:
+                update(context.scene)             # after Exit: build it again
             cam = bpy.data.objects.get(CAM)
             if cam is None:
                 self.report({"ERROR"}, "load an alignment first")
                 return {"CANCELLED"}
+            if context.scene.camera not in (None, cam):
+                _STATE["home_camera"] = context.scene.camera.name
             context.scene.camera = cam
             area = context.area if context.area and \
                 context.area.type == "VIEW_3D" else next(
@@ -1086,6 +1352,11 @@ if bpy is not None:
 
         def draw(self, context):
             props = context.scene.bimforge_section
+            if context.scene.name == DEV_SCENE:
+                self.layout.operator("bimforge.section_exit",
+                                     text="Back to the model",
+                                     icon="LOOP_BACK").full = False
+                return
             col = self.layout.column(align=True)
             col.row().prop(props, "source", expand=True)
             if props.source == "FILE":
@@ -1105,7 +1376,7 @@ if bpy is not None:
             if fr is not None:
                 box.label(text=f"Sta {st.format_station(fr.station, u)}",
                           icon="CURVE_PATH")
-            box.prop(props, "position", slider=True)
+            box.prop(props, "station", slider=True)
             row = box.row(align=True)
             row.operator("bimforge.section_step", text="",
                          icon="TRIA_LEFT").direction = -1
@@ -1124,7 +1395,10 @@ if bpy is not None:
                 info.label(text=f"Bearing {_bearing(fr.azimuth)}")
                 info.label(text=(f"{st.format_station(st.start_station, u)}"
                                  f" to {st.format_station(st.end_station, u)}"))
-            self.layout.operator("bimforge.section_view", icon="VIEW_CAMERA")
+            row = self.layout.row(align=True)
+            row.operator("bimforge.section_view", icon="VIEW_CAMERA")
+            row.operator("bimforge.section_exit", icon="LOOP_BACK")
+            self.layout.operator("bimforge.section_dxf", icon="EXPORT")
             if _STATE["events"]:
                 dbox = self.layout.box()
                 dbox.label(text="4D date", icon="TIME")
@@ -1160,6 +1434,7 @@ if bpy is not None:
             row.prop(props, "ruler_step")
             if props.ruler:
                 offs.prop(props, "ruler_height")
+            offs.prop(props, "offset", slider=True)
             row = offs.row(align=True)
             row.prop(props, "pt_offset")
             row.prop(props, "pt_side", expand=True)
@@ -1210,6 +1485,7 @@ if bpy is not None:
 
 
 DEV_SCENE = "BIMForge Developed Elevation"
+DEV_PREFIX = "Elevation"             # the developed scene's own fill materials
 
 
 def developed_view(props):
@@ -1220,7 +1496,8 @@ def developed_view(props):
     st = _stationer(props)
     u = _unit(props, st)
     if not props.dev_from or not props.dev_to:
-        raise ValueError("give the From and To stations")
+        raise ValueError("a developed elevation needs From and To stations "
+                         "(for the cross section, use Export Section DXF)")
     a, b = (_dev.parse_station(x, u) for x in (props.dev_from, props.dev_to))
     if u != st.station_unit:                  # the engine speaks the file's unit
         k = st.to_unit(1.0, st.station_unit) / st.to_unit(1.0, u)
@@ -1235,6 +1512,88 @@ def developed_view(props):
         true_view=props.dev_true, exaggeration=props.dev_exag,
         date=(props.date or None) if props.date_filter else None)
     return view, f
+
+
+def section_view_def(props):
+    """(SectionView, file) of the section the camera shows: the slider's
+    station, the panel's width / depth / look (Blender metres to the station
+    unit) and the 4D date when the date filter is on."""
+    f, _sts = _open(props)
+    st = _stationer(props)
+    fr = _STATE["frame"]
+    if st is None or fr is None:
+        raise ValueError("load an alignment first")
+    u = st.station_unit                       # the engine speaks the file's unit
+    sta = st.convert(fr.station, u)
+    view = _dev.SectionView(
+        name=f"{st.name} STA {st.format_station(fr.station)}", station=sta,
+        width=st.to_unit(props.width, u), depth=st.to_unit(max(props.depth, 0.0), u),
+        look_back=props.look == "BACK", alignment=st.name,
+        date=(props.date or None) if props.date_filter else None)
+    return view, f
+
+
+def exit_views(context) -> list[str]:
+    """Back to the model: from the developed-elevation scene to the scene it
+    was built from, and every 3D view out of the camera into a free view."""
+    done = []
+    win = context.window
+    if win is not None and win.scene.name == DEV_SCENE:
+        back = bpy.data.scenes.get(_STATE.get("home_scene") or "") or next(
+            (sc for sc in bpy.data.scenes if sc.name != DEV_SCENE), None)
+        if back is not None:
+            win.scene = back
+            done.append(f"scene {back.name}")
+    screen = win.screen if win is not None else context.screen
+    for area in (screen.areas if screen is not None else ()):
+        if area.type != "VIEW_3D":
+            continue
+        r3d = area.spaces.active.region_3d
+        if r3d.view_perspective == "CAMERA":
+            r3d.view_perspective = "PERSP"
+            done.append("free view")
+    return done
+
+
+def close_section(context) -> list[str]:
+    """Leave the section completely: out of the camera (and the developed
+    scene), the 4D filter off so the whole model shows, the scene's own
+    camera back, and every helper the section drew - camera, plane frame,
+    cut, lines, ruler, labels, marker, axis - removed with its data. The
+    alignment stays loaded: the slider or View Section brings it back."""
+    done = exit_views(context)
+    scene = context.window.scene if context.window else context.scene
+    props = scene.bimforge_section
+    if props.date_filter:
+        _STATE["frame"] = None                # so turning it off does not re-cut
+        props.date_filter = False
+        done.append("4D filter off")
+    cam = bpy.data.objects.get(CAM)
+    if cam is not None and scene.camera is cam:
+        scene.camera = bpy.data.objects.get(_STATE.get("home_camera") or "")
+    coll = bpy.data.collections.get(COLL)
+    n = 0
+    if coll is not None:
+        for ob in list(coll.all_objects):
+            data = ob.data
+            bpy.data.objects.remove(ob, do_unlink=True)
+            n += 1
+            if data is not None and data.users == 0:
+                for kind in (bpy.data.meshes, bpy.data.curves, bpy.data.cameras):
+                    if data.name in kind and kind[data.name] == data:
+                        kind.remove(data)
+                        break
+        bpy.data.collections.remove(coll)
+    for mat in list(bpy.data.materials):          # the section's own fills
+        if mat.users == 0 and (mat.name.startswith("Section ")
+                               or mat.name == "Section Cut"):
+            bpy.data.materials.remove(mat)
+    _STATE["frame"] = None
+    _STATE["point"] = None
+    _redraw()
+    if n:
+        done.append(f"{n} section objects removed")
+    return done
 
 
 def build_developed(dr) -> "bpy.types.Scene":
@@ -1269,7 +1628,8 @@ def build_developed(dr) -> "bpy.types.Scene":
         me = bpy.data.meshes.new(f"Developed cut {i}")
         bm.to_mesh(me)
         bm.free()
-        me.materials.append(_section_material(layer.replace("E-CUT-", ""), rgb))
+        me.materials.append(_section_material(layer.replace("E-CUT-", ""), rgb,
+                                              prefix=DEV_PREFIX))
         link(me.name, me)
     width = max(dr.length * k, 1.0) / 1500.0
     lines = [(tuple(p3(a, 0.01)), tuple(p3(b, 0.01)))
@@ -1297,6 +1657,7 @@ def build_developed(dr) -> "bpy.types.Scene":
     cam_data = bpy.data.cameras.new("Developed camera")
     cam_data.type = "ORTHO"
     cam_data.ortho_scale = max((x1 - x0) * k, (y1 - y0) * k * 2.0) * 1.1
+    set_hatch_period(cam_data.ortho_scale / 150.0, DEV_PREFIX)
     cam = link("Developed camera", cam_data)
     cam.location = Vector(((x0 + x1) / 2 * k, -50.0, (y0 + y1) / 2 * k))
     cam.rotation_euler = (math.pi / 2, 0.0, 0.0)          # looks +Y
@@ -1423,6 +1784,7 @@ _CLASSES = () if bpy is None else (
     BIMFORGE_OT_section_cut, BIMFORGE_OT_section_offset_locate,
     BIMFORGE_OT_section_to_selected,
     BIMFORGE_OT_developed_build, BIMFORGE_OT_developed_dxf,
+    BIMFORGE_OT_section_dxf, BIMFORGE_OT_section_exit,
     BIMFORGE_OT_section_offset_inquire, BIMFORGE_OT_section_date_step,
     BIMFORGE_PT_section)
 _HANDLERS: list = []
@@ -1432,6 +1794,11 @@ def register():
     global _DRAW_HANDLE
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
+    _SLIDER_KEY[0] = None
+    SectionProps.station = FloatProperty(name="Station", get=_sta_get,
+                                         set=_sta_set, precision=2)
+    SectionProps.offset = FloatProperty(name="Offset", get=_off_get,
+                                        set=_off_set, precision=2)
     bpy.types.Scene.bimforge_section = bpy.props.PointerProperty(
         type=SectionProps)
     fc, lp = _persistent(_frame_change), _persistent(_load_post)

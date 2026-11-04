@@ -79,7 +79,8 @@ def addon(tmp_path_factory):
         assert sorted(z.namelist()) == [f"{ADDON}/__init__.py",
                                         f"{ADDON}/alignment_station.py",
                                         f"{ADDON}/developed.py",
-                                        f"{ADDON}/schedule_state.py"]
+                                        f"{ADDON}/schedule_state.py",
+                                        f"{ADDON}/section_style.py"]
         z.extractall(tmp / "addons")
     bpy.ops.wm.read_factory_settings(use_empty=True)
     sys.path.insert(0, str(tmp / "addons"))
@@ -277,7 +278,8 @@ def test_palette_agrees_with_the_ifc_styles():
     rgb = {k: v for k, _p, v in FILL_PALETTE}
     for kind, src in [("Concrete", S._CONCRETE), ("Reinforcing Steel", S._REBAR),
                       ("Structural Steel", S._STEEL), ("Earthwork", S._EARTH),
-                      ("Timber", S._TIMBER)]:
+                      ("Timber", S._TIMBER), ("Compacted Fill", S._FILL),
+                      ("Lean Concrete", S._LEAN), ("Concrete Backfill", S._BACKFILL)]:
         assert rgb[kind] == pytest.approx(tuple(src["rgb"]))
     assert classify("S-REBAR")[0] == "Reinforcing Steel"
     assert classify("IfcReinforcingBar/B1")[0] == "Reinforcing Steel"
@@ -285,13 +287,17 @@ def test_palette_agrees_with_the_ifc_styles():
     assert classify("Class 2 AB")[0] == "Gravel"
     assert classify("RSP Class IV")[0] == "Gravel"
     assert classify("IfcSlab/Deck")[0] == "Concrete"
-    assert classify("S-EW-FILL")[0] == "Earthwork"
+    assert classify("S-EW-FILL")[0] == "Compacted Fill"
+    assert classify("IfcEarthworksFill/CW-W wall backfill")[0] == "Compacted Fill"
+    assert classify("IfcGeographicElement/existing ground (remaining)")[0] == "Earthwork"
+    assert classify("Lean Concrete")[0] == "Lean Concrete"
+    assert classify("S-BACKFILL-LEAN")[0] == "Lean Concrete"
     assert classify("Widget") is None
     assert classify("Existing reinforced concrete (Br 12-3456), to be removed")[0] \
         == "Existing (to remove)"
     assert classify("existing 12-3456 slab stage 1")[0] == "Existing (to remove)"
-    assert classify("Structure backfill (bridge)")[0] == "Earthwork"
-    assert classify("Concrete Backfill")[0] == "Concrete"
+    assert classify("Structure backfill (bridge)")[0] == "Compacted Fill"
+    assert classify("Concrete Backfill")[0] == "Concrete Backfill"
 
 
 def test_offsets_ruler_locate_and_inquire(addon):
@@ -403,3 +409,208 @@ def test_developed_elevation_in_its_own_scene(addon):
     finally:
         if bpy.context.window is not None:
             bpy.context.window.scene = home
+
+
+def test_export_section_dxf_is_the_section_the_camera_shows(addon, tmp_path):
+    """No From / To: the cross section at the slider's station, the view's
+    width and look, to a DXF sheet."""
+    pytest.importorskip("shapely")
+    ezdxf = pytest.importorskip("ezdxf")
+    mod, m, al, _prof = addon
+    props = bpy.context.scene.bimforge_section
+    props.dev_from = props.dev_to = ""
+    props.position = 0.5
+    props.look = "AHEAD"
+    view, f = mod.section_view_def(props)
+    st = mod._stationer(props)
+    assert view.station == pytest.approx(st.convert(mod._STATE["frame"].station, "ft"))
+    assert view.width == pytest.approx(st.to_unit(props.width, "ft"))
+    out = tmp_path / "sec.dxf"
+    assert bpy.ops.bimforge.section_dxf(filepath=str(out)) == {"FINISHED"}
+    doc = ezdxf.readfile(str(out))
+    (lay,) = [x for x in doc.layouts if x.name != "Model"]
+    titles = [e.dxf.text for e in lay if e.dxftype() == "TEXT"]
+    assert any("SECTION AT STA" in t and "LOOKING AHEAD" in t for t in titles)
+    assert any(e.dxf.layer.startswith("E-CUT-") for e in doc.modelspace())
+    # the developed export still asks for its range, and says where to go
+    with pytest.raises(ValueError, match="Export Section DXF"):
+        mod.developed_view(props)
+
+
+def test_exit_leaves_the_camera_and_the_developed_scene(addon):
+    mod, *_ = addon
+    win = bpy.context.window
+    if win is None:
+        pytest.skip("no window in background mode")
+    home = win.scene
+    mod._STATE["home_scene"] = home.name
+    dev = bpy.data.scenes.get(mod.DEV_SCENE) or bpy.data.scenes.new(mod.DEV_SCENE)
+    win.scene = dev
+    mod.exit_views(bpy.context)
+    assert win.scene == home
+
+
+def test_fills_are_unlit_hatched_and_tiny_bars_dotted(addon):
+    """Section fills are emissions (no viewport light tints them), hatched
+    per kind in camera space at a period that follows the view width; a bar
+    smaller than the minimum dot is drawn as a dot that size."""
+    mod, *_ = addon
+    props = bpy.context.scene.bimforge_section
+    props.goto = 1200.0
+    bpy.ops.bimforge.section_goto()
+    fr = mod._STATE["frame"]
+    made = [_box("bar", fr, -0.01, 0.01, -0.5, -0.48, [_mat("Reinforcing Steel")])]
+    try:
+        props.fill_style = "STYLE"
+        bpy.ops.bimforge.section_cut()
+        me = bpy.data.objects[mod.CUT].data
+        r = props.width * mod.DOT_FRACTION
+        bar = [p for p in me.polygons
+               if me.materials[p.material_index].name == "Section · Reinforcing Steel"]
+        import math as _m
+        assert sum(p.area for p in bar) == pytest.approx(
+            0.02 * 0.02 + 12 * 0.5 * r * r * _m.sin(2 * _m.pi / 12), rel=1e-3)
+        conc = bpy.data.materials["Section · Concrete"]
+        kinds = {n.bl_idname for n in conc.node_tree.nodes}
+        assert {"ShaderNodeEmission", "ShaderNodeTexVoronoi",
+                "ShaderNodeTexCoord"} <= kinds
+        assert "ShaderNodeBsdfPrincipled" not in kinds
+        # the colour the style names, in Blender's linear space
+        mix = next(n for n in conc.node_tree.nodes if n.bl_idname == "ShaderNodeMix")
+        a = next(i for i in mix.inputs if i.identifier == "A_Color")
+        assert tuple(a.default_value[:3]) == pytest.approx(
+            mod._linear((0.75, 0.73, 0.68)), abs=1e-4)
+        period = conc.node_tree.nodes[mod.PERIOD_NODE].outputs[0].default_value
+        assert period == pytest.approx(props.width / 120.0, rel=1e-4)
+        rebar = bpy.data.materials["Section · Reinforcing Steel"]
+        assert not any(n.bl_idname == "ShaderNodeTexVoronoi"
+                       for n in rebar.node_tree.nodes)        # solid
+    finally:
+        for ob in made:
+            bpy.data.objects.remove(ob)
+
+
+def test_station_and_offset_sliders(addon):
+    """The station slider runs first to last station in the display unit and
+    drives the section; the offset slider runs across the view, - Lt / + Rt,
+    and carries the 3D cursor."""
+    mod, m, al, _prof = addon
+    props = bpy.context.scene.bimforge_section
+    st = mod._stationer(props)
+    rna = props.bl_rna.properties["station"]
+    assert (rna.hard_min, rna.hard_max) == (pytest.approx(st.convert(st.start_station, "ft")),
+                                            pytest.approx(st.convert(st.end_station, "ft")))
+    props.station = 1200.0
+    assert st.convert(mod._STATE["frame"].station, "ft") == pytest.approx(1200.0, abs=1e-3)
+    assert props.station == pytest.approx(1200.0, abs=1e-3)
+    props.station = 1e9                                   # clamps to the end
+    assert props.station == pytest.approx(st.convert(st.end_station, "ft"), abs=1e-3)
+    props.station = 1200.0
+    # offset: range is half the view width each way, in feet
+    half = st.to_unit(props.width / 2, "ft")
+    assert props.bl_rna.properties["offset"].hard_max == pytest.approx(half, rel=1e-4)
+    props.offset = -6.0                                   # 6 ft Lt
+    assert (props.pt_offset, props.pt_side) == (pytest.approx(6.0), "LT")
+    fr = mod._STATE["frame"]
+    want = st.point_at(fr.distance, 6.0 * st.foot_m)
+    cur = bpy.context.scene.cursor.location
+    assert (cur.x, cur.y) == (pytest.approx(want[0] + props.shift[0], abs=1e-4),
+                              pytest.approx(want[1] + props.shift[1], abs=1e-4))
+    props.offset = 4.0
+    assert (props.pt_offset, props.pt_side, props.offset) == (
+        pytest.approx(4.0), "RT", pytest.approx(4.0))
+    # a wider view widens the offset slider
+    w = props.width
+    try:
+        props.width = w * 2
+        assert props.bl_rna.properties["offset"].hard_max == pytest.approx(2 * half, rel=1e-4)
+    finally:
+        props.width = w
+
+
+def test_review_paint_follows_the_object_and_views_keep_their_hatch(addon):
+    """PR #3 review: a coloured generic material on a wall still hatches as
+    concrete; Lean-Concrete (a developed layer) hatches as lean concrete;
+    the developed scene's hatch period is its own; the offset slider spans
+    the view, not more."""
+    mod, *_ = addon
+    props = bpy.context.scene.bimforge_section
+    props.goto = 1200.0
+    bpy.ops.bimforge.section_goto()
+    fr = mod._STATE["frame"]
+    made = [_box("IfcWall/Stem", fr, 2.5, 3.0, -1.0, 0.0, [_mat("Material", (0.5, 0.4, 0.3))])]
+    try:
+        bpy.ops.bimforge.section_cut()
+        me = bpy.data.objects[mod.CUT].data
+        names = [m.name for m in me.materials]
+        assert "Section · Material [stipple]" in names
+        mat = bpy.data.materials["Section · Material [stipple]"]
+        assert any(n.bl_idname == "ShaderNodeTexVoronoi" for n in mat.node_tree.nodes)
+    finally:
+        for ob in made:
+            bpy.data.objects.remove(ob)
+    lean = mod._section_material("Lean-Concrete", (0.9, 0.85, 0.62), prefix=mod.DEV_PREFIX)
+    assert lean.name == "Elevation · Lean-Concrete" and lean["bimforge_paint"].startswith("sand")
+    sec = mod._section_material("Concrete", (0.75, 0.73, 0.68))
+    mod.set_hatch_period(0.123, mod.DEV_PREFIX)
+    mod.set_hatch_period(0.456)
+    assert lean.node_tree.nodes[mod.PERIOD_NODE].outputs[0].default_value == pytest.approx(0.123)
+    assert sec.node_tree.nodes[mod.PERIOD_NODE].outputs[0].default_value == pytest.approx(0.456)
+    st = mod._stationer(props)
+    w = props.width
+    try:
+        props.width = 0.5
+        assert props.bl_rna.properties["offset"].hard_max == pytest.approx(
+            st.to_unit(0.25, "ft"), rel=1e-4)
+    finally:
+        props.width = w
+
+
+def test_cut_now_sets_the_hatch_period(addon):
+    mod, *_ = addon
+    props = bpy.context.scene.bimforge_section
+    w = props.width
+    try:
+        props.live_cut = False
+        props.width = w * 1.5
+        mod.set_hatch_period(0.3)
+        bpy.ops.bimforge.section_cut()
+        conc = bpy.data.materials["Section · Concrete"]
+        assert conc.node_tree.nodes[mod.PERIOD_NODE].outputs[0].default_value == \
+            pytest.approx(props.width / 120.0, rel=1e-4)
+    finally:
+        props.width = w
+        props.live_cut = True
+
+
+def test_exit_closes_the_section_and_the_slider_brings_it_back(addon):
+    """Exit removes every helper the section drew (camera, plane frame,
+    cut, lines, ruler, labels, axis), turns the 4D filter off, gives the
+    scene its own camera back and stops the viewport label; the slider
+    rebuilds it all."""
+    mod, *_ = addon
+    sc = bpy.context.scene
+    props = sc.bimforge_section
+    own = bpy.data.objects.new("Own camera", bpy.data.cameras.new("Own camera"))
+    sc.collection.objects.link(own)
+    sc.camera = own
+    props.position = 0.4
+    bpy.ops.bimforge.section_view()
+    assert sc.camera.name == mod.CAM
+    props.date_filter = True
+    try:
+        assert bpy.ops.bimforge.section_exit() == {"FINISHED"}
+        assert bpy.data.collections.get(mod.COLL) is None
+        for name in (mod.CAM, mod.PLANE, mod.CUT, mod.LINES, mod.AXIS):
+            assert bpy.data.objects.get(name) is None, name
+        assert sc.camera == own
+        assert not props.date_filter and not mod._STATE["hidden"]
+        assert mod._STATE["frame"] is None              # no viewport label
+        assert not [m for m in bpy.data.materials
+                    if m.name.startswith("Section ") and m.users == 0]
+        props.position = 0.5                            # back again
+        for name in (mod.CAM, mod.PLANE, mod.CUT, mod.AXIS):
+            assert bpy.data.objects.get(name) is not None, name
+        assert mod._STATE["frame"] is not None
+    finally:
+        bpy.data.objects.remove(own)

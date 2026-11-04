@@ -86,7 +86,7 @@ def test_element_material_overrides_table():
 
 def test_geographic_element_gets_earth_default():
     s = resolve_surface(None, "IfcGeographicElement", pack_ifc=None)
-    assert s["rgb"] == [0.55, 0.45, 0.32]
+    assert s["rgb"] == [0.56, 0.44, 0.30]
     assert s["transparency"] == 0.5
     assert s["material"] == "Earthwork"
 
