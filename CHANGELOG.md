@@ -4,6 +4,35 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.105 — 2026-11-05
+
+### Added
+
+- **The labour / material / equipment split reaches the IFC, and the pay
+  can follow one kind of it** (`bimforge.bim.cost_categories`). IFC puts no
+  price on an element, a task or an IfcMaterial: money lives in an
+  IfcCostItem as a list of IfcCostValue, each with a `Category`, and the
+  item is tied to the task it is spent in and the element it builds by
+  IfcRelAssignsToControl. So a split is one cost item with one value per
+  kind, Category = Labor / Material / Equipment / Subcontract / Other.
+  - `est-bim cost5d --costs`: a code's record may carry `labor`,
+    `material`, `equipment`, `subcontract` (or `sub`), `other` (or
+    `overhead`), the parts of its `cost`; each task's item is written with
+    one value per kind, scaled to the task's part of the code, to the
+    cent. An unknown kind is refused.
+  - `est-bim estimate5d`: each element's share of an activity is written
+    in the activity's own `cost_split` proportions, one value per kind.
+  - `schedule_read.read_costs` returns `categories` {kind: amount} per
+    task, per code and per task-code (`{}` when the values carry none);
+    `cost` stays the sum of every value. The web bundle's `costs.shares`
+    carry `categories` too.
+  - The 4D/5D dashboard draws cumulative labour, material, equipment (and
+    subcontract, other) cost beside total cost and earned pay, shows the
+    split on the day, and lets you choose what the pay follows: all cost
+    (the default), one kind of cost, or labour hours. A kind recorded
+    nowhere for an element falls back to all cost, so a material-only item
+    is never earned on nothing.
+
 ## 0.1.104 — 2026-11-05
 
 ### Changed

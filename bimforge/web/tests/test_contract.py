@@ -46,9 +46,11 @@ OFFICIAL = {"0010": {"quantity": 50.0, "description": "Footing concrete",
                      "unit": "CY"},
             "0020": {"quantity": 30.0, "description": "Wall concrete",
                      "unit": "CY"}}
-COSTS = {"F-CONC": {"cost": 12000.0, "labor_hours": 300.0},
-         "W-CONC": {"cost": 9000.0, "labor_hours": 200.0},
-         "POSTS": {"cost": 1500.0, "labor_hours": 40.0}}
+COSTS = {"F-CONC": {"cost": 12000.0, "labor_hours": 300.0,
+                    "labor": 7000.0, "material": 5000.0},
+         "W-CONC": {"cost": 9000.0, "labor_hours": 200.0,
+                    "labor": 5000.0, "material": 3000.0, "equipment": 1000.0},
+         "POSTS": {"cost": 1500.0, "labor_hours": 40.0, "material": 1500.0}}
 
 
 def _model():
@@ -301,3 +303,48 @@ def test_estimate_shares_name_the_element_item_and_price(tmp_path):
     assert items["10"]["unit_price"] == 1.0 and items["10"]["code"] == "51-CONC"
     assert items["20"]["total"] == 500.0
     assert rows == {} or rows["51-CONC"]["unit_price"] == 1.0
+
+
+def test_shares_and_tasks_carry_the_kind_of_cost(tmp_path):
+    """cost5d writes one IfcCostValue per kind (labor / material /
+    equipment) with its Category; the bundle reads them back on the task
+    and on each share, summing to the task's cost."""
+    b = build_bundle(_ifc(tmp_path), TMAP, OFFICIAL)
+    t1 = b["costs"]["tasks"]["t1"]
+    assert t1["cost"] == pytest.approx(12000.0)
+    assert t1["categories"] == {"Labor": 7000.0, "Material": 5000.0}
+    assert t1["costs"]["F-CONC"]["categories"] == {"Labor": 7000.0,
+                                                   "Material": 5000.0}
+    t2 = b["costs"]["tasks"]["t2"]
+    assert t2["categories"] == {"Labor": 5000.0, "Material": 3000.0,
+                                "Equipment": 1000.0}
+    assert b["costs"]["costs"]["POSTS"]["categories"] == {"Material": 1500.0}
+    sh = {s["task"]: s for s in b["costs"]["shares"]}
+    assert sh["t1"]["categories"] == {"Labor": 7000.0, "Material": 5000.0}
+    assert sum(sh["t2"]["categories"].values()) == pytest.approx(sh["t2"]["cost"])
+
+
+def test_estimate_shares_split_the_activity_by_kind(tmp_path):
+    """estimate_model5d: each element's share of an activity is split in
+    the activity's own labour / material / ... proportions."""
+    from bimforge.bim.tests.test_estimate_model5d import (_ifc as _est_ifc,
+                                                           _model_json)
+    from bimforge.bim.estimate_model5d import embed_estimate_model
+    f, site, ftg, wall = _est_ifc()
+    doc = _model_json(ftg.GlobalId, wall.GlobalId)
+    doc["activities"][0]["cost_split"] = {"labor": "6.004", "material": "4.000"}
+    embed_estimate_model(f, doc)
+    out = tmp_path / "est.ifc"
+    f.write(str(out))
+    b = build_bundle(out)
+    by_el = {s["element"]: s for s in b["costs"]["shares"] if s["element"]}
+    ftg_share = by_el[ftg.GlobalId]
+    assert ftg_share["cost"] == pytest.approx(10.0, abs=0.01)
+    cats = ftg_share["categories"]
+    assert set(cats) == {"Labor", "Material"}
+    assert sum(cats.values()) == pytest.approx(ftg_share["cost"], abs=0.005)
+    assert cats["Labor"] == pytest.approx(6.0, abs=0.01)
+    wall_share = by_el[wall.GlobalId]                 # a2: labour only
+    assert wall_share["categories"] == {"Labor": wall_share["cost"]}
+    a3 = [s for s in b["costs"]["shares"] if s["task"] == "a3"]   # "other"
+    assert a3 and a3[0]["categories"] == {"Other": a3[0]["cost"]}

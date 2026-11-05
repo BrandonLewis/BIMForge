@@ -10,7 +10,16 @@
  * task, evenly over its working days. An element no dated task builds is
  * earned on its appear date, and one with neither is reported as undated.
  * Earned dollars are the earned quantity at the bid item's unit price.
+ *
+ * The BASIS the pay follows is chosen on the page: all cost (default), or
+ * one kind of it (labour, material, equipment: each IfcCostValue's
+ * Category, costs.shares[].categories / costs.tasks[].categories), or
+ * labour hours. A kind that is zero everywhere for an element falls back
+ * to all cost, so a material-only item is never earned on nothing.
  */
+const CATS = ["Labor", "Material", "Equipment", "Subcontract", "Other"];
+const CAT_LABEL = { Labor: "Labour", Material: "Material", Equipment: "Equipment", Subcontract: "Subcontract", Other: "Other" };
+const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf", Subcontract: "#db61a2", Other: "#8b949e" };
 (function () {
   "use strict";
   const b = BF.bundle(); BF.header("dashboard.html");
@@ -76,6 +85,14 @@
     spread(cost, t, c.cost || 0); spread(hours, t, c.labor_hours || 0);
   });
   const cumCost = cumulative(cost), cumHours = cumulative(hours);
+  const catDaily = {}, catTotal = {};
+  CATS.forEach(function (c) { catDaily[c] = new Float64Array(span + 1); catTotal[c] = 0; });
+  tasks.forEach(function (t) {
+    const c = taskCost[t.id]; if (!c || !c.categories) return;
+    CATS.forEach(function (k) { const a = c.categories[k] || 0; if (a) { catTotal[k] += a; spread(catDaily[k], t, a); } });
+  });
+  const catCum = {}; CATS.forEach(function (c) { catCum[c] = cumulative(catDaily[c]); });
+  const catsPresent = CATS.filter(function (c) { return catTotal[c] > 0; });
 
   // ---- what builds each element: its appear-type tasks, and the cost
   //      shares spent on it (element -> task -> {item -> cost, any})
@@ -86,16 +103,37 @@
     if (REMOVE[k]) return;
     taskEls[tid].forEach(function (g) { (elTasks[g] || (elTasks[g] = [])).push(t); });
   });
-  const elShare = {};                                     // g -> tid -> {item -> cost, _any}
+  const elShare = {};                                     // g -> tid -> {item -> cost, _any, _cat: {kind -> cost}}
   shares.forEach(function (sh) {
     if (!sh.element) return;
     const byTask = elShare[sh.element] || (elShare[sh.element] = {});
-    const rec = byTask[sh.task] || (byTask[sh.task] = { _any: 0 });
+    const rec = byTask[sh.task] || (byTask[sh.task] = { _any: 0, _cat: {} });
     rec._any += sh.cost || 0;
     const keys = [sh.item_number, sh.code].filter(Boolean);
     keys.forEach(function (k) { rec[k] = (rec[k] || 0) + (sh.cost || 0); });
+    CATS.forEach(function (c) { const a = (sh.categories || {})[c] || 0; if (a) rec._cat[c] = (rec._cat[c] || 0) + a; });
   });
+  let basis = "cost";                                     // cost | Labor | Material | Equipment | Subcontract | Other | hours
+  function kindWeight(g, t) {                             // the chosen kind's money, or null when none is recorded
+    const sh = (elShare[g] || {})[t.id];
+    if (sh && sh._cat[basis]) return sh._cat[basis];
+    const c = taskCost[t.id];
+    if (c && c.categories && c.categories[basis]) return c.categories[basis];
+    return null;
+  }
+  function weightsFor(g, ts, row) {                       // the kind, else all cost, else even
+    let w = ts.map(function (t) { return taskWeight(g, t, row); });
+    if (basis !== "cost" && !w.some(function (x) { return x; })) {
+      const saved = basis; basis = "cost"; w = ts.map(function (t) { return taskWeight(g, t, row); }); basis = saved;
+    }
+    return w.map(function (x) { return x || 0; });
+  }
   function taskWeight(g, t, row) {
+    if (basis === "hours") {
+      const c = taskCost[t.id];
+      return c && c.labor_hours ? c.labor_hours : null;
+    }
+    if (basis !== "cost") return kindWeight(g, t);
     const sh = (elShare[g] || {})[t.id];
     if (sh) {
       if (row.item_number && sh[row.item_number]) return sh[row.item_number];
@@ -113,29 +151,39 @@
 
   // ---- earned pay quantity per row, daily; and earned dollars
   const rows = b.takeoff.rows;
-  const earned = rows.map(function (row) {
-    const arr = new Float64Array(span + 1);
-    let byTask = 0, byAppear = 0, undated = 0;
-    row.elements.forEach(function (e) {
-      const q = e.quantity || 0; if (!q) return;
-      const ts = elTasks[e.global_id] || [];
-      if (ts.length) {
-        const w = ts.map(function (t) { return taskWeight(e.global_id, t, row); });
-        const W = w.reduce(function (s, x) { return s + x; }, 0) || ts.length;
-        ts.forEach(function (t, i) { spread(arr, t, q * (W ? w[i] / W : 1 / ts.length)); });
-        byTask += q;
-      } else if ((E[e.global_id] || {}).appear) {
-        const i = idx(E[e.global_id].appear); if (i >= 0 && i <= span) arr[i] += q; byAppear += q;
-      } else undated += q;
+  let earned, priced, payTotal, cumPay, undatedPay;
+  function computeEarned() {
+    earned = rows.map(function (row) {
+      const arr = new Float64Array(span + 1);
+      let byTask = 0, byAppear = 0, undated = 0;
+      row.elements.forEach(function (e) {
+        const q = e.quantity || 0; if (!q) return;
+        const ts = elTasks[e.global_id] || [];
+        if (ts.length) {
+          const w = weightsFor(e.global_id, ts, row);
+          const W = w.reduce(function (s, x) { return s + x; }, 0);
+          ts.forEach(function (t, i) { spread(arr, t, q * (W ? w[i] / W : 1 / ts.length)); });
+          byTask += q;
+        } else if ((E[e.global_id] || {}).appear) {
+          const i = idx(E[e.global_id].appear); if (i >= 0 && i <= span) arr[i] += q; byAppear += q;
+        } else undated += q;
+      });
+      return { row: row, cum: cumulative(arr), byTask: byTask, byAppear: byAppear, undated: undated,
+        priced: row.unit_price != null };
     });
-    return { row: row, cum: cumulative(arr), byTask: byTask, byAppear: byAppear, undated: undated,
-      priced: row.unit_price != null };
-  });
-  const priced = earned.filter(function (x) { return x.priced; });
-  const payTotal = priced.reduce(function (s, x) { return s + (x.row.bid_total != null ? x.row.bid_total : x.row.quantity * x.row.unit_price); }, 0);
-  const cumPay = new Float64Array(span + 1);
-  priced.forEach(function (x) { for (let i = 0; i <= span; i++) cumPay[i] += x.cum[i] * x.row.unit_price; });
-  const undatedPay = priced.reduce(function (s, x) { return s + x.undated * x.row.unit_price; }, 0);
+    priced = earned.filter(function (x) { return x.priced; });
+    payTotal = priced.reduce(function (s, x) { return s + (x.row.bid_total != null ? x.row.bid_total : x.row.quantity * x.row.unit_price); }, 0);
+    cumPay = new Float64Array(span + 1);
+    priced.forEach(function (x) { for (let i = 0; i <= span; i++) cumPay[i] += x.cum[i] * x.row.unit_price; });
+    undatedPay = priced.reduce(function (s, x) { return s + x.undated * x.row.unit_price; }, 0);
+  }
+  computeEarned();
+  const basisSel = document.getElementById("basis");
+  [["cost", "all cost"]].concat(catsPresent.map(function (c) { return [c, CAT_LABEL[c] + " $"]; }))
+    .concat(hoursTotal ? [["hours", "labour hours"]] : []).forEach(function (o) {
+      basisSel.appendChild(BF.h("option", { value: o[0] }, "Earn against " + BF.esc(o[1])));
+    });
+  basisSel.addEventListener("change", function () { basis = basisSel.value; computeEarned(); setDay(day, true); });
   // cost under each row's code, for the per-item margin
   function rowCostTo(row, i) {
     let s = 0;
@@ -185,7 +233,8 @@
     const tiles = [
       ["Earned to date", priced.length ? BF.money(cumPay[i]) : "—",
         priced.length ? "of " + BF.money(payTotal) + " (" + BF.fmt(payTotal ? 100 * cumPay[i] / payTotal : 0, 0) + "%) on " + priced.length + " priced item" + (priced.length === 1 ? "" : "s") : "no unit prices (bid list or estimate)"],
-      ["Cost to date", C ? BF.money(cumCost[i]) : "—", C ? "of " + BF.money(costTotal) + " (" + BF.fmt(costTotal ? 100 * cumCost[i] / costTotal : 0, 0) + "%)" : "no cost schedule"],
+      ["Cost to date", C ? BF.money(cumCost[i]) : "—", C ? "of " + BF.money(costTotal) + " (" + BF.fmt(costTotal ? 100 * cumCost[i] / costTotal : 0, 0) + "%)" +
+        (catsPresent.length ? "<br>" + catsPresent.map(function (c) { return CAT_LABEL[c][0] + " " + BF.money(catCum[c][i]); }).join(" \u00b7 ") : "") : "no cost schedule"],
       ["Margin to date", priced.length && C ? '<span class="' + (margin < 0 ? "pos" : "neg") + '">' + BF.money(margin) + "</span>" : "—",
         priced.length && C ? (cumPay[i] ? BF.fmt(100 * margin / cumPay[i], 1) + "% of earned" : "") : ""],
       ["Labour to date", C ? BF.fmt(cumHours[i], 0) + " h" : "—", C ? "of " + BF.fmt(hoursTotal, 0) + " h" : ""],
@@ -244,17 +293,24 @@
     if (priced.length) series.push({ data: cumPay, max: top, scale: 1, color: "var(--ok)", label: "Earned pay", fmt: BF.money });
     if (C) {
       series.push({ data: cumCost, max: top, scale: 1, color: "var(--accent)", label: "Cost", fmt: BF.money });
-      series.push({ data: cumHours, max: top, scale: (hoursTotal ? top / hoursTotal : 0) * 0.9, color: "var(--milestone)", dash: "4 3", label: "Labour hours", fmt: function (v) { return BF.fmt(v, 0) + " h"; } });
+      catsPresent.forEach(function (c) {
+        series.push({ data: catCum[c], max: top, scale: 1, color: CAT_COLOR[c], dash: "5 3", label: CAT_LABEL[c] + " $", fmt: BF.money });
+      });
+      series.push({ data: cumHours, max: top, scale: (hoursTotal ? top / hoursTotal : 0) * 0.9, color: "var(--milestone)", dash: "1 3", label: "Labour hours", fmt: function (v) { return BF.fmt(v, 0) + " h"; } });
     }
     lineChart(svg, series, { fmt: BF.money });
     const i = idx(day);
     lg.innerHTML = (priced.length ? '<span><i style="background:var(--ok)"></i>earned ' + BF.money(cumPay[i]) + " / " + BF.money(payTotal) + "</span>" : "") +
       (C ? '<span><i style="background:var(--accent)"></i>cost ' + BF.money(cumCost[i]) + " / " + BF.money(costTotal) + "</span>" +
+        catsPresent.map(function (c) { return '<span><i style="background:' + CAT_COLOR[c] + '"></i>' + CAT_LABEL[c].toLowerCase() + " " + BF.money(catCum[c][i]) + " / " + BF.money(catTotal[c]) + "</span>"; }).join("") +
         '<span><i style="background:var(--milestone)"></i>labour ' + BF.fmt(cumHours[i], 0) + " / " + BF.fmt(hoursTotal, 0) + " h (own scale)</span>" : "");
     const parts = [];
+    if (basis !== "cost") parts.push("pay follows " + (basis === "hours" ? "labour hours" : CAT_LABEL[basis].toLowerCase() + " cost") + " in the tasks that build each element (all cost where none is recorded)");
+    else
     if (shares.some(function (s) { return s.element; })) parts.push("pay follows each element's cost shares in the tasks that build it (the estimate's activities)");
     else if (C) parts.push("pay follows each element's tasks, weighted by the task's cost under the item's code, else its hours");
     else parts.push("pay follows each element's tasks, evenly");
+    if (!catsPresent.length && C) parts.push("the cost schedule records no labour / material / equipment split");
     if (undatedPay) parts.push(BF.money(undatedPay) + " sits on elements no task dates");
     const notPriced = rows.length - priced.length;
     if (notPriced) parts.push(notPriced + " item" + (notPriced === 1 ? "" : "s") + " without a unit price earn quantity only");

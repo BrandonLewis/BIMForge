@@ -33,6 +33,8 @@ import ifcopenshell.api.pset as pset_api
 import ifcopenshell.api.resource as res
 import ifcopenshell.guid
 
+from bimforge.bim.cost_categories import (SPLIT_KEYS, normalize_split,
+                                          split_amount, write_cost_values)
 from bimforge.bim.costload import distribute_to_task_codes, load_schedule_costs
 from bimforge.bim.schedule_read import _schedule_tasks, task_id
 
@@ -188,8 +190,11 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
         ci = cost.add_cost_item(model, cost_schedule=cs)
         cost.edit_cost_item(model, ci, attributes={
             "Name": f"{st.name if st else tid}: {code}", "Identification": code})
-        cv = cost.add_cost_value(model, parent=ci)
-        cost.edit_cost_value(model, cv, attributes={"AppliedValue": e["cost"]})
+        # the code's split by kind, scaled to this task's part of the code
+        split = normalize_split({k: v for k, v in (costs.get(code) or {}).items()
+                                 if k in SPLIT_KEYS})
+        write_cost_values(model, ci, e["cost"], split_amount(
+            e["cost"], split, scale_from=(costs.get(code) or {}).get("cost")))
         ctl.assign_control(model, relating_control=ci, related_objects=[ent])
         _code_reference(model, ci, code, classif)
         ps = pset_api.add_pset(model, product=ci, name=COST_ITEM_PSET)

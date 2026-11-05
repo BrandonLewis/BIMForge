@@ -72,7 +72,11 @@ it; the dashboard scrubs a day through the schedule with earned pay
 against cost, labour and per-item pay-quantity curves, and what stands on
 that day. Pay is earned as the work is done: over the tasks that build
 each element, weighted by the cost and hours spent on it, at the bid
-item's unit price. The pages carry no external library and open from
+item's unit price. The labour / material / equipment split of a cost
+(`est-bim cost5d --costs` records' `labor`, `material`, `equipment`,
+`subcontract`, `other`; the estimate's `cost_split`) is written as one
+`IfcCostValue` per kind, `Category` naming the kind, and the dashboard can
+earn against one kind alone. The pages carry no external library and open from
 disk. A host (an editor's bridge add-on) provides `window.bimforgeHost` to
 turn a click into a selection; standalone, a click copies GlobalIds.
 

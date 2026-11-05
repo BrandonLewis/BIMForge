@@ -176,3 +176,46 @@ def test_models_with_the_old_pset_names_still_read():
                 for t in read_schedule(m).to_dict()["tasks"]]
     assert tasks(old) == tasks(new)
     assert [t["wbs"] for t in tasks(old)] == ["1", "2", "3"]
+
+
+def test_kinds_of_cost_round_trip_and_sum_to_the_cost():
+    """A costs record's labor / material / equipment parts are written as
+    categorised IfcCostValues and read back per task and per code; a code
+    with no split reads {} and keeps its single value."""
+    from bimforge.bim.cost_categories import categories_of, total_of
+    costs = {"A": {"cost": 10000.0, "labor_hours": 400.0,
+                   "labor": 6000.0, "material": 3000.0, "equipment": 1000.0},
+             "B": {"cost": 2500.0, "labor_hours": None, "subcontract": 2500.0},
+             "C": {"cost": 900.0, "labor_hours": 30.0}}
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    root.create_entity(f, ifc_class="IfcProject")
+    embed_schedule(f, _sched())
+    cost5d.embed_cost_and_resources(f, _sched(), costs, schedule_name="S")
+    for ci in f.by_type("IfcCostItem"):
+        cats = categories_of(ci)
+        assert sum(cats.values()) == pytest.approx(total_of(ci), abs=0.005) \
+            or not cats
+        for cv in ci.CostValues:
+            assert (cv.Category in cats) if cats else cv.Category is None
+    got = read_costs(f)
+    assert got["costs"]["A"]["categories"] == pytest.approx(
+        {"Labor": 6000.0, "Material": 3000.0, "Equipment": 1000.0})
+    assert got["costs"]["B"]["categories"] == {"Subcontract": 2500.0}
+    assert got["costs"]["C"]["categories"] == {}
+    # task t1 carries A and B: its kinds are the sum of its parts of each
+    t1 = got["tasks"]["t1"]
+    assert sum(t1["categories"].values()) == pytest.approx(
+        t1["cost"] - t1["costs"].get("C", {"cost": 0.0})["cost"])
+    for code, rec in t1["costs"].items():
+        if rec["categories"]:
+            assert sum(rec["categories"].values()) == pytest.approx(rec["cost"], abs=0.005)
+
+
+def test_a_split_with_an_unknown_kind_is_refused():
+    from bimforge.bim.costload import validate_costs
+    with pytest.raises(ValueError, match="material"):
+        validate_costs({"A": {"cost": 1.0, "labor_hours": None,
+                              "material": "lots"}})
+    from bimforge.bim.cost_categories import normalize_split
+    with pytest.raises(ValueError, match="unknown kind"):
+        normalize_split({"plant": 1})

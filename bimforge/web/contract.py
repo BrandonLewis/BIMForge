@@ -17,8 +17,9 @@ takeoff roll-up, `schedule_read`, `schedule_state`) and returns::
      "schedule": CanonicalSchedule.to_dict() + {"task_elements":
                  {task id: [GlobalId, ...]}} | null,
      "costs": schedule_read.read_costs(...) + {"shares": [{"task",
-              "element", "item_number", "code", "cost", "labor_hours"}]}
-              | null}
+              "element", "item_number", "code", "cost", "labor_hours",
+              "categories": {Labor | Material | Equipment | Subcontract |
+                             Other: amount}}]} | null}
 
 `costs.shares` is what the pay follows: every priced cost item of the 5D
 schedule, with the task it is spent in, the element it builds (when the
@@ -212,6 +213,7 @@ def _shares(model, schedule_name: str) -> list[dict]:
     element), the bid item (parent's BidSheet_EstimateItem ItemNumber) and
     the code it is classified under, its cost and labour hours."""
     import ifcopenshell.util.element as ue
+    from bimforge.bim.cost_categories import categories_of
     from bimforge.bim.schedule_read import (_COST_ITEM_PSETS,
                                             _leaf_cost_items, _number,
                                             _pset, task_id)
@@ -255,6 +257,8 @@ def _shares(model, schedule_name: str) -> list[dict]:
             "cost": round(sum(_number(cv.AppliedValue) or 0.0
                               for cv in ci.CostValues or []), 2),
             "labor_hours": _number(ps.get("LaborHours")),
+            "categories": {c: round(a, 2)
+                           for c, a in sorted(categories_of(ci).items())},
         })
     return out
 
