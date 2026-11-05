@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.99 — 2026-11-04
+
 ### Fixed
 
 - `networkx` is now a core dependency. `est-bim schedule` authors through
