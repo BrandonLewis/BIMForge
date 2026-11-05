@@ -18,9 +18,6 @@ produce control, layout and structure sheets.
   org-neutral DXF/KML/geo engine, styled by pluggable **style packs**.
 - **`bimforge.terrain`** — terrain grids, watertight terrain solids and
   excavation carves from point clouds and contours.
-- **`bimforge.blender`** — Blender add-ons. *Alignment Section* puts a station
-  slider in the 3D view sidebar that cuts a live cross-section along an IFC4X3
-  `IfcAlignment` (see below).
 
 ## Install
 
@@ -37,45 +34,15 @@ est-bim --help      # dxf2bim, ifc2dxf, takeoff, schedule, cost5d, kml, calibrat
 est-sheets --help   # control / layout / structure sheet production
 ```
 
-## Blender: alignment section slider
+## Blender: sections along an alignment
 
-```bash
-python -m bimforge.blender        # writes bimforge_alignment_section.zip
-```
-
-In Blender 4.2+ install the zip from *Edit > Preferences > Add-ons > Install
-from Disk*. It needs ifcopenshell inside Blender, which Bonsai provides. Then
-go to *3D View > Sidebar (N) > Section*, pick **Bonsai** (the IFC Bonsai has
-open) or **File**, and press **Load Alignments**. Drag **Station** to slide the
-section. You can also step by a fixed interval or type a station and press
-**Go**. **View Section** looks through an orthographic camera whose near clip
-sits on the cut. Every mesh is cut at the plane, and the cut is filled into
-*Section Cut*. Each item is filled per its own styling: its material's
-colour, which is the IFC surface style when Bonsai loaded it. An unstyled
-item (no material, or the default grey) is filled by what its material or
-object name says it is: concrete, rebar, asphalt, gravel, steel, timber or
-earthwork. **Single colour** switches back to one highlight colour.
-Every cut edge is also drawn as a thin dark line. That outlines the fills and
-shows open cuts, such as a ground surface, which has no inside to fill.
-
-**Offsets.** An offset ruler runs across the section: CL, then ticks every
-*Every* (10' Lt, 10' Rt, ...) at a set height above grade. **Locate** puts
-the 3D cursor at the current station plus an offset Lt or Rt, at the grade
-elevation. It then reads the top model surface straight below, for example
-`Sta 12+50.00, 3.50 Rt | PG EL 160.16 | top EL 150.92 existing-grade`.
-**Inquire** reads the 3D cursor back as station and offset, and **Cut** also
-slides the section to it.
-
-**4D date.** When the IFC carries a 4D schedule (IfcTask links, as written
-by `est-bim schedule`), the panel shows the model as it stands at the end of
-a day. A construction task's elements appear at its start, and a demolition,
-dismantle or removal task's elements disappear at its start. Hidden elements
-are not cut. Type a date, step by a day or a week, or jump to the previous
-or next day on which something appears or goes. The panel counts what is
-standing, not yet built and removed. The panel reports station, grade elevation, grade and bearing.
-With **Follow timeline** on, frames sweep the whole alignment, so rendering
-the animation makes a fly-through. Stations read in feet when the project is
-in feet or its map conversion is to a feet grid.
+The Blender add-on that slides a live cross-section along an IFC4X3
+`IfcAlignment` (station and offset sliders, 4D dates, developed elevations,
+DXF sheets) is now its own project:
+[IfcSection](https://github.com/BrandonLewis/ifcsection). BIMForge does not
+depend on it. BIMForge keeps its own copies of the stationing and drawing
+modules (`bimforge.bim.alignment_station`, `developed`, `schedule_state`,
+`section_style`) for `est-bim stations` and `est-bim elevation`.
 
 ## GIS (QGIS)
 

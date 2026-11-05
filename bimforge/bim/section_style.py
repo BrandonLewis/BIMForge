@@ -1,5 +1,6 @@
 """What a cut reads as: the section fill colour and hatch for each kind of
-material, shared by the Blender add-on's live section and the DXF sheets.
+material, for the DXF sheets (the IfcSection Blender add-on carries its own
+copy and paints the same hatches live).
 
 A cut is classified by its material name (the IfcSurfaceStyle / IfcMaterial
 name, e.g. "Compacted Fill"), else its object name ("IfcReinforcingBar/B1",
