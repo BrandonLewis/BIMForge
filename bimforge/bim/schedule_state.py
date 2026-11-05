@@ -13,9 +13,8 @@ existing utilities, the bridge being removed until its removal task).
 "Standing on day D" is the state at the end of D: built if its appear date
 is on or before D, gone if its disappear date is.
 
-Kept to ifcopenshell and the standard library, so it ships inside the
-Blender add-on zip next to alignment_station (Bonsai's Python has
-ifcopenshell but not bimforge).
+Kept to ifcopenshell and the standard library; the IfcSection Blender
+add-on (https://github.com/BrandonLewis/ifcsection) carries its own copy.
 
 Examples:
     import ifcopenshell

@@ -4,6 +4,17 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Removed
+
+- **The Blender add-on moved to its own project,
+  [IfcSection](https://github.com/BrandonLewis/ifcsection)**, with its
+  history. `bimforge.blender` and `python -m bimforge.blender` are gone.
+  BIMForge does not depend on IfcSection. It keeps its own copies of
+  `bimforge.bim.alignment_station`, `developed`, `schedule_state` and
+  `section_style`, which `est-bim stations`, `est-bim elevation` and the GIS
+  export use. Install the add-on from IfcSection's releases, after removing
+  the old "Alignment Section (bimforge)" add-on.
+
 ### Added
 
 - **Excavation is drawn as ground removed, not as a block in the hole.**

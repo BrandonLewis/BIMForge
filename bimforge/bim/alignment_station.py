@@ -1,10 +1,9 @@
 """Station an IFC4X3 IfcAlignment: point, plan direction and grade at any
 distance along it, in SI metres in the model frame.
 
-This is the evaluator behind the Blender section slider
-(:mod:`bimforge.blender.alignment_section`), kept free of `bpy` and of the
-rest of bimforge so it ships inside the add-on zip unchanged and runs on the
-ifcopenshell that Bonsai bundles. Its only dependency is ifcopenshell.
+Kept free of `bpy` and of the rest of bimforge (its only dependency is
+ifcopenshell); the IfcSection Blender add-on
+(https://github.com/BrandonLewis/ifcsection) carries its own copy.
 
 The alignment's representation curve (IfcGradientCurve, IfcCompositeCurve or
 IfcSegmentedReferenceCurve) is evaluated by ifcopenshell's geometry kernel —
