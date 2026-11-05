@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.100 — 2026-11-05
+
 ### Removed
 
 - **The Blender add-on moved to its own project,
