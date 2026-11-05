@@ -4,6 +4,44 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.103 — 2026-11-05
+
+### Added
+
+- **Web pages on a JSON contract (`bimforge.web`, `est-bim web`).** A
+  takeoff page and a 4D/5D dashboard, written as views of ONE JSON
+  document, the *bundle* (`contract: bimforge-web/1`), that
+  `bimforge.web.build_bundle` produces headlessly from an IFC: every
+  element (class, type, predefined type, whole and parts, container, pay
+  codes, Qto values, appear and vanish dates, tasks), the pay-item takeoff
+  (the CanonicalTakeoff rows with each element's quantity in the pay unit,
+  the official bid quantity and the variance), the IfcWorkSchedule as a
+  CanonicalSchedule with its task-to-element links, and the IfcCostSchedule
+  costs and labour hours per task. The bundle carries no timestamp, so a
+  rebuild of an unchanged model is byte-identical.
+  - `est-bim web --ifc model.ifc [--map takeoff_map.yaml] [--official
+    bid.json] [--schedule NAME] [--out DIR] [--serve [PORT] --open]` writes
+    `index.html`, `takeoff.html`, `dashboard.html`, their assets and
+    `data/bundle.json` + `data/bundle.js`, and serves the directory when
+    asked. The pages are plain HTML, CSS and JavaScript with no external
+    library, and open straight from disk.
+  - **Takeoff:** pay items with modelled, official, variance and variance
+    %, sortable and filterable, expanding to the elements behind each item
+    with class, type, quantity, 4D span and GlobalId; a CSV download; the
+    elements no pay item counts.
+  - **4D/5D dashboard:** a day scrubber; cost and labour to date; cumulative
+    cost and labour curves; the cumulative pay quantity in place per pay
+    item (from each element's appear date); a Gantt of the schedule (task
+    types coloured, milestones, summaries, the scrubbed day and today);
+    a task's cost, hours, predecessors and elements; and what stands on
+    the day, by class.
+  - **The host adapter.** A page talks to whatever hosts it through
+    `window.bimforgeHost` (`select(globalIds, label)`, `gotoDate(day)`) and
+    listens for a `bimforge:date` event, so the same page runs standalone
+    (a selection copies GlobalIds) or inside an editor's bridge (a Blender
+    add-on serving the same bundle from the open file, as Bonsai's web
+    pages do).
+
 ## 0.1.102 — 2026-11-05
 
 A barrier rail reaches FreeCAD, Revit and Bonsai as a barrier rail, not as

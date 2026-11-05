@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4D/5D dashboard</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<header class="top"></header>
+<main>
+  <section class="panel">
+    <div class="scrubber">
+      <span class="muted small">Day</span>
+      <input type="range" id="scrub" min="0" max="0" value="0">
+      <input type="date" id="scrubdate">
+      <span class="day" id="scrubday"></span>
+      <button id="totoday" title="Jump to today">Today</button>
+      <button id="selstanding" title="Select everything standing on this day">Select standing</button>
+    </div>
+  </section>
+  <div class="tiles" id="tiles"></div>
+  <div class="two">
+    <section class="panel">
+      <h2>Cost and labour, cumulative</h2>
+      <svg class="chart" id="costchart" viewBox="0 0 640 260" preserveAspectRatio="none"></svg>
+      <div class="legend" id="costlegend"></div>
+    </section>
+    <section class="panel">
+      <h2>Pay quantity, cumulative</h2>
+      <div class="toolbar"><select id="payitem"></select></div>
+      <svg class="chart" id="qtychart" viewBox="0 0 640 230" preserveAspectRatio="none"></svg>
+      <div class="legend" id="qtylegend"></div>
+    </section>
+  </div>
+  <section class="panel">
+    <h2>Schedule</h2>
+    <div class="toolbar">
+      <input type="search" id="taskfilter" placeholder="Filter tasks" size="30">
+      <label><input type="checkbox" id="linked"> Only tasks that move elements</label>
+      <span class="muted small" id="taskcount"></span>
+    </div>
+    <div class="gantt-wrap"><svg class="gantt" id="gantt"></svg></div>
+    <div class="legend">
+      <span><i style="background:var(--build)"></i>construction / installation</span>
+      <span><i style="background:var(--remove)"></i>demolition / removal</span>
+      <span><i style="background:var(--other)"></i>other</span>
+      <span><i style="background:var(--milestone)"></i>milestone</span>
+      <span><i style="background:var(--bad)"></i>scrubbed day</span>
+      <span><i style="background:var(--warn)"></i>today</span>
+    </div>
+  </section>
+  <div class="two">
+    <section class="panel">
+      <h2 id="taskhead">Task</h2>
+      <div id="taskdetail" class="empty">Click a task in the schedule.</div>
+    </section>
+    <section class="panel">
+      <h2>Standing on the day</h2>
+      <table id="standing"><thead><tr><th>Class</th><th class="num">Standing</th><th class="num">Of</th><th class="num">Appearing this week</th><th class="num">Removed by now</th></tr></thead><tbody></tbody></table>
+    </section>
+  </div>
+</main>
+<footer id="foot"></footer>
+<script src="data/bundle.js"></script>
+<script src="assets/shared.js"></script>
+<script src="assets/dashboard.js"></script>
+</body>
+</html>

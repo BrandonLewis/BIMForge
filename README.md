@@ -56,6 +56,23 @@ The IFC is written for FreeCAD, Revit and Bonsai as much as for the takeoff:
   open; Revit does not open IFC4X3), `outputs.ifc_sweeps: mesh` writes the
   closed mesh instead and keeps the `IfcAlignment`.
 
+## Web pages: takeoff and the 4D/5D dashboard
+
+```bash
+est-bim web --ifc model.5d.ifc --map takeoff_map.yaml --official bid.json --serve --open
+```
+
+Writes a static site (`takeoff.html`, `dashboard.html`) and the one JSON
+document both pages read, the *bundle* (`bimforge.web.build_bundle`,
+contract `bimforge-web/1`): elements with their pay codes, quantities and
+4D dates, the pay-item takeoff against the official bid quantities, the
+schedule with its element links, and the costs per task. The takeoff page
+shows every pay item and the elements behind it; the dashboard scrubs a
+day through the schedule with cost, labour and pay-quantity curves and what
+stands on that day. The pages carry no external library and open from
+disk. A host (an editor's bridge add-on) provides `window.bimforgeHost` to
+turn a click into a selection; standalone, a click copies GlobalIds.
+
 ## Blender: sections along an alignment
 
 The Blender add-on that slides a live cross-section along an IFC4X3
