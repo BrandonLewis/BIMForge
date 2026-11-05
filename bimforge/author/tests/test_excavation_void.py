@@ -101,3 +101,13 @@ def test_voids_must_name_another_element_and_only_a_cut_voids():
     m.elements[2].voids = "existing ground"          # a footing cannot
     with pytest.raises(ValueError, match="only an IfcEarthworksCut"):
         emit_ifc(m, "/dev/null")
+
+
+def test_a_hosted_cut_needs_ifc4x3(tmp_path):
+    """IFC4 has no IfcEarthworksCut: the class would fall back to a proxy,
+    which cannot void anything, so a hosted cut is refused (PR #8 review)."""
+    import dataclasses
+    m = _model()
+    m.ctx = dataclasses.replace(m.ctx, schema="IFC4")
+    with pytest.raises(ValueError, match="needs IFC4X3"):
+        emit_ifc(m, str(tmp_path / "dig4.ifc"))

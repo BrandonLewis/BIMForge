@@ -1354,6 +1354,12 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             if host not in names or host == el.name:
                 raise ValueError(f"{el.name}: voids {host!r}, which is not "
                                  f"another element of {m.name!r}")
+            if not _schema_has(ctx.schema, "IfcEarthworksCut"):
+                # IFC4 has no IfcEarthworksCut: the class would fall back to
+                # a proxy, which cannot void anything (IfcRelVoidsElement
+                # wants an IfcFeatureElementSubtraction)
+                raise ValueError(f"{el.name}: a cut that voids a host needs "
+                                 f"IFC4X3 (the schema is {ctx.schema})")
             voiding[el.name] = host
         hosts |= set(voiding.values())
         for el in m.elements:

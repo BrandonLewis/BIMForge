@@ -181,7 +181,7 @@ def _all_bodies(f, date):
                         hosts = [r.RelatingBuildingElement
                                  for r in getattr(el, "VoidsElements", None) or ()]
                         undug.append((el.Name or el.is_a(),
-                                      hosts[0].Name if hosts else None, v, t))
+                                      hosts[0] if hosts else None, v, t))
             elif (el.is_a("IfcElement") and len(t)
                     and not (spans is not None
                              and not standing(spans.get(el.GlobalId), date))):
@@ -214,9 +214,24 @@ def _all_bodies(f, date):
                 break
     host_style = {name: (layer, trgb[0]) for name, layer, surf, _v, _t, trgb in out
                   if surf is not LIMIT and trgb}
+    gross = {}
     for name, host, v, t in undug:
-        layer, rgb = host_style.get(host, (_layer_name("Earthwork"), (0.56, 0.44, 0.30)))
-        out.append((f"{name} (not yet dug)", layer, False, v, t, [rgb] * len(t)))
+        layer, rgb = host_style.get(host.Name if host is not None else None,
+                                    (_layer_name("Earthwork"), (0.56, 0.44, 0.30)))
+        if host is None:
+            # a pay-item body is the soil itself: restore it whole
+            out.append((f"{name} (not yet dug)", layer, False, v, t, [rgb] * len(t)))
+            continue
+        # a cut can reach past its host (over grade, as an opening runs past
+        # its wall): restore only what lies in the host's UNCUT body
+        if host.id() not in gross:
+            hv, ht = _uncut(f, host)
+            if hv is None:
+                continue
+            gross[host.id()] = True
+            out.append((host.Name, None, Clip(host.id()), hv, ht, [rgb] * len(ht)))
+        out.append((f"{name} (not yet dug)", layer, Restore(host.id()), v, t,
+                    [rgb] * len(t)))
     _BODY_CACHE[key] = out
     return out
 
@@ -238,6 +253,96 @@ def _named(f, m):
         pass
     return SimpleNamespace(name=name, surface=getattr(m, "surface", None),
                            diffuse=m.diffuse)
+
+
+class Clip(int):
+    """A body that is not drawn: a host's UNCUT shape, clipping the ground
+    restored in its voids (Restore) before they are dug."""
+
+
+class Restore(int):
+    """Ground restored in a host's void before the dig: drawn clipped to the
+    host's uncut shape (Clip of the same host)."""
+
+
+def _uncut(f, host):
+    """(verts, tris) of `host` without its voids, world coordinates."""
+    import ifcopenshell.geom as geom
+    import numpy as np
+    s = geom.settings()
+    s.set("use-world-coords", True)
+    s.set("disable-opening-subtractions", True)
+    try:
+        g = geom.create_shape(s, host).geometry
+    except Exception:                   # no body: nothing to restore into
+        return None, None
+    return (np.asarray(g.verts, dtype=float).reshape(-1, 3),
+            np.asarray(g.faces, dtype=np.int64).reshape(-1, 3))
+
+
+def _cut_into(drawing, warped, to2d) -> None:
+    """The plane's cut of every warped body into `drawing`: filled rings per
+    layer, open surfaces as ground lines, excavations as limit lines, and
+    restored ground clipped to its host's uncut shape."""
+    from shapely.geometry import Polygon
+    from shapely.geometry.polygon import orient
+    from shapely.ops import unary_union
+    clips, cuts = {}, []
+    for _name, layer, surface, u, dist, z, t, trgb, _in in warped:
+        segs, rgbs = _plane_cut(u, dist, z, t, trgb)
+        if not segs:
+            continue
+        segs = [(to2d(*a), to2d(*b)) for a, b in segs]
+        if isinstance(surface, Clip):
+            rings = _polygons(segs, 0.0, drawing.length)
+            clips[int(surface)] = unary_union(
+                [Polygon(r[0], r[1:]) for r in rings]) if rings else None
+            continue
+        cuts.append((layer, surface, segs, rgbs))
+    for layer, surface, segs, rgbs in cuts:
+        if surface is LIMIT:              # the limit of excavation: a line
+            segs = _clip_segments_x(segs, 0.0, drawing.length)
+            drawing.limits += _chain(segs) if segs else []
+            continue
+        rgb = max(set(rgbs), key=rgbs.count)
+        if isinstance(surface, Restore):
+            rings = _polygons(segs, 0.0, drawing.length)
+            region = clips.get(int(surface))
+            if not rings or region is None:
+                continue
+            kept = unary_union([Polygon(r[0], r[1:]) for r in rings]).intersection(region)
+            rings = [[list(orient(g, 1.0).exterior.coords)]
+                     + [list(i.coords) for i in orient(g, 1.0).interiors]
+                     for g in getattr(kept, "geoms", [kept])
+                     if isinstance(g, Polygon) and not g.is_empty and g.area > 1e-8]
+            if rings:
+                drawing.cut.append((layer, rgb, rings))
+            continue
+        rings = [] if surface else _polygons(segs, 0.0, drawing.length)
+        if not rings:
+            segs = _clip_segments_x(segs, 0.0, drawing.length)
+            if not segs:
+                continue
+        if rings:
+            drawing.cut.append((layer, rgb, rings))
+        else:                     # a surface, or a body whose cut does not close
+            for line in _chain(segs):
+                drawing.ground.append((layer.replace("E-CUT-", "E-GROUND-"), rgb, line))
+
+
+def _extent(drawing) -> list:
+    """Every drawn elevation: cuts, ground lines, edges beyond, limits."""
+    zs = [p[1] for _l, _r, polys in drawing.cut for poly in polys for loop in poly
+          for p in loop]
+    zs += [p[1] for _l, _r, line in drawing.ground for p in line]
+    zs += [p[1] for line in drawing.beyond for p in line]
+    zs += [p[1] for line in drawing.limits for p in line]
+    return zs
+
+
+def _drawn(w) -> bool:
+    """A warped body whose edges beyond the cut are drawn."""
+    return not (w[2] is LIMIT or isinstance(w[2], (Clip, Restore)))
 
 
 def is_excavation(el) -> bool:
@@ -436,35 +541,13 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
         warped.append((name, layer, surface, u, dist, z, t, trgb, inside))
     drawing.elements = len(warped)
     # ---------------------------------------------------------------- cut
-    for name, layer, surface, u, dist, z, t, trgb, inside in warped:
-        segs, rgbs = _plane_cut(u, dist, z, t, trgb)
-        if not segs:
-            continue
-        segs = [(to2d(*a), to2d(*b)) for a, b in segs]
-        if surface is LIMIT:              # the limit of excavation: a line
-            segs = _clip_segments_x(segs, 0.0, drawing.length)
-            drawing.limits += _chain(segs) if segs else []
-            continue
-        rgb = max(set(rgbs), key=rgbs.count)
-        rings = [] if surface else _polygons(segs, 0.0, drawing.length)
-        if not rings:
-            segs = _clip_segments_x(segs, 0.0, drawing.length)
-            if not segs:
-                continue
-        if rings:
-            drawing.cut.append((layer, rgb, rings))
-        else:                     # a surface, or a body whose cut does not close
-            for line in _chain(segs):
-                drawing.ground.append((layer.replace("E-CUT-", "E-GROUND-"), rgb, line))
+    _cut_into(drawing, warped, to2d)
     # ----------------------------------------------------- visible beyond
-    drawing.beyond = _visible_edges([w for w in warped if w[2] is not LIMIT], to2d,
+    drawing.beyond = _visible_edges([w for w in warped if _drawn(w)], to2d,
                                     drawing, view, depth * k, k)
     # ---------------------------------------------------------- ticks
     drawing.ticks = _ticks(st, un, view, d0, d1, to2d, unit, k)
-    zs = [p[1] for _l, _r, polys in drawing.cut for poly in polys for loop in poly
-          for p in loop]
-    zs += [p[1] for _l, _r, line in drawing.ground for p in line]
-    zs += [p[1] for line in drawing.beyond for p in line]
+    zs = _extent(drawing)
     if zs:
         drawing.extent = (0.0, min(zs), drawing.length, max(zs))
     return drawing
@@ -515,27 +598,8 @@ def cross_section(f, view: SectionView) -> Drawing:
         warped.append((name, layer, surface, across + half, dist,
                        za + zb * v[:, 2], t[idx], [trgb[i] for i in idx], None))
     drawing.elements = len(warped)
-    for _name, layer, surface, u, dist, z, t, trgb, _in in warped:
-        segs, rgbs = _plane_cut(u, dist, z, t, trgb)
-        if not segs:
-            continue
-        segs = [(to2d(*a), to2d(*b)) for a, b in segs]
-        if surface is LIMIT:              # the limit of excavation: a line
-            segs = _clip_segments_x(segs, 0.0, drawing.length)
-            drawing.limits += _chain(segs) if segs else []
-            continue
-        rgb = max(set(rgbs), key=rgbs.count)
-        rings = [] if surface else _polygons(segs, 0.0, drawing.length)
-        if not rings:
-            segs = _clip_segments_x(segs, 0.0, drawing.length)
-            if not segs:
-                continue
-        if rings:
-            drawing.cut.append((layer, rgb, rings))
-        else:                     # a surface, or a body whose cut does not close
-            for line in _chain(segs):
-                drawing.ground.append((layer.replace("E-CUT-", "E-GROUND-"), rgb, line))
-    drawing.beyond = _visible_edges([w for w in warped if w[2] is not LIMIT], to2d,
+    _cut_into(drawing, warped, to2d)
+    drawing.beyond = _visible_edges([w for w in warped if _drawn(w)], to2d,
                                     drawing, view, depth * k, k)
     # an offset tick every whole unit: (x, offset left); looking ahead the
     # left is on the viewer's left
@@ -545,10 +609,7 @@ def cross_section(f, view: SectionView) -> Drawing:
         drawing.ticks.append((float(w2 + (o if view.look_back else -o)), float(o)))
         o += 1
     drawing.ticks.sort()
-    zs = [p[1] for _l, _r, polys in drawing.cut for poly in polys for loop in poly
-          for p in loop]
-    zs += [p[1] for _l, _r, line in drawing.ground for p in line]
-    zs += [p[1] for line in drawing.beyond for p in line]
+    zs = _extent(drawing)
     if zs:
         drawing.extent = (0.0, min(zs), drawing.length, max(zs))
     else:

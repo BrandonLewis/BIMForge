@@ -494,3 +494,60 @@ def test_an_enclosed_cavity_stays_a_hole():
     # two separate bodies side by side both stay solid
     rings = _polygons(ring(0, 4, 0, 4) + ring(5, 9, 0, 4), 0.0, 10.0)
     assert sum(Polygon(r[0], r[1:]).area for r in rings) == pytest.approx(32)
+
+
+def _section_model(tmp_path, name, bodies):
+    ctx = _ctx()
+    al = Alignment(POB, RUN, name="ML")
+    m = StructureModel(name, ctx)
+    for nm, ring, ifc, voids in bodies:
+        sw = SweptSection(nm, ring, al, 1010.0, 1100.0, origin=ctx, ifc=ifc)
+        el = Element.from_geometry(nm, sw, ifc_class=ifc,
+                                   quantities={"volume_cf": sw.volume_cf})
+        if voids:
+            el.voids = voids
+        m.add(el)
+    m.alignments.append((al, None))
+    out = tmp_path / f"{name}.ifc"
+    emit_ifc(m, str(out))
+    return ifcopenshell.open(str(out))
+
+
+@pytest.mark.skipif("voids" not in Element.__dataclass_fields__,
+                    reason="Element.voids")
+def test_restored_ground_stays_inside_its_host(tmp_path, monkeypatch):
+    """A cut that reaches past its host (1 ft over grade, as an opening runs
+    past its wall) restores only the host's ground before the dig - not the
+    air above grade (PR #8 review)."""
+    from shapely.geometry import Polygon
+    from bimforge.bim import developed as D
+    from bimforge.bim import schedule_state as SS
+    box = lambda x0, x1, z0, z1: [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]  # noqa: E731
+    f = _section_model(tmp_path, "over", [
+        ("existing ground", box(-20, 20, -12, 0), "IfcGeographicElement", None),
+        ("structure excavation", box(-6, 6, -6, 1), "IfcEarthworksCut", "existing ground")])
+    cut = f.by_type("IfcEarthworksCut")[0]
+    monkeypatch.setattr(SS, "element_spans",
+                        lambda f: {cut.GlobalId: SS.Span("2027-01-10", None, ("dig",))})
+    D._BODY_CACHE.clear()
+    before = cross_section(f, SectionView("B", 1050.0, width=50.0, depth=1.0,
+                                          date="2027-01-05"))
+    area = sum(Polygon(p[0], p[1:]).area for _l, _r, ps in before.cut for p in ps)
+    assert area == pytest.approx(40 * 12, rel=1e-3)          # not + 12 x 1 of air
+    assert max(p[1] for _l, _r, ps in before.cut for r in ps for p in r[0]) <= 1e-6
+    D._BODY_CACHE.clear()
+
+
+def test_the_extent_takes_in_the_limits_of_excavation(tmp_path):
+    """A section of an excavation alone still frames its limit lines
+    (PR #8 review), not a default band around grade."""
+    from bimforge.bim import developed as D
+    box = lambda x0, x1, z0, z1: [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]  # noqa: E731
+    f = _section_model(tmp_path, "alone", [
+        ("structure excavation", box(-6, 6, -9, 0), "IfcEarthworksCut", None)])
+    D._BODY_CACHE.clear()
+    dr = cross_section(f, SectionView("S", 1050.0, width=30.0, depth=1.0))
+    assert dr.limits and not dr.cut
+    _x0, y0, _x1, y1 = dr.extent
+    assert (y0, y1) == (pytest.approx(-9.0, abs=1e-3), pytest.approx(0.0, abs=1e-3))
+    D._BODY_CACHE.clear()
