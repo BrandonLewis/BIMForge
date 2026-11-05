@@ -225,6 +225,8 @@ def _all_bodies(f, date):
             # a pay-item body is the soil itself: restore it whole
             out.append((f"{name} (not yet dug)", layer, False, v, t, [rgb] * len(t)))
             continue
+        if spans is not None and not standing(spans.get(host.GlobalId), date):
+            continue                    # no ground there yet, or none left
         # a cut can reach past its host (over grade, as an opening runs past
         # its wall): restore only what lies in the host's UNCUT body
         if host.id() not in gross:

@@ -566,6 +566,12 @@ def test_ground_still_to_dig_draws_beyond_the_cut(tmp_path, monkeypatch):
     # the near face of the ground, 40 x 12 ft, outlined
     assert beyond("2027-01-05") == pytest.approx(2 * (40 + 12), rel=1e-2)
     assert beyond("2027-01-12") == pytest.approx(0.0, abs=1e-6)
+    # ground not there at the date (placed later): nothing is restored
+    host = f.by_type("IfcGeographicElement")[0]
+    monkeypatch.setattr(SS, "element_spans", lambda f: {
+        cut.GlobalId: SS.Span("2027-01-10", None, ("dig",)),
+        host.GlobalId: SS.Span("2027-01-07", None, ("place",))})
+    assert beyond("2027-01-05") == pytest.approx(0.0, abs=1e-6)
     D._BODY_CACHE.clear()
 
 

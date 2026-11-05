@@ -12,7 +12,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   of a host is still to dig, the host is drawn uncut beyond the plane. A
   ground solid that its cut removes entirely, lying behind the plane, no
   longer vanishes from the pre-dig view. A host with some voids already
-  dug is drawn as before, with all of its voids.
+  dug is drawn as before, with all of its voids. Ground that is not
+  standing at the date (placed later, or already removed) restores nothing.
 
 ## 0.1.100 — 2026-11-05
 
