@@ -15,7 +15,8 @@ requires-python = ">=3.10"
 # a hard dependency, not an optional extra -- a bare install must be able to
 # read/write IFC. pymupdf (PDF plan-sheet calibration) stays optional in `bim`.
 dependencies = ["pyyaml", "ezdxf", "ifcopenshell>=0.9,<0.10", "shapely",
-                "pyproj", "numpy"]
+                "pyproj", "numpy",
+                "networkx"]                   # ifcopenshell.api.sequence (est-bim schedule) needs it
 
 [project.urls]
 Homepage = "https://github.com/BrandonLewis/BIMForge"
