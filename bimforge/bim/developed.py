@@ -181,7 +181,7 @@ def _all_bodies(f, date):
                         hosts = [r.RelatingBuildingElement
                                  for r in getattr(el, "VoidsElements", None) or ()]
                         undug.append((el.Name or el.is_a(),
-                                      hosts[0] if hosts else None, v, t))
+                                      hosts[0] if hosts else None, v, t, el.id()))
             elif (el.is_a("IfcElement") and len(t)
                     and not (spans is not None
                              and not standing(spans.get(el.GlobalId), date))):
@@ -208,14 +208,17 @@ def _all_bodies(f, date):
                     pt = t if sel is None else t[sel]
                     ptr = tri_rgb if sel is None else [prgb[0]] * len(pt)
                     layer, ptr = _cut_layer(el, pmat, pm, prgb, ptr)
-                    out.append((el.Name or el.is_a(), layer,
-                                (not solid) and _is_surface(v, pt), v, pt, ptr))
+                    surf = bool((not solid) and _is_surface(v, pt))
+                    if getattr(el, "HasOpenings", None):
+                        surf = Voided(surf, el.id())
+                    out.append((el.Name or el.is_a(), layer, surf, v, pt, ptr))
             if not it.next():
                 break
     host_style = {name: (layer, trgb[0]) for name, layer, surf, _v, _t, trgb in out
                   if surf is not LIMIT and trgb}
     gross = {}
-    for name, host, v, t in undug:
+    undug_ids = {i for *_x, i in undug}
+    for name, host, v, t, _id in undug:
         layer, rgb = host_style.get(host.Name if host is not None else None,
                                     (_layer_name("Earthwork"), (0.56, 0.44, 0.30)))
         if host is None:
@@ -229,7 +232,12 @@ def _all_bodies(f, date):
             if hv is None:
                 continue
             gross[host.id()] = True
-            out.append((host.Name, None, Clip(host.id()), hv, ht, [rgb] * len(ht)))
+            # every void still to dig: the uncut host IS the ground before
+            # the dig, and draws beyond the cut in the voided host's place
+            whole = all(r.RelatedOpeningElement.id() in undug_ids
+                        for r in host.HasOpenings or ())
+            out.append((host.Name, None, Clip(host.id(), whole), hv, ht,
+                        [rgb] * len(ht)))
         out.append((f"{name} (not yet dug)", layer, Restore(host.id()), v, t,
                     [rgb] * len(t)))
     _BODY_CACHE[key] = out
@@ -256,8 +264,25 @@ def _named(f, m):
 
 
 class Clip(int):
-    """A body that is not drawn: a host's UNCUT shape, clipping the ground
-    restored in its voids (Restore) before they are dug."""
+    """A host's UNCUT shape, clipping the ground restored in its voids
+    (Restore) before they are dug. Not cut; `whole` when every void of the
+    host is still to dig, and then drawn beyond the cut in place of the
+    voided host (Voided of the same host)."""
+
+    def __new__(cls, host_id, whole=False):
+        c = super().__new__(cls, host_id)
+        c.whole = whole
+        return c
+
+
+class Voided(int):
+    """The surface flag (0 or 1) of a body with voids, carrying its `host`
+    id: beyond the cut, a whole Clip of the same host draws in its place."""
+
+    def __new__(cls, surface, host):
+        v = super().__new__(cls, bool(surface))
+        v.host = host
+        return v
 
 
 class Restore(int):
@@ -340,9 +365,24 @@ def _extent(drawing) -> list:
     return zs
 
 
-def _drawn(w) -> bool:
-    """A warped body whose edges beyond the cut are drawn."""
-    return not (w[2] is LIMIT or isinstance(w[2], (Clip, Restore)))
+def _beyond(warped) -> list:
+    """The warped bodies whose edges beyond the cut are drawn: not limits
+    or restored ground; before the dig, a host whose every void is still to
+    dig is drawn uncut (its whole Clip) in place of its voided body."""
+    whole = {int(w[2]) for w in warped if isinstance(w[2], Clip) and w[2].whole}
+
+    out = []
+    for w in warped:
+        s = w[2]
+        if s is LIMIT or isinstance(s, Restore):
+            continue
+        if isinstance(s, Clip):
+            if s.whole:                  # a solid: its flag is a host id, not
+                out.append((*w[:2], False, *w[3:]))   # a surface flag
+            continue
+        if not (isinstance(s, Voided) and s.host in whole):
+            out.append(w)
+    return out
 
 
 def is_excavation(el) -> bool:
@@ -543,7 +583,7 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
     # ---------------------------------------------------------------- cut
     _cut_into(drawing, warped, to2d)
     # ----------------------------------------------------- visible beyond
-    drawing.beyond = _visible_edges([w for w in warped if _drawn(w)], to2d,
+    drawing.beyond = _visible_edges(_beyond(warped), to2d,
                                     drawing, view, depth * k, k)
     # ---------------------------------------------------------- ticks
     drawing.ticks = _ticks(st, un, view, d0, d1, to2d, unit, k)
@@ -599,7 +639,7 @@ def cross_section(f, view: SectionView) -> Drawing:
                        za + zb * v[:, 2], t[idx], [trgb[i] for i in idx], None))
     drawing.elements = len(warped)
     _cut_into(drawing, warped, to2d)
-    drawing.beyond = _visible_edges([w for w in warped if _drawn(w)], to2d,
+    drawing.beyond = _visible_edges(_beyond(warped), to2d,
                                     drawing, view, depth * k, k)
     # an offset tick every whole unit: (x, offset left); looking ahead the
     # left is on the viewer's left

@@ -500,8 +500,9 @@ def _section_model(tmp_path, name, bodies):
     ctx = _ctx()
     al = Alignment(POB, RUN, name="ML")
     m = StructureModel(name, ctx)
-    for nm, ring, ifc, voids in bodies:
-        sw = SweptSection(nm, ring, al, 1010.0, 1100.0, origin=ctx, ifc=ifc)
+    for nm, ring, ifc, voids, *span in bodies:
+        s0, s1 = span[0] if span else (1010.0, 1100.0)
+        sw = SweptSection(nm, ring, al, s0, s1, origin=ctx, ifc=ifc)
         el = Element.from_geometry(nm, sw, ifc_class=ifc,
                                    quantities={"volume_cf": sw.volume_cf})
         if voids:
@@ -535,6 +536,36 @@ def test_restored_ground_stays_inside_its_host(tmp_path, monkeypatch):
     area = sum(Polygon(p[0], p[1:]).area for _l, _r, ps in before.cut for p in ps)
     assert area == pytest.approx(40 * 12, rel=1e-3)          # not + 12 x 1 of air
     assert max(p[1] for _l, _r, ps in before.cut for r in ps for p in r[0]) <= 1e-6
+    D._BODY_CACHE.clear()
+
+
+@pytest.mark.skipif("voids" not in Element.__dataclass_fields__,
+                    reason="Element.voids")
+def test_ground_still_to_dig_draws_beyond_the_cut(tmp_path, monkeypatch):
+    """A ground solid wholly beyond the plane, all of it to be dug: before
+    the dig its edges are drawn beyond the cut (the host drawn uncut), after
+    it nothing is (PR review on IfcSection)."""
+    from bimforge.bim import developed as D
+    from bimforge.bim import schedule_state as SS
+    box = lambda x0, x1, z0, z1: [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]  # noqa: E731
+    f = _section_model(tmp_path, "behind", [
+        ("existing ground", box(-20, 20, -12, 0), "IfcGeographicElement", None,
+         (1060.0, 1090.0)),
+        ("structure excavation", box(-21, 21, -13, 1), "IfcEarthworksCut",
+         "existing ground", (1055.0, 1095.0))])
+    cut = f.by_type("IfcEarthworksCut")[0]
+    monkeypatch.setattr(SS, "element_spans",
+                        lambda f: {cut.GlobalId: SS.Span("2027-01-10", None, ("dig",))})
+
+    def beyond(date):
+        D._BODY_CACHE.clear()
+        dr = cross_section(f, SectionView("S", 1050.0, width=50.0, depth=60.0,
+                                          date=date))
+        assert not dr.cut                        # the plane misses the ground
+        return sum(math.dist(a, b) for ln in dr.beyond for a, b in zip(ln, ln[1:]))
+    # the near face of the ground, 40 x 12 ft, outlined
+    assert beyond("2027-01-05") == pytest.approx(2 * (40 + 12), rel=1e-2)
+    assert beyond("2027-01-12") == pytest.approx(0.0, abs=1e-6)
     D._BODY_CACHE.clear()
 
 
