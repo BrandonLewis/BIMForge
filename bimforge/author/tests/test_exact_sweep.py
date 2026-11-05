@@ -293,3 +293,37 @@ def test_gate_catches_a_plumb_sweep_drawn_pitched(tmp_path, monkeypatch):
     assert _body(f).Items[0].is_a("IfcSectionedSolidHorizontal")
     fails = gate._ifc_exact_sweep_check(m, out)
     assert any("lean" in msg for msg in fails), fails
+
+
+def test_mesh_sweeps_write_a_closed_brep_and_keep_the_alignment(tmp_path):
+    """`sweeps="mesh"` (spec outputs.ifc_sweeps): for a consumer that lofts
+    IfcSectionedSolidHorizontal open (ifcopenshell 0.9, so FreeCAD's native
+    importer and Bonsai) or cannot read IFC4X3 (Revit), the sweep is written
+    as its closed faceted brep instead. The IfcAlignment and its curve are
+    still written, so stationing and sections keep their line, and the
+    post-gate passes on the mesh."""
+    from bimforge.bim.ifc_mesh import mesh_topology
+    import ifcopenshell.geom
+    m, sw = _model()
+    out = tmp_path / "mesh.ifc"
+    emit_ifc(m, str(out), sweeps="mesh")
+    f = ifcopenshell.open(str(out))
+    rep = _body(f)
+    assert rep.RepresentationType == "Brep"
+    (brep,) = rep.Items
+    assert brep.is_a("IfcFacetedBrep")
+    assert not f.by_type("IfcSectionedSolidHorizontal")
+    assert f.by_type("IfcAlignment") and f.by_type("IfcGradientCurve")
+    (deck,) = f.by_type("IfcSlab")
+    sh = ifcopenshell.geom.create_shape(ifcopenshell.geom.settings(), deck)
+    t = mesh_topology(sh.geometry.verts, sh.geometry.faces)
+    assert t["closed"] and t["components"] == 1
+    assert gate._exact_sweep_names(out) == set()
+    rep_post = gate.run_post(m, {"ifc": str(out)})
+    assert rep_post.passed, rep_post.failures
+
+
+def test_unknown_sweep_mode_is_refused(tmp_path):
+    m, _sw = _model()
+    with pytest.raises(ValueError, match="sweeps="):
+        emit_ifc(m, str(tmp_path / "x.ifc"), sweeps="fallback")

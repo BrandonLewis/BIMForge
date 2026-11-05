@@ -21,6 +21,10 @@ from bimforge.author.primitives import (
     _signed_volume, _wound, clean_ring2d, ear_clip, keyhole_ring, poly_area)
 
 STEEL_LAYER = "S-METAL"
+#: The standard plan the run is built to: the IfcRailingType name and
+#: Pset_RailingCommon.Reference a viewer shows for the run and its parts.
+STANDARD_PLAN = "B11-51"
+RUN_TYPE = f"Tubular handrailing {STANDARD_PLAN}"
 
 #: Max arc-angle step per facet bay so the chorded sweep's volume defect
 #: (~step^2/6) stays inside the gate's FACET_TOLERANCE band -- the same
@@ -87,7 +91,9 @@ def _rail_element(run_name: str, rail, length_ft: float, base_z_ft: float,
     q = {"volume_cf": sp.volume_cf}
     if rail.is_payment:
         q["length_ft"] = length_ft          # plan payment length, explicit
-    return _swept_member(sp, ifc_class=sp.ifc, layer=sp.layer, quantities=q)
+    return _swept_member(sp, ifc_class=sp.ifc, layer=sp.layer, quantities=q,
+                         predefined_type="HANDRAIL" if rail.is_payment else None,
+                         type_name=f"{STANDARD_PLAN} {label} {rail.size}")
 
 
 def _post_element(run_name: str, i: int, s: float, cfg, base_z_ft: float,
@@ -101,7 +107,8 @@ def _post_element(run_name: str, i: int, s: float, cfg, base_z_ft: float,
     p = Prism(f"{run_name} post {i}", outer, z_bot, z_top, holes=holes,
               ifc="IfcMember", layer=STEEL_LAYER)
     return Element.from_geometry(p.name, p, ifc_class="IfcMember",
-                                 layer=STEEL_LAYER,
+                                 layer=STEEL_LAYER, predefined_type="POST",
+                                 type_name=f"{STANDARD_PLAN} post {cfg.post_size}",
                                  quantities={"height_ft": z_top - z_bot,
                                              "volume_cf": p.volume_cf})
 
@@ -120,7 +127,8 @@ def _mortar_element(run_name: str, i: int, s: float, base_z_ft: float,
               base_z_ft, holes=[void], ifc="IfcBuildingElementProxy",
               layer="S-CONC")
     return Element.from_geometry(p.name, p, ifc_class="IfcBuildingElementProxy",
-                                 layer="S-CONC",
+                                 layer="S-CONC", object_type="Post pocket mortar",
+                                 type_name=f"{STANDARD_PLAN} post pocket mortar",
                                  quantities={"volume_cf": p.volume_cf})
 
 
@@ -330,6 +338,7 @@ def _end_return_element(run_name: str, end: str, cfg, base_z_ft: float,
                      phi0=0.0, phi1=phi1, y_bc=y_bc, toward=toward,
                      ifc="IfcMember", layer=STEEL_LAYER)
     return _swept_member(tube, ifc_class="IfcMember", layer=STEEL_LAYER,
+                         type_name=f"{STANDARD_PLAN} end return {rail.size}",
                          quantities={"volume_cf": tube.volume_cf}), phi1
 
 
@@ -347,6 +356,7 @@ def _rail_cap_element(run_name: str, end: str, cfg, base_z_ft: float,
                     phi0=phi_start, phi1=phi_start + dphi, y_bc=y_bc,
                     toward=toward, ifc="IfcPlate", layer=STEEL_LAYER)
     return _swept_member(cap, ifc_class="IfcPlate", layer=STEEL_LAYER,
+                         type_name=f"{STANDARD_PLAN} rail cap plate",
                          quantities={"volume_cf": cap.volume_cf})
 
 
@@ -364,7 +374,24 @@ def _sleeve_element(run_name: str, j: int, cfg, y0: float, x0: float = 0.0):
     sp = SectionPrism(f"{run_name} splice sleeve {j}", outer, SLEEVE_LEN_FT,
                       y0=y0, voids=[void], ifc="IfcMember", layer=STEEL_LAYER)
     return _swept_member(sp, ifc_class="IfcMember", layer=STEEL_LAYER,
+                         type_name=f"{STANDARD_PLAN} splice sleeve",
                          quantities={"volume_cf": sp.volume_cf})
+
+
+def run_element(run_name: str) -> Element:
+    """The WHOLE a rail run's parts hang under: one geometry-less IfcRailing
+    (HANDRAIL) named ``"<run> handrail run"``, typed as the standard plan's
+    tubular handrailing, with the plan as its Pset_RailingCommon.Reference.
+    It measures and pays nothing (the top rail carries the LF line and every
+    part its own steel); it is what a viewer's tree, Revit's Railings
+    category and an IDS check see as THE handrail."""
+    return Element(f"{run_name} handrail run", "IfcRailing",
+                   predefined_type="HANDRAIL", type_name=RUN_TYPE,
+                   psets={"Pset_RailingCommon": {"Reference": STANDARD_PLAN}},
+                   layer=STEEL_LAYER,
+                   description=f"Caltrans {STANDARD_PLAN} tubular handrailing: "
+                               "the run; its rails, posts, returns, sleeves, "
+                               "pocket mortar and dowels are its parts")
 
 
 def build_run(length_ft: float, base_z_ft: float = 0.0, *,
@@ -373,7 +400,7 @@ def build_run(length_ft: float, base_z_ft: float = 0.0, *,
               anchorage: bool = True,
               end_posts: tuple = ("start", "end"),
               joints: tuple = (),
-              x0_ft: float = 0.0) -> list:
+              x0_ft: float = 0.0, group: bool = True) -> list:
     """B11-51 rail run over a STRAIGHT length_ft in a local frame (+Y = run,
     x transverse, z up; base_z_ft = top of barrier/curb). Returns Elements
     for: the top and lower rails; posts (embedded in their mortar pockets
@@ -382,7 +409,13 @@ def build_run(length_ft: float, base_z_ft: float = 0.0, *,
     sleeves at each station in `joints`.
 
     `x0_ft` shifts the whole run transversely (default 0.0) so a host (e.g. a
-    732SW barrier) can seat it on the barrier top."""
+    732SW barrier) can seat it on the barrier top.
+
+    `group` (default) puts the run's whole first in the list (`run_element`)
+    and makes every other element a part of it (`Element.part_of`), so the
+    IFC carries ONE IfcRailing the viewer treats as the handrail, decomposed
+    into its parts. Every part is typed (IfcMemberType / IfcRailingType ...
+    per kind of part) whether grouped or not."""
     low = run_name.lower()
     bad = [t for t in _RESERVED_RUN_NAME_TOKENS if t in low]
     if bad:
@@ -396,6 +429,9 @@ def build_run(length_ft: float, base_z_ft: float = 0.0, *,
     if len(set(joints)) != len(joints):
         raise ValueError(f"duplicate joint stations in {joints!r}")
     els: list = []
+    whole = run_element(run_name) if group else None
+    if whole is not None:
+        els.append(whole)
     for rail in cfg.rails:
         els.append(_rail_element(run_name, rail, length_ft, base_z_ft, x0=x0_ft))
     embed_ft = (POCKET_D_IN / 12.0) if anchorage else 0.0
@@ -421,4 +457,8 @@ def build_run(length_ft: float, base_z_ft: float = 0.0, *,
     for j, s in enumerate(joints, start=1):
         els.append(_sleeve_element(run_name, j, cfg, s - SLEEVE_LEN_FT / 2.0,
                                    x0=x0_ft))
+    if whole is not None:
+        for e in els:
+            if e is not whole:
+                e.part_of = whole.name
     return els

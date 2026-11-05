@@ -658,10 +658,14 @@ def _terrain_model():
 
 def test_emit_ifc_mesh_kind_terrain_reference_element(tmp_path):
     """The "mesh" geometry kind (terrain): an IfcGeographicElement/TERRAIN
-    whose representation is a faceted brep with one face per triangle, verts
+    whose representation is a faceted brep of the mesh's facets, verts
     scaled by the dict's units factor; reference geometry (classifications
     []) gets NO IfcElementQuantity and no classification association, and
-    the provenance dict on the mesh rides as Pset_BimforgeTerrain."""
+    the provenance dict on the mesh rides as Pset_BimforgeTerrain.
+
+    The fixture's two triangles lie in one plane (z = 100 + 0.1x + 0.2y),
+    so the brep writer merges them into ONE four-sided face: the quad's
+    four corners, no diagonal."""
     import ifcopenshell
     import ifcopenshell.util.element
     m = _terrain_model()
@@ -674,10 +678,13 @@ def test_emit_ifc_mesh_kind_terrain_reference_element(tmp_path):
     breps = [i for r in geo[0].Representation.Representations
              for i in r.Items if i.is_a("IfcFacetedBrep")]
     assert len(breps) == 1
-    assert len(breps[0].Outer.CfsFaces) == 2      # one face per triangle
+    faces = breps[0].Outer.CfsFaces
+    assert len(faces) == 1                        # coplanar facets merged
+    assert len(faces[0].Bounds[0].Bound.Polygon) == 4
     coords = {tuple(p.Coordinates)
-              for face in breps[0].Outer.CfsFaces
+              for face in faces
               for p in face.Bounds[0].Bound.Polygon}
+    assert len(coords) == 4
     k = m.ctx.ft_to_m
     assert (10.0 * k, 10.0 * k, 103.0 * k) in coords
     # reference geometry: never a pay quantity — no Qto, and no
@@ -1454,3 +1461,250 @@ def test_unhosted_earthworks_cut_is_emitted_as_earthworks_element(tmp_path, caps
     (row,) = takeoff["rows"]
     assert row["quantity"] == pytest.approx(500.0 / 27.0, rel=1e-4)
     assert not warnings
+
+
+# ------------------------------------------------- types, psets, wholes/parts
+def _typed_model(schema="IFC4X3_ADD2"):
+    ctx = ProjectContext(name="Typed Fixture", schema=schema, epsg=2226,
+                         base_e=6_594_000.0, base_n=1_943_000.0, base_h=200.0,
+                         guid_ns=uuid.UUID(int=4242))
+    m = StructureModel("typed", ctx)
+    m.add(Element("NB handrail run", "IfcRailing", predefined_type="HANDRAIL",
+                  type_name="Tubular handrailing B11-51",
+                  psets={"Pset_RailingCommon": {"Reference": "B11-51",
+                                                "IsExternal": True}}))
+    for i, s in enumerate((0.0, 6.0, 12.0), start=1):
+        p = Prism(f"NB post {i}", [(-0.1, s - 0.1), (0.1, s - 0.1),
+                                   (0.1, s + 0.1), (-0.1, s + 0.1)],
+                  z_bot=0.0, z_top=1.333, ifc="IfcMember")
+        m.add(Element.from_geometry(p.name, p, ifc_class="IfcMember",
+                                    predefined_type="POST",
+                                    type_name="B11-51 post HSS2x2x3/16",
+                                    part_of="NB handrail run"))
+    p = Prism("NB top rail", [(-0.1, 0.0), (0.1, 0.0), (0.1, 12.0), (-0.1, 12.0)],
+              z_bot=1.25, z_top=1.4167, ifc="IfcRailing")
+    m.add(Element.from_geometry(p.name, p, ifc_class="IfcRailing",
+                                predefined_type="HANDRAIL",
+                                type_name="B11-51 top rail HSS3x2x3/16",
+                                part_of="NB handrail run",
+                                quantities={"length_ft": 12.0}))
+    return m
+
+
+def test_emit_ifc_types_occurrences_and_hangs_parts_under_their_whole(tmp_path):
+    """Element.type_name -> one IfcXType per (class, name), related by
+    IfcRelDefinesByType, carrying the predefined type (the occurrence
+    inherits it: IFC's rule, and ifcopenshell clears it). Element.psets ->
+    property sets on the product. Element.part_of -> IfcRelAggregates under
+    the whole; the parts leave the spatial container, the whole stays in it,
+    and the post-gate's container-chain walk reaches the site through it."""
+    import ifcopenshell
+    import ifcopenshell.util.element as ue
+    m = _typed_model()
+    out = tmp_path / "typed.ifc"
+    emit_ifc(m, str(out))
+    f = ifcopenshell.open(str(out))
+    types = {t.Name: t for t in f.by_type("IfcTypeObject")}
+    assert set(types) == {"Tubular handrailing B11-51",
+                          "B11-51 post HSS2x2x3/16",
+                          "B11-51 top rail HSS3x2x3/16"}
+    assert types["B11-51 post HSS2x2x3/16"].is_a("IfcMemberType")
+    assert types["B11-51 post HSS2x2x3/16"].PredefinedType == "POST"
+    assert types["Tubular handrailing B11-51"].is_a("IfcRailingType")
+    assert types["Tubular handrailing B11-51"].PredefinedType == "HANDRAIL"
+    posts = [p for p in f.by_type("IfcMember")]
+    assert len(posts) == 3
+    for p in posts:
+        assert ue.get_type(p) == types["B11-51 post HSS2x2x3/16"]
+        assert ue.get_predefined_type(p) == "POST"
+        assert p.PredefinedType is None            # inherited, not doubled
+    # the whole
+    (whole,) = [r for r in f.by_type("IfcRailing") if r.Name == "NB handrail run"]
+    assert whole.Representation is None
+    assert ue.get_psets(whole)["Pset_RailingCommon"]["Reference"] == "B11-51"
+    assert ue.get_psets(whole)["Pset_RailingCommon"]["IsExternal"] is True
+    parts = {p.Name for r in whole.IsDecomposedBy for p in r.RelatedObjects}
+    assert parts == {"NB post 1", "NB post 2", "NB post 3", "NB top rail"}
+    assert whole.ContainedInStructure
+    for p in posts:
+        assert not p.ContainedInStructure
+        assert p.Decomposes[0].RelatingObject == whole
+    # the gate's tree walk and every other post check pass on it
+    rep = run_post(m, {"ifc": str(out)})
+    assert rep.passed, rep.failures
+    # the top rail's pay length survives the aggregation
+    (rail,) = [r for r in f.by_type("IfcRailing") if r.Name == "NB top rail"]
+    assert ue.get_psets(rail)["Qto_BaseQuantities"]["Length"] == pytest.approx(
+        12.0 * m.ctx.ft_to_m)
+
+
+def test_emit_ifc_typed_model_is_byte_deterministic_and_types_keyed(tmp_path):
+    import ifcopenshell
+    a, b = tmp_path / "a.ifc", tmp_path / "b.ifc"
+    emit_ifc(_typed_model(), str(a))
+    emit_ifc(_typed_model(), str(b))
+    assert a.read_bytes() == b.read_bytes()
+    f = ifcopenshell.open(str(a))
+    m = _typed_model()
+    t = {t.Name: t.GlobalId for t in f.by_type("IfcTypeObject")}
+    assert t["B11-51 post HSS2x2x3/16"] == m.ctx.guid(
+        "type/IfcMemberType/B11-51 post HSS2x2x3/16")
+
+
+def test_emit_ifc_types_under_ifc4_too(tmp_path):
+    import ifcopenshell
+    m = _typed_model(schema="IFC4")
+    out = tmp_path / "typed4.ifc"
+    emit_ifc(m, str(out))
+    f = ifcopenshell.open(str(out))
+    assert f.schema == "IFC4"
+    assert {t.is_a() for t in f.by_type("IfcTypeObject")} == {"IfcRailingType",
+                                                              "IfcMemberType"}
+    assert len(f.by_type("IfcRelAggregates")) >= 1
+
+
+def test_part_of_is_validated_before_any_write(tmp_path):
+    ctx = ProjectContext(name="Parts Fixture", epsg=2226, base_e=6_594_000.0,
+                         base_n=1_943_000.0, guid_ns=uuid.UUID(int=4243))
+    m = StructureModel("parts", ctx)
+    m.add(Element("a", "IfcWall", part_of="nope"))
+    with pytest.raises(ValueError, match="not an element"):
+        emit_ifc(m, str(tmp_path / "x.ifc"))
+    m = StructureModel("parts", ctx)
+    m.add(Element("a", "IfcWall", part_of="b"))
+    m.add(Element("b", "IfcWall", part_of="a"))
+    with pytest.raises(ValueError, match="cycle"):
+        emit_ifc(m, str(tmp_path / "x.ifc"))
+    m = StructureModel("parts", ctx)
+    m.add(Element("a", "IfcWall", part_of="a"))
+    with pytest.raises(ValueError, match="itself"):
+        emit_ifc(m, str(tmp_path / "x.ifc"))
+    assert not (tmp_path / "x.ifc").exists()
+
+
+def test_paycodes_skip_a_whole_that_measures_nothing():
+    """A run's whole (no geometry, no quantities) is never classified, even
+    when a name rule written for its parts would catch it."""
+    m = _typed_model()
+    pc = from_dict({
+        "rules": [{"match": "(?i)handrail", "group": "hr"}],
+        "groups": {"hr": {"measure": "Length"}},
+        "codes": {"HR": {"group": "hr", "measure": "Length", "unit": "LF"}},
+    })
+    pc_apply(m, pc)
+    assert m.element("NB handrail run").classifications == []
+    assert m.element("NB top rail").classifications == []     # no rule hit
+    assert m.element("NB post 1").classifications == []
+
+
+# ------------------------------------------------------------- instancing
+def _repeats_model(instancing: bool):
+    ctx = ProjectContext(name="Repeats Fixture", epsg=2226,
+                         base_e=6_594_000.0, base_n=1_943_000.0, base_h=200.0,
+                         guid_ns=uuid.UUID(int=4343))
+    m = StructureModel("repeats", ctx)
+    m.instancing = instancing
+    for i, s in enumerate((0.0, 6.0, 12.0), start=1):       # three posts
+        p = Prism(f"post {i}", [(-0.1, s - 0.1), (0.1, s - 0.1),
+                                (0.1, s + 0.1), (-0.1, s + 0.1)],
+                  z_bot=0.0, z_top=1.5, ifc="IfcMember")
+        m.add(Element.from_geometry(p.name, p, ifc_class="IfcMember",
+                                    material="Steel", layer="S-METAL"))
+    # the same post section in concrete: another style, so another map
+    p = Prism("stub", [(5.0, -0.1), (5.2, -0.1), (5.2, 0.1), (5.0, 0.1)],
+              z_bot=0.0, z_top=1.5, ifc="IfcColumn")
+    m.add(Element.from_geometry(p.name, p, ifc_class="IfcColumn",
+                                material="Concrete", layer="S-CONC"))
+    # bolts: one "rod" dict, four centres -> four instances of one rod
+    m.add(Element("bolts", ifc_class="IfcMechanicalFastener",
+                  geometry={"kind": "rod", "units": "in", "axis": "z",
+                            "radius": 0.375, "length": 18.0, "segments": 32,
+                            "centres": [(3, 10.5, 9), (-3, 10.5, 9),
+                                        (3, -10.5, 9), (-3, -10.5, 9)]},
+                  quantities={"count": 4}, layer="S-METAL"))
+    # a taper: not instanceable, keeps its own brep
+    w = Prism("wedge", [(20, 0), (30, 0), (30, 4), (20, 4)], z_bot=0.0,
+              top_z=[3.0, 3.0, 5.0, 5.0], ifc="IfcWall")
+    m.add(Element.from_geometry(w.name, w, ifc_class="IfcWall"))
+    return m
+
+
+def test_instancing_maps_repeated_bodies_and_draws_the_same(tmp_path):
+    """StructureModel.instancing: identical bodies become IfcMappedItems of
+    one IfcRepresentationMap each (keyed by the solid up to translation AND
+    its style), the mesh a viewer draws is the direct path's to the vertex,
+    and the post-gate passes."""
+    import ifcopenshell
+    import ifcopenshell.geom
+    import numpy as np
+    outs = {}
+    for flag in (False, True):
+        out = tmp_path / f"{'mapped' if flag else 'direct'}.ifc"
+        emit_ifc(_repeats_model(flag), str(out))
+        outs[flag] = ifcopenshell.open(str(out))
+    d, mp = outs[False], outs[True]
+    assert not d.by_type("IfcMappedItem")
+    assert len(d.by_type("IfcExtrudedAreaSolid")) == 3 + 1 + 4
+    # mapped: posts share one map, the stub (another style) its own, the
+    # four bolts one; the wedge stays a brep of its own
+    maps = mp.by_type("IfcRepresentationMap")
+    assert len(maps) == 3
+    assert len(mp.by_type("IfcMappedItem")) == 3 + 1 + 4
+    assert len(mp.by_type("IfcExtrudedAreaSolid")) == 3
+    assert len(mp.by_type("IfcFacetedBrep")) == 1
+    for p in mp.by_type("IfcMember"):
+        (rep,) = p.Representation.Representations
+        assert rep.RepresentationType == "MappedRepresentation"
+    post_maps = {p.Representation.Representations[0].Items[0].MappingSource
+                 for p in mp.by_type("IfcMember")}
+    assert len(post_maps) == 1
+    (stub,) = mp.by_type("IfcColumn")
+    assert stub.Representation.Representations[0].Items[0].MappingSource \
+        not in post_maps
+    # the source is styled once; the instances carry no styled item (the
+    # Item-less styled items are the materials' presentation, not bodies)
+    styled = [s for s in mp.by_type("IfcStyledItem") if s.Item is not None]
+    assert len(styled) == 3 + 1                            # 3 maps + wedge
+    assert not any(s.Item.is_a("IfcMappedItem") for s in styled)
+    # same geometry, vertex for vertex, in world coordinates
+    s = ifcopenshell.geom.settings()
+    s.set("use-world-coords", True)
+    for p in d.by_type("IfcElement"):
+        if p.Representation is None:
+            continue
+        q = mp.by_guid(p.GlobalId)
+        va = np.asarray(ifcopenshell.geom.create_shape(s, p).geometry.verts)
+        vb = np.asarray(ifcopenshell.geom.create_shape(s, q).geometry.verts)
+        assert va.shape == vb.shape
+        assert np.allclose(np.sort(va.reshape(-1, 3), axis=0),
+                           np.sort(vb.reshape(-1, 3), axis=0), atol=1e-9)
+    m = _repeats_model(True)
+    rep = run_post(m, {"ifc": str(tmp_path / "mapped.ifc")})
+    assert rep.passed, rep.failures
+
+
+def test_instancing_is_byte_deterministic(tmp_path):
+    a, b = tmp_path / "a.ifc", tmp_path / "b.ifc"
+    emit_ifc(_repeats_model(True), str(a))
+    emit_ifc(_repeats_model(True), str(b))
+    assert a.read_bytes() == b.read_bytes()
+
+
+def test_instance_parts_normalizes_each_kind():
+    from bimforge.author.emit_ifc import instance_parts
+    prism = {"kind": "prism", "units": "ft", "base": [(2, 3), (4, 3), (4, 5), (2, 5)],
+             "z_bot": 1.0, "z_top": 2.5}
+    (key, origin, nd), = instance_parts(prism)
+    assert origin == (2, 3, 1.0)
+    assert nd["base"] == [(0, 0), (2, 0), (2, 2), (0, 2)]
+    assert nd["z_bot"] == 0.0 and nd["z_top"] == 1.5
+    same = dict(prism, base=[(12, 13), (14, 13), (14, 15), (12, 15)],
+                z_bot=4.0, z_top=5.5)
+    assert instance_parts(same)[0][0] == key
+    assert instance_parts(dict(prism, top_z=[1, 2, 3, 4])) is None
+    rods = instance_parts({"kind": "rod", "units": "in", "axis": "x",
+                           "radius": 0.5, "length": 10.0, "segments": 8,
+                           "centres": [(0, 0, 0), (0, 5, 0)]})
+    assert len(rods) == 2 and rods[0][0] == rods[1][0]
+    assert rods[0][1] == (-5.0, 0, 0) and rods[0][2]["centres"] == [(5.0, 0.0, 0.0)]
+    assert instance_parts({"kind": "mesh", "verts": [], "tris": []}) is None

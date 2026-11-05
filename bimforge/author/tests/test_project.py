@@ -83,7 +83,9 @@ def _emitted_842_stem_height_m(tmp_path, unit: str) -> float:
     emit_ifc(model, str(out))
 
     f = ifcopenshell.open(str(out))
-    walls = [w for w in f.by_type("IfcWall") if "842 barrier" in (w.Name or "")]
+    # the run's whole ("NB 842 barrier run") is a wall too, with no body
+    walls = [w for w in f.by_type("IfcWall") if "842 barrier" in (w.Name or "")
+             and w.Representation is not None]
     assert len(walls) == 1, f"expected one 842 barrier wall, got {len(walls)}"
     shape = ifcopenshell.geom.create_shape(ifcopenshell.geom.settings(), walls[0])
     verts = np.asarray(shape.geometry.verts, dtype=float).reshape(-1, 3)

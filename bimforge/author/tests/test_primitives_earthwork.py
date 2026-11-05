@@ -351,4 +351,10 @@ def test_emit_ifc_mesh_branch_ignores_the_new_plan_key(tmp_path):
     breps = [i for r in el.Representation.Representations
              for i in r.Items if i.is_a("IfcFacetedBrep")]
     assert len(breps) == 1
-    assert len(breps[0].Outer.CfsFaces) == len(d["tris"])
+    # the 12 facets of the box merge to its 6 planar faces, and every corner
+    # is one shared IfcCartesianPoint
+    assert len(breps[0].Outer.CfsFaces) == 6
+    assert len(d["tris"]) == 12
+    pts = {p.id() for face in breps[0].Outer.CfsFaces
+           for p in face.Bounds[0].Bound.Polygon}
+    assert len(pts) == 8

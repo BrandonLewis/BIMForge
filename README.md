@@ -34,6 +34,28 @@ est-bim --help      # dxf2bim, ifc2dxf, takeoff, schedule, cost5d, kml, calibrat
 est-sheets --help   # control / layout / structure sheet production
 ```
 
+## What a viewer sees
+
+The IFC is written for FreeCAD, Revit and Bonsai as much as for the takeoff:
+
+- A run is **one whole with parts**: a tubular handrail is one
+  `IfcRailing` (HANDRAIL) whose rails, posts, returns and pocket mortar are
+  its parts (`IfcRelAggregates`); a Type 842 or 732SW barrier is one
+  `IfcWall` (PARAPET) over its barrier, end blocks, reinforcing and
+  hardware. Any family or script does the same with `Element.part_of`.
+- Every kind of part is **typed** (`Element.type_name` → `IfcMemberType`,
+  `IfcRailingType`, ...), so twenty posts are twenty occurrences of one
+  type with one predefined type, and the standard plan rides in
+  `Pset_*Common.Reference` (`Element.psets`).
+- Repeated bodies are **instanced** (`IfcMappedItem`,
+  `StructureModel.instancing`, spec `outputs.ifc_instancing`).
+- Tessellated bodies have their **coplanar facets merged** into planar
+  faces, so a box is six faces, not twelve triangles.
+- An exact alignment sweep is an `IfcSectionedSolidHorizontal` (IFC4X3).
+  For a consumer that cannot draw it as a solid (ifcopenshell 0.9 lofts it
+  open; Revit does not open IFC4X3), `outputs.ifc_sweeps: mesh` writes the
+  closed mesh instead and keeps the `IfcAlignment`.
+
 ## Blender: sections along an alignment
 
 The Blender add-on that slides a live cross-section along an IFC4X3

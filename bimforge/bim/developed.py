@@ -201,9 +201,7 @@ def _all_bodies(f, date):
                 # with any solid item is never one, even when the geometry
                 # kernel draws it open (IfcSectionedSolidHorizontal, #9820)
                 solid = any(i.is_a("IfcSolidModel")
-                            for r in (el.Representation.Representations
-                                      if el.Representation else ())
-                            for i in r.Items)
+                            for i in _body_items(el))
                 for sel, pm, prgb, pmat in parts:
                     pt = t if sel is None else t[sel]
                     ptr = tri_rgb if sel is None else [prgb[0]] * len(pt)
@@ -384,6 +382,20 @@ def _beyond(warped) -> list:
             continue
         if not (isinstance(s, Voided) and s.host in whole):
             out.append(w)
+    return out
+
+
+def _body_items(el):
+    """Every representation item of an element's shape, an IfcMappedItem
+    replaced by the items of the solid it instances (emit_ifc instancing:
+    a post is a mapped item whose source is the extruded solid)."""
+    out = []
+    for r in (el.Representation.Representations if el.Representation else ()):
+        for i in r.Items:
+            if i.is_a("IfcMappedItem"):
+                out.extend(i.MappingSource.MappedRepresentation.Items)
+            else:
+                out.append(i)
     return out
 
 

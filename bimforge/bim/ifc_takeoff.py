@@ -484,7 +484,10 @@ def _build_takeoff(model, tmap: dict) -> tuple[dict, list[str]]:
                 clss.append(c)
         qtys = quantities_of(el, scales)
         if not clss:
-            unclassified += 1
+            # a whole that only groups its parts (a handrail run, a barrier
+            # run: no quantities, no body) is not an element left out
+            if qtys or el.Representation is not None:
+                unclassified += 1
             continue
         for cls in clss:
             code = cls["code"]

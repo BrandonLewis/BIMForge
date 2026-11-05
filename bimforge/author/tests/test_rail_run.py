@@ -93,7 +93,10 @@ def test_top_rail_qto_length_is_declared_not_section_derived():
     from bimforge.author.emit_ifc import base_quantities
     els = rr.build_run(length_ft=24.0, base_z_ft=0.0, run_name="NB",
                        anchorage=False, end_posts=(), joints=())
-    rail, = [e for e in els if e.ifc_class == "IfcRailing"]
+    # the run's whole is an IfcRailing too (geometry-less); the top rail is
+    # the one with a body
+    rail, = [e for e in els if e.ifc_class == "IfcRailing"
+             and e.geometry is not None]
     qtys = base_quantities(rail, ft_to_m=1.0)
     assert [v for _, name, v in qtys if name == "Length"] == [pytest.approx(24.0)]
     assert not any(name == "GrossArea" for _, name, _ in qtys)

@@ -4,6 +4,81 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.102 — 2026-11-05
+
+A barrier rail reaches FreeCAD, Revit and Bonsai as a barrier rail, not as
+loose triangles and a flat list of posts. Measured on the shipped examples
+before and after:
+
+| | before | after |
+|---|---|---|
+| Type 842 end block | 30 triangular IfcFaces | 11 planar faces |
+| Handrail run, 87 elements | 87 unrelated products, no types | 1 IfcRailing whole with 87 parts, 8 types |
+| Handrail bodies | 43 IfcExtrudedAreaSolid | 5 solids, 40 IfcMappedItem |
+
+### Added
+
+- **Element types (`Element.type_name`).** One IfcWallType / IfcRailingType /
+  IfcMemberType ... per distinct (class, name) in the file, related by
+  IfcRelDefinesByType and carrying the element's predefined type (the
+  occurrence inherits it, as IFC requires; read it with
+  `ifcopenshell.util.element.get_predefined_type`). Revit shows the name
+  as the family type, FreeCAD and Bonsai as the type tree: twenty posts are
+  twenty occurrences of "B11-51 post HSS2x2x3/16". Type GlobalIds are
+  deterministic (`type/<class>/<name>`).
+- **Wholes and parts (`Element.part_of`).** An element named as another's
+  part hangs under it by IfcRelAggregates and leaves the spatial container,
+  which is what a viewer's tree shows and what Revit's category is read
+  from. The whole is an ordinary, usually geometry-less, Element; emit
+  refuses a part of a missing element, of itself, or a cycle, before any
+  write. `paycodes.apply` never classifies a whole that measures nothing,
+  so a name rule written for its parts ("842 barrier") does not catch it.
+- **Property sets (`Element.psets`)**: `{"Pset_RailingCommon": {"Reference":
+  "B11-51"}}` on the product. `Element.object_type` writes
+  IfcObject.ObjectType.
+- **The rail and barrier families use all three.** A tubular-handrail run
+  is one IfcRailing (HANDRAIL, type "Tubular handrailing B11-51",
+  Reference B11-51) whose rails, posts (IfcMember/POST), returns, caps,
+  sleeves, pocket mortar and dowels are its parts, every kind typed. A
+  Type 842 / 732SW run is one IfcWall (PARAPET, type "Concrete barrier
+  Type 842", Reference B11-81 / B11-58) whose barrier, end blocks,
+  reinforcing and hardware are its parts; the concrete bodies carry the
+  same type. The D90 headwall guardrail is an IfcRailing/GUARDRAIL. The
+  element lists grow by the wholes (one per run, two for a 732SW with its
+  handrail), which measure nothing: every quantity baseline is unchanged.
+- **Instancing (`StructureModel.instancing`, spec
+  `outputs.ifc_instancing`).** Repeated identical bodies (a flat prism, a
+  box, a rod, a tube) are written once as an IfcRepresentationMap and
+  placed by IfcMappedItem, keyed by the solid up to translation and its
+  style; the instanced mesh equals the direct one to the vertex. Off by
+  default (an existing consumer's file is unchanged); the rail and barrier
+  families turn it on.
+- **`outputs.ifc_sweeps: mesh`** (`emit_ifc(sweeps=)`): an exact alignment
+  sweep is written as its closed faceted brep instead of an
+  IfcSectionedSolidHorizontal, for a consumer that lofts the sectioned
+  solid open (ifcopenshell 0.9, so FreeCAD's native importer and Bonsai:
+  17 and 40 open edges measured on the test sweeps) or cannot read IFC4X3
+  (Revit opens IFC2x3 and IFC4; IFC4X3 is link-only and experimental). The
+  IfcAlignment is written either way. A second "Body-FallBack"
+  representation beside the sweep was measured and rejected: ifcopenshell's
+  iterator draws both, so every reader built on it would see the body twice.
+
+### Changed
+
+- **Coplanar facets are merged in the IFC brep writer**
+  (`bimforge.author.facets`). A tapered prism, a loft, a mesh, or a sweep
+  written as its mesh used to reach the IFC as one IfcFace per triangle,
+  and every importer showed every triangle edge. Facets in one plane
+  (to 0.1 µm) are now unioned into one planar IfcFace each, holes as
+  IfcFaceBound, outer loop counter-clockwise about the outward normal;
+  the shell's points are shared. The surface and its volume are unchanged,
+  every vertex a neighbouring facet ends at stays on the merged boundary
+  (the shell is as closed as the triangles were), and a facet that merges
+  with nothing is written as it was. Curved surfaces stay faceted. The STEP
+  emitter has done this since the hand-off work; the two now agree.
+- `developed` resolves an IfcMappedItem to the solid it instances when it
+  decides whether a body cuts as a fill or a line.
+
 ## 0.1.101 — 2026-11-05
 
 ### Fixed
