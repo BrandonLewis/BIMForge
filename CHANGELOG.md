@@ -66,6 +66,16 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   less the dig (the readers above draw that correctly). Use `voids` where a
   viewer's boolean is sound.
 
+## 0.1.99 — 2026-11-04
+
+### Fixed
+
+- `networkx` is now a core dependency. `est-bim schedule` authors through
+  `ifcopenshell.api.sequence`, which needs networkx for `recalculate_schedule`.
+  With networkx only in the `terrain` extra, an install without that extra printed
+  `API not available due to missing dependencies: sequence.recalculate_schedule`
+  and wrote the 4D IFC with schedule recalculation unavailable.
+
 ## 0.1.98 — 2026-11-03
 
 Contour reconciliation work built in the estimating-plugin monorepo after the
