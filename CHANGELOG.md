@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.101 — 2026-11-05
+
 ### Fixed
 
 - **Ground still to dig draws its edges beyond the cut.** Before the dig
