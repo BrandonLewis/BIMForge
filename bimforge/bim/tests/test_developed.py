@@ -442,7 +442,7 @@ def test_excavation_is_ground_removed_in_a_section(dug, tmp_path, monkeypatch):
 
 
 def test_a_pay_item_excavation_body_is_ground_removed_too(tmp_path, monkeypatch):
-    """The model B2279 has: the ground already less the dig, the excavation an
+    """The usual earthwork model: the ground already less the dig, the excavation an
     unhosted body (IfcEarthworksElement EXCAVATION, #364). It is drawn as the
     limit of excavation, never a block in the hole; before its dig, ground."""
     from shapely.geometry import Polygon

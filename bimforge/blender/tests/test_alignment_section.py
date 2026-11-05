@@ -697,7 +697,7 @@ def test_excavation_is_ground_removed(addon, tmp_path):
 
 
 def test_a_pay_item_excavation_body_is_not_a_block_in_the_hole(addon, tmp_path):
-    """B2279's model: the ground already less the dig, the excavation an
+    """The usual earthwork model: the ground already less the dig, the excavation an
     unhosted body (IfcEarthworksElement EXCAVATION). LIMITS hides the body,
     fills only the ground and draws the limit of excavation."""
     mod, m, al, _prof = addon

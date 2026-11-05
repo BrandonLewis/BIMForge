@@ -36,14 +36,14 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 - **A cavity wholly inside a body cuts as a hole.** Sections and
   elevations filled an enclosed cavity as part of the body around it: the
-  cavity's boundary is a face of the arrangement too. B2279's root-crown
+  cavity's boundary is a face of the arrangement too. A wall job's root-crown
   overexcavation, below the footing, showed as ground instead of its CLSM
   backfill. Faces are now kept by even-odd nesting.
 
 ### Known limitations
 
 - **Viewers' booleans are unreliable on terrain-scale voids.** These were
-  measured on B2279's creek-wall ground (a 1 ft raster): a cut sharing the
+  measured on a retaining-wall job's ground (a 1 ft raster): a cut sharing the
   ground's top face is silently dropped. With low-poly voids clear of that
   face:
   - ifcopenshell 0.9 drew one run's strip right, but dropped the other run's
