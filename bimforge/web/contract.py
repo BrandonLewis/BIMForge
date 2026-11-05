@@ -10,11 +10,22 @@ takeoff roll-up, `schedule_read`, `schedule_state`) and returns::
                              "qto": {Qto name: SI value},
                              "appear", "vanish", "tasks"}},
      "takeoff": {"rows": [CanonicalTakeoff row + per-element "quantity" in
-                          the row's unit, "official_quantity", "variance"],
+                          the row's unit, "official_quantity", "variance",
+                          "unit_price", "bid_total" (the priced bid list,
+                          else the estimate the IFC carries)],
                  "warnings": [...], "unclassified": [GlobalId, ...]},
      "schedule": CanonicalSchedule.to_dict() + {"task_elements":
                  {task id: [GlobalId, ...]}} | null,
-     "costs": schedule_read.read_costs(...) | null}
+     "costs": schedule_read.read_costs(...) + {"shares": [{"task",
+              "element", "item_number", "code", "cost", "labor_hours"}]}
+              | null}
+
+`costs.shares` is what the pay follows: every priced cost item of the 5D
+schedule, with the task it is spent in, the element it builds (when the
+estimate ties it to one; a cost5d-only model has task-level shares) and
+the bid item it is allocated to. The dashboard earns each element's pay
+quantity over its tasks in proportion to those shares, so pay follows the
+labour, the tasks and the materials that build the element, not a date.
 
 Dates are ISO days. Element quantities are the IFC's SI values by Qto name;
 takeoff quantities are in the pay unit the takeoff map names (or the
@@ -103,10 +114,28 @@ def _elements(model, spans) -> dict:
     return out
 
 
+def _bid_items(model) -> dict:
+    """{item_number: {"unit_price", "total", "quantity", "unit", "code"}}
+    from the estimate an IFC carries (estimate_model5d's
+    BidSheet_EstimateItem on each bid item's cost item). {} without one."""
+    import ifcopenshell.util.element as ue
+    out = {}
+    for ci in model.by_type("IfcCostItem"):
+        ps = ue.get_psets(ci).get("BidSheet_EstimateItem")
+        if not ps or ps.get("ItemNumber") in (None, ""):
+            continue
+        out[str(ps["ItemNumber"])] = {
+            "unit_price": ps.get("UnitPrice"), "total": ps.get("Total"),
+            "quantity": ps.get("Quantity"), "unit": ps.get("Unit"),
+            "code": ps.get("ItemCode")}
+    return out
+
+
 def _takeoff(model, tmap: dict | None, official: dict | None) -> dict:
     from bimforge.bim.ifc_takeoff import (MEASURE_DIM, _build_takeoff,
                                           classifications_of, convert)
     takeoff, warnings = _build_takeoff(model, tmap or {})
+    bid = _bid_items(model)
     rows = []
     for row in takeoff["rows"]:
         r = dict(row)
@@ -137,6 +166,20 @@ def _takeoff(model, tmap: dict | None, official: dict | None) -> dict:
             r["variance_pct"] = None
         if off and not r.get("description"):
             r["description"] = off.get("description") or r.get("description")
+        # the pay: the priced bid list first, else the estimate in the IFC
+        est = bid.get(r.get("item_number") or "") or next(
+            (v for v in bid.values() if v.get("code") == r["cost_code"]), None)
+        price = (off or {}).get("unit_price")
+        if price is None and est:
+            price = est.get("unit_price")
+        r["unit_price"] = float(price) if price is not None else None
+        total = (off or {}).get("total")
+        if total is None and est and est.get("total") is not None:
+            total = est["total"]
+        if total is None and r["unit_price"] is not None:
+            basis = r["official_quantity"]
+            total = (basis if basis is not None else r["quantity"]) * r["unit_price"]
+        r["bid_total"] = round(float(total), 2) if total is not None else None
         rows.append(r)
     unclassified = [el.GlobalId for el in model.by_type("IfcElement")
                     if not [c for c in classifications_of(el) if c.get("code")]
@@ -163,15 +206,70 @@ def _schedule(model, name: str | None):
     return d
 
 
+def _shares(model, schedule_name: str) -> list[dict]:
+    """Every priced cost item of the 5D schedule "<name> cost": the task it
+    is spent in, the element it builds (null when the item controls no
+    element), the bid item (parent's BidSheet_EstimateItem ItemNumber) and
+    the code it is classified under, its cost and labour hours."""
+    import ifcopenshell.util.element as ue
+    from bimforge.bim.schedule_read import (_COST_ITEM_PSETS,
+                                            _leaf_cost_items, _number,
+                                            _pset, task_id)
+    css = [c for c in model.by_type("IfcCostSchedule")
+           if c.Name == f"{schedule_name} cost"]
+    if not css:
+        return []
+    out = []
+    for ci in _leaf_cost_items(css[0]):
+        task = element = None
+        for rel in getattr(ci, "Controls", None) or []:
+            for o in rel.RelatedObjects or []:
+                if o.is_a("IfcTask"):
+                    task = o
+                elif o.is_a("IfcElement"):
+                    element = o
+        if task is None:
+            continue
+        parent = next((rel.RelatingObject for rel in ci.Nests or []
+                       if rel.RelatingObject.is_a("IfcCostItem")), None)
+        item = (ue.get_psets(parent).get("BidSheet_EstimateItem")
+                if parent is not None else None) or {}
+        code = None
+        for rel in getattr(ci, "HasAssociations", None) or []:
+            if rel.is_a("IfcRelAssociatesClassification"):
+                ref = rel.RelatingClassification
+                code = getattr(ref, "Identification", None) or code
+        if code is None and parent is not None:
+            for rel in getattr(parent, "HasAssociations", None) or []:
+                if rel.is_a("IfcRelAssociatesClassification"):
+                    code = getattr(rel.RelatingClassification,
+                                   "Identification", None) or code
+        ps = _pset(ci, *_COST_ITEM_PSETS) or {}
+        out.append({
+            "task": task_id(task),
+            "element": element.GlobalId if element is not None else None,
+            "item_number": (str(item["ItemNumber"])
+                            if item.get("ItemNumber") not in (None, "")
+                            else None),
+            "code": code or ci.Identification or ci.Name,
+            "cost": round(sum(_number(cv.AppliedValue) or 0.0
+                              for cv in ci.CostValues or []), 2),
+            "labor_hours": _number(ps.get("LaborHours")),
+        })
+    return out
+
+
 def _costs(model, name: str | None):
     from bimforge.bim.schedule_read import read_costs
     if not model.by_type("IfcCostSchedule"):
         return None
     try:
-        return read_costs(model, name)
+        costs = read_costs(model, name)
     except ValueError as exc:        # a cost schedule that is not the 4D one
-        return {"schedule": name, "costs": {}, "tasks": {},
+        return {"schedule": name, "costs": {}, "tasks": {}, "shares": [],
                 "warnings": [str(exc)]}
+    costs["shares"] = _shares(model, costs.get("schedule") or name or "")
+    return costs
 
 
 def build_bundle(ifc_path, tmap: dict | None = None,

@@ -22,17 +22,26 @@
   <div class="tiles" id="tiles"></div>
   <div class="two">
     <section class="panel">
-      <h2>Cost and labour, cumulative</h2>
+      <h2>Earned pay and cost, cumulative</h2>
       <svg class="chart" id="costchart" viewBox="0 0 640 260" preserveAspectRatio="none"></svg>
       <div class="legend" id="costlegend"></div>
+      <p class="muted small" id="earnnote"></p>
     </section>
     <section class="panel">
-      <h2>Pay quantity, cumulative</h2>
+      <h2>Pay quantity earned, per item</h2>
       <div class="toolbar"><select id="payitem"></select></div>
       <svg class="chart" id="qtychart" viewBox="0 0 640 230" preserveAspectRatio="none"></svg>
       <div class="legend" id="qtylegend"></div>
     </section>
   </div>
+  <section class="panel">
+    <h2>Pay items on the day</h2>
+    <table id="payrows"><thead><tr>
+      <th>Item #</th><th>Cost code</th><th>Bid item</th><th>Unit</th>
+      <th class="num">Earned</th><th class="num">Of</th><th class="num">%</th>
+      <th class="num">Earned $</th><th class="num">Cost $</th><th class="num">Margin $</th>
+    </tr></thead><tbody></tbody><tfoot></tfoot></table>
+  </section>
   <section class="panel">
     <h2>Schedule</h2>
     <div class="toolbar">

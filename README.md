@@ -66,10 +66,13 @@ Writes a static site (`takeoff.html`, `dashboard.html`) and the one JSON
 document both pages read, the *bundle* (`bimforge.web.build_bundle`,
 contract `bimforge-web/1`): elements with their pay codes, quantities and
 4D dates, the pay-item takeoff against the official bid quantities, the
-schedule with its element links, and the costs per task. The takeoff page
-shows every pay item and the elements behind it; the dashboard scrubs a
-day through the schedule with cost, labour and pay-quantity curves and what
-stands on that day. The pages carry no external library and open from
+schedule with its element links, and the costs per task with their shares
+per element. The takeoff page shows every pay item and the elements behind
+it; the dashboard scrubs a day through the schedule with earned pay
+against cost, labour and per-item pay-quantity curves, and what stands on
+that day. Pay is earned as the work is done: over the tasks that build
+each element, weighted by the cost and hours spent on it, at the bid
+item's unit price. The pages carry no external library and open from
 disk. A host (an editor's bridge add-on) provides `window.bimforgeHost` to
 turn a click into a selection; standalone, a click copies GlobalIds.
 

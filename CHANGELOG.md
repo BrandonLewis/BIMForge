@@ -4,6 +4,34 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.104 — 2026-11-05
+
+### Changed
+
+- **The pay follows the labour, the tasks and the materials.** The 4D/5D
+  dashboard no longer drops an element's pay quantity on its appear date.
+  Each element's quantity is EARNED over the tasks that build it, in
+  proportion to the cost the 5D schedule spends on that element in each
+  task (the estimate's activity shares), else the task's cost under the
+  pay item's code, else its labour hours, else its cost, else evenly; and
+  within a task evenly over its working days (the schedule's week and
+  holidays, which the cost and labour curves now respect too). An element
+  no dated task builds is still earned on its appear date; one with
+  neither is reported as undated. With unit prices, earned dollars are
+  the earned quantity at the bid item's price: the dashboard shows earned
+  pay against cost, cumulative and per pay item on the day, with the
+  margin.
+  - The bundle carries `costs.shares` (every priced cost item of the 5D
+    schedule: task, element, bid item, code, cost, labour hours) and each
+    takeoff row's `unit_price` and `bid_total`, from the priced bid list
+    (`--official` now reads `unit_price` / `price` and `total` / `amount`)
+    or, failing that, from the estimate the IFC carries
+    (BidSheet_EstimateItem).
+  - What the embed does not record yet, the dashboard cannot split: the
+    estimate's labour / material / equipment split of an activity is not
+    written to the IFC, so pay follows total cost and hours. Writing the
+    split as cost categories is the follow-on.
+
 ## 0.1.103 — 2026-11-05
 
 ### Added

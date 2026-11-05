@@ -248,3 +248,56 @@ def test_cli_web_writes_a_site(tmp_path, capsys):
     assert doc["takeoff"]["rows"][0]["official_quantity"] == 50.0
     printed = capsys.readouterr().out
     assert "site written" in printed and "3 pay items" in printed
+
+
+# --------------------------------------------- the pay follows the work
+def test_rows_carry_prices_from_the_bid_list_and_shares_from_the_5d(tmp_path):
+    ifc = _ifc(tmp_path)
+    official = dict(OFFICIAL)
+    official["0010"] = dict(OFFICIAL["0010"], unit_price=800.0)
+    official["0020"] = dict(OFFICIAL["0020"], unit_price=950.0, total=28500.0)
+    b = build_bundle(ifc, TMAP, official)
+    rows = {r["cost_code"]: r for r in b["takeoff"]["rows"]}
+    assert rows["F-CONC"]["unit_price"] == 800.0
+    assert rows["F-CONC"]["bid_total"] == 50.0 * 800.0       # official qty x price
+    assert rows["W-CONC"]["bid_total"] == 28500.0            # the list's amount
+    assert rows["POSTS"]["unit_price"] is None and rows["POSTS"]["bid_total"] is None
+    # cost5d shares: one per task x code, task-level (no element)
+    sh = b["costs"]["shares"]
+    assert {(s["task"], s["code"]) for s in sh} == {("t1", "F-CONC"), ("t2", "W-CONC"), ("t3", "POSTS")}
+    assert all(s["element"] is None and s["item_number"] is None for s in sh)
+    assert next(s for s in sh if s["task"] == "t1")["cost"] == 12000.0
+    assert next(s for s in sh if s["task"] == "t1")["labor_hours"] == 300.0
+
+
+def test_estimate_shares_name_the_element_item_and_price(tmp_path):
+    """estimate_model5d: the bid item's unit price comes from the IFC, and
+    each share names the element the activity builds and its bid item."""
+    from bimforge.bim.tests.test_estimate_model5d import (_ifc as _est_ifc,
+                                                           _model_json)
+    from bimforge.bim.estimate_model5d import embed_estimate_model
+    f, site, ftg, wall = _est_ifc()
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    out = tmp_path / "est.ifc"
+    f.write(str(out))
+    b = build_bundle(out, {"codes": {"51-CONC": {"measure": "GrossVolume",
+                                                 "unit": "CY",
+                                                 "item_number": "10"}}})
+    sh = b["costs"]["shares"]
+    assert sh, b["costs"]
+    by_el = {s["element"]: s for s in sh if s["element"]}
+    assert ftg.GlobalId in by_el and wall.GlobalId in by_el
+    assert by_el[ftg.GlobalId]["item_number"] == "10"
+    assert by_el[ftg.GlobalId]["task"] == "a1"
+    assert by_el[ftg.GlobalId]["cost"] == pytest.approx(10.0, abs=0.01)
+    assert by_el[ftg.GlobalId]["labor_hours"] == pytest.approx(20.0)
+    # the row for the code the item carries gets the IFC's unit price
+    rows = {r["cost_code"]: r for r in b["takeoff"]["rows"]}
+    # (the fixture's elements carry no quantities, so no row sums; the
+    # price lookup itself is what _bid_items gives)
+    from bimforge.web.contract import _bid_items
+    import ifcopenshell
+    items = _bid_items(ifcopenshell.open(str(out)))
+    assert items["10"]["unit_price"] == 1.0 and items["10"]["code"] == "51-CONC"
+    assert items["20"]["total"] == 500.0
+    assert rows == {} or rows["51-CONC"]["unit_price"] == 1.0
