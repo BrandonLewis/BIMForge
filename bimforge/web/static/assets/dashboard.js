@@ -33,8 +33,25 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
   const shares = C ? (C.shares || []) : [];
   const APPEAR = { CONSTRUCTION: 1, INSTALLATION: 1, NOTDEFINED: 1 };
   const REMOVE = { DEMOLITION: 1, DISMANTLE: 1, DISPOSAL: 1, REMOVAL: 1 };
-  const workWeekdays = S && S.work_weekdays ? S.work_weekdays : [0, 1, 2, 3, 4];   // 0 = Monday
-  const holidays = new Set(S && S.holidays ? S.holidays : []);
+  // calendars: the schedule's own, and the named ones a task may use
+  // (read_schedule: work_weekdays 0 = Monday, holidays as days, blackouts
+  // as yearly MM-DD windows, inclusive, wrapping the year end)
+  const projectCal = { work_weekdays: S && S.work_weekdays ? S.work_weekdays : [0, 1, 2, 3, 4],
+    holidays: new Set(S && S.holidays ? S.holidays : []), blackouts: [] };
+  const calendars = {};
+  Object.keys(S && S.calendars ? S.calendars : {}).forEach(function (name) {
+    const c = S.calendars[name];
+    calendars[name] = { work_weekdays: c.work_weekdays || projectCal.work_weekdays,
+      holidays: new Set(c.holidays || []), blackouts: c.blackouts || [] };
+  });
+  function calendarFor(t) { return (t.calendar && calendars[t.calendar]) || projectCal; }
+  function inBlackout(iso, windows) {
+    const md = iso.slice(5);
+    return windows.some(function (w) {
+      if (!w || !w.from || !w.to) return false;
+      return w.from <= w.to ? (md >= w.from && md <= w.to) : (md >= w.from || md <= w.to);
+    });
+  }
 
   // ---- the time axis: the schedule's span, else the elements' dates
   let days = [];
@@ -52,9 +69,9 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
   const idx = function (iso) { return BF.daysBetween(t0, iso); };
 
   // ---- working days of a task (the schedule's week and holidays)
-  function isWorkDay(iso) {
+  function isWorkDay(iso, cal) {
     const wd = (BF.parse(iso).getUTCDay() + 6) % 7;        // Monday = 0
-    return workWeekdays.indexOf(wd) >= 0 && !holidays.has(iso);
+    return cal.work_weekdays.indexOf(wd) >= 0 && !cal.holidays.has(iso) && !inBlackout(iso, cal.blackouts);
   }
   const taskDayCache = {};
   function taskDays(t) {
@@ -62,8 +79,9 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
     const s = t.start, f = t.finish || t.start;
     let out = [];
     if (s) {
+      const cal = calendarFor(t);
       const n = Math.max(1, BF.daysBetween(s, f) + 1);
-      for (let i = 0; i < n; i++) { const d = BF.addDays(s, i); if (isWorkDay(d)) out.push(d); }
+      for (let i = 0; i < n; i++) { const d = BF.addDays(s, i); if (isWorkDay(d, cal)) out.push(d); }
       if (!out.length) out = [s];                           // a weekend task still spends its day
     }
     return (taskDayCache[t.id] = out);
@@ -100,15 +118,16 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
   Object.keys(taskEls).forEach(function (tid) {
     const t = taskById[tid]; if (!t || !t.start) return;
     const k = (t.task_type || "NOTDEFINED").toUpperCase();
-    if (REMOVE[k]) return;
+    if (!APPEAR[k]) return;                                 // only what BUILDS it: not operation, logistics, removal
     taskEls[tid].forEach(function (g) { (elTasks[g] || (elTasks[g] = [])).push(t); });
   });
   const elShare = {};                                     // g -> tid -> {item -> cost, _any, _cat: {kind -> cost}}
   shares.forEach(function (sh) {
     if (!sh.element) return;
     const byTask = elShare[sh.element] || (elShare[sh.element] = {});
-    const rec = byTask[sh.task] || (byTask[sh.task] = { _any: 0, _cat: {} });
+    const rec = byTask[sh.task] || (byTask[sh.task] = { _any: 0, _cat: {}, _hours: null });
     rec._any += sh.cost || 0;
+    if (sh.labor_hours != null) rec._hours = (rec._hours || 0) + sh.labor_hours;
     const keys = [sh.item_number, sh.code].filter(Boolean);
     keys.forEach(function (k) { rec[k] = (rec[k] || 0) + (sh.cost || 0); });
     CATS.forEach(function (c) { const a = (sh.categories || {})[c] || 0; if (a) rec._cat[c] = (rec._cat[c] || 0) + a; });
@@ -116,8 +135,8 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
   let basis = "cost";                                     // cost | Labor | Material | Equipment | Subcontract | Other | hours
   function kindWeight(g, t) {                             // the chosen kind's money, or null when none is recorded
     const sh = (elShare[g] || {})[t.id];
-    if (sh && sh._cat[basis]) return sh._cat[basis];
-    const c = taskCost[t.id];
+    if (sh) return sh._cat[basis] || 0;                   // the element's own share: a zero is a zero
+    const c = taskCost[t.id];                             // no element share: the task's kind
     if (c && c.categories && c.categories[basis]) return c.categories[basis];
     return null;
   }
@@ -130,6 +149,8 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
   }
   function taskWeight(g, t, row) {
     if (basis === "hours") {
+      const sh = (elShare[g] || {})[t.id];
+      if (sh && sh._hours != null) return sh._hours;      // the element's own hours in this task
       const c = taskCost[t.id];
       return c && c.labor_hours ? c.labor_hours : null;
     }
@@ -184,17 +205,26 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
       basisSel.appendChild(BF.h("option", { value: o[0] }, "Earn against " + BF.esc(o[1])));
     });
   basisSel.addEventListener("change", function () { basis = basisSel.value; computeEarned(); setDay(day, true); });
-  // cost under each row's code, for the per-item margin
-  function rowCostTo(row, i) {
-    let s = 0;
-    tasks.forEach(function (t) {
-      const c = taskCost[t.id]; if (!c || !c.costs || !c.costs[row.cost_code]) return;
-      const ds = taskDays(t); if (!ds.length) return;
-      const per = c.costs[row.cost_code].cost / ds.length;
-      ds.forEach(function (d) { if (idx(d) <= i) s += per; });
-    });
-    return s;
-  }
+  // cost of each pay item, through the shares: a share with a bid item
+  // number goes to that item's row; a share with none goes to the rows of
+  // its cost code, shared out equally among them (the one rule that never
+  // counts a dollar twice); spent over its task's working days
+  const rowsByItem = {}, rowsByCode = {};
+  rows.forEach(function (r, i) {
+    if (r.item_number) (rowsByItem[r.item_number] || (rowsByItem[r.item_number] = [])).push(i);
+    (rowsByCode[r.cost_code] || (rowsByCode[r.cost_code] = [])).push(i);
+  });
+  const rowCostDaily = rows.map(function () { return new Float64Array(span + 1); });
+  const rowCostTotal = rows.map(function () { return 0; });
+  shares.forEach(function (sh) {
+    const t = taskById[sh.task]; if (!t) return;
+    const targets = (sh.item_number && rowsByItem[sh.item_number]) || rowsByCode[sh.code] || [];
+    if (!targets.length) return;
+    const each = (sh.cost || 0) / targets.length;
+    targets.forEach(function (ri) { rowCostTotal[ri] += each; spread(rowCostDaily[ri], t, each); });
+  });
+  const rowCostCum = rowCostDaily.map(cumulative);
+  function rowCostTo(row, i) { return rowCostCum[rows.indexOf(row)][i]; }
 
   // ---- scrubber
   const scrub = document.getElementById("scrub"), scrubDate = document.getElementById("scrubdate"), scrubDay = document.getElementById("scrubday");
@@ -279,7 +309,7 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
       const r = svg.getBoundingClientRect();
       const px = (ev.clientX - r.left) / r.width * W;
       const ii = Math.max(0, Math.min(span, Math.round((px - L) / (W - L - R) * span)));
-      tip.show("<b>" + dayAt(ii) + "</b><br>" + series.map(function (s) { return s.label + ": " + s.fmt(s.data[ii]); }).join("<br>"), ev);
+      tip.show("<b>" + dayAt(ii) + "</b><br>" + series.map(function (s) { return BF.esc(s.label) + ": " + BF.esc(s.fmt(s.data[ii])); }).join("<br>"), ev);
     };
     svg.onmouseleave = function () { tip.hide(); };
   }
@@ -311,6 +341,7 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
     else if (C) parts.push("pay follows each element's tasks, weighted by the task's cost under the item's code, else its hours");
     else parts.push("pay follows each element's tasks, evenly");
     if (!catsPresent.length && C) parts.push("the cost schedule records no labour / material / equipment split");
+    if (C && shares.length) parts.push("an item's cost is its bid item's shares, or its code's shares shared equally among the items of that code");
     if (undatedPay) parts.push(BF.money(undatedPay) + " sits on elements no task dates");
     const notPriced = rows.length - priced.length;
     if (notPriced) parts.push(notPriced + " item" + (notPriced === 1 ? "" : "s") + " without a unit price earn quantity only");
@@ -390,7 +421,8 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
     const tip = BF.tip();
     vis.forEach(function (t, i) {
       const y = TOP + i * ROW;
-      const g = BF.svg("g", { class: "taskrow" + (t.id === selectedTask ? " selected" : ""), "data-id": t.id });
+      const g = BF.svg("g", { class: "taskrow" + (t.id === selectedTask ? " selected" : ""), "data-id": t.id,
+        tabindex: "0", role: "button", "aria-label": (t.name || t.id) + (t.start ? ", " + t.start + " to " + (t.finish || t.start) : "") });
       const depth = (t.wbs || "").split(".").length - 1;
       const label = BF.svg("text", { x: 8 + depth * 12, y: y + 15, class: "label" });
       const n = (taskEls[t.id] || []).length;
@@ -414,11 +446,17 @@ const CAT_COLOR = { Labor: "#f0883e", Material: "#a371f7", Equipment: "#39c5cf",
         };
         g.onmouseleave = function () { tip.hide(); };
       }
-      g.onclick = function () { selectedTask = t.id; renderGantt(); renderTask(t); };
+      g.onclick = function () { selectedTask = t.id; refocus = document.activeElement === g; renderGantt(); renderTask(t); };
+      g.onkeydown = function (ev) { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); refocus = true; g.onclick(); } };
       gantt.appendChild(g);
     });
     renderGanttLine();
+    if (refocus) {                                          // keep the keyboard on the row it chose
+      const sel = gantt.querySelector(".taskrow.selected"); if (sel) sel.focus();
+      refocus = false;
+    }
   }
+  let refocus = false;
   function renderGanttLine() {
     gantt.querySelectorAll(".scrub, .today").forEach(function (n) { n.remove(); });
     const H = +gantt.getAttribute("height") || 0;

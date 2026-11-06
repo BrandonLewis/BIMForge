@@ -348,3 +348,73 @@ def test_estimate_shares_split_the_activity_by_kind(tmp_path):
     assert wall_share["categories"] == {"Labor": wall_share["cost"]}
     a3 = [s for s in b["costs"]["shares"] if s["task"] == "a3"]   # "other"
     assert a3 and a3[0]["categories"] == {"Other": a3[0]["cost"]}
+
+
+def test_element_quantities_add_up_to_the_rows_pay_quantity(tmp_path):
+    """A lump sum over three elements is 1 LS: the elements' quantities are
+    scaled to the row's, so the dashboard earns the item once."""
+    tmap = {"codes": dict(TMAP["codes"], POSTS={"measure": "Count",
+                                                "unit": "LS",
+                                                "item_number": "0030"})}
+    b = build_bundle(_ifc(tmp_path, with_4d=False), tmap)
+    row = next(r for r in b["takeoff"]["rows"] if r["cost_code"] == "POSTS")
+    assert row["unit"] == "LS" and row["quantity"] == 1
+    assert sum(e["quantity"] for e in row["elements"]) == pytest.approx(1.0)
+    assert len(row["elements"]) == 3
+
+
+def test_bid_total_follows_the_bid_lists_quantity_and_price(tmp_path):
+    """With a priced bid list that gives quantity and price but no amount,
+    the total is quantity x price, never the estimate's stale amount."""
+    from bimforge.bim.tests.test_estimate_model5d import (_ifc as _est_ifc,
+                                                           _model_json)
+    from bimforge.bim.estimate_model5d import embed_estimate_model
+    f, site, ftg, wall = _est_ifc()
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    out = tmp_path / "est.ifc"
+    f.write(str(out))
+    # the estimate prices item 10 at $1.00 x 20 = $20.01; the bid list
+    # re-prices it: 25 at $3
+    import ifcopenshell.api.pset as pset_api
+    import ifcopenshell.api.root as root
+    (ftg_el,) = [e for e in f.by_type("IfcFooting")]
+    tmap = {"codes": {"51-CONC": {"measure": "Count", "unit": "EA",
+                                  "item_number": "10"}}}
+    # give the footing a code and a Count so a row exists
+    import ifcopenshell.api.classification as cls_api
+    from bimforge.bim.cost5d import _classification, _code_reference
+    _code_reference(f, ftg_el, "51-CONC", _classification(f))
+    qto = pset_api.add_qto(f, product=ftg_el, name="Qto_FootingBaseQuantities")
+    pset_api.edit_qto(f, qto=qto, properties={"Count": 1})
+    f.write(str(out))
+    b = build_bundle(out, tmap, {"10": {"quantity": 25.0, "unit_price": 3.0,
+                                        "description": "x", "unit": "EA"}})
+    (row,) = b["takeoff"]["rows"]
+    assert row["unit_price"] == 3.0
+    assert row["bid_total"] == 75.0
+    # with no list price, the estimate's own amount stands
+    b = build_bundle(out, tmap)
+    (row,) = b["takeoff"]["rows"]
+    assert row["unit_price"] == 1.0 and row["bid_total"] == pytest.approx(20.01)
+
+
+def test_spans_come_from_the_selected_schedule(tmp_path):
+    """Two schedules on the same elements: --schedule picks whose dates the
+    elements appear on."""
+    out = tmp_path / "two.ifc"
+    emit_ifc(_model(), str(out), PC)
+    f = ifcopenshell.open(str(out))
+    embed_schedule(f, _schedule())
+    alt = CanonicalSchedule(name="Alt", start_date="2026-01-04", tasks=[
+        ScheduleTask(id="x1", name="Early footings", wbs="1",
+                     start="2026-01-04", finish="2026-01-08",
+                     match_ifc_class="IfcFooting")])
+    embed_schedule(f, alt)
+    f.write(str(out))
+    b = build_bundle(out, TMAP, schedule_name="Stage 1")
+    ftg = next(e for e in b["elements"].values() if e["name"] == "Abut 1 footing")
+    assert ftg["appear"] == "2027-03-01" and ftg["tasks"] == ["Footings"]
+    b = build_bundle(out, TMAP, schedule_name="Alt")
+    ftg = next(e for e in b["elements"].values() if e["name"] == "Abut 1 footing")
+    assert ftg["appear"] == "2026-01-04" and ftg["tasks"] == ["Early footings"]
+    assert b["schedule"]["name"] == "Alt"

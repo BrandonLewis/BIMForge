@@ -4,6 +4,42 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.106 — 2026-11-06
+
+Review fixes for 0.1.102–0.1.105.
+
+### Fixed
+
+- **One named type has one predefined type.** A type's GlobalId is keyed
+  by class and name; two predefined types under one name would have been
+  two IfcTypeObjects with one GlobalId. Emit refuses it before any write.
+- **Categorising a cost never changes it.** A split that covers less than
+  the cost writes the balance as one more value with no Category (it
+  reads back in `cost`, not in `categories`); a split that exceeds the
+  cost is refused by `validate_costs` and the writer. The writer also
+  accepts the reader's own form (`categories: {Labor: 60, ...}`), so
+  `read_costs` output re-embeds with its split intact.
+- **Web bundle:** each takeoff row's element quantities are scaled to the
+  row's pay quantity (a lump sum over three elements is 1 LS, `count_as`
+  stands), so the dashboard earns an item once; the bid total follows the
+  priced bid list's quantity and price before the estimate's stored
+  amount; the 4D spans (appear, vanish) come from the selected schedule's
+  tasks only (`element_spans(f, tasks)`), not every task in the file.
+- **Dashboard:** a task's own calendar (its weekdays, holidays and yearly
+  blackouts) decides its working days; only building tasks
+  (construction, installation, undefined) earn pay, not operation or
+  logistics; an element's own share with zero of the chosen kind stays
+  zero rather than borrowing the task's total; the labour-hours basis
+  uses the element's share hours before the task's; an item's cost on the
+  day is its bid item's shares, or its code's shares shared equally among
+  the items of that code, so a dollar is never counted twice; chart
+  tooltips escape their labels; Gantt rows are keyboard-focusable and
+  activate on Enter or Space, keeping focus across a redraw.
+- **Pages:** a selection with no host copies only when the clipboard
+  accepted it and otherwise offers the GlobalIds in a dialog; the takeoff's
+  "only items with a variance" keeps an item whose official quantity is
+  zero but whose modelled quantity is not.
+
 ## 0.1.105 — 2026-11-05
 
 ### Added

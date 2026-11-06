@@ -29,10 +29,25 @@ SPLIT_KEYS = {"labor": "Labor", "labour": "Labor", "material": "Material",
               "other": "Other", "overhead": "Other"}
 
 
+def split_of(record: dict) -> dict:
+    """The split a costs record carries: its top-level kind keys (``labor``,
+    ``material``, ...) and, as `read_costs` returns them, a ``categories``
+    mapping ({"Labor": 60, "Material": 40}); both forms add up. Kinds and
+    categories are matched without regard to case."""
+    out: dict = {}
+    for key, value in (record or {}).items():
+        if str(key).lower() in SPLIT_KEYS:
+            out[key] = value
+    for key, value in ((record or {}).get("categories") or {}).items():
+        if str(key).lower() in SPLIT_KEYS:
+            out[key] = value
+    return out
+
+
 def normalize_split(split) -> dict[str, Decimal]:
-    """{Category: amount} from an estimate split ({labor: "10.00", ...});
-    zero and missing kinds dropped; {} for no split. Raises on a key that is
-    no kind of cost."""
+    """{Category: amount} from an estimate split ({labor: "10.00", ...}) or
+    the reader's categories ({"Labor": 60.0, ...}); zero and missing kinds
+    dropped; {} for no split. Raises on a key that is no kind of cost."""
     out: dict[str, Decimal] = {}
     for key, value in (split or {}).items():
         cat = SPLIT_KEYS.get(str(key).lower())
@@ -68,17 +83,29 @@ def split_amount(total, split, *, scale_from=None) -> dict[str, Decimal]:
     return dict(zip(cats, apportion_cents(exact)))
 
 
+#: a split and its cost agree to the cent
+SPLIT_TOL = Decimal("0.005")
+
+
 def write_cost_values(model, cost_item, total, by_category: dict | None):
     """One IfcCostValue per category of `by_category` ({Category: amount},
     `split_amount`'s result) on `cost_item`, else one value of `total`.
-    Returns the values written."""
+
+    Categorising a cost never changes it: the kinds may add up to less than
+    `total`, and the balance is then written as one more value with no
+    Category (it reads back in `cost`, not in `categories`); kinds that add
+    up to more than `total` are refused. Returns the values written."""
     from ifcopenshell.api import cost
     values = []
-    parts = {c: a for c, a in (by_category or {}).items() if a}
+    parts = {c: Decimal(str(a)) for c, a in (by_category or {}).items() if a}
+    total = Decimal(str(total))
     if not parts:
         cv = cost.add_cost_value(model, parent=cost_item)
         cost.edit_cost_value(model, cv, attributes={"AppliedValue": float(total)})
         return [cv]
+    allotted = sum(parts.values(), Decimal(0))
+    if allotted > total + SPLIT_TOL:
+        raise ValueError(f"cost split {allotted} exceeds the cost {total}")
     for cat in CATEGORIES:
         if cat not in parts:
             continue
@@ -87,7 +114,26 @@ def write_cost_values(model, cost_item, total, by_category: dict | None):
             "AppliedValue": float(parts[cat]), "Category": cat,
             "Name": cat})
         values.append(cv)
+    balance = total - allotted
+    if balance > SPLIT_TOL:
+        cv = cost.add_cost_value(model, parent=cost_item)
+        cost.edit_cost_value(model, cv, attributes={
+            "AppliedValue": float(balance), "Name": "Unallocated"})
+        values.append(cv)
     return values
+
+
+def check_split(record: dict, where: str = "") -> None:
+    """Raise ValueError when a costs record's kinds add up to more than its
+    cost (`validate_costs` calls this at the file boundary)."""
+    split = normalize_split(split_of(record))
+    if not split:
+        return
+    cost = Decimal(str(record.get("cost", 0)))
+    allotted = sum(split.values(), Decimal(0))
+    if allotted > cost + SPLIT_TOL:
+        raise ValueError(f"{where}: the kinds of cost add up to {allotted}, "
+                         f"more than the cost {cost}")
 
 
 def _applied(cv) -> float:

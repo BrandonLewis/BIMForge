@@ -84,9 +84,14 @@
       return;
     }
     const text = ids.join("\n");
-    const done = function () { BF.toast("Copied " + ids.length + " GlobalId" + (ids.length === 1 ? "" : "s") + " (no host to select in)"); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, done);
-    else done();
+    const what = ids.length + " GlobalId" + (ids.length === 1 ? "" : "s");
+    const copied = function () { BF.toast("Copied " + what + " (no host to select in)"); };
+    const manual = function () {                            // no clipboard, or it refused
+      const r = window.prompt("No host to select in. Copy the " + what + ":", text);
+      BF.toast(r === null ? "Not copied" : "Copy the GlobalIds from the dialog");
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(copied, manual);
+    else manual();
   };
   BF.gotoDate = function (iso) {
     const host = window.bimforgeHost;

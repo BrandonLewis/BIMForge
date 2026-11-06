@@ -31,7 +31,11 @@
 
   function matches(r) {
     if (state.schedule && (r.schedule || "") !== state.schedule) return false;
-    if (state.onlyvar && !(r.variance_pct != null && Math.abs(r.variance_pct) > 0.5)) return false;
+    if (state.onlyvar) {
+      const has = r.variance_pct != null ? Math.abs(r.variance_pct) > 0.5
+        : (r.variance != null && Math.abs(r.variance) > 0);      // an official 0 has no %
+      if (!has) return false;
+    }
     if (!state.q) return true;
     const q = state.q.toLowerCase();
     if ([r.item_number, r.cost_code, r.description, r.unit].some(function (v) { return v && String(v).toLowerCase().includes(q); })) return true;

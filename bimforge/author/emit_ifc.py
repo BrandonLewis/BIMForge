@@ -1194,6 +1194,22 @@ def _assert_guid_uniqueness(model, *, scope: str = "", spatial_keys=()) -> None:
         note(op.guid_key, f"opening {op.name}")
     for asm_name in model.assemblies:
         note(f"assembly/{asm_name}", f"assembly {asm_name}")
+    # one named type is ONE IfcTypeObject: its GlobalId is keyed by class
+    # and name, so two predefined types under one name would be two type
+    # objects with one GlobalId. Refused here, before any write.
+    pdts: dict = {}
+    for el in model.elements:
+        if el.type_name:
+            pdts.setdefault((el.ifc_class, el.type_name), {}).setdefault(
+                el.predefined_type, []).append(el.name)
+    for (cls, name), by_pdt in sorted(pdts.items()):
+        if len(by_pdt) > 1:
+            detail = "; ".join(f"{p or 'none'}: {', '.join(sorted(n)[:3])}"
+                               for p, n in sorted(by_pdt.items(),
+                                                  key=lambda kv: str(kv[0])))
+            raise ValueError(
+                f"{model.name}: type {name!r} ({cls}Type) is given more than "
+                f"one predefined type ({detail}); one named type has one")
     for key, label in sorted({
             (_type_guid_key(f"{el.ifc_class}Type", el.type_name),
              f"type {el.type_name}")

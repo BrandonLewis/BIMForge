@@ -56,12 +56,20 @@ def validate_costs(costs) -> None:
                 raise ValueError(
                     f"costs['{code}']['unit_price'] must be a number or an "
                     f"object of item_number -> number")
-        from bimforge.bim.cost_categories import SPLIT_KEYS
-        for key in SPLIT_KEYS:
-            v = rec.get(key)
+        from bimforge.bim.cost_categories import (SPLIT_KEYS, check_split,
+                                                  split_of)
+        for key, v in split_of(rec).items():
             if v is not None and not _num(v):
                 raise ValueError(f"costs['{code}']['{key}'] must be a number "
                                  f"(the {key} part of the cost)")
+        cats = rec.get("categories")
+        if cats is not None:
+            if not isinstance(cats, dict) or any(
+                    str(k).lower() not in SPLIT_KEYS for k in cats):
+                raise ValueError(f"costs['{code}']['categories'] must map "
+                                 f"kinds of cost (Labor, Material, Equipment, "
+                                 f"Subcontract, Other) to numbers")
+        check_split(rec, f"costs['{code}']")
         cu = rec.get("unit")
         if cu is not None:
             ok = isinstance(cu, str) or (isinstance(cu, dict) and cu

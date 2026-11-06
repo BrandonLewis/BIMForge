@@ -1708,3 +1708,17 @@ def test_instance_parts_normalizes_each_kind():
     assert len(rods) == 2 and rods[0][0] == rods[1][0]
     assert rods[0][1] == (-5.0, 0, 0) and rods[0][2]["centres"] == [(5.0, 0.0, 0.0)]
     assert instance_parts({"kind": "mesh", "verts": [], "tris": []}) is None
+
+
+def test_one_named_type_has_one_predefined_type(tmp_path):
+    """A type's GlobalId is keyed by class and name, so two predefined types
+    under one name would be two IfcTypeObjects with one GlobalId: refused
+    before any write."""
+    ctx = ProjectContext(name="Types Fixture", epsg=2226, base_e=6_594_000.0,
+                         base_n=1_943_000.0, guid_ns=uuid.UUID(int=4244))
+    m = StructureModel("types", ctx)
+    m.add(Element("a", "IfcMember", predefined_type="POST", type_name="HSS 2x2"))
+    m.add(Element("b", "IfcMember", predefined_type="BRACE", type_name="HSS 2x2"))
+    with pytest.raises(ValueError, match="more than one predefined type"):
+        emit_ifc(m, str(tmp_path / "x.ifc"))
+    assert not (tmp_path / "x.ifc").exists()

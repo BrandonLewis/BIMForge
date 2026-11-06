@@ -76,7 +76,8 @@ tr.detail td { background: color-mix(in srgb, var(--accent) 4%, transparent); pa
 .gantt .scrub { stroke: var(--bad); stroke-width: 1.5; }
 .gantt .today { stroke: var(--warn); stroke-dasharray: 3 3; }
 .gantt .taskrow:hover .label { fill: var(--accent); }
-.gantt .taskrow { cursor: pointer; }
+.gantt .taskrow { cursor: pointer; outline: none; }
+.gantt .taskrow:focus-visible .label { fill: var(--accent); text-decoration: underline; }
 .gantt .taskrow.selected .label { font-weight: 600; fill: var(--accent); }
 .gantt .summary { fill: var(--muted); opacity: .5; }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }

@@ -152,6 +152,15 @@ def _takeoff(model, tmap: dict | None, official: dict | None) -> dict:
             if dim == "count" and e["quantity"] is None:
                 e["quantity"] = float(e.get("count") or 0)
             els.append(e)
+        # the row's pay quantity is the authority (a lump sum is 1 LS over
+        # any number of elements, `count_as` states the count): the
+        # elements' quantities are scaled to add up to it
+        have = sum(e["quantity"] or 0.0 for e in els)
+        if have > 0 and abs(have - (r["quantity"] or 0.0)) > 1e-9:
+            k = (r["quantity"] or 0.0) / have
+            for e in els:
+                if e["quantity"] is not None:
+                    e["quantity"] = round(e["quantity"] * k, 9)
         r["elements"] = els
         off = (official or {}).get(r.get("item_number") or "")
         r["official_quantity"] = (float(off["quantity"])
@@ -174,12 +183,18 @@ def _takeoff(model, tmap: dict | None, official: dict | None) -> dict:
         if price is None and est:
             price = est.get("unit_price")
         r["unit_price"] = float(price) if price is not None else None
+        # the bid total: the list's own amount; else its quantity at the
+        # price in force; else the estimate's amount (only when the list
+        # priced nothing); else the modelled quantity at that price
         total = (off or {}).get("total")
-        if total is None and est and est.get("total") is not None:
+        if total is None and r["unit_price"] is not None \
+                and r["official_quantity"] is not None:
+            total = r["official_quantity"] * r["unit_price"]
+        if total is None and est and est.get("total") is not None \
+                and (off or {}).get("unit_price") is None:
             total = est["total"]
         if total is None and r["unit_price"] is not None:
-            basis = r["official_quantity"]
-            total = (basis if basis is not None else r["quantity"]) * r["unit_price"]
+            total = r["quantity"] * r["unit_price"]
         r["bid_total"] = round(float(total), 2) if total is not None else None
         rows.append(r)
     unclassified = [el.GlobalId for el in model.by_type("IfcElement")
@@ -289,7 +304,14 @@ def build_bundle(ifc_path, tmap: dict | None = None,
 
     path = Path(ifc_path)
     model = ifcopenshell.open(str(path))
-    spans = element_spans(model)
+    # the 4D state, from the SELECTED schedule's tasks (another schedule on
+    # the same elements must not move them here)
+    tasks = None
+    if model.by_type("IfcWorkSchedule"):
+        from bimforge.bim.schedule_read import _schedule_tasks, _work_schedule
+        tasks = [t for t, _ in _schedule_tasks(_work_schedule(model,
+                                                              schedule_name))]
+    spans = element_spans(model, tasks)
     project = next(iter(model.by_type("IfcProject")), None)
     site = next(iter(model.by_type("IfcSite")), None)
     elements = _elements(model, spans)
