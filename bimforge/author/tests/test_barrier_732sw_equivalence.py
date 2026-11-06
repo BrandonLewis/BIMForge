@@ -34,15 +34,18 @@ def _agg(model):
 
 
 # params -> (count, Σcf, Σlf, Σwt) baselines from the byte-identical build.
+# The count includes each run's geometry-less WHOLES: the barrier run
+# ("NB 732sw barrier run") and, with a handrail, the handrail run; they
+# measure nothing, so cf / lf / wt are the baseline's.
 CASES = [
     ({"runs": [{"name": "NB", "straight_length_ft": 120.0}]},         # both ends + handrail
-     (111, 902.684022, 4279.121333, 4318.338502)),
+     (113, 902.684022, 4279.121333, 4318.338502)),
     ({"runs": [{"name": "NB", "straight_length_ft": 100.0, "handrail": False,
                 "approach_end_block": False, "departure_end_block": False}]},
-     (7, 745.828889, 3369.898133, 3472.418935)),
+     (8, 745.828889, 3369.898133, 3472.418935)),
     ({"runs": [{"name": "NB", "straight_length_ft": 90.0,
                 "sw_width_ft": 5.0}]},                                # Mod
-     (95, 602.852823, 3050.111467, 3117.733839)),
+     (97, 602.852823, 3050.111467, 3117.733839)),
 ]
 
 

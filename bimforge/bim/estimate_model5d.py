@@ -57,6 +57,9 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
+from bimforge.bim.cost_categories import (normalize_split, split_amount,
+                                          write_cost_values)
+
 import ifcopenshell
 import ifcopenshell.api.control as ctl
 import ifcopenshell.api.cost as cost
@@ -436,9 +439,12 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             child = cost.add_cost_item(model, cost_item=parent)
             cost.edit_cost_item(model, child, attributes={
                 "Name": label, "Identification": ident})
-            cv = cost.add_cost_value(model, parent=child)
-            cost.edit_cost_value(model, cv,
-                                 attributes={"AppliedValue": float(cents)})
+            # the share's money by kind, in the activity's own proportions
+            # (labour / material / equipment / subcontract / other): one
+            # IfcCostValue per kind, its Category naming the kind
+            split = normalize_split(act.get("cost_split"))
+            write_cost_values(model, child, cents, split_amount(
+                cents, split, scale_from=sum(split.values(), Decimal(0))))
             related = [t for t in (task_ent.get(akey),) if t is not None]
             target = by_element.get(share.get("element_id"))
             if target is not None:

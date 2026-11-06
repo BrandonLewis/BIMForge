@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Takeoff</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<header class="top"></header>
+<main>
+  <div class="tiles" id="tiles"></div>
+  <section class="panel">
+    <div class="toolbar">
+      <input type="search" id="filter" placeholder="Filter by item, code, description or element" size="40">
+      <select id="schedule"><option value="">All schedules</option></select>
+      <label><input type="checkbox" id="onlyvar"> Only items with a variance</label>
+      <span style="flex:1"></span>
+      <button id="expandall">Expand all</button>
+      <button id="csv">Download CSV</button>
+    </div>
+    <table id="items">
+      <thead><tr>
+        <th data-k="item_number">Item #</th>
+        <th data-k="cost_code">Cost code</th>
+        <th data-k="description">Bid item</th>
+        <th data-k="unit">Unit</th>
+        <th class="num" data-k="quantity">Modelled</th>
+        <th class="num" data-k="official_quantity">Official</th>
+        <th class="num" data-k="variance">Variance</th>
+        <th class="num" data-k="variance_pct">%</th>
+        <th class="num" data-k="n">Elements</th>
+        <th></th>
+      </tr></thead>
+      <tbody></tbody>
+      <tfoot></tfoot>
+    </table>
+    <p class="empty" id="empty" hidden>No pay items match.</p>
+  </section>
+  <section class="panel" id="unclassified" hidden>
+    <h2>Elements with no pay code</h2>
+    <p class="muted small">Modelled bodies or quantities that no bid item counts. Add a classification rule, or confirm they are reference geometry.</p>
+    <ul class="plain small" id="unclist"></ul>
+  </section>
+</main>
+<footer id="foot"></footer>
+<script src="data/bundle.js"></script>
+<script src="assets/shared.js"></script>
+<script src="assets/takeoff.js"></script>
+</body>
+</html>

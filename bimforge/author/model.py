@@ -66,6 +66,30 @@ class Element:
     #: Deterministic-GUID key; defaults to "element/<name>".
     guid_key: str | None = None
     predefined_type: str | None = None
+    #: IfcObject.ObjectType: the user-defined type name an importer shows
+    #: beside the class ("Type 842 concrete barrier"). Required by IFC when
+    #: predefined_type is USERDEFINED. A class the schema lacks overrides it
+    #: with the class it wanted (emit_ifc's fallback record).
+    object_type: str | None = None
+    #: The element TYPE this occurrence is of (IfcRelDefinesByType): one
+    #: IfcWallType / IfcRailingType / IfcMemberType ... per distinct
+    #: (class, type_name) in the file, named `type_name`, carrying the same
+    #: predefined type. A viewer groups occurrences by it (Revit: the family
+    #: type; FreeCAD and Bonsai: the type tree), so twenty posts read as one
+    #: kind of post. None = untyped, as before.
+    type_name: str | None = None
+    #: Property sets written on the product, {pset name: {property: value}}:
+    #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
+    #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
+    psets: dict = field(default_factory=dict)
+    #: The element this one is a PART of (IfcRelAggregates), by name: a
+    #: post or rail of a handrail run, an end block of a barrier run. The
+    #: part leaves the spatial container and hangs under its whole, which
+    #: is what a viewer's tree shows (and what Revit's category is read
+    #: from). The whole is an ordinary Element, usually geometry-less, that
+    #: carries the run's class and type (an IfcRailing/HANDRAIL). None = a
+    #: top-level element, contained in the spatial structure as before.
+    part_of: str | None = None
     #: Free-text estimator note (e.g. the spillway-pilot ogee reporting the sf of its
     #: expanded-polystyrene void). Carried on the model document; emitters
     #: that have a description slot may write it, others ignore it.
@@ -175,6 +199,14 @@ class StructureModel:
     #: outputs), "error" (a failure: outputs deleted) or "off". Warn is the
     #: default while existing families are brought up to solid bodies.
     solid_body_gate: str = "warn"
+    #: Write repeated identical bodies (twenty posts, twenty mortar pockets)
+    #: as ONE IfcRepresentationMap each, placed by IfcMappedItem, instead of
+    #: twenty copies of the solid (emit_ifc; a prism, box, rod or tube body
+    #: qualifies; anything else keeps its own solid). A viewer then knows the
+    #: parts are the same thing, and the file is smaller. Off by default so
+    #: an existing consumer's file is unchanged; the rail and barrier
+    #: families turn it on, and a spec may with `outputs.ifc_instancing`.
+    instancing: bool = False
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

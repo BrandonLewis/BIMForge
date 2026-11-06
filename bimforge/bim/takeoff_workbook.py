@@ -330,9 +330,23 @@ def load_official(path: str | None) -> dict[str, dict]:
         except (TypeError, ValueError):
             raise ValueError(f"{path}: item {it['item_number']}: quantity "
                              f"{qty!r} is not a number") from None
-        out[str(it["item_number"])] = {
+        entry = {
             "quantity": qty, "description": it.get("description") or "",
             "unit": it.get("unit") or it.get("pay_unit") or ""}
+        # a priced bid list carries the unit price and the amount too; the
+        # web pages earn pay with them (the workbook ignores them)
+        for key, src in (("unit_price", ("unit_price", "price")),
+                         ("total", ("total", "amount", "extended"))):
+            for k in src:
+                v = it.get(k)
+                if v not in (None, ""):
+                    try:
+                        entry[key] = float(v)
+                    except (TypeError, ValueError):
+                        raise ValueError(f"{path}: item {it['item_number']}: "
+                                         f"{k} {v!r} is not a number") from None
+                    break
+        out[str(it["item_number"])] = entry
     return out
 
 

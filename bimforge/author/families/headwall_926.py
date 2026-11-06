@@ -158,7 +158,9 @@ def build(params: dict, ctx) -> StructureModel:
         r_out_poly = equal_area_polygon_radius(r_out, segs)
         r_in_poly = equal_area_polygon_radius(r_out - wall_t_rail, segs)
         m.add(Element(
-            "guardrail", "IfcRailing",
+            "guardrail", "IfcRailing", predefined_type="GUARDRAIL",
+            type_name="Pipe guardrail (D90 headwall)",
+            psets={"Pset_RailingCommon": {"Reference": "D90"}},
             geometry=[{"kind": "tube", "units": "ft", "x0": -hw_w / 2,
                        "length": hw_w, "cz": post_h, "r_outer": r_out,
                        "wall": wall_t_rail, "axis": "x"}] + [

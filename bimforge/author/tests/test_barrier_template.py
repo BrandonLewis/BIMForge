@@ -68,7 +68,8 @@ def test_running_prism_lf_accounts_for_end_blocks():
               seen.append((kind, pos)) or [])
     m = build_barrier(t, {"runs": [{"name": "R",
                           "straight_length_ft": 100.0}]}, _ctx())
-    prism = [e for e in m.elements if "fake barrier" in e.name][0]
+    prism = [e for e in m.elements if "fake barrier" in e.name
+             and e.geometry is not None][0]
     assert prism.quantities["length_ft"] == pytest.approx(94.0)
     assert set(seen) == {("approach", "start"), ("departure", "end")}
 

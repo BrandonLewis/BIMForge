@@ -31,6 +31,12 @@ class BarrierTemplate:
     extras_fn: Optional[Callable] = None     # (name, run, section, length) -> list[Element]
     default_run_name: str = "barrier"
     endblock_rings_fn: Optional[Callable] = None   # (run, section, kind) -> (inboard_ring, nose_ring)
+    #: The standard plan the barrier is built to (Pset_WallCommon.Reference).
+    standard_plan: str = ""
+    #: IfcWall.PredefinedType of the barrier and its end blocks. PARAPET is
+    #: IFC's "wall-like barrier to protect human or vehicle from falling ...
+    #: along edges of bridges": the bridge-rail and wall-top barriers.
+    predefined_type: str = "PARAPET"
 
 
 def bar_elements(sname: str, label: str, bars: list) -> list:
@@ -65,6 +71,48 @@ def end_kinds(run) -> tuple[str, str]:
     return start, end
 
 
+def run_type_name(tmpl: BarrierTemplate) -> str:
+    """The IfcWallType name of a barrier family: "Concrete barrier Type 842"."""
+    return f"Concrete barrier Type {tmpl.label.upper()}"
+
+
+def begin_run(tmpl: BarrierTemplate, model: StructureModel, name: str) -> int:
+    """Open one run: add its WHOLE, a geometry-less IfcWall (the family's
+    predefined type) named ``"<run> <label> barrier run"`` and typed as the
+    family, and return the element index the run's parts start at (for
+    `end_run`). The whole measures and pays nothing (`paycodes.apply` skips
+    it); it is what a viewer's tree and an IDS check see as THE barrier."""
+    whole = Element(f"{name} {tmpl.label} barrier run", "IfcWall",
+                    predefined_type=tmpl.predefined_type,
+                    type_name=run_type_name(tmpl), layer="S-CONC",
+                    psets=({"Pset_WallCommon": {"Reference": tmpl.standard_plan}}
+                           if tmpl.standard_plan else {}),
+                    description=f"Concrete barrier Type {tmpl.label.upper()}"
+                                + (f" ({tmpl.standard_plan})"
+                                   if tmpl.standard_plan else "")
+                                + ": the run; its barrier, end blocks, "
+                                  "reinforcing and hardware are its parts")
+    model.add(whole)
+    return len(model.elements)
+
+
+def end_run(tmpl: BarrierTemplate, model: StructureModel, start: int) -> None:
+    """Close the run opened by `begin_run`: every element added since is a
+    part of the whole (unless it is already part of something, e.g. a
+    hosted handrail's parts, whose own whole then becomes a part of the
+    run), and every concrete body (IfcWall) of the run carries the family's
+    predefined type and wall type."""
+    whole = model.elements[start - 1]
+    for el in model.elements[start:]:
+        if el.part_of is None:
+            el.part_of = whole.name
+        if el.ifc_class == "IfcWall":
+            if el.predefined_type is None:
+                el.predefined_type = tmpl.predefined_type
+            if el.type_name is None:
+                el.type_name = run_type_name(tmpl)
+
+
 def build_barrier(tmpl: BarrierTemplate, params: dict, ctx) -> StructureModel:
     """Assemble one barrier family's straight runs from a BarrierTemplate.
 
@@ -77,6 +125,7 @@ def build_barrier(tmpl: BarrierTemplate, params: dict, ctx) -> StructureModel:
     if not runs:
         raise ValueError(f"{tmpl.family_id}: params.runs is required")
     model = StructureModel(tmpl.family_id, ctx)
+    model.instancing = True            # a hosted handrail's posts, hardware
     for run in runs:
         name = run.get("name", tmpl.default_run_name)
         if "on" in run:
@@ -103,6 +152,7 @@ def build_barrier(tmpl: BarrierTemplate, params: dict, ctx) -> StructureModel:
                              f"for {n_blocks} end block(s) "
                              f"(needs >= {tmpl.endblock_len_ft * n_blocks + 2.0})")
         section = tmpl.section_fn(run)
+        start = begin_run(tmpl, model, name)
         y0 = tmpl.endblock_len_ft if start_kind != "none" else 0.0
         sp = SectionPrism(f"{name} {tmpl.label} barrier", section.outline,
                           run_len, y0=y0, ifc="IfcWall", layer="S-CONC")
@@ -124,6 +174,7 @@ def build_barrier(tmpl: BarrierTemplate, params: dict, ctx) -> StructureModel:
         if tmpl.extras_fn:
             for el in tmpl.extras_fn(name, run, section, length):
                 model.add(el)
+        end_run(tmpl, model, start)
     return model
 
 
@@ -171,6 +222,7 @@ def _build_curved_run(tmpl: BarrierTemplate, run: dict, name: str,
                          f"{n_blocks} end block(s)")
     section = tmpl.section_fn(run)
     run_len = s1 - s0
+    start = begin_run(tmpl, model, name)
     prism = _curved.build_running_prism(
         f"{name} {tmpl.label} barrier", section.outline, align, s0, s1,
         ifc="IfcWall", layer="S-CONC")
@@ -182,6 +234,7 @@ def _build_curved_run(tmpl: BarrierTemplate, run: dict, name: str,
     if tmpl.extras_fn:
         for el in tmpl.extras_fn(name, run, section, length):
             model.add(el)
+    end_run(tmpl, model, start)
 
 
 def _geomless(e) -> bool:
@@ -362,6 +415,7 @@ def _build_on_alignment_run(tmpl: BarrierTemplate, run: dict, name: str,
         raise ValueError(f"{name}: {length:.2f} ft along the face is too short "
                          f"for {n_blocks} end block(s)")
     section = tmpl.section_fn(run)
+    start = begin_run(tmpl, model, name)
     model.add(_curved.build_running_prism(
         f"{name} {tmpl.label} barrier", place(section.outline), al, s0, s1,
         ifc="IfcWall", layer="S-CONC", profile=profile, origin=ctx,
@@ -395,3 +449,4 @@ def _build_on_alignment_run(tmpl: BarrierTemplate, run: dict, name: str,
     if tmpl.extras_fn:
         for el in tmpl.extras_fn(name, run, section, length):
             model.add(el)
+    end_run(tmpl, model, start)

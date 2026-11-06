@@ -1,0 +1,420 @@
+"""bimforge.web.contract: the bundle behind the pages."""
+from __future__ import annotations
+
+import json
+import uuid
+
+import pytest
+
+ifcopenshell = pytest.importorskip("ifcopenshell")
+
+from bimforge.author.emit_ifc import emit_ifc  # noqa: E402
+from bimforge.author.model import Element, StructureModel  # noqa: E402
+from bimforge.author.paycodes import apply as pc_apply, from_dict  # noqa: E402
+from bimforge.author.primitives import Prism  # noqa: E402
+from bimforge.author.project import ProjectContext  # noqa: E402
+from bimforge.bim import cost5d  # noqa: E402
+from bimforge.bim.schedule4d import embed_schedule  # noqa: E402
+from bimforge.bim.schedule_model import CanonicalSchedule, ScheduleTask  # noqa: E402
+from bimforge.web import CONTRACT, build_bundle, validate_bundle, write_site  # noqa: E402
+from bimforge.web.contract import dump_bundle  # noqa: E402
+
+PC = from_dict({
+    "rules": [{"match": "(?i)footing", "group": "ftg"},
+              {"match": "(?i)wall", "group": "wall"},
+              {"match": "(?i)post", "group": "post"}],
+    "groups": {"ftg": {"measure": "GrossVolume"},
+               "wall": {"measure": "GrossVolume"},
+               "post": {"measure": "Count"}},
+    "codes": {"F-CONC": {"group": "ftg", "measure": "GrossVolume", "unit": "CY",
+                         "item_number": "0010", "description": "Footing concrete"},
+              "W-CONC": {"group": "wall", "measure": "GrossVolume", "unit": "CY",
+                         "item_number": "0020", "description": "Wall concrete"},
+              "POSTS": {"group": "post", "measure": "Count", "unit": "EA",
+                        "item_number": "0030", "description": "Posts"}},
+})
+TMAP = {"organization_id": 7, "project_ref": "web-fixture",
+        "codes": {"F-CONC": {"measure": "GrossVolume", "unit": "CY",
+                             "item_number": "0010",
+                             "description": "Footing concrete"},
+                  "W-CONC": {"measure": "GrossVolume", "unit": "CY",
+                             "item_number": "0020",
+                             "description": "Wall concrete"},
+                  "POSTS": {"measure": "Count", "unit": "EA",
+                            "item_number": "0030", "description": "Posts"}}}
+OFFICIAL = {"0010": {"quantity": 50.0, "description": "Footing concrete",
+                     "unit": "CY"},
+            "0020": {"quantity": 30.0, "description": "Wall concrete",
+                     "unit": "CY"}}
+COSTS = {"F-CONC": {"cost": 12000.0, "labor_hours": 300.0,
+                    "labor": 7000.0, "material": 5000.0},
+         "W-CONC": {"cost": 9000.0, "labor_hours": 200.0,
+                    "labor": 5000.0, "material": 3000.0, "equipment": 1000.0},
+         "POSTS": {"cost": 1500.0, "labor_hours": 40.0, "material": 1500.0}}
+
+
+def _model():
+    ctx = ProjectContext(name="Web Fixture", epsg=2226, base_e=6_594_000.0,
+                         base_n=1_943_000.0, base_h=200.0,
+                         guid_ns=uuid.UUID(int=8080))
+    m = StructureModel("web", ctx)
+    for i, x in enumerate((0.0, 40.0), start=1):
+        p = Prism(f"Abut {i} footing", [(-5, -10), (5, -10), (5, 10), (-5, 10)],
+                  z_bot=0.0, z_top=3.0, ifc="IfcFooting")
+        m.add(Element.from_geometry(p.name, p, ifc_class="IfcFooting", x_ft=x,
+                                    material="Concrete"))
+        w = Prism(f"Abut {i} wall", [(-1.5, -10), (1.5, -10), (1.5, 10), (-1.5, 10)],
+                  z_bot=3.0, z_top=15.0, ifc="IfcWall")
+        m.add(Element.from_geometry(w.name, w, ifc_class="IfcWall", x_ft=x,
+                                    material="Concrete", type_name="Stem wall"))
+    m.add(Element("Rail run", "IfcRailing", predefined_type="HANDRAIL",
+                  type_name="Rail"))
+    for i in range(3):
+        p = Prism(f"Rail post {i + 1}", [(-0.1 + 10 * i, 10), (0.1 + 10 * i, 10),
+                                         (0.1 + 10 * i, 10.2), (-0.1 + 10 * i, 10.2)],
+                  z_bot=15.0, z_top=16.4, ifc="IfcMember")
+        m.add(Element.from_geometry(p.name, p, ifc_class="IfcMember",
+                                    predefined_type="POST", type_name="Post",
+                                    part_of="Rail run",
+                                    quantities={"count": 1}))
+    m.add(Element("Existing ground", "IfcGeographicElement",
+                  predefined_type="TERRAIN", classifications=[],
+                  geometry={"kind": "mesh", "units": "ft",
+                            "verts": [(0, 0, -1), (50, 0, -1), (0, 30, -1.5),
+                                      (50, 30, -1.5)],
+                            "tris": [(0, 1, 2), (1, 3, 2)]}))
+    pc_apply(m, PC)
+    return m
+
+
+def _schedule():
+    return CanonicalSchedule(name="Stage 1", start_date="2027-03-01", tasks=[
+        ScheduleTask(id="t1", name="Footings", wbs="1", start="2027-03-01",
+                     finish="2027-03-12", match_ifc_class="IfcFooting",
+                     bid_item_codes=["F-CONC"]),
+        ScheduleTask(id="t2", name="Walls", wbs="2", start="2027-03-15",
+                     finish="2027-04-09", match_name_re="wall$",
+                     bid_item_codes=["W-CONC"]),
+        ScheduleTask(id="t3", name="Rail", wbs="3", start="2027-04-12",
+                     finish="2027-04-16", match_ifc_class="IfcMember",
+                     bid_item_codes=["POSTS"]),
+        ScheduleTask(id="t4", name="Open to traffic", wbs="4",
+                     start="2027-04-30", finish="2027-04-30",
+                     is_milestone=True),
+    ])
+
+
+def _ifc(tmp_path, with_4d=True, with_5d=True):
+    out = tmp_path / "web.ifc"
+    emit_ifc(_model(), str(out), PC)
+    if with_4d:
+        f = ifcopenshell.open(str(out))
+        embed_schedule(f, _schedule())
+        if with_5d:
+            cost5d.embed_cost_and_resources(f, _schedule(), COSTS,
+                                            schedule_name="Stage 1")
+        f.write(str(out))
+    return out
+
+
+def test_bundle_shape_and_links(tmp_path):
+    ifc = _ifc(tmp_path)
+    b = build_bundle(ifc, TMAP, OFFICIAL)
+    assert b["contract"] == CONTRACT
+    assert b["model"]["file"] == "web.ifc"
+    assert b["model"]["schema"].startswith("IFC4X3")
+    assert b["model"]["project"] == "Web Fixture"
+    els = b["elements"]
+    posts = [e for e in els.values() if e["name"].startswith("Rail post")]
+    assert len(posts) == 3
+    run = next(e for e in els.values() if e["name"] == "Rail run")
+    assert run["predefined_type"] == "HANDRAIL" and run["type"] == "Rail"
+    assert all(p["whole"] == next(g for g, e in els.items() if e is run)
+               for p in posts)
+    assert len(run["parts"]) == 3
+    assert posts[0]["predefined_type"] == "POST"      # through the type
+    ftg = next(e for e in els.values() if e["name"] == "Abut 1 footing")
+    assert ftg["codes"] == ["F-CONC"]
+    assert ftg["qto"]["GrossVolume"] == pytest.approx(          # 10 x 20 x 3
+        600 * (0.3048006096 ** 3), rel=1e-6)
+    assert ftg["appear"] == "2027-03-01" and ftg["vanish"] is None
+    assert ftg["tasks"] == ["Footings"]
+    # takeoff rows carry per-element quantities in the row's unit and the
+    # official quantity with its variance
+    rows = {r["cost_code"]: r for r in b["takeoff"]["rows"]}
+    assert set(rows) == {"F-CONC", "W-CONC", "POSTS"}
+    f = rows["F-CONC"]
+    assert f["unit"] == "CY" and f["item_number"] == "0010"
+    assert f["quantity"] == pytest.approx(2 * 600 / 27.0, rel=1e-4)   # survey ft -> CY
+    assert f["official_quantity"] == 50.0
+    assert f["variance"] == pytest.approx(f["quantity"] - 50.0)
+    assert f["variance_pct"] == pytest.approx(100 * f["variance"] / 50.0, abs=0.01)
+    assert sum(e["quantity"] for e in f["elements"]) == pytest.approx(
+        f["quantity"], abs=1e-3)                     # each rounded to 4 dp
+    assert rows["POSTS"]["quantity"] == 3
+    assert rows["POSTS"]["official_quantity"] is None
+    assert rows["POSTS"]["variance"] is None
+    ground = next(g for g, e in els.items() if e["name"] == "Existing ground")
+    assert b["takeoff"]["unclassified"] == [ground]
+    # schedule and its element links
+    s = b["schedule"]
+    assert s["name"] == "Stage 1"
+    assert [t["id"] for t in s["tasks"]] == ["t1", "t2", "t3", "t4"]
+    assert s["tasks"][3]["is_milestone"] is True
+    assert len(s["task_elements"]["t1"]) == 2
+    assert len(s["task_elements"]["t3"]) == 3
+    assert s["task_elements"].get("t4", []) == []
+    # costs by task
+    c = b["costs"]
+    assert c["tasks"]["t1"]["cost"] == pytest.approx(12000.0)
+    assert c["tasks"]["t1"]["labor_hours"] == pytest.approx(300.0)
+    assert set(c["costs"]) == {"F-CONC", "W-CONC", "POSTS"}
+
+
+def test_bundle_without_4d_or_5d(tmp_path):
+    ifc = _ifc(tmp_path, with_4d=False)
+    b = build_bundle(ifc, TMAP)
+    assert b["schedule"] is None and b["costs"] is None
+    assert all(e["appear"] is None for e in b["elements"].values())
+    assert b["takeoff"]["rows"][0]["official_quantity"] is None
+    ifc4d = _ifc(tmp_path, with_5d=False)
+    b = build_bundle(ifc4d, TMAP)
+    assert b["schedule"] is not None and b["costs"] is None
+
+
+def test_bundle_without_a_map_uses_natural_units(tmp_path):
+    ifc = _ifc(tmp_path, with_4d=False)
+    b = build_bundle(ifc)
+    rows = {r["cost_code"]: r for r in b["takeoff"]["rows"]}
+    assert rows["F-CONC"]["unit"]                    # a natural unit
+    assert rows["F-CONC"]["item_number"] is None
+    assert rows["F-CONC"]["official_quantity"] is None
+    assert any("no map entry" in w for w in b["takeoff"]["warnings"])
+
+
+def test_bundle_is_deterministic_and_validates(tmp_path):
+    # (one file read twice: the schedule embed mints its own task GlobalIds,
+    # so two embeds are two files; the bundle of ONE file never moves)
+    ifc = _ifc(tmp_path)
+    a = dump_bundle(build_bundle(ifc, TMAP, OFFICIAL))
+    b = dump_bundle(build_bundle(ifc, TMAP, OFFICIAL))
+    assert a == b
+    assert "generated" not in a and "timestamp" not in a
+    doc = json.loads(a)
+    validate_bundle(doc)
+    doc["contract"] = "bimforge-web/2"
+    with pytest.raises(ValueError, match="not a bimforge-web/1"):
+        validate_bundle(doc)
+    doc = json.loads(a)
+    doc["takeoff"]["rows"][0]["elements"][0]["global_id"] = "nope"
+    with pytest.raises(ValueError, match="lacks"):
+        validate_bundle(doc)
+
+
+def test_write_site_lays_out_pages_and_bundle(tmp_path):
+    b = build_bundle(_ifc(tmp_path), TMAP, OFFICIAL)
+    index = write_site(b, tmp_path / "site")
+    site = tmp_path / "site"
+    assert index == site / "index.html"
+    for page in ("index.html", "takeoff.html", "dashboard.html"):
+        text = (site / page).read_text(encoding="utf-8")
+        assert "data/bundle.js" in text and "assets/shared.js" in text
+    for asset in ("app.css", "shared.js", "takeoff.js", "dashboard.js"):
+        assert (site / "assets" / asset).exists()
+    js = (site / "data" / "bundle.js").read_text(encoding="utf-8")
+    assert js.startswith("// generated by bimforge")
+    assert "window.BIMFORGE_BUNDLE = {" in js
+    again = json.loads((site / "data" / "bundle.json").read_text(encoding="utf-8"))
+    assert again == b
+    # the JS payload is the JSON payload
+    assert js.split("= ", 1)[1].rstrip().rstrip(";") == \
+        (site / "data" / "bundle.json").read_text(encoding="utf-8").rstrip()
+
+
+def test_cli_web_writes_a_site(tmp_path, capsys):
+    import yaml
+
+    from bimforge.bim.cli import main
+    ifc = _ifc(tmp_path)
+    tmap = tmp_path / "map.yaml"
+    tmap.write_text(yaml.safe_dump(TMAP), encoding="utf-8")
+    official = tmp_path / "bid.json"
+    official.write_text(json.dumps([{"item_number": "0010", "quantity": 50.0}]),
+                        encoding="utf-8")
+    out = tmp_path / "site"
+    rc = main(["web", "--ifc", str(ifc), "--map", str(tmap),
+               "--official", str(official), "--out", str(out)])
+    assert rc == 0
+    assert (out / "dashboard.html").exists()
+    doc = json.loads((out / "data" / "bundle.json").read_text(encoding="utf-8"))
+    assert doc["takeoff"]["rows"][0]["official_quantity"] == 50.0
+    printed = capsys.readouterr().out
+    assert "site written" in printed and "3 pay items" in printed
+
+
+# --------------------------------------------- the pay follows the work
+def test_rows_carry_prices_from_the_bid_list_and_shares_from_the_5d(tmp_path):
+    ifc = _ifc(tmp_path)
+    official = dict(OFFICIAL)
+    official["0010"] = dict(OFFICIAL["0010"], unit_price=800.0)
+    official["0020"] = dict(OFFICIAL["0020"], unit_price=950.0, total=28500.0)
+    b = build_bundle(ifc, TMAP, official)
+    rows = {r["cost_code"]: r for r in b["takeoff"]["rows"]}
+    assert rows["F-CONC"]["unit_price"] == 800.0
+    assert rows["F-CONC"]["bid_total"] == 50.0 * 800.0       # official qty x price
+    assert rows["W-CONC"]["bid_total"] == 28500.0            # the list's amount
+    assert rows["POSTS"]["unit_price"] is None and rows["POSTS"]["bid_total"] is None
+    # cost5d shares: one per task x code, task-level (no element)
+    sh = b["costs"]["shares"]
+    assert {(s["task"], s["code"]) for s in sh} == {("t1", "F-CONC"), ("t2", "W-CONC"), ("t3", "POSTS")}
+    assert all(s["element"] is None and s["item_number"] is None for s in sh)
+    assert next(s for s in sh if s["task"] == "t1")["cost"] == 12000.0
+    assert next(s for s in sh if s["task"] == "t1")["labor_hours"] == 300.0
+
+
+def test_estimate_shares_name_the_element_item_and_price(tmp_path):
+    """estimate_model5d: the bid item's unit price comes from the IFC, and
+    each share names the element the activity builds and its bid item."""
+    from bimforge.bim.tests.test_estimate_model5d import (_ifc as _est_ifc,
+                                                           _model_json)
+    from bimforge.bim.estimate_model5d import embed_estimate_model
+    f, site, ftg, wall = _est_ifc()
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    out = tmp_path / "est.ifc"
+    f.write(str(out))
+    b = build_bundle(out, {"codes": {"51-CONC": {"measure": "GrossVolume",
+                                                 "unit": "CY",
+                                                 "item_number": "10"}}})
+    sh = b["costs"]["shares"]
+    assert sh, b["costs"]
+    by_el = {s["element"]: s for s in sh if s["element"]}
+    assert ftg.GlobalId in by_el and wall.GlobalId in by_el
+    assert by_el[ftg.GlobalId]["item_number"] == "10"
+    assert by_el[ftg.GlobalId]["task"] == "a1"
+    assert by_el[ftg.GlobalId]["cost"] == pytest.approx(10.0, abs=0.01)
+    assert by_el[ftg.GlobalId]["labor_hours"] == pytest.approx(20.0)
+    # the row for the code the item carries gets the IFC's unit price
+    rows = {r["cost_code"]: r for r in b["takeoff"]["rows"]}
+    # (the fixture's elements carry no quantities, so no row sums; the
+    # price lookup itself is what _bid_items gives)
+    from bimforge.web.contract import _bid_items
+    import ifcopenshell
+    items = _bid_items(ifcopenshell.open(str(out)))
+    assert items["10"]["unit_price"] == 1.0 and items["10"]["code"] == "51-CONC"
+    assert items["20"]["total"] == 500.0
+    assert rows == {} or rows["51-CONC"]["unit_price"] == 1.0
+
+
+def test_shares_and_tasks_carry_the_kind_of_cost(tmp_path):
+    """cost5d writes one IfcCostValue per kind (labor / material /
+    equipment) with its Category; the bundle reads them back on the task
+    and on each share, summing to the task's cost."""
+    b = build_bundle(_ifc(tmp_path), TMAP, OFFICIAL)
+    t1 = b["costs"]["tasks"]["t1"]
+    assert t1["cost"] == pytest.approx(12000.0)
+    assert t1["categories"] == {"Labor": 7000.0, "Material": 5000.0}
+    assert t1["costs"]["F-CONC"]["categories"] == {"Labor": 7000.0,
+                                                   "Material": 5000.0}
+    t2 = b["costs"]["tasks"]["t2"]
+    assert t2["categories"] == {"Labor": 5000.0, "Material": 3000.0,
+                                "Equipment": 1000.0}
+    assert b["costs"]["costs"]["POSTS"]["categories"] == {"Material": 1500.0}
+    sh = {s["task"]: s for s in b["costs"]["shares"]}
+    assert sh["t1"]["categories"] == {"Labor": 7000.0, "Material": 5000.0}
+    assert sum(sh["t2"]["categories"].values()) == pytest.approx(sh["t2"]["cost"])
+
+
+def test_estimate_shares_split_the_activity_by_kind(tmp_path):
+    """estimate_model5d: each element's share of an activity is split in
+    the activity's own labour / material / ... proportions."""
+    from bimforge.bim.tests.test_estimate_model5d import (_ifc as _est_ifc,
+                                                           _model_json)
+    from bimforge.bim.estimate_model5d import embed_estimate_model
+    f, site, ftg, wall = _est_ifc()
+    doc = _model_json(ftg.GlobalId, wall.GlobalId)
+    doc["activities"][0]["cost_split"] = {"labor": "6.004", "material": "4.000"}
+    embed_estimate_model(f, doc)
+    out = tmp_path / "est.ifc"
+    f.write(str(out))
+    b = build_bundle(out)
+    by_el = {s["element"]: s for s in b["costs"]["shares"] if s["element"]}
+    ftg_share = by_el[ftg.GlobalId]
+    assert ftg_share["cost"] == pytest.approx(10.0, abs=0.01)
+    cats = ftg_share["categories"]
+    assert set(cats) == {"Labor", "Material"}
+    assert sum(cats.values()) == pytest.approx(ftg_share["cost"], abs=0.005)
+    assert cats["Labor"] == pytest.approx(6.0, abs=0.01)
+    wall_share = by_el[wall.GlobalId]                 # a2: labour only
+    assert wall_share["categories"] == {"Labor": wall_share["cost"]}
+    a3 = [s for s in b["costs"]["shares"] if s["task"] == "a3"]   # "other"
+    assert a3 and a3[0]["categories"] == {"Other": a3[0]["cost"]}
+
+
+def test_element_quantities_add_up_to_the_rows_pay_quantity(tmp_path):
+    """A lump sum over three elements is 1 LS: the elements' quantities are
+    scaled to the row's, so the dashboard earns the item once."""
+    tmap = {"codes": dict(TMAP["codes"], POSTS={"measure": "Count",
+                                                "unit": "LS",
+                                                "item_number": "0030"})}
+    b = build_bundle(_ifc(tmp_path, with_4d=False), tmap)
+    row = next(r for r in b["takeoff"]["rows"] if r["cost_code"] == "POSTS")
+    assert row["unit"] == "LS" and row["quantity"] == 1
+    assert sum(e["quantity"] for e in row["elements"]) == pytest.approx(1.0)
+    assert len(row["elements"]) == 3
+
+
+def test_bid_total_follows_the_bid_lists_quantity_and_price(tmp_path):
+    """With a priced bid list that gives quantity and price but no amount,
+    the total is quantity x price, never the estimate's stale amount."""
+    from bimforge.bim.tests.test_estimate_model5d import (_ifc as _est_ifc,
+                                                           _model_json)
+    from bimforge.bim.estimate_model5d import embed_estimate_model
+    f, site, ftg, wall = _est_ifc()
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    out = tmp_path / "est.ifc"
+    f.write(str(out))
+    # the estimate prices item 10 at $1.00 x 20 = $20.01; the bid list
+    # re-prices it: 25 at $3
+    import ifcopenshell.api.pset as pset_api
+    import ifcopenshell.api.root as root
+    (ftg_el,) = [e for e in f.by_type("IfcFooting")]
+    tmap = {"codes": {"51-CONC": {"measure": "Count", "unit": "EA",
+                                  "item_number": "10"}}}
+    # give the footing a code and a Count so a row exists
+    import ifcopenshell.api.classification as cls_api
+    from bimforge.bim.cost5d import _classification, _code_reference
+    _code_reference(f, ftg_el, "51-CONC", _classification(f))
+    qto = pset_api.add_qto(f, product=ftg_el, name="Qto_FootingBaseQuantities")
+    pset_api.edit_qto(f, qto=qto, properties={"Count": 1})
+    f.write(str(out))
+    b = build_bundle(out, tmap, {"10": {"quantity": 25.0, "unit_price": 3.0,
+                                        "description": "x", "unit": "EA"}})
+    (row,) = b["takeoff"]["rows"]
+    assert row["unit_price"] == 3.0
+    assert row["bid_total"] == 75.0
+    # with no list price, the estimate's own amount stands
+    b = build_bundle(out, tmap)
+    (row,) = b["takeoff"]["rows"]
+    assert row["unit_price"] == 1.0 and row["bid_total"] == pytest.approx(20.01)
+
+
+def test_spans_come_from_the_selected_schedule(tmp_path):
+    """Two schedules on the same elements: --schedule picks whose dates the
+    elements appear on."""
+    out = tmp_path / "two.ifc"
+    emit_ifc(_model(), str(out), PC)
+    f = ifcopenshell.open(str(out))
+    embed_schedule(f, _schedule())
+    alt = CanonicalSchedule(name="Alt", start_date="2026-01-04", tasks=[
+        ScheduleTask(id="x1", name="Early footings", wbs="1",
+                     start="2026-01-04", finish="2026-01-08",
+                     match_ifc_class="IfcFooting")])
+    embed_schedule(f, alt)
+    f.write(str(out))
+    b = build_bundle(out, TMAP, schedule_name="Stage 1")
+    ftg = next(e for e in b["elements"].values() if e["name"] == "Abut 1 footing")
+    assert ftg["appear"] == "2027-03-01" and ftg["tasks"] == ["Footings"]
+    b = build_bundle(out, TMAP, schedule_name="Alt")
+    ftg = next(e for e in b["elements"].values() if e["name"] == "Abut 1 footing")
+    assert ftg["appear"] == "2026-01-04" and ftg["tasks"] == ["Early footings"]
+    assert b["schedule"]["name"] == "Alt"

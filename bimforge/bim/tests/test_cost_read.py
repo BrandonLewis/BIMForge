@@ -176,3 +176,93 @@ def test_models_with_the_old_pset_names_still_read():
                 for t in read_schedule(m).to_dict()["tasks"]]
     assert tasks(old) == tasks(new)
     assert [t["wbs"] for t in tasks(old)] == ["1", "2", "3"]
+
+
+def test_kinds_of_cost_round_trip_and_sum_to_the_cost():
+    """A costs record's labor / material / equipment parts are written as
+    categorised IfcCostValues and read back per task and per code; a code
+    with no split reads {} and keeps its single value."""
+    from bimforge.bim.cost_categories import categories_of, total_of
+    costs = {"A": {"cost": 10000.0, "labor_hours": 400.0,
+                   "labor": 6000.0, "material": 3000.0, "equipment": 1000.0},
+             "B": {"cost": 2500.0, "labor_hours": None, "subcontract": 2500.0},
+             "C": {"cost": 900.0, "labor_hours": 30.0}}
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    root.create_entity(f, ifc_class="IfcProject")
+    embed_schedule(f, _sched())
+    cost5d.embed_cost_and_resources(f, _sched(), costs, schedule_name="S")
+    for ci in f.by_type("IfcCostItem"):
+        cats = categories_of(ci)
+        assert sum(cats.values()) == pytest.approx(total_of(ci), abs=0.005) \
+            or not cats
+        for cv in ci.CostValues:
+            assert (cv.Category in cats) if cats else cv.Category is None
+    got = read_costs(f)
+    assert got["costs"]["A"]["categories"] == pytest.approx(
+        {"Labor": 6000.0, "Material": 3000.0, "Equipment": 1000.0})
+    assert got["costs"]["B"]["categories"] == {"Subcontract": 2500.0}
+    assert got["costs"]["C"]["categories"] == {}
+    # task t1 carries A and B: its kinds are the sum of its parts of each
+    t1 = got["tasks"]["t1"]
+    assert sum(t1["categories"].values()) == pytest.approx(
+        t1["cost"] - t1["costs"].get("C", {"cost": 0.0})["cost"])
+    for code, rec in t1["costs"].items():
+        if rec["categories"]:
+            assert sum(rec["categories"].values()) == pytest.approx(rec["cost"], abs=0.005)
+
+
+def test_a_split_with_an_unknown_kind_is_refused():
+    from bimforge.bim.costload import validate_costs
+    with pytest.raises(ValueError, match="material"):
+        validate_costs({"A": {"cost": 1.0, "labor_hours": None,
+                              "material": "lots"}})
+    from bimforge.bim.cost_categories import normalize_split
+    with pytest.raises(ValueError, match="unknown kind"):
+        normalize_split({"plant": 1})
+
+
+def test_a_partial_split_keeps_the_balance_and_a_reader_split_re_embeds():
+    """Categorising never changes a cost: {cost: 100, labor: 60} writes
+    Labor 60 and an uncategorised 40, and reads back cost 100 with
+    categories {Labor: 60}. The reader's own form ({categories: {...}})
+    is accepted back by the writer, so read -> re-embed keeps the split.
+    Kinds adding up to more than the cost are refused."""
+    from bimforge.bim.cost_categories import categories_of, total_of
+    from bimforge.bim.costload import validate_costs
+    costs = {"A": {"cost": 100.0, "labor_hours": 8.0, "labor": 60.0},
+             "B": {"cost": 2500.0, "labor_hours": None},
+             "C": {"cost": 900.0, "labor_hours": 30.0}}
+    validate_costs(costs)
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    root.create_entity(f, ifc_class="IfcProject")
+    embed_schedule(f, _sched())
+    cost5d.embed_cost_and_resources(f, _sched(), costs, schedule_name="S")
+    a_items = [ci for ci in f.by_type("IfcCostItem") if ci.Identification == "A"]
+    assert a_items
+    for ci in a_items:
+        cats = categories_of(ci)
+        assert set(cats) == {"Labor"}
+        assert cats["Labor"] == pytest.approx(0.6 * total_of(ci), abs=0.01)
+        names = {cv.Name for cv in ci.CostValues}
+        assert "Unallocated" in names
+    got = read_costs(f)
+    assert got["costs"]["A"]["cost"] == pytest.approx(100.0)
+    assert got["costs"]["A"]["categories"] == pytest.approx({"Labor": 60.0})
+    # the reader's form goes straight back in
+    again = {code: {"cost": rec["cost"], "labor_hours": rec["labor_hours"],
+                    "categories": rec["categories"]}
+             for code, rec in got["costs"].items()}
+    validate_costs(again)
+    g = ifcopenshell.file(schema="IFC4X3_ADD2")
+    root.create_entity(g, ifc_class="IfcProject")
+    embed_schedule(g, _sched())
+    cost5d.embed_cost_and_resources(g, _sched(), again, schedule_name="S")
+    back = read_costs(g)
+    assert back["costs"]["A"]["categories"] == pytest.approx({"Labor": 60.0})
+    assert back["costs"]["A"]["cost"] == pytest.approx(100.0)
+    with pytest.raises(ValueError, match="more than the cost"):
+        validate_costs({"A": {"cost": 100.0, "labor_hours": None,
+                              "labor": 70.0, "material": 40.0}})
+    with pytest.raises(ValueError, match="categories"):
+        validate_costs({"A": {"cost": 1.0, "labor_hours": None,
+                              "categories": {"Plant": 1.0}}})

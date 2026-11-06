@@ -124,3 +124,31 @@ def test_emit_nonempty_ifc_dxf_and_post_gate(tmp_path):
     assert f.by_type("IfcPlate")              # rail caps
     assert f.by_type("IfcReinforcingBar")     # post-pocket dowels
     assert f.by_type("IfcBuildingElementProxy")  # pocket mortar
+
+
+def test_ifc_carries_one_handrail_whole_with_typed_parts(tmp_path):
+    """What a viewer sees: ONE IfcRailing (HANDRAIL, typed "Tubular
+    handrailing B11-51", Reference B11-51) per run, every other element of
+    the run its part, and every kind of part typed (twenty posts are twenty
+    occurrences of one IfcMemberType/POST)."""
+    ifcopenshell = pytest.importorskip("ifcopenshell")
+    import ifcopenshell.util.element as ue
+    model, pc = _built()
+    ifc = tmp_path / "h.ifc"
+    emit_ifc(model, str(ifc), pc, allow_local=True)
+    f = ifcopenshell.open(str(ifc))
+    wholes = [r for r in f.by_type("IfcRailing") if r.IsDecomposedBy]
+    assert len(wholes) == 1
+    (whole,) = wholes
+    assert whole.Name == "NB handrail run"
+    assert ue.get_predefined_type(whole) == "HANDRAIL"
+    assert ue.get_type(whole).Name == "Tubular handrailing B11-51"
+    assert ue.get_psets(whole)["Pset_RailingCommon"]["Reference"] == "B11-51"
+    parts = [p for r in whole.IsDecomposedBy for p in r.RelatedObjects]
+    assert len(parts) == len(model.elements) - 1
+    assert all(not p.ContainedInStructure for p in parts)
+    posts = [p for p in parts if p.is_a("IfcMember") and " post " in p.Name]
+    assert len(posts) == 20
+    assert len({ue.get_type(p) for p in posts}) == 1
+    assert ue.get_predefined_type(posts[0]) == "POST"
+    assert run_post(model, {"ifc": str(ifc)}, pc).passed

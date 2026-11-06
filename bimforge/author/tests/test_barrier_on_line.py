@@ -69,9 +69,16 @@ def test_an_842_runs_on_the_line(tmp_path):
     f = ifcopenshell.open(str(tmp_path / "CAD" / "barrier-842.ifc"))
     assert [a.Name for a in f.by_type("IfcAlignment")] == ["ML"]
     walls = {w.Name: w for w in f.by_type("IfcWall")}
-    assert set(walls) == {"LT 842 barrier",
+    assert set(walls) == {"LT 842 barrier run",          # the run's whole
+                          "LT 842 barrier",
                           "LT 842 barrier end block (approach) [start]",
                           "LT 842 barrier end block (departure) [end]"}
+    # the whole has no body; the barrier and its blocks are its parts
+    assert walls["LT 842 barrier run"].Representation is None
+    parts = {p.Name for r in walls["LT 842 barrier run"].IsDecomposedBy
+             for p in r.RelatedObjects}
+    assert {"LT 842 barrier",
+            "LT 842 barrier end block (approach) [start]"} <= parts
     # plumb on a 3 % grade, the barrier leans off IFC's grade-pitched
     # sections by more than 2 mm: written as its mesh, not an exact sweep
     # (SweptSection.exact_reason); a level run is exact (below)
@@ -113,7 +120,8 @@ def test_an_842_runs_on_the_line(tmp_path):
     m = get("concrete-barrier-842")(resolve_refs(
         {"alignment": {"ref": "ML"}, "runs": [{"name": "LT", "on": on}]},
         load_alignments(tmp_path / "alignments.yaml")), ctx)
-    L = sum(m.element(n).quantities["length_ft"] for n in walls)
+    # (the run's whole is among the walls; it measures nothing)
+    L = sum(m.element(n).quantities.get("length_ft", 0.0) for n in walls)
     want = offset_length(al.alignment, 1010.0, 1360.0, 20.0)
     assert L == pytest.approx(want, abs=0.01)
     assert abs(want - 350.0) > 1.0                  # it is not the station span

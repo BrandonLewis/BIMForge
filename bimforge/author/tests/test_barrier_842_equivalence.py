@@ -46,22 +46,25 @@ def _agg(model):
 # move here, which is how you can tell this baseline shift is the nose and not
 # the running section.
 # Throughout, counts, LF and rebar weight are unchanged -- only concrete moves.
+# Every run now also carries its WHOLE ("NB 842 barrier run", the
+# geometry-less IfcWall its parts hang under): one more element per case,
+# measuring nothing, so cf / lf / wt are unchanged.
 CASES = [
     ({"runs": [{"name": "NB", "straight_length_ft": 120.0,
                 "start_end": "approach", "end_end": "departure"}]},
-     (21, 518.115451, 2924.333333, 3010.693256)),
+     (22, 518.115451, 2924.333333, 3010.693256)),
     ({"runs": [{"name": "NB", "straight_length_ft": 100.0,
                 "start_end": "none", "end_end": "none"}]},
-     (5, 433.854167, 2294.500000, 2288.863500)),
+     (6, 433.854167, 2294.500000, 2288.863500)),
     ({"runs": [{"name": "NB", "straight_length_ft": 60.0, "base_kind": "wall",
                 "start_end": "approach", "end_end": "none"}]},
-     (14, 256.536314, 1465.666667, 1534.958552)),
+     (15, 256.536314, 1465.666667, 1534.958552)),
     ({"runs": [{"name": "NB", "straight_length_ft": 80.0, "base_kind": "trench",
                 "start_end": "approach", "end_end": "departure"}]},
-     (23, 730.329572, 2608.916667, 2723.433672)),
+     (24, 730.329572, 2608.916667, 2723.433672)),
     ({"runs": [{"name": "NB", "straight_length_ft": 100.0,
                 "start_end": "approach", "end_end": "approach"}]},   # same-kind
-     (23, 431.344618, 2470.333333, 2609.954104)),
+     (24, 431.344618, 2470.333333, 2609.954104)),
 ]
 
 

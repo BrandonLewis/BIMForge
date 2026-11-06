@@ -8,7 +8,10 @@ The spec file:
     outputs: {dxf: CAD/x.dxf, ifc: CAD/x.ifc,
               takeoff_map: CAD/x-takeoff-map.yaml,
               qto: CAD/x-QTO.xlsx, step: null,
-              ifc_allow_local: false}
+              ifc_allow_local: false,
+              ifc_sweeps: exact}    # exact (default) | mesh: see
+                                    # emit_ifc.SWEEP_MODES (viewers that
+                                    # cannot draw IfcSectionedSolidHorizontal)
     project: {name: "...", epsg: 2226, base: [.., ..], guid_ns: "<uuid>",
               schema: IFC4X3_ADD2,                       # optional (#318:
               facility: {kind: bridge, predefined_type: GIRDER}}  # 4X3 only)
@@ -96,9 +99,14 @@ def load_spec(path: Path | str) -> dict:
     if missing:
         raise ValueError(f"{path.name}: missing spec keys {missing}")
     outs = spec["outputs"]
-    unknown = set(outs) - set(OUTPUT_KEYS) - {"ifc_allow_local"}
+    unknown = set(outs) - set(OUTPUT_KEYS) - {"ifc_allow_local", "ifc_sweeps",
+                                              "ifc_instancing"}
     if unknown:
         raise ValueError(f"{path.name}: unknown outputs keys {sorted(unknown)}")
+    from bimforge.author.emit_ifc import SWEEP_MODES
+    if outs.get("ifc_sweeps", "exact") not in SWEEP_MODES:
+        raise ValueError(f"{path.name}: outputs.ifc_sweeps "
+                         f"{outs['ifc_sweeps']!r} must be one of {SWEEP_MODES}")
     if not any(outs.get(k) for k in OUTPUT_KEYS):
         raise ValueError(f"{path.name}: outputs names no files to write")
     base = path.parent
@@ -204,6 +212,8 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
         apply_spatial_parts(model, parse_rules(spec["spatial_parts"]))
     pc_mod.apply(model, pc)
     gate.configure_solid_bodies(model, spec)
+    if "ifc_instancing" in spec["outputs"]:         # overrides the family
+        model.instancing = bool(spec["outputs"]["ifc_instancing"])
 
     rep = gate.run_pre(model, pc)
     print(rep.format("pre"), file=sys.stderr)
@@ -223,7 +233,8 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
         if outs.get("ifc"):
             from bimforge.author.emit_ifc import emit_ifc
             print(emit_ifc(model, outs["ifc"], pc,
-                           allow_local=bool(outs.get("ifc_allow_local"))),
+                           allow_local=bool(outs.get("ifc_allow_local")),
+                           sweeps=outs.get("ifc_sweeps", "exact")),
                   file=sys.stderr)
             written["ifc"] = outs["ifc"]
             station_ifc(model, outs["ifc"], log=lambda m: print(m, file=sys.stderr))

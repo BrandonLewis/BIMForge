@@ -125,6 +125,7 @@ _TEMPLATE = BarrierTemplate(
     endblock_len_ft=ENDBLOCK_842_LEN, default_run_name="842",
     section_fn=_section_842, rebar_fn=_rebar_842,
     endblock_fn=_endblock_842, validate_fn=_validate_842,
+    standard_plan="B11-81",
     endblock_rings_fn=_endblock_rings_842)
 
 

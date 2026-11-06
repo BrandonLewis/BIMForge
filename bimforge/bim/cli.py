@@ -250,6 +250,47 @@ def _run_takeoff(args) -> int:
     return 0
 
 
+def _run_web(args) -> int:
+    """The web pages for one IFC (bimforge.web): the JSON bundle the pages
+    read, the pages, and a local server when asked."""
+    from pathlib import Path
+
+    import yaml
+
+    from bimforge.bim.takeoff_workbook import load_official
+    from bimforge.web import build_bundle, serve_site, write_site
+
+    try:
+        tmap = {}
+        if args.map:
+            with open(args.map, encoding="utf-8") as fh:
+                tmap = yaml.safe_load(fh) or {}
+        official = load_official(args.official)
+        bundle = build_bundle(args.ifc, tmap, official, args.schedule)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    out = Path(args.out) if args.out else Path(args.ifc).with_name(
+        Path(args.ifc).stem + "-web")
+    write_site(bundle, out)
+    m = bundle["model"]
+    sched = bundle["schedule"]
+    print(f"site written to {out}: {len(bundle['elements'])} elements, "
+          f"{len(bundle['takeoff']['rows'])} pay items, "
+          + (f"schedule {sched['name']!r} with {len(sched['tasks'])} tasks"
+             if sched else "no schedule")
+          + (", costs" if bundle["costs"] else "")
+          + f" ({m['schema']})")
+    for w in bundle["takeoff"]["warnings"][:10]:
+        print(f"  ! {w}")
+    if args.serve is not None:
+        serve_site(out, port=args.serve, open_browser=args.open)
+    else:
+        print(f"open {out / 'index.html'} in a browser, or serve it: "
+              f"est-bim web --ifc {args.ifc} --serve")
+    return 0
+
+
 def _run_takeoff_workbook(args) -> int:
     """Per-element, formula-driven takeoff workbook (issue #367): one row
     per element per pay code with Qty / #_surfaces / L / W / H / CY /
@@ -2382,6 +2423,22 @@ def main(argv=None) -> int:
     t.add_argument("--out", default="takeoff.json", help="output JSON path")
     t.add_argument("--csv", help="also write a CSV for eyeballing")
 
+    w = sub.add_parser("web", help="write the web pages (takeoff, 4D/5D "
+                                   "dashboard) and their JSON bundle for an "
+                                   "IFC, and optionally serve them")
+    w.add_argument("--ifc", required=True, help="input IFC file (4D/5D when "
+                                                "it carries a schedule)")
+    w.add_argument("--map", help="takeoff_map YAML (pay units, item numbers)")
+    w.add_argument("--official", help="official bid items JSON "
+                                      "(takeoff-workbook --official)")
+    w.add_argument("--schedule", help="IfcWorkSchedule name (default: the "
+                                      "file's only one)")
+    w.add_argument("--out", help="site directory (default: <ifc>-web/)")
+    w.add_argument("--serve", nargs="?", const=8765, type=int, metavar="PORT",
+                   help="serve the site on 127.0.0.1 (default port 8765)")
+    w.add_argument("--open", action="store_true",
+                   help="open the browser (with --serve)")
+
     tw = sub.add_parser("takeoff-workbook",
                         help="write a verifiable per-element takeoff "
                              "workbook (xlsx): Qty, #_surfaces, L, W, H, "
@@ -2968,6 +3025,8 @@ def main(argv=None) -> int:
             return _run_validate(args)
         if args.cmd == "takeoff":
             return _run_takeoff(args)
+        if args.cmd == "web":
+            return _run_web(args)
         if args.cmd == "takeoff-workbook":
             return _run_takeoff_workbook(args)
         if args.cmd == "sfca":

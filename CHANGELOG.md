@@ -4,6 +4,212 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.106 — 2026-11-06
+
+Review fixes for 0.1.102–0.1.105.
+
+### Fixed
+
+- **One named type has one predefined type.** A type's GlobalId is keyed
+  by class and name; two predefined types under one name would have been
+  two IfcTypeObjects with one GlobalId. Emit refuses it before any write.
+- **Categorising a cost never changes it.** A split that covers less than
+  the cost writes the balance as one more value with no Category (it
+  reads back in `cost`, not in `categories`); a split that exceeds the
+  cost is refused by `validate_costs` and the writer. The writer also
+  accepts the reader's own form (`categories: {Labor: 60, ...}`), so
+  `read_costs` output re-embeds with its split intact.
+- **Web bundle:** each takeoff row's element quantities are scaled to the
+  row's pay quantity (a lump sum over three elements is 1 LS, `count_as`
+  stands), so the dashboard earns an item once; the bid total follows the
+  priced bid list's quantity and price before the estimate's stored
+  amount; the 4D spans (appear, vanish) come from the selected schedule's
+  tasks only (`element_spans(f, tasks)`), not every task in the file.
+- **Dashboard:** a task's own calendar (its weekdays, holidays and yearly
+  blackouts) decides its working days; only building tasks
+  (construction, installation, undefined) earn pay, not operation or
+  logistics; an element's own share with zero of the chosen kind stays
+  zero rather than borrowing the task's total; the labour-hours basis
+  uses the element's share hours before the task's; an item's cost on the
+  day is its bid item's shares, or its code's shares shared equally among
+  the items of that code, so a dollar is never counted twice; chart
+  tooltips escape their labels; Gantt rows are keyboard-focusable and
+  activate on Enter or Space, keeping focus across a redraw.
+- **Pages:** a selection with no host copies only when the clipboard
+  accepted it and otherwise offers the GlobalIds in a dialog; the takeoff's
+  "only items with a variance" keeps an item whose official quantity is
+  zero but whose modelled quantity is not.
+
+## 0.1.105 — 2026-11-05
+
+### Added
+
+- **The labour / material / equipment split reaches the IFC, and the pay
+  can follow one kind of it** (`bimforge.bim.cost_categories`). IFC puts no
+  price on an element, a task or an IfcMaterial: money lives in an
+  IfcCostItem as a list of IfcCostValue, each with a `Category`, and the
+  item is tied to the task it is spent in and the element it builds by
+  IfcRelAssignsToControl. So a split is one cost item with one value per
+  kind, Category = Labor / Material / Equipment / Subcontract / Other.
+  - `est-bim cost5d --costs`: a code's record may carry `labor`,
+    `material`, `equipment`, `subcontract` (or `sub`), `other` (or
+    `overhead`), the parts of its `cost`; each task's item is written with
+    one value per kind, scaled to the task's part of the code, to the
+    cent. An unknown kind is refused.
+  - `est-bim estimate5d`: each element's share of an activity is written
+    in the activity's own `cost_split` proportions, one value per kind.
+  - `schedule_read.read_costs` returns `categories` {kind: amount} per
+    task, per code and per task-code (`{}` when the values carry none);
+    `cost` stays the sum of every value. The web bundle's `costs.shares`
+    carry `categories` too.
+  - The 4D/5D dashboard draws cumulative labour, material, equipment (and
+    subcontract, other) cost beside total cost and earned pay, shows the
+    split on the day, and lets you choose what the pay follows: all cost
+    (the default), one kind of cost, or labour hours. A kind recorded
+    nowhere for an element falls back to all cost, so a material-only item
+    is never earned on nothing.
+
+## 0.1.104 — 2026-11-05
+
+### Changed
+
+- **The pay follows the labour, the tasks and the materials.** The 4D/5D
+  dashboard no longer drops an element's pay quantity on its appear date.
+  Each element's quantity is EARNED over the tasks that build it, in
+  proportion to the cost the 5D schedule spends on that element in each
+  task (the estimate's activity shares), else the task's cost under the
+  pay item's code, else its labour hours, else its cost, else evenly; and
+  within a task evenly over its working days (the schedule's week and
+  holidays, which the cost and labour curves now respect too). An element
+  no dated task builds is still earned on its appear date; one with
+  neither is reported as undated. With unit prices, earned dollars are
+  the earned quantity at the bid item's price: the dashboard shows earned
+  pay against cost, cumulative and per pay item on the day, with the
+  margin.
+  - The bundle carries `costs.shares` (every priced cost item of the 5D
+    schedule: task, element, bid item, code, cost, labour hours) and each
+    takeoff row's `unit_price` and `bid_total`, from the priced bid list
+    (`--official` now reads `unit_price` / `price` and `total` / `amount`)
+    or, failing that, from the estimate the IFC carries
+    (BidSheet_EstimateItem).
+  - What the embed does not record yet, the dashboard cannot split: the
+    estimate's labour / material / equipment split of an activity is not
+    written to the IFC, so pay follows total cost and hours. Writing the
+    split as cost categories is the follow-on.
+
+## 0.1.103 — 2026-11-05
+
+### Added
+
+- **Web pages on a JSON contract (`bimforge.web`, `est-bim web`).** A
+  takeoff page and a 4D/5D dashboard, written as views of ONE JSON
+  document, the *bundle* (`contract: bimforge-web/1`), that
+  `bimforge.web.build_bundle` produces headlessly from an IFC: every
+  element (class, type, predefined type, whole and parts, container, pay
+  codes, Qto values, appear and vanish dates, tasks), the pay-item takeoff
+  (the CanonicalTakeoff rows with each element's quantity in the pay unit,
+  the official bid quantity and the variance), the IfcWorkSchedule as a
+  CanonicalSchedule with its task-to-element links, and the IfcCostSchedule
+  costs and labour hours per task. The bundle carries no timestamp, so a
+  rebuild of an unchanged model is byte-identical.
+  - `est-bim web --ifc model.ifc [--map takeoff_map.yaml] [--official
+    bid.json] [--schedule NAME] [--out DIR] [--serve [PORT] --open]` writes
+    `index.html`, `takeoff.html`, `dashboard.html`, their assets and
+    `data/bundle.json` + `data/bundle.js`, and serves the directory when
+    asked. The pages are plain HTML, CSS and JavaScript with no external
+    library, and open straight from disk.
+  - **Takeoff:** pay items with modelled, official, variance and variance
+    %, sortable and filterable, expanding to the elements behind each item
+    with class, type, quantity, 4D span and GlobalId; a CSV download; the
+    elements no pay item counts.
+  - **4D/5D dashboard:** a day scrubber; cost and labour to date; cumulative
+    cost and labour curves; the cumulative pay quantity in place per pay
+    item (from each element's appear date); a Gantt of the schedule (task
+    types coloured, milestones, summaries, the scrubbed day and today);
+    a task's cost, hours, predecessors and elements; and what stands on
+    the day, by class.
+  - **The host adapter.** A page talks to whatever hosts it through
+    `window.bimforgeHost` (`select(globalIds, label)`, `gotoDate(day)`) and
+    listens for a `bimforge:date` event, so the same page runs standalone
+    (a selection copies GlobalIds) or inside an editor's bridge (a Blender
+    add-on serving the same bundle from the open file, as Bonsai's web
+    pages do).
+
+## 0.1.102 — 2026-11-05
+
+A barrier rail reaches FreeCAD, Revit and Bonsai as a barrier rail, not as
+loose triangles and a flat list of posts. Measured on the shipped examples
+before and after:
+
+| | before | after |
+|---|---|---|
+| Type 842 end block | 30 triangular IfcFaces | 11 planar faces |
+| Handrail run, 87 elements | 87 unrelated products, no types | 1 IfcRailing whole with 87 parts, 8 types |
+| Handrail bodies | 43 IfcExtrudedAreaSolid | 5 solids, 40 IfcMappedItem |
+
+### Added
+
+- **Element types (`Element.type_name`).** One IfcWallType / IfcRailingType /
+  IfcMemberType ... per distinct (class, name) in the file, related by
+  IfcRelDefinesByType and carrying the element's predefined type (the
+  occurrence inherits it, as IFC requires; read it with
+  `ifcopenshell.util.element.get_predefined_type`). Revit shows the name
+  as the family type, FreeCAD and Bonsai as the type tree: twenty posts are
+  twenty occurrences of "B11-51 post HSS2x2x3/16". Type GlobalIds are
+  deterministic (`type/<class>/<name>`).
+- **Wholes and parts (`Element.part_of`).** An element named as another's
+  part hangs under it by IfcRelAggregates and leaves the spatial container,
+  which is what a viewer's tree shows and what Revit's category is read
+  from. The whole is an ordinary, usually geometry-less, Element; emit
+  refuses a part of a missing element, of itself, or a cycle, before any
+  write. `paycodes.apply` never classifies a whole that measures nothing,
+  so a name rule written for its parts ("842 barrier") does not catch it.
+- **Property sets (`Element.psets`)**: `{"Pset_RailingCommon": {"Reference":
+  "B11-51"}}` on the product. `Element.object_type` writes
+  IfcObject.ObjectType.
+- **The rail and barrier families use all three.** A tubular-handrail run
+  is one IfcRailing (HANDRAIL, type "Tubular handrailing B11-51",
+  Reference B11-51) whose rails, posts (IfcMember/POST), returns, caps,
+  sleeves, pocket mortar and dowels are its parts, every kind typed. A
+  Type 842 / 732SW run is one IfcWall (PARAPET, type "Concrete barrier
+  Type 842", Reference B11-81 / B11-58) whose barrier, end blocks,
+  reinforcing and hardware are its parts; the concrete bodies carry the
+  same type. The D90 headwall guardrail is an IfcRailing/GUARDRAIL. The
+  element lists grow by the wholes (one per run, two for a 732SW with its
+  handrail), which measure nothing: every quantity baseline is unchanged.
+- **Instancing (`StructureModel.instancing`, spec
+  `outputs.ifc_instancing`).** Repeated identical bodies (a flat prism, a
+  box, a rod, a tube) are written once as an IfcRepresentationMap and
+  placed by IfcMappedItem, keyed by the solid up to translation and its
+  style; the instanced mesh equals the direct one to the vertex. Off by
+  default (an existing consumer's file is unchanged); the rail and barrier
+  families turn it on.
+- **`outputs.ifc_sweeps: mesh`** (`emit_ifc(sweeps=)`): an exact alignment
+  sweep is written as its closed faceted brep instead of an
+  IfcSectionedSolidHorizontal, for a consumer that lofts the sectioned
+  solid open (ifcopenshell 0.9, so FreeCAD's native importer and Bonsai:
+  17 and 40 open edges measured on the test sweeps) or cannot read IFC4X3
+  (Revit opens IFC2x3 and IFC4; IFC4X3 is link-only and experimental). The
+  IfcAlignment is written either way. A second "Body-FallBack"
+  representation beside the sweep was measured and rejected: ifcopenshell's
+  iterator draws both, so every reader built on it would see the body twice.
+
+### Changed
+
+- **Coplanar facets are merged in the IFC brep writer**
+  (`bimforge.author.facets`). A tapered prism, a loft, a mesh, or a sweep
+  written as its mesh used to reach the IFC as one IfcFace per triangle,
+  and every importer showed every triangle edge. Facets in one plane
+  (to 0.1 µm) are now unioned into one planar IfcFace each, holes as
+  IfcFaceBound, outer loop counter-clockwise about the outward normal;
+  the shell's points are shared. The surface and its volume are unchanged,
+  every vertex a neighbouring facet ends at stays on the merged boundary
+  (the shell is as closed as the triangles were), and a facet that merges
+  with nothing is written as it was. Curved surfaces stay faceted. The STEP
+  emitter has done this since the hand-off work; the two now agree.
+- `developed` resolves an IfcMappedItem to the solid it instances when it
+  decides whether a body cuts as a fill or a line.
+
 ## 0.1.101 — 2026-11-05
 
 ### Fixed

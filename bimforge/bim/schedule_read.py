@@ -14,6 +14,8 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
+from bimforge.bim.cost_categories import add_categories, categories_of
+
 
 def element_start_dates(model) -> dict[int, str]:
     """Map each scheduled element's entity id → earliest task ScheduleStart.
@@ -539,10 +541,17 @@ def read_costs(model, name: str | None = None) -> dict:
     crews "<name>: <task>", as cost5d writes them. Returns::
 
         {"schedule": name,
-         "costs": {code: {"cost", "labor_hours"}},      # load_schedule_costs
-         "tasks": {task_id: {"costs": {code: {"cost", "labor_hours"}},
-                             "cost": total, "labor_hours": task hours}},
+         "costs": {code: {"cost", "labor_hours", "categories"}},
+         "tasks": {task_id: {"costs": {code: {"cost", "labor_hours",
+                                              "categories"}},
+                             "cost": total, "labor_hours": task hours,
+                             "categories": {Category: amount}}},
          "warnings": [...]}
+
+    `categories` is the money by kind (Labor, Material, Equipment,
+    Subcontract, Other: each IfcCostValue's Category, bimforge.bim.
+    cost_categories), {} when the values carry none. `cost` is the sum of
+    every value, categorised or not.
 
     A task's `labor_hours` is its BidSheet_Activity Manhours when the
     task carries one (estimate_model5d, whose crews are shared across
@@ -579,7 +588,7 @@ def read_costs(model, name: str | None = None) -> dict:
 
     def entry(tid):
         return tasks.setdefault(tid, {"costs": {}, "cost": 0.0,
-                                      "labor_hours": None})
+                                      "labor_hours": None, "categories": {}})
 
     for ci in _leaf_cost_items(css[0]):
         code = ci.Identification or ci.Name or ci.GlobalId
@@ -599,9 +608,13 @@ def read_costs(model, name: str | None = None) -> dict:
             continue
         tid = task_id(task)
         rec = entry(tid)["costs"].setdefault(code, {"cost": 0.0,
-                                                    "labor_hours": None})
+                                                    "labor_hours": None,
+                                                    "categories": {}})
         rec["cost"] += value
         tasks[tid]["cost"] += value
+        cats = categories_of(ci)             # {Labor: .., Material: ..}
+        add_categories(rec["categories"], cats)
+        add_categories(entry(tid)["categories"], cats)
         if ps is None:              # embedded before #335: no per-code hours
             need_split.setdefault(tid, []).append(code)
             continue
@@ -654,8 +667,10 @@ def read_costs(model, name: str | None = None) -> dict:
     costs: dict[str, dict] = {}
     for e in tasks.values():
         for code, rec in e["costs"].items():
-            agg = costs.setdefault(code, {"cost": 0.0, "labor_hours": None})
+            agg = costs.setdefault(code, {"cost": 0.0, "labor_hours": None,
+                                          "categories": {}})
             agg["cost"] += rec["cost"]
+            add_categories(agg["categories"], rec["categories"])
             if rec["labor_hours"] is not None:
                 agg["labor_hours"] = (agg["labor_hours"] or 0.0) \
                     + rec["labor_hours"]
