@@ -1408,22 +1408,36 @@ def _facility_tree(run, f, ctx, models, facilities, site, project, combined):
     return homes
 
 
-#: How an exact alignment sweep is written (`emit_ifc(sweeps=)`, spec
-#: `outputs.ifc_sweeps`). "exact": IfcSectionedSolidHorizontal on the
+#: How an exact alignment sweep is written (`StructureModel.ifc_sweeps`,
+#: spec `ifc: {sweeps: mesh}`; overridden for one emit by `emit_ifc(sweeps=)`
+#: / spec `outputs.ifc_sweeps`). "exact": IfcSectionedSolidHorizontal on the
 #: IfcAlignment's curve (IFC4X3), the entity the schema defines for it.
 #: "mesh": the same solid as a closed faceted brep (coplanar facets merged),
 #: for a consumer that cannot draw the sectioned solid as a solid: ifcopenshell
-#: 0.9 (FreeCAD's native importer, Bonsai) lofts it as an open shell (#9820),
-#: and Revit does not open IFC4X3 at all. The IfcAlignment is written either
-#: way, so stationing, sections and layout keep their line. A second
-#: "Body-FallBack" representation beside the sweep was measured and rejected:
-#: ifcopenshell's iterator draws BOTH, so every reader built on it (the
-#: takeoff, the solid-body gate, Bonsai) would see the body twice.
+#: 0.8.5 (Bonsai 0.8.x) misplaces every cross-section by an offset that grows
+#: with distance along the curve, 0.9 (FreeCAD's native importer, Bonsai 0.9)
+#: lofts it as an open shell (#9820), and Revit does not open IFC4X3 at all.
+#: The IfcAlignment is written either way, so stationing, sections and
+#: layout keep their line. A second "Body-FallBack" representation beside
+#: the sweep was measured and rejected: ifcopenshell's iterator draws BOTH,
+#: so every reader built on it (the takeoff, the solid-body gate, Bonsai)
+#: would see the body twice.
 SWEEP_MODES = ("exact", "mesh")
 
 
+def sweep_mode(model, override: str | None = None) -> str:
+    """The mode one model's sweeps are written in: `override` when given,
+    else the model's own `ifc_sweeps`; refused unless in SWEEP_MODES."""
+    mode = override if override is not None else getattr(model, "ifc_sweeps",
+                                                         "exact")
+    if mode not in SWEEP_MODES:
+        raise ValueError(f"{model.name}: ifc_sweeps {mode!r} must be one of "
+                         f"{SWEEP_MODES}")
+    return mode
+
+
 def emit_ifc(model, path: str, paycodes=None, *, allow_local: bool = False,
-             stylepack=None, sweeps: str = "exact") -> str:
+             stylepack=None, sweeps: str | None = None) -> str:
     """Emit one structure. A thin wrapper over emit_combined_ifc so the single-
     and multi-structure paths share one writer (issue #188)."""
     return emit_combined_ifc([model], path, paycodes,
@@ -1433,7 +1447,7 @@ def emit_ifc(model, path: str, paycodes=None, *, allow_local: bool = False,
 
 def emit_combined_ifc(models, path: str, paycodes=None, *,
                       allow_local: bool = False, stylepack=None,
-                      sweeps: str = "exact") -> str:
+                      sweeps: str | None = None) -> str:
     """Emit one or more structures into a single IFC, each structure as its own
     named IfcBuilding under one shared IfcSite (issue #188, Lever A).
 
@@ -1451,9 +1465,11 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
 
     if not models:
         raise ValueError("emit_combined_ifc: no models to emit")
-    if sweeps not in SWEEP_MODES:
+    if sweeps is not None and sweeps not in SWEEP_MODES:
         raise ValueError(f"emit_combined_ifc: sweeps={sweeps!r} is not one of "
                          f"{SWEEP_MODES}")
+    for m in models:
+        sweep_mode(m, sweeps)                    # refused before any write
     combined = len(models) > 1
     ctx = models[0].ctx
 
@@ -1581,10 +1597,6 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         run("context.add_context", f, context_type="Model",
             context_identifier="Axis", target_view="MODEL_VIEW", parent=mctx)
     curves = emit_alignments(run, f, models, ctx, site)
-    # "mesh" sweeps: the alignments are still written (above), but no solid is
-    # built on their curves -- solids_for then writes each sweep's mesh
-    if sweeps == "mesh":
-        curves = None
 
     pack = stylepack if stylepack is not None else resolve_style_pack()
     _ifc = pack.styles.get("ifc")
@@ -1610,6 +1622,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         by_name: dict[str, object] = {}
         hosts = {h for h, _op in m.openings}
         names = {el.name for el in m.elements}
+        # "mesh" sweeps: the alignments are written (above), but no solid is
+        # built on their curves -- solids_for then writes each sweep's mesh
+        m_curves = curves if sweep_mode(m, sweeps) == "exact" else None
         voiding = {}                          # cut element name -> host name
         for el in m.elements:
             host = getattr(el, "voids", None)
@@ -1686,7 +1701,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                       map_cache, style)
             else:
                 items = (solids_for(f, el, ctx.ft_to_m,
-                                    None if direct else curves)
+                                    None if direct else m_curves)
                          if el.geometry is not None else [])
             if items:
                 # an open surface (ribbon -> IfcTriangulatedFaceSet) cannot

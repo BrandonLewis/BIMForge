@@ -327,3 +327,81 @@ def test_unknown_sweep_mode_is_refused(tmp_path):
     m, _sw = _model()
     with pytest.raises(ValueError, match="sweeps="):
         emit_ifc(m, str(tmp_path / "x.ifc"), sweeps="fallback")
+
+
+def _world_bbox(f):
+    import ifcopenshell.geom
+    import numpy as np
+    st = ifcopenshell.geom.settings()
+    st.set("use-world-coords", True)
+    (p,) = f.by_type("IfcSlab")
+    shape = ifcopenshell.geom.create_shape(st, p)       # held until copied:
+    v = np.array(shape.geometry.verts).reshape(-1, 3)   # geometry borrows it
+    return v.min(0), v.max(0)
+
+
+@pytest.mark.parametrize("kw", [{}, {"frame": "plumb", "profile": None,
+                                     "camber": None}])
+def test_model_ifc_sweeps_mesh_writes_the_faceted_body_in_place(tmp_path, kw):
+    """`StructureModel.ifc_sweeps = "mesh"` (spec `ifc: {sweeps: mesh}`):
+    ifcopenshell 0.8.5 (Bonsai 0.8.x) misplaces every
+    IfcSectionedSolidHorizontal cross-section by an offset that grows with
+    distance along the curve, and 0.9 lofts it open; the mesh is drawn the
+    same, and in the same place, by every version."""
+    import numpy as np
+    m, sw = _model(**kw)
+    assert sw.exact_reason is None
+    (tmp_path / "exact").mkdir()
+    _out, exact = _emit(tmp_path / "exact", m)
+    m.ifc_sweeps = "mesh"
+    out, f = _emit(tmp_path, m)
+    rep = _body(f)
+    assert [i.is_a() for i in rep.Items] == ["IfcFacetedBrep"]
+    assert rep.RepresentationType == "Brep"
+    assert not f.by_type("IfcSectionedSolidHorizontal")
+    assert len(f.by_type("IfcAlignment")) == 1          # the line is kept
+    # the same solid in the same place: only chord sag on the curves
+    (lo0, hi0), (lo1, hi1) = _world_bbox(exact), _world_bbox(f)
+    assert np.abs(lo0 - lo1).max() < 0.01 and np.abs(hi0 - hi1).max() < 0.01
+    post = gate.run_post(m, {"ifc": str(out)})
+    assert post.passed, post.failures
+    # the emit argument overrides the model's setting
+    emit_ifc(m, str(tmp_path / "forced-exact.ifc"), sweeps="exact")
+    assert ifcopenshell.open(str(tmp_path / "forced-exact.ifc")).by_type(
+        "IfcSectionedSolidHorizontal")
+
+
+def test_model_ifc_sweeps_rejects_an_unknown_mode(tmp_path):
+    m, _sw = _model()
+    m.ifc_sweeps = "faceted"
+    with pytest.raises(ValueError, match="ifc_sweeps"):
+        _emit(tmp_path, m)
+    assert not (tmp_path / "x.ifc").exists()
+
+
+def test_spec_ifc_block_sets_the_models_sweep_mode(tmp_path):
+    """`ifc: {sweeps: mesh}` in a build spec is loaded and reaches the
+    model; an unknown value is refused at load."""
+    import shutil
+    from pathlib import Path
+
+    import yaml
+
+    from bimforge.author.families import registry as reg
+    ex = Path(reg.__file__).parents[1] / "examples"
+    shutil.copy(ex / "concrete-barrier-842.paycodes.yaml", tmp_path / "pc.yaml")
+    spec = {"family": "concrete-barrier-842",
+            "params": {"runs": [{"name": "NB", "straight_length_ft": 60.0,
+                                 "start_end": "none", "end_end": "none"}]},
+            "paycodes": "pc.yaml",
+            "outputs": {"ifc": "out/x.ifc", "ifc_allow_local": True},
+            "ifc": {"sweeps": "mesh"},
+            "project": {"name": "x", "epsg": 2226, "base": [0.0, 0.0],
+                        "guid_ns": "6f0e5a1a-0000-4000-8000-000000000099"}}
+    (tmp_path / "s.yaml").write_text(yaml.safe_dump(spec), encoding="utf-8")
+    assert reg.load_spec(tmp_path / "s.yaml")["ifc"] == {"sweeps": "mesh"}
+    assert reg.build_from_spec(tmp_path / "s.yaml") == 0
+    spec["ifc"] = {"sweeps": "faceted"}
+    (tmp_path / "bad.yaml").write_text(yaml.safe_dump(spec), encoding="utf-8")
+    with pytest.raises(ValueError, match="ifc.sweeps"):
+        reg.load_spec(tmp_path / "bad.yaml")

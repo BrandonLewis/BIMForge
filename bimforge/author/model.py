@@ -207,6 +207,16 @@ class StructureModel:
     #: an existing consumer's file is unchanged; the rail and barrier
     #: families turn it on, and a spec may with `outputs.ifc_instancing`.
     instancing: bool = False
+    #: How this model's alignment sweeps are written under IFC4X3: "exact"
+    #: (default), an IfcSectionedSolidHorizontal on the IfcAlignment's
+    #: curve, or "mesh", the faceted brep it is everywhere else (IFC4, DXF,
+    #: STEP), for a viewer that cannot draw the sectioned solid: ifcopenshell
+    #: 0.8.5 (Bonsai 0.8.x) misplaces every cross-section by an offset that
+    #: grows with distance along the curve, and 0.9 lofts it open. The
+    #: IfcAlignment is written either way. A spec sets it with
+    #: `ifc: {sweeps: mesh}`; `emit_ifc(sweeps=)` / `outputs.ifc_sweeps`
+    #: override it for one emit (emit_ifc.SWEEP_MODES).
+    ifc_sweeps: str = "exact"
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

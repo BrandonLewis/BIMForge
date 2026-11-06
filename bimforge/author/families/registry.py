@@ -9,9 +9,10 @@ The spec file:
               takeoff_map: CAD/x-takeoff-map.yaml,
               qto: CAD/x-QTO.xlsx, step: null,
               ifc_allow_local: false,
-              ifc_sweeps: exact}    # exact (default) | mesh: see
-                                    # emit_ifc.SWEEP_MODES (viewers that
-                                    # cannot draw IfcSectionedSolidHorizontal)
+              ifc_sweeps: exact}    # overrides ifc.sweeps for this emit
+    ifc: {sweeps: exact}    # exact (default) | mesh: how alignment sweeps
+                            # are written (StructureModel.ifc_sweeps; viewers
+                            # that cannot draw IfcSectionedSolidHorizontal)
     project: {name: "...", epsg: 2226, base: [.., ..], guid_ns: "<uuid>",
               schema: IFC4X3_ADD2,                       # optional (#318:
               facility: {kind: bridge, predefined_type: GIRDER}}  # 4X3 only)
@@ -107,6 +108,12 @@ def load_spec(path: Path | str) -> dict:
     if outs.get("ifc_sweeps", "exact") not in SWEEP_MODES:
         raise ValueError(f"{path.name}: outputs.ifc_sweeps "
                          f"{outs['ifc_sweeps']!r} must be one of {SWEEP_MODES}")
+    ifc_block = spec.get("ifc") or {}
+    if not isinstance(ifc_block, dict):
+        raise ValueError(f"{path.name}: ifc: must be a mapping ({{sweeps: mesh}})")
+    if str(ifc_block.get("sweeps", "exact")).lower() not in SWEEP_MODES:
+        raise ValueError(f"{path.name}: ifc.sweeps {ifc_block['sweeps']!r} "
+                         f"must be one of {SWEEP_MODES}")
     if not any(outs.get(k) for k in OUTPUT_KEYS):
         raise ValueError(f"{path.name}: outputs names no files to write")
     base = path.parent
@@ -214,6 +221,9 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
     gate.configure_solid_bodies(model, spec)
     if "ifc_instancing" in spec["outputs"]:         # overrides the family
         model.instancing = bool(spec["outputs"]["ifc_instancing"])
+    # ifc: {sweeps: mesh} - the model's own sweep mode (StructureModel.ifc_sweeps)
+    if "sweeps" in (spec.get("ifc") or {}):
+        model.ifc_sweeps = str(spec["ifc"]["sweeps"]).lower()
 
     rep = gate.run_pre(model, pc)
     print(rep.format("pre"), file=sys.stderr)
@@ -234,7 +244,7 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
             from bimforge.author.emit_ifc import emit_ifc
             print(emit_ifc(model, outs["ifc"], pc,
                            allow_local=bool(outs.get("ifc_allow_local")),
-                           sweeps=outs.get("ifc_sweeps", "exact")),
+                           sweeps=outs.get("ifc_sweeps")),   # None: the model's
                   file=sys.stderr)
             written["ifc"] = outs["ifc"]
             station_ifc(model, outs["ifc"], log=lambda m: print(m, file=sys.stderr))

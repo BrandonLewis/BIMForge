@@ -4,6 +4,42 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.107 — 2026-11-06
+
+### Added
+
+- **`StructureModel.ifc_sweeps = "mesh"`: the sweep mode as a model
+  setting**, so a model built for an ifcopenshell 0.8.x viewer carries
+  its own choice. A spec sets it with `ifc: {sweeps: mesh}` (`est-bim
+  build`); `emit_ifc(sweeps=)` and `outputs.ifc_sweeps` (0.1.102) override
+  it for one emit. The default `"exact"` is unchanged: an exact
+  `SweptSection` is written as an `IfcSectionedSolidHorizontal` on the
+  `IfcAlignment` curve. An unknown value is refused before any write. (PR #6)
+
+### Known limitations
+
+- **ifcopenshell 0.8.5, which Bonsai 0.8.x bundles, misplaces every
+  `IfcSectionedSolidHorizontal`.** This is a kernel bug; the emitter's
+  output is not the cause. 0.8.5 evaluates the directrix itself exactly as
+  0.9 does, but it puts each cross-section at the right point plus an offset
+  that grows with `DistanceAlong`, and the direction of that offset changes
+  with the curve's heading. A section point (u, v) at distance d along a
+  due-east line lands at (d, u + d, v), not (d, u, v); on a due-north line
+  at (-u, d, v + d), not (-u, d, v). So the solid draws rotated and moved
+  off its line. Files that pass every IFC 4.3 rule are misplaced too. Read
+  models (extrusions, faceted breps) and plumb-on-grade sweeps, which are
+  already written as meshes, draw the same in both versions. For a model
+  meant for a 0.8.x viewer, set `ifc_sweeps = "mesh"`: the fixture wall
+  then draws identically under 0.8.5 and 0.9. (ifcopenshell 0.9 draws the
+  sectioned solid in the right place but lofts it as an open shell; the
+  same mode is the remedy.)
+- **A sweep with no vertical profile fails `IfcSectionedSolid.DirectrixIs3D`.**
+  Its directrix is the 2D horizontal `IfcCompositeCurve`, which
+  `ifcopenshell.validate --rules` reports as an error. ifcopenshell 0.9
+  draws it correctly anyway. Separate from the 0.8.5 placement bug: graded
+  sweeps on a 3D `IfcGradientCurve` are rule-valid and are still misplaced
+  by 0.8.5. Not fixed yet.
+
 ## 0.1.106 — 2026-11-06
 
 Review fixes for 0.1.102–0.1.105.
