@@ -5,12 +5,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bimforge"
-version = "0.1.107"
+version = "0.1.108"
 description = "Standalone CAD/BIM toolkit: DXF -> IFC -> takeoff pipeline, sheet production, org-neutral CAD engine."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
-requires-python = ">=3.10"
+# 3.10 reaches end of life in October 2026 and newer dependency fixes (pillow 13,
+# scipy 1.16) need 3.11+; the plugin runtime picks 3.11-3.14 for the same reason.
+requires-python = ">=3.11"
 # IFC is core to this toolkit (DXF -> IFC -> takeoff), so the IFC stack ships as
 # a hard dependency, not an optional extra -- a bare install must be able to
 # read/write IFC. pymupdf (PDF plan-sheet calibration) stays optional in `bim`.
