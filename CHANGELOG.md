@@ -4,44 +4,449 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.107 — 2026-11-06
+
 ### Added
 
-- **`StructureModel.ifc_sweeps = "mesh"`: alignment sweeps for ifcopenshell
-  0.8.x viewers.** The default `"exact"` is unchanged: an exact
-  `SweptSection` is still written as an `IfcSectionedSolidHorizontal` on the
-  `IfcAlignment` curve. `"mesh"` writes every sweep as the faceted brep that
-  IFC4, DXF and STEP already get, and keeps the `IfcAlignment`. A spec sets
-  it with `ifc: {sweeps: mesh}` (`est-bim build`). An unknown value raises at
-  emit.
+- **`StructureModel.ifc_sweeps = "mesh"`: the sweep mode as a model
+  setting**, so a model built for an ifcopenshell 0.8.x viewer carries
+  its own choice. A spec sets it with `ifc: {sweeps: mesh}` (`est-bim
+  build`); `emit_ifc(sweeps=)` and `outputs.ifc_sweeps` (0.1.102) override
+  it for one emit. The default `"exact"` is unchanged: an exact
+  `SweptSection` is written as an `IfcSectionedSolidHorizontal` on the
+  `IfcAlignment` curve. An unknown value is refused before any write. (PR #6)
 
 ### Known limitations
 
 - **ifcopenshell 0.8.5, which Bonsai 0.8.x bundles, misplaces every
-  `IfcSectionedSolidHorizontal`.** This is a kernel bug. The emitter's output
-  is not the cause. 0.8.5 evaluates the directrix itself exactly as 0.9 does,
-  but it puts each cross-section at the right point plus an offset that grows
-  with `DistanceAlong`, and the direction of that offset changes with the
-  curve's heading. A section point (u, v) at distance d along a due-east
-  line lands at (d, u + d, v), not (d, u, v). On a due-north line it lands at
-  (-u, d, v + d), not (-u, d, v). So the solid draws rotated and moved off
-  its line. Examples:
-  - The `test_developed` tall wall (9-11 ft Lt, El 0-10, 10+10 to 11+00):
-    0.9 draws x 12.47..17.83, z -60.96..-57.91. 0.8.5 draws x -3.06..-2.39,
-    z -27.48..2.58.
-  - Files that pass every IFC 4.3 rule are misplaced too: a "normal"-frame
-    sweep on an `IfcGradientCurve`, on a tangent and on curves, with
-    implicit placement axes.
-
-  Read models (extrusions, faceted breps) and plumb-on-grade sweeps, which
-  are already written as meshes, draw the same in both versions. For a model
-  meant for a 0.8.x viewer, set `ifc_sweeps = "mesh"`. The fixture wall then
-  draws identically under 0.8.5 and 0.9.
+  `IfcSectionedSolidHorizontal`.** This is a kernel bug; the emitter's
+  output is not the cause. 0.8.5 evaluates the directrix itself exactly as
+  0.9 does, but it puts each cross-section at the right point plus an offset
+  that grows with `DistanceAlong`, and the direction of that offset changes
+  with the curve's heading. A section point (u, v) at distance d along a
+  due-east line lands at (d, u + d, v), not (d, u, v); on a due-north line
+  at (-u, d, v + d), not (-u, d, v). So the solid draws rotated and moved
+  off its line. Files that pass every IFC 4.3 rule are misplaced too. Read
+  models (extrusions, faceted breps) and plumb-on-grade sweeps, which are
+  already written as meshes, draw the same in both versions. For a model
+  meant for a 0.8.x viewer, set `ifc_sweeps = "mesh"`: the fixture wall
+  then draws identically under 0.8.5 and 0.9. (ifcopenshell 0.9 draws the
+  sectioned solid in the right place but lofts it as an open shell; the
+  same mode is the remedy.)
 - **A sweep with no vertical profile fails `IfcSectionedSolid.DirectrixIs3D`.**
   Its directrix is the 2D horizontal `IfcCompositeCurve`, which
-  `ifcopenshell.validate --rules` reports as an error. ifcopenshell 0.9 draws
-  it correctly anyway. This is separate from the 0.8.5 placement bug: graded
+  `ifcopenshell.validate --rules` reports as an error. ifcopenshell 0.9
+  draws it correctly anyway. Separate from the 0.8.5 placement bug: graded
   sweeps on a 3D `IfcGradientCurve` are rule-valid and are still misplaced
   by 0.8.5. Not fixed yet.
+
+## 0.1.106 — 2026-11-06
+
+Review fixes for 0.1.102–0.1.105.
+
+### Fixed
+
+- **One named type has one predefined type.** A type's GlobalId is keyed
+  by class and name; two predefined types under one name would have been
+  two IfcTypeObjects with one GlobalId. Emit refuses it before any write.
+- **Categorising a cost never changes it.** A split that covers less than
+  the cost writes the balance as one more value with no Category (it
+  reads back in `cost`, not in `categories`); a split that exceeds the
+  cost is refused by `validate_costs` and the writer. The writer also
+  accepts the reader's own form (`categories: {Labor: 60, ...}`), so
+  `read_costs` output re-embeds with its split intact.
+- **Web bundle:** each takeoff row's element quantities are scaled to the
+  row's pay quantity (a lump sum over three elements is 1 LS, `count_as`
+  stands), so the dashboard earns an item once; the bid total follows the
+  priced bid list's quantity and price before the estimate's stored
+  amount; the 4D spans (appear, vanish) come from the selected schedule's
+  tasks only (`element_spans(f, tasks)`), not every task in the file.
+- **Dashboard:** a task's own calendar (its weekdays, holidays and yearly
+  blackouts) decides its working days; only building tasks
+  (construction, installation, undefined) earn pay, not operation or
+  logistics; an element's own share with zero of the chosen kind stays
+  zero rather than borrowing the task's total; the labour-hours basis
+  uses the element's share hours before the task's; an item's cost on the
+  day is its bid item's shares, or its code's shares shared equally among
+  the items of that code, so a dollar is never counted twice; chart
+  tooltips escape their labels; Gantt rows are keyboard-focusable and
+  activate on Enter or Space, keeping focus across a redraw.
+- **Pages:** a selection with no host copies only when the clipboard
+  accepted it and otherwise offers the GlobalIds in a dialog; the takeoff's
+  "only items with a variance" keeps an item whose official quantity is
+  zero but whose modelled quantity is not.
+
+## 0.1.105 — 2026-11-05
+
+### Added
+
+- **The labour / material / equipment split reaches the IFC, and the pay
+  can follow one kind of it** (`bimforge.bim.cost_categories`). IFC puts no
+  price on an element, a task or an IfcMaterial: money lives in an
+  IfcCostItem as a list of IfcCostValue, each with a `Category`, and the
+  item is tied to the task it is spent in and the element it builds by
+  IfcRelAssignsToControl. So a split is one cost item with one value per
+  kind, Category = Labor / Material / Equipment / Subcontract / Other.
+  - `est-bim cost5d --costs`: a code's record may carry `labor`,
+    `material`, `equipment`, `subcontract` (or `sub`), `other` (or
+    `overhead`), the parts of its `cost`; each task's item is written with
+    one value per kind, scaled to the task's part of the code, to the
+    cent. An unknown kind is refused.
+  - `est-bim estimate5d`: each element's share of an activity is written
+    in the activity's own `cost_split` proportions, one value per kind.
+  - `schedule_read.read_costs` returns `categories` {kind: amount} per
+    task, per code and per task-code (`{}` when the values carry none);
+    `cost` stays the sum of every value. The web bundle's `costs.shares`
+    carry `categories` too.
+  - The 4D/5D dashboard draws cumulative labour, material, equipment (and
+    subcontract, other) cost beside total cost and earned pay, shows the
+    split on the day, and lets you choose what the pay follows: all cost
+    (the default), one kind of cost, or labour hours. A kind recorded
+    nowhere for an element falls back to all cost, so a material-only item
+    is never earned on nothing.
+
+## 0.1.104 — 2026-11-05
+
+### Changed
+
+- **The pay follows the labour, the tasks and the materials.** The 4D/5D
+  dashboard no longer drops an element's pay quantity on its appear date.
+  Each element's quantity is EARNED over the tasks that build it, in
+  proportion to the cost the 5D schedule spends on that element in each
+  task (the estimate's activity shares), else the task's cost under the
+  pay item's code, else its labour hours, else its cost, else evenly; and
+  within a task evenly over its working days (the schedule's week and
+  holidays, which the cost and labour curves now respect too). An element
+  no dated task builds is still earned on its appear date; one with
+  neither is reported as undated. With unit prices, earned dollars are
+  the earned quantity at the bid item's price: the dashboard shows earned
+  pay against cost, cumulative and per pay item on the day, with the
+  margin.
+  - The bundle carries `costs.shares` (every priced cost item of the 5D
+    schedule: task, element, bid item, code, cost, labour hours) and each
+    takeoff row's `unit_price` and `bid_total`, from the priced bid list
+    (`--official` now reads `unit_price` / `price` and `total` / `amount`)
+    or, failing that, from the estimate the IFC carries
+    (BidSheet_EstimateItem).
+  - What the embed does not record yet, the dashboard cannot split: the
+    estimate's labour / material / equipment split of an activity is not
+    written to the IFC, so pay follows total cost and hours. Writing the
+    split as cost categories is the follow-on.
+
+## 0.1.103 — 2026-11-05
+
+### Added
+
+- **Web pages on a JSON contract (`bimforge.web`, `est-bim web`).** A
+  takeoff page and a 4D/5D dashboard, written as views of ONE JSON
+  document, the *bundle* (`contract: bimforge-web/1`), that
+  `bimforge.web.build_bundle` produces headlessly from an IFC: every
+  element (class, type, predefined type, whole and parts, container, pay
+  codes, Qto values, appear and vanish dates, tasks), the pay-item takeoff
+  (the CanonicalTakeoff rows with each element's quantity in the pay unit,
+  the official bid quantity and the variance), the IfcWorkSchedule as a
+  CanonicalSchedule with its task-to-element links, and the IfcCostSchedule
+  costs and labour hours per task. The bundle carries no timestamp, so a
+  rebuild of an unchanged model is byte-identical.
+  - `est-bim web --ifc model.ifc [--map takeoff_map.yaml] [--official
+    bid.json] [--schedule NAME] [--out DIR] [--serve [PORT] --open]` writes
+    `index.html`, `takeoff.html`, `dashboard.html`, their assets and
+    `data/bundle.json` + `data/bundle.js`, and serves the directory when
+    asked. The pages are plain HTML, CSS and JavaScript with no external
+    library, and open straight from disk.
+  - **Takeoff:** pay items with modelled, official, variance and variance
+    %, sortable and filterable, expanding to the elements behind each item
+    with class, type, quantity, 4D span and GlobalId; a CSV download; the
+    elements no pay item counts.
+  - **4D/5D dashboard:** a day scrubber; cost and labour to date; cumulative
+    cost and labour curves; the cumulative pay quantity in place per pay
+    item (from each element's appear date); a Gantt of the schedule (task
+    types coloured, milestones, summaries, the scrubbed day and today);
+    a task's cost, hours, predecessors and elements; and what stands on
+    the day, by class.
+  - **The host adapter.** A page talks to whatever hosts it through
+    `window.bimforgeHost` (`select(globalIds, label)`, `gotoDate(day)`) and
+    listens for a `bimforge:date` event, so the same page runs standalone
+    (a selection copies GlobalIds) or inside an editor's bridge (a Blender
+    add-on serving the same bundle from the open file, as Bonsai's web
+    pages do).
+
+## 0.1.102 — 2026-11-05
+
+A barrier rail reaches FreeCAD, Revit and Bonsai as a barrier rail, not as
+loose triangles and a flat list of posts. Measured on the shipped examples
+before and after:
+
+| | before | after |
+|---|---|---|
+| Type 842 end block | 30 triangular IfcFaces | 11 planar faces |
+| Handrail run, 87 elements | 87 unrelated products, no types | 1 IfcRailing whole with 87 parts, 8 types |
+| Handrail bodies | 43 IfcExtrudedAreaSolid | 5 solids, 40 IfcMappedItem |
+
+### Added
+
+- **Element types (`Element.type_name`).** One IfcWallType / IfcRailingType /
+  IfcMemberType ... per distinct (class, name) in the file, related by
+  IfcRelDefinesByType and carrying the element's predefined type (the
+  occurrence inherits it, as IFC requires; read it with
+  `ifcopenshell.util.element.get_predefined_type`). Revit shows the name
+  as the family type, FreeCAD and Bonsai as the type tree: twenty posts are
+  twenty occurrences of "B11-51 post HSS2x2x3/16". Type GlobalIds are
+  deterministic (`type/<class>/<name>`).
+- **Wholes and parts (`Element.part_of`).** An element named as another's
+  part hangs under it by IfcRelAggregates and leaves the spatial container,
+  which is what a viewer's tree shows and what Revit's category is read
+  from. The whole is an ordinary, usually geometry-less, Element; emit
+  refuses a part of a missing element, of itself, or a cycle, before any
+  write. `paycodes.apply` never classifies a whole that measures nothing,
+  so a name rule written for its parts ("842 barrier") does not catch it.
+- **Property sets (`Element.psets`)**: `{"Pset_RailingCommon": {"Reference":
+  "B11-51"}}` on the product. `Element.object_type` writes
+  IfcObject.ObjectType.
+- **The rail and barrier families use all three.** A tubular-handrail run
+  is one IfcRailing (HANDRAIL, type "Tubular handrailing B11-51",
+  Reference B11-51) whose rails, posts (IfcMember/POST), returns, caps,
+  sleeves, pocket mortar and dowels are its parts, every kind typed. A
+  Type 842 / 732SW run is one IfcWall (PARAPET, type "Concrete barrier
+  Type 842", Reference B11-81 / B11-58) whose barrier, end blocks,
+  reinforcing and hardware are its parts; the concrete bodies carry the
+  same type. The D90 headwall guardrail is an IfcRailing/GUARDRAIL. The
+  element lists grow by the wholes (one per run, two for a 732SW with its
+  handrail), which measure nothing: every quantity baseline is unchanged.
+- **Instancing (`StructureModel.instancing`, spec
+  `outputs.ifc_instancing`).** Repeated identical bodies (a flat prism, a
+  box, a rod, a tube) are written once as an IfcRepresentationMap and
+  placed by IfcMappedItem, keyed by the solid up to translation and its
+  style; the instanced mesh equals the direct one to the vertex. Off by
+  default (an existing consumer's file is unchanged); the rail and barrier
+  families turn it on.
+- **`outputs.ifc_sweeps: mesh`** (`emit_ifc(sweeps=)`): an exact alignment
+  sweep is written as its closed faceted brep instead of an
+  IfcSectionedSolidHorizontal, for a consumer that lofts the sectioned
+  solid open (ifcopenshell 0.9, so FreeCAD's native importer and Bonsai:
+  17 and 40 open edges measured on the test sweeps) or cannot read IFC4X3
+  (Revit opens IFC2x3 and IFC4; IFC4X3 is link-only and experimental). The
+  IfcAlignment is written either way. A second "Body-FallBack"
+  representation beside the sweep was measured and rejected: ifcopenshell's
+  iterator draws both, so every reader built on it would see the body twice.
+
+### Changed
+
+- **Coplanar facets are merged in the IFC brep writer**
+  (`bimforge.author.facets`). A tapered prism, a loft, a mesh, or a sweep
+  written as its mesh used to reach the IFC as one IfcFace per triangle,
+  and every importer showed every triangle edge. Facets in one plane
+  (to 0.1 µm) are now unioned into one planar IfcFace each, holes as
+  IfcFaceBound, outer loop counter-clockwise about the outward normal;
+  the shell's points are shared. The surface and its volume are unchanged,
+  every vertex a neighbouring facet ends at stays on the merged boundary
+  (the shell is as closed as the triangles were), and a facet that merges
+  with nothing is written as it was. Curved surfaces stay faceted. The STEP
+  emitter has done this since the hand-off work; the two now agree.
+- `developed` resolves an IfcMappedItem to the solid it instances when it
+  decides whether a body cuts as a fill or a line.
+
+## 0.1.101 — 2026-11-05
+
+### Fixed
+
+- **Ground still to dig draws its edges beyond the cut.** Before the dig
+  date, the visible edges beyond a section or elevation now show the ground
+  as it stands, not the ground with its hole already dug. When every void
+  of a host is still to dig, the host is drawn uncut beyond the plane. A
+  ground solid that its cut removes entirely, lying behind the plane, no
+  longer vanishes from the pre-dig view. A host with some voids already
+  dug is drawn as before, with all of its voids. Ground that is not
+  standing at the date (placed later, or already removed) restores nothing.
+
+## 0.1.100 — 2026-11-05
+
+### Removed
+
+- **The Blender add-on moved to its own project,
+  [IfcSection](https://github.com/BrandonLewis/ifcsection)**, with its
+  history. `bimforge.blender` and `python -m bimforge.blender` are gone.
+  BIMForge does not depend on IfcSection. It keeps its own copies of
+  `bimforge.bim.alignment_station`, `developed`, `schedule_state` and
+  `section_style`, which `est-bim stations`, `est-bim elevation` and the GIS
+  export use. Install the add-on from IfcSection's releases, after removing
+  the old "Alignment Section (bimforge)" add-on.
+
+### Added
+
+- **Excavation is drawn as ground removed, not as a block in the hole.**
+  The section and elevation readers (`bimforge.bim.developed`, DXF) and the
+  Blender add-on never fill an excavation. "Excavation" means either:
+  - an `IfcEarthworksCut`, or
+  - the pay-item `IfcEarthworksElement` with ObjectType EXCAVATION (#364).
+
+  The excavation's outline in the cut is drawn as the dashed limit of
+  excavation: the `E-EXCV-LIMIT` DXF layer, or an orange line in Blender.
+  With a 4D date before its dig task, the excavation is still ground and is
+  filled as the ground it voids. The add-on reads the excavations from the
+  IFC, so they are drawn whether or not the viewer imported them. Its new
+  **Excavation** setting picks:
+  - **Limits** (the default);
+  - **Solid** (the volume removed, filled and shown, as before);
+  - **Hidden**.
+
+  In Limits and Hidden, Bonsai's excavation objects are hidden in the
+  viewport; Exit shows them again.
+- **`Element.voids`: an `IfcEarthworksCut` that voids a host.** Naming the
+  host (the existing-ground solid) emits the cut as itself, related by
+  `IfcRelVoidsElement`. It is kept out of the spatial tree, and it keeps its
+  quantities and pay code (the takeoff counts it as excavation). The cut and
+  its host are written as meshes: a boolean against an exact sweep, which
+  draws as an open shell, empties the host. Unhosted cuts are written as
+  before (#364).
+
+### Fixed
+
+- **A cavity wholly inside a body cuts as a hole.** Sections and
+  elevations filled an enclosed cavity as part of the body around it: the
+  cavity's boundary is a face of the arrangement too. A wall job's root-crown
+  overexcavation, below the footing, showed as ground instead of its CLSM
+  backfill. Faces are now kept by even-odd nesting.
+
+### Known limitations
+
+- **Viewers' booleans are unreliable on terrain-scale voids.** These were
+  measured on a retaining-wall job's ground (a 1 ft raster): a cut sharing the
+  ground's top face is silently dropped. With low-poly voids clear of that
+  face:
+  - ifcopenshell 0.9 drew one run's strip right, but dropped the other run's
+    void;
+  - 0.8.5 (Bonsai 0.8.x) drew the first strip wrong by 1,496 CF, and
+    returned corrupt geometry for the second.
+
+  So for ground, keep the pay-item excavation body and a ground already
+  less the dig (the readers above draw that correctly). Use `voids` where a
+  viewer's boolean is sound.
+
+## 0.1.99 — 2026-11-04
+
+### Fixed
+
+- `networkx` is now a core dependency. `est-bim schedule` authors through
+  `ifcopenshell.api.sequence`, which needs networkx for `recalculate_schedule`.
+  With networkx only in the `terrain` extra, an install without that extra printed
+  `API not available due to missing dependencies: sequence.recalculate_schedule`
+  and wrote the 4D IFC with schedule recalculation unavailable.
+
+## 0.1.98 — 2026-11-03
+
+Contour reconciliation work built in the estimating-plugin monorepo after the
+0.1.94 split, brought upstream (estimating-plugin #400, #402, #404).
+
+### Added
+
+- `est-bim contour-surface` can stop contours facing each other across a gap in the linework
+  (a roadway cut) from counting as one interval apart: `--barrier-layers LAYER ...` loads
+  manifest layers (such as the proposed-grading contours) as obstacles, never contours or TIN
+  lines; a `breaks:` list of page- or world-coordinate polylines in the anchors file does the
+  same and survives re-extraction; and `--no-face A,B` drops one pair by line number. Every pair
+  set aside is a `barrier` finding naming its lines, what set it aside and the facing it set
+  aside, and the run logs a one-line summary. A barrier blocks only where it crosses the
+  interior of the gap between two lines, never where it lies along a contour. A barrier that
+  stops short leaves the pair in place and is reported as a partial `barrier` finding. Only
+  partial findings fail `--strict` (estimating-plugin #397).
+
+### Fixed
+
+- `est-bim contours` keeps every drawing path by default (`--min-path-pt` 0, was 2): the length
+  filter dropped the short connector paths contour runs are built from, fragmenting contours and
+  silently losing line work, and now warns when set (estimating-plugin #398).
+- `est-bim contour-surface` exposes the neighbour graph's `--min-facing-ft` (default 4) beside
+  `--contact-ft`, and every reconciliation conflict now lists the chain between each pair of
+  conflicting sources with the feet per hop it implies against the contour interval (in the
+  report, `review.md`, and `findings.json` `chains`). A chain steeper than the interval is called
+  out as a likely `faces` edge spanning a gap in the linework, such as two contours facing each
+  other across a roadway prism, so the failure can be diagnosed without tracing lines by hand
+  (estimating-plugin #397).
+
+## 0.1.97 — 2026-11-03
+
+### Added
+
+- **Cross sections to DXF.** `bimforge.bim.developed.cross_section(f,
+  SectionView(...))` draws the section square to the alignment at one
+  station: the cut filled per styling, ground lines, the visible edges
+  beyond, and offset ticks (CL, 10 Lt, 10 Rt) on the same DXF sheets as the
+  developed elevations. In the Blender add-on, **Export Section DXF** writes
+  what the section camera shows (the slider's station, Width, Depth,
+  Ahead/Back, the 4D date). It needs no From/To; those belong to the
+  developed elevation, whose message now points here.
+- **Sections read like drafted sections.** A shared table
+  (`bimforge.bim.section_style`) says what each cut is (concrete, lean
+  concrete / CDF, concrete backfill, compacted fill, native earth, gravel,
+  asphalt, steel, timber, rebar, existing work to remove), by its material
+  name, else its object name, and how it is drawn:
+  - **DXF:** a standard pattern per kind (CONCRETE1, SACNCR, AR-CONC,
+    AR-SAND, EARTH, GRAVEL, ASPHALT, ANSI32, WOOD1, CONC_DEMOLITION), plotting
+    at its nominal size at any sheet scale on a `-PATT` layer in ink. The
+    colour fill stays on the cut layer (freeze it for black and white).
+    Rebar plots solid, and a bar smaller than 0.04" on paper as a dot that
+    size.
+  - **Blender:** the section fills are unlit (emission), so the viewport
+    light no longer tints them, in the style's true colour (sRGB converted to
+    linear). They are hatched procedurally in camera space at a size that
+    follows the view width: stipple, sand, earth crosshatch, gravel cells,
+    lines. Hatches show in Material Preview and Rendered; Solid mode shows
+    the flat colour. A cut bar narrower than 0.35% of the view width is
+    drawn as a dot that size.
+- **Station and offset sliders.** The section's slider is now in stations
+  (first to last, in the display unit) instead of a 0-1 fraction, and the
+  Offsets box has an offset slider across the view (- Lt, + Rt) that moves
+  the 3D cursor and reads the surface as it slides. The typed Go / Locate
+  fields stay for exact values. Their ranges follow the loaded alignment, the
+  unit and the view width.
+- **Exit** (next to View Section) leaves the section completely. It goes
+  back to a free 3D view, turns the 4D date filter off so the whole model
+  shows, and gives the scene its own camera back. It removes everything the
+  section drew (camera, plane frame, cut, lines, ruler, labels, marker,
+  axis) and stops the viewport label. The alignment stays loaded, so the
+  slider or View Section rebuilds it. In the developed-elevation scene,
+  **Back to the model** returns to the scene Develop was run from and
+  leaves the section as it was.
+
+### Changed
+
+- **Default colours a section can tell apart.** Native earth
+  (0.56/0.44/0.30) and compacted fill (0.80/0.69/0.46, a light straw) are
+  now far apart, as are concrete, lean concrete / CDF (0.90/0.85/0.62, pale
+  cream) and concrete backfill (0.58/0.64/0.70, blue-grey); concrete
+  backfill used to be 0.05 off concrete. `S-EW-FILL` resolves to compacted
+  fill, not native earth. Models take the new colours when they are
+  rebuilt; their styles are written into the IFC.
+
+### Fixed
+
+- **Cut faces hide what lies behind them** in developed elevations and
+  cross sections. The cut polygons are painted into the depth buffer at
+  depth 0, so an edge beyond the plane (rebar inside a wall, a footing's far
+  edge) no longer draws over the fill.
+- **A multi-material product cuts per material** (concrete and steel parts
+  of one element each get their own layer, colour and hatch). The kernel's
+  materials are named after their IfcSurfaceStyle ("Concrete"), not its
+  rendering ("IfcSurfaceStyleRendering-170").
+- **"Reinforced concrete" classifies as concrete**, not rebar. A cut's kind
+  is judged on its layer name as written (sanitised, 40 characters), so a
+  long name keeps its hatch.
+
+- **Cut fills of see-through styles.** The DXF used the kernel's diffuse
+  colour, which is scaled by (1 - transparency), so the 50 % transparent
+  earth filled half-dark. It now uses the style's surface colour.
+- **A cross section closes bodies wider than the view.** The native ground
+  was cut only within the view width, so it never closed and drew as a line.
+  Everything the plane crosses is now cut, then clipped (as `develop` does).
+
+- **The Blender add-on in Bonsai 0.8.x.** Loading an alignment failed with
+  "in method 'map_shape', argument 2 of type 'IfcUtil::IfcBaseClass *'":
+  Bonsai 0.8.x bundles ifcopenshell 0.8.5, whose kernel binding takes the
+  raw wrapped instance. `AlignmentStationer` now maps the curve through
+  `ifcopenshell.geom.map_shape`, which unwraps in 0.8 and 0.9 alike. The
+  add-on's reading side (stationing, 4D spans, developed elevations) gives
+  identical results under 0.8.5 and 0.9.
 
 ## 0.1.96 — 2026-11-02
 

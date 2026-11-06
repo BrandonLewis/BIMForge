@@ -274,3 +274,25 @@ def test_an_indexed_poly_curve_follows_its_segments():
     arc = [f.create_entity("IfcArcIndex", (1, 3, 2))]
     with pytest.raises(NotImplementedError, match="IfcArcIndex"):
         AlignmentStationer(f, alignment(arc))
+
+
+def test_the_kernel_call_unwraps_for_ifcopenshell_08(monkeypatch):
+    """Bonsai 0.8.x bundles ifcopenshell 0.8.5, whose wrapper map_shape takes
+    the raw wrapped instance (handing it the entity fails: "argument 2 of
+    type 'IfcUtil::IfcBaseClass *'"). _map_shape goes through
+    ifcopenshell.geom.map_shape, which unwraps in 0.8 and 0.9 alike, and
+    falls back to unwrapping itself."""
+    import ifcopenshell.geom
+    from ifcopenshell import ifcopenshell_wrapper as w
+    from bimforge.bim import alignment_station as A
+    f = _feet_file()
+    p = f.create_entity("IfcCartesianPoint", Coordinates=(1.0, 2.0, 3.0))
+    s = ifcopenshell.geom.settings()
+    seen = []
+    monkeypatch.setattr(ifcopenshell.geom, "map_shape",
+                        lambda st, inst: seen.append(inst) or "via-geom")
+    assert A._map_shape(s, p) == "via-geom" and seen == [p]
+    monkeypatch.delattr(ifcopenshell.geom, "map_shape")
+    monkeypatch.setattr(w, "map_shape", lambda st, raw: raw)
+    # 0.8 entities carry wrapped_data; a 0.9 one has none and goes as itself
+    assert A._map_shape(s, p) is getattr(p, "wrapped_data", p)

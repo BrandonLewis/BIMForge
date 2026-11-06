@@ -230,6 +230,12 @@ def apply(model, paycodes: PayCodes) -> None:
     only to elements that do not already carry a `spatial_part`."""
     apply_spatial_parts(model, paycodes.spatial_parts)
     for el in model.elements:
+        if el.geometry is None and not el.quantities:
+            # a whole that only groups its parts (a handrail run, a barrier
+            # run: Element.part_of) measures nothing; a pay code on it would
+            # count for nothing and a name rule written for its parts
+            # ("842 barrier") would otherwise catch it
+            continue
         if not el.classifications:
             el.classifications = paycodes.classify(el)
         for code in el.classifications:

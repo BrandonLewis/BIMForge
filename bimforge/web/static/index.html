@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BIMForge model</title>
+<link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+<header class="top"></header>
+<main>
+  <div class="tiles" id="tiles"></div>
+  <div class="two">
+    <section class="panel">
+      <h2>Pages</h2>
+      <ul class="plain">
+        <li><a href="takeoff.html">Takeoff</a><span class="muted">pay items against the bid schedule, the elements behind each</span></li>
+        <li><a href="dashboard.html">4D/5D dashboard</a><span class="muted">schedule, cost and quantity curves, what stands on a day</span></li>
+      </ul>
+    </section>
+    <section class="panel">
+      <h2>Elements by class</h2>
+      <table id="classes"><thead><tr><th>Class</th><th class="num">Elements</th><th class="num">Scheduled</th><th class="num">With pay code</th></tr></thead><tbody></tbody></table>
+    </section>
+  </div>
+  <section class="panel" id="warnings" hidden>
+    <h2>Review notes</h2>
+    <ul class="plain small" id="warnlist"></ul>
+  </section>
+</main>
+<footer id="foot"></footer>
+<script src="data/bundle.js"></script>
+<script src="assets/shared.js"></script>
+<script>
+(function () {
+  const b = BF.bundle(); BF.header("index.html");
+  const els = Object.values(b.elements);
+  const rows = b.takeoff.rows;
+  const tiles = [
+    ["Elements", els.length, b.model.counts.scheduled + " scheduled"],
+    ["Pay items", rows.length, b.takeoff.unclassified.length + " elements without a code"],
+    ["Schedule", b.schedule ? b.schedule.tasks.length + " tasks" : "none", b.schedule ? (b.schedule.name || "") : "no IfcWorkSchedule"],
+    ["Cost", b.costs ? BF.money(Object.values(b.costs.tasks).reduce(function (s, t) { return s + (t.cost || 0); }, 0)) : "none",
+      b.costs ? Object.keys(b.costs.costs).length + " cost codes" : "no IfcCostSchedule"],
+  ];
+  document.getElementById("tiles").innerHTML = tiles.map(function (t) {
+    return '<div class="tile"><div class="k">' + t[0] + '</div><div class="v">' + BF.esc(t[1]) + '</div><div class="s">' + BF.esc(t[2]) + "</div></div>";
+  }).join("");
+  const by = {};
+  els.forEach(function (e) {
+    const r = by[e.ifc_class] || (by[e.ifc_class] = { n: 0, s: 0, c: 0 });
+    r.n++; if (e.appear || e.vanish) r.s++; if (e.codes.length) r.c++;
+  });
+  document.querySelector("#classes tbody").innerHTML = Object.keys(by).sort().map(function (k) {
+    const r = by[k];
+    return "<tr><td>" + BF.esc(k) + '</td><td class="num">' + r.n + '</td><td class="num">' + r.s + '</td><td class="num">' + r.c + "</td></tr>";
+  }).join("");
+  const warns = (b.takeoff.warnings || []).concat(b.costs ? (b.costs.warnings || []) : []);
+  if (warns.length) {
+    document.getElementById("warnings").hidden = false;
+    document.getElementById("warnlist").innerHTML = warns.map(function (w) { return "<li>" + BF.esc(w) + "</li>"; }).join("");
+  }
+  document.getElementById("foot").textContent = b.model.generator + " · contract " + b.contract;
+})();
+</script>
+</body>
+</html>

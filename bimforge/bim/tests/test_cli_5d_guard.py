@@ -84,5 +84,6 @@ def test_cost5d_embed_needs_no_estimating_core(no_estimating_tools):
     embed_schedule(f, sched)
     embed_cost_and_resources(f, sched, {"A": {"cost": 100.0,
                                               "labor_hours": 8.0}})
-    assert read_costs(f)["costs"] == {"A": {"cost": 100.0, "labor_hours": 8.0}}
+    assert read_costs(f)["costs"] == {"A": {"cost": 100.0, "labor_hours": 8.0,
+                                            "categories": {}}}
     assert not [m for m in sys.modules if m.startswith("estimating_tools")]

@@ -633,3 +633,358 @@ def test_an_equidistant_spot_becomes_a_finding():
     assert (f.kind, f.lines, f.xy) == ("spot-tie", [0, 1], (50.0, 5.0))
     assert f.check == CHECKS["spot-tie"]
     assert "it was not used as a pin" in f.detail
+
+
+# ------------------------------------------------- a gap in the contours (#397)
+_GAP_Y = {100: 0.0, 101: 20.0, 102: 40.0, 103: 44.0, 104: 46.0, 105: 48.0,
+          106: 50.0, 107: 52.0, 108: 56.0, 109: 76.0, 110: 96.0}
+
+
+def _gap_sheet():
+    """Contours 100..110 at a 1-ft interval, line k carrying 100 + k. A steep
+    bank (103..107, 2 ft apart) stops at x = 100 — a roadway prism took the
+    rest — while every other line runs on to x = 200. Past x = 100, 102 and
+    108 are 16 ft apart across empty ground, nearer each other than their
+    own neighbours (20 ft), so they face: one hop for a 6-ft step."""
+    return [poly(hline(y, 0.0, 100.0 if 103 <= z <= 107 else 200.0,
+                       11 if 103 <= z <= 107 else 21))
+            for z, y in _GAP_Y.items()]
+
+
+_GAP_ELEV = {0: 100.0, 5: 105.0, 10: 110.0}     # every label is right
+
+
+def test_a_gap_makes_contours_six_feet_apart_one_hop():
+    polys = _gap_sheet()
+    g = neighbour_graph(polys)
+    assert (2, 8) in g.faces                     # 102 faces 108 across the gap
+    assert not g.contacts and not g.same and not g.joints
+    rec = reconcile(polys, g, _GAP_ELEV, 1.0)
+    # 100 – 101 – 102 – 108 – 109 – 110 is 5 hops for 10 ft: the correct
+    # labels 100 and 110 conflict, and the lines around them empty
+    assert sorted(c["line"] for c in rec.label_conflicts) == [0, 10]
+    assert rec.counts()["conflict"] == 8 and not rec.pinned
+    # the gap edge alone is to blame: without it every line pins, correctly
+    clean = NeighbourGraph(n=g.n, faces=g.faces - {(2, 8)})
+    ok = reconcile(polys, clean, _GAP_ELEV, 1.0)
+    assert not ok.label_conflicts
+    assert ok.pinned == {k: 100.0 + k for k in range(11) if k not in _GAP_ELEV}
+
+
+def test_a_conflict_reports_its_chain_and_implied_ft_per_hop():
+    polys = _gap_sheet()
+    g = neighbour_graph(polys)
+    rec = reconcile(polys, g, _GAP_ELEV, 1.0)
+    (f,) = build_findings(polys, g, _GAP_ELEV, rec)
+    assert f.kind == "conflict"
+    (c,) = f.chains                              # one conflicting pair: 100 / 110
+    assert {k: c[k] for k in ("lines", "hops", "dz_ft", "ft_per_hop",
+                              "interval_ft")} == {
+        "lines": [10, 9, 8, 2, 1, 0], "hops": 5, "dz_ft": 10.0,
+        "ft_per_hop": 2.0, "interval_ft": 1.0}
+    assert c["text"] == (
+        "chain 10(110) – 9 – 8 – 2 – 1 – 0(100): 5 hops for 10 ft = 2.00 "
+        "ft/hop against the 1 ft interval — more than one interval per hop: "
+        "a faces edge on this chain likely spans a gap (contours missing "
+        "between two lines that face each other), or a label is misread")
+    assert "steepest chain 2.00 ft/hop against the 1 ft interval" in f.detail
+    d = f.as_dict()
+    assert d["chains"][0]["ft_per_hop"] == 2.0 and d["chains"][0]["text"] == c["text"]
+
+
+def test_a_chain_through_a_spot_counts_the_spot_hop():
+    polys = [poly(hline(0.0)), poly(hline(10.0))]
+    g = neighbour_graph(polys)
+    rec = reconcile(polys, g, {0: 20.0}, 1.0,
+                    spot_pins=[{"elev": 30.2, "xy": (50.0, 11.0)}])
+    (f,) = build_findings(polys, g, {0: 20.0}, rec)
+    (c,) = f.chains
+    # spot → its line 1 (one hop) → line 0: 2 hops for 10.2 ft
+    assert (c["hops"], c["dz_ft"], c["lines"]) == (2, pytest.approx(10.2), [1, 0])
+    assert c["text"].startswith("chain spot 30.2 – 1 – 0(20): 2 hops for "
+                                "10.2 ft = 5.10 ft/hop")
+
+
+def test_a_clean_sheet_reports_no_chains():
+    polys = [poly(hline(10.0 * k)) for k in range(4)]
+    g = neighbour_graph(polys)
+    elev = {0: 100.0, 3: 103.0}
+    assert build_findings(polys, g, elev, reconcile(polys, g, elev, 1.0)) == []
+
+
+# ------------------------------------------- barriers across the gap (#397 b)
+# a proposed-grade contour running through the gap, past the stopped bank
+_PROPOSED = (np.array([[105.0, 48.0], [150.0, 48.0], [200.0, 48.0]]),
+             "layer PROP")
+
+
+def test_a_barrier_through_the_gap_sets_the_gap_edge_aside():
+    polys = _gap_sheet()
+    plain = neighbour_graph(polys)
+    g = neighbour_graph(polys, barriers=[_PROPOSED])
+    assert (2, 8) in plain.faces and (2, 8) not in g.faces
+    # every genuine neighbour pair of the sheet is kept
+    assert g.faces == plain.faces - {(2, 8)}
+    assert g.contacts == plain.contacts and not g.same and not g.joints
+    (b,) = g.barred
+    assert b.pair == (2, 8) and b.by == ["layer PROP"]
+    assert b.kept_ft < g.params["min_facing_ft"] <= b.length_ft
+    # set aside where the gap is: past x = 100, between y 40 and 56
+    assert 100.0 < b.xy[0] < 200.0 and 40.0 < b.xy[1] < 56.0
+    assert g.params["barriers"] == {"layer PROP": 1}
+
+
+def test_a_barred_gap_reconciles_and_pins_every_line():
+    polys = _gap_sheet()
+    g = neighbour_graph(polys, barriers=[_PROPOSED])
+    rec = reconcile(polys, g, _GAP_ELEV, 1.0)
+    assert not rec.label_conflicts and rec.counts()["conflict"] == 0
+    assert rec.pinned == {k: 100.0 + k for k in range(11) if k not in _GAP_ELEV}
+
+
+def test_a_barrier_on_the_far_side_blocks_nothing():
+    # 3 ft below line 0: nearer to line 0 than line 1 is, but not between them
+    polys = [poly(hline(0.0)), poly(hline(10.0)), poly(hline(20.0))]
+    plain = neighbour_graph(polys)
+    far = (hline(-3.0, 0.0, 100.0), "layer PROP")
+    g = neighbour_graph(polys, barriers=[far])
+    assert g.faces == plain.faces == {(0, 1), (1, 2)} and g.barred == []
+    # not one facing vote is lost: line 0 still votes for line 1
+    assert g.facing == plain.facing
+
+
+def test_a_barrier_that_only_partly_blocks_keeps_the_pair():
+    # the barrier covers 20 of 100 ft between lines 0 and 1: 80 ft still face
+    polys = [poly(hline(0.0)), poly(hline(10.0))]
+    g = neighbour_graph(polys, barriers=[(hline(5.0, 40.0, 60.0, 3), "break 1")])
+    assert g.faces == {(0, 1)} and g.barred == []
+    assert g.facing[(0, 1)][0] < neighbour_graph(polys).facing[(0, 1)][0]
+
+
+def test_a_barrier_grazing_the_connector_within_contact_ft_blocks_it():
+    # the first facing connector runs at x = 1 (x = 0 aims at an end): a
+    # barrier ending 0.3 ft short of it is within contact_ft, 0.6 ft is not
+    polys = [poly(hline(0.0, 0.0, 10.0, 11)), poly(hline(10.0, 0.0, 10.0, 11))]
+    graze = (np.array([[-20.0, 5.0], [0.7, 5.0]]), "break 1")
+    miss = (np.array([[-20.0, 5.0], [0.4, 5.0]]), "break 1")
+    assert neighbour_graph(polys, barriers=[graze]).facing[(0, 1)][0] \
+        < neighbour_graph(polys, barriers=[miss]).facing[(0, 1)][0] \
+        == neighbour_graph(polys).facing[(0, 1)][0]
+
+
+def test_barriers_numpy_fallback_matches(monkeypatch):
+    polys = _gap_sheet()
+    want = neighbour_graph(polys, barriers=[_PROPOSED])
+    monkeypatch.setitem(sys.modules, "scipy", None)
+    monkeypatch.setitem(sys.modules, "scipy.spatial", None)
+    got = neighbour_graph(polys, barriers=[_PROPOSED])
+    assert got.faces == want.faces and got.barred == want.barred
+
+
+def test_no_barriers_leaves_the_graph_unchanged():
+    for polys in (_gap_sheet(), _sparse_middle(),
+                  [poly(hline(10.0 * k)) for k in range(4)]):
+        plain = neighbour_graph(polys)
+        g = neighbour_graph(polys, barriers=())
+        assert (g.faces, g.same, g.joints, g.contacts, g.params) == (
+            plain.faces, plain.same, plain.joints, plain.contacts, plain.params)
+        assert g.barred == [] and "barriers" not in g.params
+
+
+def test_set_aside_faces_drops_a_pair_and_records_why():
+    polys = _gap_sheet()
+    g = neighbour_graph(polys)
+    warn = g.set_aside_faces([(8, 2)])
+    assert warn == [] and (2, 8) not in g.faces
+    (b,) = g.barred
+    assert b.pair == (2, 8) and b.by == ["--no-face"] and b.kept_ft == 0.0
+    assert b.length_ft == g.facing[(2, 8)][0] > 0
+    assert g.params["no_face"] == [[2, 8]]
+    rec = reconcile(polys, g, _GAP_ELEV, 1.0)
+    assert not rec.label_conflicts
+    assert rec.pinned == {k: 100.0 + k for k in range(11) if k not in _GAP_ELEV}
+
+
+def test_set_aside_faces_warns_on_a_non_pair_and_refuses_a_bad_index():
+    polys = _gap_sheet()
+    g = neighbour_graph(polys)
+    before = set(g.faces)
+    (w,) = g.set_aside_faces([(0, 5)])
+    assert "0,5" in w and "not a faces pair" in w
+    assert g.faces == before and g.barred == []
+    with pytest.raises(ValueError, match="out of range"):
+        g.set_aside_faces([(2, 11)])
+    with pytest.raises(ValueError, match="two different lines"):
+        g.set_aside_faces([(3, 3)])
+
+
+def test_a_barred_pair_is_a_barrier_finding():
+    polys = _gap_sheet()
+    g = neighbour_graph(polys, barriers=[_PROPOSED])
+    g.set_aside_faces([(0, 1)])
+    elev = {**_GAP_ELEV, 2: 102.0}
+    rec = reconcile(polys, g, elev, 1.0)
+    found = build_findings(polys, g, elev, rec)
+    bars = [f for f in found if f.kind == "barrier"]
+    assert [f.kind for f in found if f.kind != "barrier"] == []
+    assert CHECKS["barrier"] == bars[0].check
+    by_lines = {tuple(f.lines): f for f in bars}
+    gap = by_lines[(2, 8)]
+    assert gap.labels == [{"id": None, "elev": 102.0, "line": 2}]
+    assert "lines 2 (102) and 8" in gap.detail and "layer PROP" in gap.detail
+    assert f"{g.barred[0].length_ft:.0f} ft of facing" in gap.detail
+    assert gap.xy == g.barred[0].xy
+    nf = by_lines[(0, 1)]
+    assert "lines 0 (100) and 1" in nf.detail and "--no-face" in nf.detail
+    assert gap.as_dict()["kind"] == "barrier"
+
+
+# ------------------------------------------------ review of #397 b (round 2)
+def _leaky_sheet():
+    """Lines at y = 0 and 16, 300 ft long, a 3-line bank (4, 8, 12) between
+    them stopping at x = 100. Past x ~ 116 the outer lines face across the
+    gap; a barrier at y = 8 from x = 120 leaves ~8 ft of that unblocked."""
+    return [poly(hline(y, 0.0, 300.0 if y in (0.0, 16.0) else 100.0,
+                       31 if y in (0.0, 16.0) else 11))
+            for y in (0.0, 4.0, 8.0, 12.0, 16.0)]
+
+
+_LEAKY = (np.array([[120.0, 8.0], [300.0, 8.0]]), "layer PROP")
+
+
+def test_a_leaky_barrier_keeps_the_pair_but_never_silently():
+    polys = _leaky_sheet()
+    g = neighbour_graph(polys, barriers=[_LEAKY])
+    assert (0, 4) in g.faces                       # the approved rule: kept
+    (b,) = g.barred
+    assert b.pair == (0, 4) and b.partial and b.by == ["layer PROP"]
+    assert b.kept_ft >= g.params["min_facing_ft"] and b.length_ft >= 300.0
+    assert b.length_ft >= b.kept_ft
+    (f,) = build_findings(polys, g, {}, None)
+    assert f.kind == "barrier" and f.partial and f.as_dict()["partial"] is True
+    assert (f"lines 0 and 4: {b.length_ft:.0f} ft of facing blocked by "
+            f"layer PROP, but {b.kept_ft:.0f} ft still faces — the pair is "
+            "kept; extend the barrier/break line to cover it") in f.detail
+
+
+def test_a_full_set_aside_is_not_partial():
+    g = neighbour_graph(_gap_sheet(), barriers=[_PROPOSED])
+    (b,) = g.barred
+    assert not b.partial
+    (f,) = build_findings(_gap_sheet(), g, {}, None)
+    assert not f.partial and f.as_dict()["partial"] is False
+
+
+def test_findings_other_than_barriers_carry_no_partial_key():
+    polys = [poly(hline(0.0)), poly([(50.0, -5.0), (50.0, 5.0)])]
+    (f,) = build_findings(polys, neighbour_graph(polys), {}, None)
+    assert f.kind == "cross" and "partial" not in f.as_dict()
+
+
+@pytest.mark.parametrize("dy", [0.0, 0.4, -0.4])
+def test_a_barrier_lying_on_a_contour_is_not_between(dy):
+    polys = [poly(hline(0.0)), poly(hline(10.0)), poly(hline(20.0))]
+    plain = neighbour_graph(polys)
+    g = neighbour_graph(polys, barriers=[(hline(10.0 + dy), "break 1")])
+    assert g.faces == plain.faces == {(0, 1), (1, 2)}
+    assert g.barred == []
+
+
+def test_a_barrier_crossing_the_connector_mid_way_still_blocks():
+    polys = [poly(hline(0.0)), poly(hline(10.0)), poly(hline(20.0))]
+    g = neighbour_graph(polys, barriers=[(hline(5.0, -10.0, 110.0), "break 1")])
+    assert g.faces == {(1, 2)}
+    (b,) = g.barred
+    assert b.pair == (0, 1) and not b.partial
+
+
+def test_set_aside_faces_needs_facing_votes_for_the_pair():
+    g = NeighbourGraph(n=2, faces={(0, 1)})
+    with pytest.raises(ValueError, match="no facing votes"):
+        g.set_aside_faces([(0, 1)])
+    assert g.faces == {(0, 1)} and g.barred == []
+
+
+def test_set_aside_faces_names_the_barrier_that_already_set_it_aside():
+    g = neighbour_graph(_gap_sheet(), barriers=[_PROPOSED])
+    (w,) = g.set_aside_faces([(8, 2)])
+    assert w == "--no-face 8,2: already set aside by layer PROP"
+    assert len(g.barred) == 1 and "no_face" not in g.params
+
+
+def test_set_aside_faces_resolves_a_leaky_pair():
+    g = neighbour_graph(_leaky_sheet(), barriers=[_LEAKY])
+    assert g.set_aside_faces([(0, 4)]) == []
+    assert (0, 4) not in g.faces
+    (b,) = g.barred
+    assert b.by == ["--no-face"] and not b.partial
+
+
+def _band_hits_reference(A, B, segs, tol):
+    """The blocking rule by shapely: a barrier segment meets the band of
+    half-width ``tol`` around the connector less ``tol`` at each end."""
+    geom = pytest.importorskip("shapely.geometry")
+    out = []
+    for a, b in zip(A, B):
+        L = math.dist(a, b)
+        if L <= 2 * tol:
+            out.append(())
+            continue
+        u = (b - a) / L
+        n = np.array([-u[1], u[0]])
+        p, q = a + tol * u, b - tol * u
+        band = geom.Polygon([p + tol * n, q + tol * n, q - tol * n, p - tol * n])
+        out.append(tuple(sorted({o for (s0, s1, o) in segs
+                                 if band.intersects(geom.LineString([s0, s1]))})))
+    return out
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_barrier_hits_match_a_brute_force_check(seed):
+    from bimforge.terrain.reconcile import _barrier_hits, _barrier_segments
+    rng = np.random.default_rng(seed)
+    bars = [(np.cumsum(rng.uniform(-4, 4, (rng.integers(2, 8), 2)), axis=0)
+             + rng.uniform(0, 40, 2), f"b{k}") for k in range(12)]
+    A = rng.uniform(0, 40, (400, 2))
+    B = A + rng.uniform(-8, 8, (400, 2))
+    P0, P1, owner, labels = _barrier_segments(bars)
+    segs = list(zip(P0, P1, owner.tolist()))
+    want = _band_hits_reference(A, B, segs, 0.5)
+    assert sum(bool(w) for w in want) > 20          # the inputs do hit
+    half = float(np.sqrt(((P1 - P0) ** 2).sum(axis=1)).max()) / 2.0
+    from scipy.spatial import cKDTree
+    for tree in (cKDTree((P0 + P1) / 2.0), None):
+        got = _barrier_hits(A, B, (P0, P1, owner, labels, tree, half), 0.5)
+        assert got == want
+
+
+def test_barrier_hits_query_the_tree_in_row_blocks(monkeypatch):
+    from bimforge.terrain import reconcile as R
+    from scipy.spatial import cKDTree
+    sizes = []
+
+    class Spy:
+        def __init__(self, pts):
+            self.t = cKDTree(pts)
+
+        def query_ball_point(self, x, r):
+            sizes.append(len(x))
+            return self.t.query_ball_point(x, r)
+
+    P0, P1, owner, labels = R._barrier_segments([(hline(5.0), "b")])
+    A = np.column_stack([np.linspace(0, 100, 1000), np.zeros(1000)])
+    B = A + [0.0, 10.0]
+    got = R._barrier_hits(A, B, (P0, P1, owner, labels, Spy((P0 + P1) / 2),
+                                 2.5), 0.5)
+    assert all(got) and max(sizes) <= 256 and sum(sizes) == 1000
+
+
+def test_a_point_or_zero_length_barrier_blocks_nothing():
+    polys = [poly(hline(0.0)), poly(hline(10.0))]
+    plain = neighbour_graph(polys)
+    g = neighbour_graph(polys, barriers=[
+        (np.array([[50.0, 5.0]]), "break 1"),
+        (np.array([[60.0, 5.0], [60.0, 5.0]]), "break 2")])
+    assert g.faces == plain.faces and g.barred == []
+    assert g.facing == plain.facing
+    assert g.params["barriers"] == {"break 1": 1, "break 2": 1}

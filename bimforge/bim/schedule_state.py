@@ -13,9 +13,8 @@ existing utilities, the bridge being removed until its removal task).
 "Standing on day D" is the state at the end of D: built if its appear date
 is on or before D, gone if its disappear date is.
 
-Kept to ifcopenshell and the standard library, so it ships inside the
-Blender add-on zip next to alignment_station (Bonsai's Python has
-ifcopenshell but not bimforge).
+Kept to ifcopenshell and the standard library; the IfcSection Blender
+add-on (https://github.com/BrandonLewis/ifcsection) carries its own copy.
 
 Examples:
     import ifcopenshell
@@ -61,17 +60,19 @@ def _links(task):
             yield rel.RelatingProduct
 
 
-def element_spans(f) -> dict[str, Span]:
+def element_spans(f, tasks=None) -> dict[str, Span]:
     """GlobalId -> Span for every element some dated task moves.
 
     Several tasks on one element: it appears at the EARLIEST appearing task
     and vanishes at the earliest vanishing one. A task of another type
     (OPERATION, LOGISTIC, ...) or with no start date moves nothing.
+    `tasks` limits the reading to those IfcTasks (one schedule's); None
+    reads every task in the file.
     """
     appear: dict[str, str] = {}
     vanish: dict[str, str] = {}
     names: dict[str, list[str]] = {}
-    for task in f.by_type("IfcTask"):
+    for task in (f.by_type("IfcTask") if tasks is None else tasks):
         day, kind = _start(task), _type(task)
         if day is None or kind not in APPEAR | VANISH:
             continue

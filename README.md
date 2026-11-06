@@ -18,9 +18,6 @@ produce control, layout and structure sheets.
   org-neutral DXF/KML/geo engine, styled by pluggable **style packs**.
 - **`bimforge.terrain`** — terrain grids, watertight terrain solids and
   excavation carves from point clouds and contours.
-- **`bimforge.blender`** — Blender add-ons. *Alignment Section* puts a station
-  slider in the 3D view sidebar that cuts a live cross-section along an IFC4X3
-  `IfcAlignment` (see below).
 
 ## Install
 
@@ -37,45 +34,61 @@ est-bim --help      # dxf2bim, ifc2dxf, takeoff, schedule, cost5d, kml, calibrat
 est-sheets --help   # control / layout / structure sheet production
 ```
 
-## Blender: alignment section slider
+## What a viewer sees
+
+The IFC is written for FreeCAD, Revit and Bonsai as much as for the takeoff:
+
+- A run is **one whole with parts**: a tubular handrail is one
+  `IfcRailing` (HANDRAIL) whose rails, posts, returns and pocket mortar are
+  its parts (`IfcRelAggregates`); a Type 842 or 732SW barrier is one
+  `IfcWall` (PARAPET) over its barrier, end blocks, reinforcing and
+  hardware. Any family or script does the same with `Element.part_of`.
+- Every kind of part is **typed** (`Element.type_name` → `IfcMemberType`,
+  `IfcRailingType`, ...), so twenty posts are twenty occurrences of one
+  type with one predefined type, and the standard plan rides in
+  `Pset_*Common.Reference` (`Element.psets`).
+- Repeated bodies are **instanced** (`IfcMappedItem`,
+  `StructureModel.instancing`, spec `outputs.ifc_instancing`).
+- Tessellated bodies have their **coplanar facets merged** into planar
+  faces, so a box is six faces, not twelve triangles.
+- An exact alignment sweep is an `IfcSectionedSolidHorizontal` (IFC4X3).
+  For a consumer that cannot draw it as a solid (ifcopenshell 0.9 lofts it
+  open; Revit does not open IFC4X3), `outputs.ifc_sweeps: mesh` writes the
+  closed mesh instead and keeps the `IfcAlignment`.
+
+## Web pages: takeoff and the 4D/5D dashboard
 
 ```bash
-python -m bimforge.blender        # writes bimforge_alignment_section.zip
+est-bim web --ifc model.5d.ifc --map takeoff_map.yaml --official bid.json --serve --open
 ```
 
-In Blender 4.2+ install the zip from *Edit > Preferences > Add-ons > Install
-from Disk*. It needs ifcopenshell inside Blender, which Bonsai provides. Then
-go to *3D View > Sidebar (N) > Section*, pick **Bonsai** (the IFC Bonsai has
-open) or **File**, and press **Load Alignments**. Drag **Station** to slide the
-section. You can also step by a fixed interval or type a station and press
-**Go**. **View Section** looks through an orthographic camera whose near clip
-sits on the cut. Every mesh is cut at the plane, and the cut is filled into
-*Section Cut*. Each item is filled per its own styling: its material's
-colour, which is the IFC surface style when Bonsai loaded it. An unstyled
-item (no material, or the default grey) is filled by what its material or
-object name says it is: concrete, rebar, asphalt, gravel, steel, timber or
-earthwork. **Single colour** switches back to one highlight colour.
-Every cut edge is also drawn as a thin dark line. That outlines the fills and
-shows open cuts, such as a ground surface, which has no inside to fill.
+Writes a static site (`takeoff.html`, `dashboard.html`) and the one JSON
+document both pages read, the *bundle* (`bimforge.web.build_bundle`,
+contract `bimforge-web/1`): elements with their pay codes, quantities and
+4D dates, the pay-item takeoff against the official bid quantities, the
+schedule with its element links, and the costs per task with their shares
+per element. The takeoff page shows every pay item and the elements behind
+it; the dashboard scrubs a day through the schedule with earned pay
+against cost, labour and per-item pay-quantity curves, and what stands on
+that day. Pay is earned as the work is done: over the tasks that build
+each element, weighted by the cost and hours spent on it, at the bid
+item's unit price. The labour / material / equipment split of a cost
+(`est-bim cost5d --costs` records' `labor`, `material`, `equipment`,
+`subcontract`, `other`; the estimate's `cost_split`) is written as one
+`IfcCostValue` per kind, `Category` naming the kind, and the dashboard can
+earn against one kind alone. The pages carry no external library and open from
+disk. A host (an editor's bridge add-on) provides `window.bimforgeHost` to
+turn a click into a selection; standalone, a click copies GlobalIds.
 
-**Offsets.** An offset ruler runs across the section: CL, then ticks every
-*Every* (10' Lt, 10' Rt, ...) at a set height above grade. **Locate** puts
-the 3D cursor at the current station plus an offset Lt or Rt, at the grade
-elevation. It then reads the top model surface straight below, for example
-`Sta 12+50.00, 3.50 Rt | PG EL 160.16 | top EL 150.92 existing-grade`.
-**Inquire** reads the 3D cursor back as station and offset, and **Cut** also
-slides the section to it.
+## Blender: sections along an alignment
 
-**4D date.** When the IFC carries a 4D schedule (IfcTask links, as written
-by `est-bim schedule`), the panel shows the model as it stands at the end of
-a day. A construction task's elements appear at its start, and a demolition,
-dismantle or removal task's elements disappear at its start. Hidden elements
-are not cut. Type a date, step by a day or a week, or jump to the previous
-or next day on which something appears or goes. The panel counts what is
-standing, not yet built and removed. The panel reports station, grade elevation, grade and bearing.
-With **Follow timeline** on, frames sweep the whole alignment, so rendering
-the animation makes a fly-through. Stations read in feet when the project is
-in feet or its map conversion is to a feet grid.
+The Blender add-on that slides a live cross-section along an IFC4X3
+`IfcAlignment` (station and offset sliders, 4D dates, developed elevations,
+DXF sheets) is now its own project:
+[IfcSection](https://github.com/BrandonLewis/ifcsection). BIMForge does not
+depend on it. BIMForge keeps its own copies of the stationing and drawing
+modules (`bimforge.bim.alignment_station`, `developed`, `schedule_state`,
+`section_style`) for `est-bim stations` and `est-bim elevation`.
 
 ## GIS (QGIS)
 

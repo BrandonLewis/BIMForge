@@ -12,7 +12,10 @@ def _ctx():
 
 
 def _els(model, token):
-    return [e for e in model.elements if token in e.name]
+    """Elements named with `token` that MEASURE something: not a run's
+    geometry-less whole ("NB 842 barrier run")."""
+    return [e for e in model.elements if token in e.name
+            and (e.geometry is not None or e.quantities)]
 
 
 def test_registered_in_family_registry():
@@ -105,7 +108,7 @@ def test_mod_item_stem_height_override_changes_concrete():
                     "stem_h_ft": 4.0}]}, _ctx())
     def cf(m):
         return next(e.quantities["volume_cf"] for e in m.elements
-                   if "842 barrier" in e.name)
+                   if "842 barrier" in e.name and e.quantities)
     assert cf(mod) > cf(base)
 
 
@@ -282,7 +285,8 @@ def test_stepped_deck_section_builds_closed_positive_solids():
     m = fam.build({"runs": [{"name": "S", "straight_length_ft": 120.0,
                              "start_end": "approach", "end_end": "departure"}]},
                   _ctx())
-    conc = [e for e in m.elements if e.ifc_class == "IfcWall"]
+    conc = [e for e in m.elements if e.ifc_class == "IfcWall"
+            and e.geometry is not None]          # not the run's whole
     assert len(conc) == 3
     for e in conc:
         assert e.quantities["volume_cf"] > 0.0

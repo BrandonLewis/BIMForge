@@ -333,19 +333,44 @@ def _extrude(f, profile, pos, depth_m):
         Depth=float(depth_m))
 
 
-def _faceted_brep(f, triangles):
+def _faceted_brep(f, triangles, merge: bool = True):
     """An IfcFacetedBrep from explicit triangular facets (metres): the
     per-vertex-top Prism taper has no uniform sweep depth, so it cannot be
     an IfcExtrudedAreaSolid. Every individual facet is trivially planar (3
-    points), so this represents the triangulated loft exactly."""
+    points), so this represents the triangulated loft exactly.
+
+    Coplanar facets are merged into one planar IfcFace each (holes as
+    IfcFaceBound), so a box reaches a viewer as 6 faces, not 12 triangles,
+    and a tapered end block as its 11 planes, not 30 facets
+    (`bimforge.author.facets`). The surface and its volume are unchanged,
+    and every vertex a neighbouring facet ends at stays on the merged
+    boundary, so the shell is as closed as the triangles were. Points are
+    shared across the shell, so two faces meeting at a corner reference one
+    IfcCartesianPoint.
+    """
+    from bimforge.author.facets import merge_coplanar_facets
+    faces_def = (merge_coplanar_facets(triangles) if merge
+                 else [(list(t), []) for t in triangles])
+    points: dict = {}
+
+    def pt(p):
+        key = tuple(float(c) for c in p)
+        ent = points.get(key)
+        if ent is None:
+            ent = points[key] = f.create_entity("IfcCartesianPoint",
+                                                Coordinates=key)
+        return ent
+
     faces = []
-    for tri in triangles:
-        pts = [f.create_entity("IfcCartesianPoint",
-                               Coordinates=tuple(float(c) for c in p))
-               for p in tri]
-        loop = f.create_entity("IfcPolyLoop", Polygon=pts)
-        bound = f.create_entity("IfcFaceOuterBound", Bound=loop, Orientation=True)
-        faces.append(f.create_entity("IfcFace", Bounds=[bound]))
+    for outer, holes in faces_def:
+        loop = f.create_entity("IfcPolyLoop", Polygon=[pt(p) for p in outer])
+        bounds = [f.create_entity("IfcFaceOuterBound", Bound=loop,
+                                  Orientation=True)]
+        for hole in holes:
+            hl = f.create_entity("IfcPolyLoop", Polygon=[pt(p) for p in hole])
+            bounds.append(f.create_entity("IfcFaceBound", Bound=hl,
+                                          Orientation=True))
+        faces.append(f.create_entity("IfcFace", Bounds=bounds))
     shell = f.create_entity("IfcClosedShell", CfsFaces=faces)
     return f.create_entity("IfcFacetedBrep", Outer=shell)
 
@@ -449,10 +474,6 @@ def _revolved_solid(f, d, k):
         Angle=float(d["angle"]))
 
 
-#: StructureModel.ifc_sweeps values
-IFC_SWEEP_MODES = ("exact", "mesh")
-
-
 def _sectioned_solid(f, d, k, curve):
     """One IfcSectionedSolidHorizontal along the alignment's IfcCurve (#332).
 
@@ -496,6 +517,7 @@ REPRESENTATION_ITEMS = {
     "CSG": ("IfcBooleanResult", "IfcCsgPrimitive3D", "IfcCsgSolid"),
     "Tessellation": ("IfcTessellatedItem",),
     "SolidModel": ("IfcSolidModel",),
+    "MappedRepresentation": ("IfcMappedItem",),
 }
 #: tapered sweeps are an AdvancedSweptSolid, never a plain SweptSolid
 _NOT_SWEPT_SOLID = ("IfcExtrudedAreaSolidTapered", "IfcRevolvedAreaSolidTapered")
@@ -765,6 +787,140 @@ def solids_for(f, el, ft_to_m: float, curves=None):
     return out
 
 
+def _r9(x: float) -> float:
+    return round(float(x), 9) + 0.0
+
+
+def instance_parts(d: dict) -> list | None:
+    """[(key, origin_ft, normalized dict), ...] when every solid of a
+    body-solids dict can be an INSTANCE of a solid built at the origin: a
+    flat-topped prism, each box of a "box" dict, each centre of a "rod",
+    a "tube". None for any other kind (a taper, a mesh, a sweep, a boolean).
+
+    `key` names the solid up to translation (the prism's ring moved to its
+    bounding-box corner, a box by its dimensions, a rod by its section and
+    length); two elements with the same key share one IfcRepresentationMap.
+    `origin_ft` is where that origin solid sits in the element's frame.
+    `normalized` is the dict that builds the solid at the origin, through
+    the same `solids_for` the direct path uses, so the instanced body is
+    the direct body to the last bit.
+    """
+    kind, units = d.get("kind"), d.get("units", "ft")
+    if kind == "prism":
+        if d.get("top_z") is not None or d.get("bottom_z") is not None \
+                or d.get("z_top") is None:
+            return None
+        base, holes = list(d["base"]), [list(h) for h in d.get("holes", [])]
+        if not base:
+            return None
+        x0, y0 = min(u for u, _v in base), min(v for _u, v in base)
+        depth = d["z_top"] - d["z_bot"]
+        nbase = [(u - x0, v - y0) for u, v in base]
+        nholes = [[(u - x0, v - y0) for u, v in h] for h in holes]
+        key = ("prism", units, tuple((_r9(u), _r9(v)) for u, v in nbase),
+               tuple(tuple((_r9(u), _r9(v)) for u, v in h) for h in nholes),
+               _r9(depth))
+        return [(key, (x0, y0, d["z_bot"]),
+                 {"kind": "prism", "units": units, "base": nbase,
+                  "holes": nholes, "z_bot": 0.0, "z_top": depth})]
+    if kind == "box":
+        out = []
+        dia, segs = d.get("hole_dia", 0.0), d.get("segments", ARC_SEGMENTS)
+        for box in d["boxes"]:
+            cx, cy, cz, dx, dy, dz = box[:6]
+            holes = list(box[6]) if len(box) > 6 else []
+            key = ("box", units, _r9(dx), _r9(dy), _r9(dz),
+                   tuple((_r9(u), _r9(v)) for u, v in holes),
+                   _r9(dia) if holes else 0.0, segs if holes else 0)
+            nd = {"kind": "box", "units": units, "hole_dia": dia,
+                  "segments": segs, "boxes": [(0.0, 0.0, dz / 2.0, dx, dy, dz,
+                                               holes)]}
+            out.append((key, (cx, cy, cz - dz / 2.0), nd))
+        return out or None
+    if kind == "rod":
+        out = []
+        L, axis = d["length"], d["axis"]
+        r_in = d.get("r_inner") or 0.0
+        key = ("rod", units, d["segments"], _r9(d["radius"]), _r9(r_in),
+               axis, _r9(L))
+        for cx, cy, cz in d["centres"]:
+            if axis == "z":
+                origin, centre = (cx, cy, cz - L / 2.0), (0.0, 0.0, L / 2.0)
+            elif axis == "x":
+                origin, centre = (cx - L / 2.0, cy, cz), (L / 2.0, 0.0, 0.0)
+            else:
+                origin, centre = (cx, cy - L / 2.0, cz), (0.0, L / 2.0, 0.0)
+            nd = dict(d, centres=[centre])
+            out.append((key, origin, nd))
+        return out or None
+    if kind == "tube":
+        axis = d.get("axis", "x")
+        key = ("tube", units, _r9(d["r_outer"]), _r9(d["wall"]),
+               _r9(d["length"]), axis)
+        nd = dict(d, x0=0.0, y0=0.0, cz=0.0)
+        return [(key, (d["x0"], d.get("y0", 0.0), d["cz"]), nd)]
+    return None
+
+
+def instances_for(el) -> list | None:
+    """Every solid of `el` as (key, origin_ft, normalized dict), or None when
+    any of its body dicts cannot be instanced (the element then keeps its
+    own solids: a representation is mapped or direct, never mixed)."""
+    out = []
+    for dicts in body_dicts(el):
+        for d in dicts:
+            if d.get("kind") == "none":
+                continue
+            parts = instance_parts(d)
+            if parts is None:
+                return None
+            out.extend(parts)
+    return out or None
+
+
+def _mapped_items(run, f, el, inst, k, body, map_cache, style):
+    """IfcMappedItems for `inst` (instances_for), making each distinct
+    (key, style) solid's IfcRepresentationMap on first use, in element
+    order: the source body is built at the origin through solids_for, styled
+    once (a viewer resolves an instance's style through its map), and each
+    instance places it by a translation-only transformation operator."""
+    from types import SimpleNamespace
+    items = []
+    for key, origin, nd in inst:
+        mkey = (key, style.id())
+        rm = map_cache.get(mkey)
+        if rm is None:
+            probe = SimpleNamespace(name=el.name, geometry=nd, x_ft=0.0,
+                                    y_ft=0.0, z_ft=0.0, bearing_deg=0.0)
+            src_items = solids_for(f, probe, k)
+            src = f.create_entity(
+                "IfcShapeRepresentation", ContextOfItems=body,
+                RepresentationIdentifier="Body",
+                RepresentationType=representation_type(src_items, el.name),
+                Items=src_items)
+            run("style.assign_representation_styles", f,
+                shape_representation=src, styles=[style])
+            rm = f.create_entity(
+                "IfcRepresentationMap",
+                MappingOrigin=f.create_entity(
+                    "IfcAxis2Placement3D",
+                    Location=f.create_entity("IfcCartesianPoint",
+                                             Coordinates=(0.0, 0.0, 0.0))),
+                MappedRepresentation=src)
+            map_cache[mkey] = rm
+        # the origin is in the dict's own unit ("in" for steel members)
+        ku = k if nd.get("units", "ft") == "ft" else k / 12.0
+        target = f.create_entity(
+            "IfcCartesianTransformationOperator3D",
+            LocalOrigin=f.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=tuple(float(c) * ku for c in origin)),
+            Scale=1.0)
+        items.append(f.create_entity("IfcMappedItem", MappingSource=rm,
+                                     MappingTarget=target))
+    return items
+
+
 #: Carrier for a product class the target schema cannot express. IFC's own
 #: "no enumerated type covers this" escape hatch, and the class the field
 #: report already reached for (an IfcBuildingElementProxy carries a test
@@ -824,6 +980,65 @@ def _unhosted_cut_class(schema: str, ifc_class: str, el_name: str) -> tuple[str,
           f"with ObjectType={EXCAVATION_OBJECT_TYPE!r}, the pay-item "
           "excavation class.", file=sys.stderr)
     return EXCAVATION_CLASS, EXCAVATION_OBJECT_TYPE
+
+
+def _type_guid_key(type_class: str, type_name: str) -> str:
+    """The deterministic-GUID key of one element type. File-wide (no model
+    scope): a combined file's structures share one ProjectContext, and a
+    type named the same in two of them IS one type."""
+    return f"type/{type_class}/{type_name}"
+
+
+def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str):
+    """Relate `product` to the IfcTypeObject of its (class, Element.type_name):
+    one per distinct (type class, name, predefined type) in the file, made on
+    first use, named `type_name`, carrying the element's predefined type.
+
+    The type class is the occurrence class + "Type" (IfcWall -> IfcWallType).
+    A class the schema has no type for (none among the shipped families)
+    leaves the occurrence untyped, with a note."""
+    type_class = f"{ifc_class}Type"
+    if not _schema_has(ctx.schema, type_class):
+        print(f"{el.name}: {ctx.schema} has no {type_class}; the type "
+              f"{el.type_name!r} is not written", file=sys.stderr)
+        return None
+    key = (type_class, el.type_name, el.predefined_type)
+    t = cache.get(key)
+    if t is None:
+        t = run("root.create_entity", f, ifc_class=type_class,
+                predefined_type=el.predefined_type, name=el.type_name)
+        t.GlobalId = ctx.guid(_type_guid_key(type_class, el.type_name))
+        cache[key] = t
+    # the api clears the occurrence's PredefinedType and ObjectType when the
+    # type carries a predefined type: IFC's rule ("PredefinedType shall only
+    # be used if no IfcWallType is assigned"), and the bSI validator's
+    # double-typing check. A reader resolves it through the type
+    # (ifcopenshell.util.element.get_predefined_type).
+    run("type.assign_type", f, related_objects=[product], relating_type=t)
+    return t
+
+
+def _check_parts(model) -> None:
+    """Every Element.part_of names another element of the same model, and
+    the whole/part links form a tree: no cycle, no part that is also a cut
+    voiding a host (a feature hangs off its host, not under a whole)."""
+    names = {el.name for el in model.elements}
+    parent = {el.name: el.part_of for el in model.elements if el.part_of}
+    for name, whole in parent.items():
+        if whole not in names:
+            raise ValueError(f"{name}: part_of {whole!r}, which is not an "
+                             f"element of {model.name!r}")
+        if whole == name:
+            raise ValueError(f"{name}: part_of itself")
+        if getattr(model.element(name), "voids", None):
+            raise ValueError(f"{name}: a cut that voids a host cannot also "
+                             f"be part of {whole!r}")
+        seen, node = {name}, whole
+        while node in parent:
+            node = parent[node]
+            if node in seen:
+                raise ValueError(f"{name}: part_of cycle through {node!r}")
+            seen.add(node)
 
 
 def _place_product(run, f, product, el, ft_to_m: float) -> None:
@@ -979,6 +1194,27 @@ def _assert_guid_uniqueness(model, *, scope: str = "", spatial_keys=()) -> None:
         note(op.guid_key, f"opening {op.name}")
     for asm_name in model.assemblies:
         note(f"assembly/{asm_name}", f"assembly {asm_name}")
+    # one named type is ONE IfcTypeObject: its GlobalId is keyed by class
+    # and name, so two predefined types under one name would be two type
+    # objects with one GlobalId. Refused here, before any write.
+    pdts: dict = {}
+    for el in model.elements:
+        if el.type_name:
+            pdts.setdefault((el.ifc_class, el.type_name), {}).setdefault(
+                el.predefined_type, []).append(el.name)
+    for (cls, name), by_pdt in sorted(pdts.items()):
+        if len(by_pdt) > 1:
+            detail = "; ".join(f"{p or 'none'}: {', '.join(sorted(n)[:3])}"
+                               for p, n in sorted(by_pdt.items(),
+                                                  key=lambda kv: str(kv[0])))
+            raise ValueError(
+                f"{model.name}: type {name!r} ({cls}Type) is given more than "
+                f"one predefined type ({detail}); one named type has one")
+    for key, label in sorted({
+            (_type_guid_key(f"{el.ifc_class}Type", el.type_name),
+             f"type {el.type_name}")
+            for el in model.elements if el.type_name}):
+        by_guid.setdefault(model.ctx.guid(key), []).append(label)   # unscoped
     for i, plan in enumerate(getattr(model, "annotations", None) or []):
         note(f"annotation/{i}/{plan.name}", f"annotation {plan.name}")
     for key, label in spatial_keys:
@@ -1172,16 +1408,46 @@ def _facility_tree(run, f, ctx, models, facilities, site, project, combined):
     return homes
 
 
+#: How an exact alignment sweep is written (`StructureModel.ifc_sweeps`,
+#: spec `ifc: {sweeps: mesh}`; overridden for one emit by `emit_ifc(sweeps=)`
+#: / spec `outputs.ifc_sweeps`). "exact": IfcSectionedSolidHorizontal on the
+#: IfcAlignment's curve (IFC4X3), the entity the schema defines for it.
+#: "mesh": the same solid as a closed faceted brep (coplanar facets merged),
+#: for a consumer that cannot draw the sectioned solid as a solid: ifcopenshell
+#: 0.8.5 (Bonsai 0.8.x) misplaces every cross-section by an offset that grows
+#: with distance along the curve, 0.9 (FreeCAD's native importer, Bonsai 0.9)
+#: lofts it as an open shell (#9820), and Revit does not open IFC4X3 at all.
+#: The IfcAlignment is written either way, so stationing, sections and
+#: layout keep their line. A second "Body-FallBack" representation beside
+#: the sweep was measured and rejected: ifcopenshell's iterator draws BOTH,
+#: so every reader built on it (the takeoff, the solid-body gate, Bonsai)
+#: would see the body twice.
+SWEEP_MODES = ("exact", "mesh")
+
+
+def sweep_mode(model, override: str | None = None) -> str:
+    """The mode one model's sweeps are written in: `override` when given,
+    else the model's own `ifc_sweeps`; refused unless in SWEEP_MODES."""
+    mode = override if override is not None else getattr(model, "ifc_sweeps",
+                                                         "exact")
+    if mode not in SWEEP_MODES:
+        raise ValueError(f"{model.name}: ifc_sweeps {mode!r} must be one of "
+                         f"{SWEEP_MODES}")
+    return mode
+
+
 def emit_ifc(model, path: str, paycodes=None, *, allow_local: bool = False,
-             stylepack=None) -> str:
+             stylepack=None, sweeps: str | None = None) -> str:
     """Emit one structure. A thin wrapper over emit_combined_ifc so the single-
     and multi-structure paths share one writer (issue #188)."""
     return emit_combined_ifc([model], path, paycodes,
-                             allow_local=allow_local, stylepack=stylepack)
+                             allow_local=allow_local, stylepack=stylepack,
+                             sweeps=sweeps)
 
 
 def emit_combined_ifc(models, path: str, paycodes=None, *,
-                      allow_local: bool = False, stylepack=None) -> str:
+                      allow_local: bool = False, stylepack=None,
+                      sweeps: str | None = None) -> str:
     """Emit one or more structures into a single IFC, each structure as its own
     named IfcBuilding under one shared IfcSite (issue #188, Lever A).
 
@@ -1199,6 +1465,11 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
 
     if not models:
         raise ValueError("emit_combined_ifc: no models to emit")
+    if sweeps is not None and sweeps not in SWEEP_MODES:
+        raise ValueError(f"emit_combined_ifc: sweeps={sweeps!r} is not one of "
+                         f"{SWEEP_MODES}")
+    for m in models:
+        sweep_mode(m, sweeps)                    # refused before any write
     combined = len(models) > 1
     ctx = models[0].ctx
 
@@ -1336,6 +1607,10 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     pack_ifc = sanitize_pack((_ifc or {}).get("surfaces"))
     style_cache: dict = {}     # resolved appearance -> IfcSurfaceStyle
     layer_cache: dict = {}     # layer name -> IfcPresentationLayerAssignment
+    type_cache: dict = {}      # (type class, name, predefined) -> IfcTypeObject
+    map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
+    for m in models:
+        _check_parts(m)
     by_material: dict = {}     # material name -> [products]
     mat_appear: dict = {}      # material name -> the appearance it resolved on
     cls_cache: dict = {}
@@ -1346,19 +1621,37 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         scope = m.name if combined else ""
         by_name: dict[str, object] = {}
         hosts = {h for h, _op in m.openings}
-        sweeps = getattr(m, "ifc_sweeps", "exact")
-        if sweeps not in IFC_SWEEP_MODES:
-            raise ValueError(f"{m.name}: ifc_sweeps {sweeps!r} must be one of "
-                             f"{IFC_SWEEP_MODES}")
-        # "mesh": every sweep as its faceted brep, for ifcopenshell 0.8.x
-        # viewers (StructureModel.ifc_sweeps)
-        m_curves = curves if sweeps == "exact" else None
+        names = {el.name for el in m.elements}
+        # "mesh" sweeps: the alignments are written (above), but no solid is
+        # built on their curves -- solids_for then writes each sweep's mesh
+        m_curves = curves if sweep_mode(m, sweeps) == "exact" else None
+        voiding = {}                          # cut element name -> host name
         for el in m.elements:
-            # an Element is never the RelatedOpeningElement of an
-            # IfcRelVoidsElement (only m.openings are), so every
-            # IfcEarthworksCut Element is unhosted (#364)
-            wanted, object_type = _unhosted_cut_class(ctx.schema, el.ifc_class,
-                                                      el.name)
+            host = getattr(el, "voids", None)
+            if not host:
+                continue
+            if el.ifc_class != "IfcEarthworksCut":
+                raise ValueError(f"{el.name}: only an IfcEarthworksCut voids a "
+                                 f"host (is {el.ifc_class})")
+            if host not in names or host == el.name:
+                raise ValueError(f"{el.name}: voids {host!r}, which is not "
+                                 f"another element of {m.name!r}")
+            if not _schema_has(ctx.schema, "IfcEarthworksCut"):
+                # IFC4 has no IfcEarthworksCut: the class would fall back to
+                # a proxy, which cannot void anything (IfcRelVoidsElement
+                # wants an IfcFeatureElementSubtraction)
+                raise ValueError(f"{el.name}: a cut that voids a host needs "
+                                 f"IFC4X3 (the schema is {ctx.schema})")
+            voiding[el.name] = host
+        hosts |= set(voiding.values())
+        for el in m.elements:
+            # an IfcEarthworksCut voids a host only when it names one
+            # (Element.voids); unhosted, it is rewritten (#364)
+            if el.name in voiding:
+                wanted, object_type = el.ifc_class, None
+            else:
+                wanted, object_type = _unhosted_cut_class(ctx.schema, el.ifc_class,
+                                                          el.name)
             ifc_class = _class_for_schema(ctx.schema, wanted, el.name)
             product = run("root.create_entity", f, ifc_class=ifc_class,
                           predefined_type=el.predefined_type, name=el.name)
@@ -1367,12 +1660,23 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 product.ObjectType = wanted
             elif object_type:
                 product.ObjectType = object_type
+            elif el.object_type:
+                product.ObjectType = el.object_type
+            if el.type_name:
+                _assign_type(run, f, ctx, type_cache, product, el, ifc_class)
+            for pset_name, props in (el.psets or {}).items():
+                if props:
+                    pset = run("pset.add_pset", f, product=product,
+                               name=pset_name)
+                    run("pset.edit_pset", f, pset=pset,
+                        properties=dict(props))
             # Issue #190: carry the estimator's per-element note (assumptions,
             # placement-honesty notes, sheet cites) onto IfcRoot.Description.
             # `or None` keeps an unset description a true null, not "".
             product.Description = el.description or None
-            run("spatial.assign_container", f, products=[product],
-                relating_structure=home.container_for(el))
+            if el.name not in voiding:        # a feature hangs off its host
+                run("spatial.assign_container", f, products=[product],
+                    relating_structure=home.container_for(el))
             appear = resolve_surface(el.layer, el.ifc_class, pack_ifc, el.material)
             if appear["material"]:
                 by_material.setdefault(appear["material"], []).append(product)
@@ -1381,9 +1685,24 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             # an IfcSectionedSolidHorizontal as an open shell (#9820), and a
             # boolean against an open shell is silently dropped — the
             # opening would not show
-            items = (solids_for(f, el, ctx.ft_to_m,
-                                None if el.name in hosts else m_curves)
-                     if el.geometry is not None else [])
+            # ...and so does a cut that voids one: a boolean against an open
+            # shell empties the host altogether
+            direct = el.name in hosts or el.name in voiding
+            style = None
+            inst = (instances_for(el)
+                    if getattr(m, "instancing", False) and not direct
+                    and el.geometry is not None else None)
+            if inst:
+                # repeated bodies as instances of one mapped solid
+                # (StructureModel.instancing): styled at the source
+                style = _surface_style(run, f, style_cache, appear,
+                                       el.layer or el.ifc_class)
+                items = _mapped_items(run, f, el, inst, ctx.ft_to_m, body,
+                                      map_cache, style)
+            else:
+                items = (solids_for(f, el, ctx.ft_to_m,
+                                    None if direct else m_curves)
+                         if el.geometry is not None else [])
             if items:
                 # an open surface (ribbon -> IfcTriangulatedFaceSet) cannot
                 # share ONE Body representation with solids — the RepresentationType
@@ -1397,7 +1716,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                         "Element")
                 # named from the items themselves (#329): CSG for booleans,
                 # Tessellation for a ribbon, Brep for a faceted mesh,
-                # SweptSolid / AdvancedSweptSolid for the sweeps.
+                # SweptSolid / AdvancedSweptSolid for the sweeps,
+                # MappedRepresentation for instances.
                 rep_type = representation_type(items, el.name)
                 rep = f.create_entity(
                     "IfcShapeRepresentation", ContextOfItems=body,
@@ -1406,10 +1726,11 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 product.Representation = f.create_entity(
                     "IfcProductDefinitionShape", Representations=[rep])
 
-                style = _surface_style(run, f, style_cache, appear,
-                                       el.layer or el.ifc_class)
-                run("style.assign_representation_styles", f,
-                    shape_representation=rep, styles=[style])
+                if style is None:
+                    style = _surface_style(run, f, style_cache, appear,
+                                           el.layer or el.ifc_class)
+                    run("style.assign_representation_styles", f,
+                        shape_representation=rep, styles=[style])
                 if el.layer:
                     lyr = layer_cache.get(el.layer)
                     if lyr is None:
@@ -1458,6 +1779,14 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             for code in el.classifications:
                 by_code.setdefault(code, []).append(product)
             by_name[el.name] = product
+        # parts hang under their whole (Element.part_of, IfcRelAggregates):
+        # one member per call, in model order, for the same creation-order
+        # determinism the assemblies below need. The api takes the part out
+        # of its spatial container, as IFC requires of an aggregated element.
+        for el in m.elements:
+            if el.part_of:
+                run("aggregate.assign_object", f, products=[by_name[el.name]],
+                    relating_object=by_name[el.part_of])
         by_name_by_model[idx] = by_name
 
     # Classification identity comes from the paycodes (the cost-code system's IFC
@@ -1482,6 +1811,13 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         scope = m.name if combined else ""
         home = homes[idx]
         by_name = by_name_by_model[idx]
+        for el in m.elements:                 # excavation as ground removed
+            host_name = getattr(el, "voids", None)
+            if host_name:
+                cut = by_name[el.name]
+                run("feature.add_feature", f, feature=cut,
+                    element=by_name[host_name])
+                _place_product(run, f, cut, el, ctx.ft_to_m)   # after, as below
         for host_name, opening in m.openings:
             op = run("root.create_entity", f, ifc_class="IfcOpeningElement",
                      name=opening.name)
@@ -1567,6 +1903,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                      for i, plan in enumerate(getattr(m, "annotations", None)
                                               or [])}
     assigned |= {h.GlobalId for home in homes for h in home.keyed}
+    assigned |= {t.GlobalId for t in type_cache.values()}
     for i, ent in enumerate(f.by_type("IfcRoot")):
         if ent.GlobalId not in assigned:
             ent.GlobalId = ctx.guid(f"root/{i}/{ent.is_a()}")

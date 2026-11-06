@@ -36,6 +36,14 @@ split first so they bend with it (`max_edge`).
 
 `est-bim elevation set.yaml` draws a whole sheet set: an overall view and
 enlarged segments (see `load_set`).
+
+`cross_section` draws the other view, a SECTION square to the alignment at one
+station (what the Blender add-on's section camera shows): the same cut,
+ground lines and visible edges beyond, to the same DXF sheets, with offset
+ticks (CL, 10 Lt, 10 Rt) along the bottom instead of stations.
+
+    sec = SectionView("STA 1+00", station=100.0, width=40, depth=1)
+    write_dxf([cross_section(ifc, sec)], "section.dxf")
 """
 from __future__ import annotations
 
@@ -82,6 +90,33 @@ class ElevationView:
 
 
 @dataclass
+class SectionView:
+    """A cross section square to the alignment (in plan) at `station`:
+    x across the view, the viewer's left to right (looking ahead, Lt is on
+    the left), `width` wide and centred on the line; y elevation. Lengths in
+    the station unit."""
+    name: str
+    station: float
+    width: float = 40.0                     # across, centred on the line
+    depth: float = 1.0                      # how far beyond the cut to draw
+    look_back: bool = False                 # look down-station
+    alignment: str | None = None
+    scale: float | None = None
+    exaggeration: float = 1.0
+    date: str | None = None
+    resolution: float | None = None
+    title: str | None = None
+
+    @property
+    def from_station(self) -> float:
+        return self.station
+
+    @property
+    def to_station(self) -> float:
+        return self.station
+
+
+@dataclass
 class Drawing:
     """One view, in its own 2D frame: x = length along the developed line
     (0 at from_station, flipped for a true view from the left), y =
@@ -96,10 +131,17 @@ class Drawing:
     unit: str = "ft"
     foot_m: float = 1200.0 / 3937.0              # the file's foot, metres
     elements: int = 0
+    limits: list = field(default_factory=list)   # excavation limits [(x, y)...]
+    tick_kind: str = "station"                   # "offset": ticks are offsets left
 
 
 # ---------------------------------------------------------------- geometry
 _BODY_CACHE: dict = {}
+#: an excavation's outline in a cut: the limit of excavation (a pay line),
+#: never a fill - the cut is ground removed (IfcEarthworksCut voiding it)
+LIMIT = "limit"
+LIMIT_LAYER = "E-EXCV-LIMIT"
+LIMIT_RGB = (0.95, 0.45, 0.05)
 
 
 def _all_bodies(f, date):
@@ -119,38 +161,290 @@ def _all_bodies(f, date):
     s = geom.settings()
     s.set("use-world-coords", True)
     it = geom.iterator(s, f)
-    out = []
+    out, undug = [], []
     if it.initialize():
         while True:
             sh = it.get()
             el = f.by_id(sh.id)
             g = sh.geometry
             t = np.asarray(g.faces, dtype=np.int64).reshape(-1, 3)
-            if (el.is_a("IfcElement") and len(t)
+            if el.is_a("IfcFeatureElementSubtraction") or is_excavation(el):
+                # excavation is ground REMOVED: never a body. Its outline is
+                # the limit of excavation; until it is dug (a 4D date before
+                # its task) it is still ground, drawn as its host is.
+                if is_excavation(el) and len(t):
+                    v = np.asarray(g.verts, dtype=float).reshape(-1, 3)
+                    out.append((el.Name or el.is_a(), LIMIT_LAYER, LIMIT, v, t,
+                                [LIMIT_RGB] * len(t)))
+                    dug = spans is None or standing(spans.get(el.GlobalId), date)
+                    if not dug:
+                        hosts = [r.RelatingBuildingElement
+                                 for r in getattr(el, "VoidsElements", None) or ()]
+                        undug.append((el.Name or el.is_a(),
+                                      hosts[0] if hosts else None, v, t, el.id()))
+            elif (el.is_a("IfcElement") and len(t)
                     and not (spans is not None
                              and not standing(spans.get(el.GlobalId), date))):
                 v = np.asarray(g.verts, dtype=float).reshape(-1, 3)
-                mats = list(g.materials)
+                mats = [_named(f, m) for m in g.materials]
                 ids = np.asarray(g.material_ids, dtype=np.int64)
-                rgb = [tuple(m.diffuse.components) if m.diffuse is not None
-                       else (0.6, 0.6, 0.6) for m in mats] or [(0.6, 0.6, 0.6)]
+                rgb = [_surface_rgb(m) for m in mats] or [(0.6, 0.6, 0.6)]
                 tri_rgb = ([rgb[i] if 0 <= i < len(rgb) else rgb[0] for i in ids]
                            if len(ids) == len(t) else [rgb[0]] * len(t))
-                mat = ue.get_material(el)
-                layer = _layer_name(getattr(mat, "Name", None) or el.is_a())
+                # a multi-material product (concrete and steel solids) cuts
+                # per material: each part its own layer, colour and hatch
+                parts = ([(ids == i, [mats[i]], [rgb[i]], None)
+                          for i in sorted(set(ids.tolist())) if 0 <= i < len(mats)]
+                         if len(ids) == len(t) and len(set(ids.tolist())) > 1
+                         else [(None, mats, rgb, ue.get_material(el))])
                 # a surface (terrain, finished grade) cuts as a LINE; a body
                 # with any solid item is never one, even when the geometry
                 # kernel draws it open (IfcSectionedSolidHorizontal, #9820)
                 solid = any(i.is_a("IfcSolidModel")
-                            for r in (el.Representation.Representations
-                                      if el.Representation else ())
-                            for i in r.Items)
-                out.append((el.Name or el.is_a(), layer,
-                            (not solid) and _is_surface(v, t), v, t, tri_rgb))
+                            for i in _body_items(el))
+                for sel, pm, prgb, pmat in parts:
+                    pt = t if sel is None else t[sel]
+                    ptr = tri_rgb if sel is None else [prgb[0]] * len(pt)
+                    layer, ptr = _cut_layer(el, pmat, pm, prgb, ptr)
+                    surf = bool((not solid) and _is_surface(v, pt))
+                    if getattr(el, "HasOpenings", None):
+                        surf = Voided(surf, el.id())
+                    out.append((el.Name or el.is_a(), layer, surf, v, pt, ptr))
             if not it.next():
                 break
+    host_style = {name: (layer, trgb[0]) for name, layer, surf, _v, _t, trgb in out
+                  if surf is not LIMIT and trgb}
+    gross = {}
+    undug_ids = {i for *_x, i in undug}
+    for name, host, v, t, _id in undug:
+        layer, rgb = host_style.get(host.Name if host is not None else None,
+                                    (_layer_name("Earthwork"), (0.56, 0.44, 0.30)))
+        if host is None:
+            # a pay-item body is the soil itself: restore it whole
+            out.append((f"{name} (not yet dug)", layer, False, v, t, [rgb] * len(t)))
+            continue
+        if spans is not None and not standing(spans.get(host.GlobalId), date):
+            continue                    # no ground there yet, or none left
+        # a cut can reach past its host (over grade, as an opening runs past
+        # its wall): restore only what lies in the host's UNCUT body
+        if host.id() not in gross:
+            hv, ht = _uncut(f, host)
+            if hv is None:
+                continue
+            gross[host.id()] = True
+            # every void still to dig: the uncut host IS the ground before
+            # the dig, and draws beyond the cut in the voided host's place
+            whole = all(r.RelatedOpeningElement.id() in undug_ids
+                        for r in host.HasOpenings or ())
+            out.append((host.Name, None, Clip(host.id(), whole), hv, ht,
+                        [rgb] * len(ht)))
+        out.append((f"{name} (not yet dug)", layer, Restore(host.id()), v, t,
+                    [rgb] * len(t)))
     _BODY_CACHE[key] = out
     return out
+
+
+def _named(f, m):
+    """A kernel material with its IfcSurfaceStyle's NAME ("Concrete"): the
+    kernel names it after its rendering ("IfcSurfaceStyleRendering-170"),
+    which says nothing; instance_id() is the style (0.8 and 0.9 alike)."""
+    from types import SimpleNamespace
+    name = getattr(m, "name", None)
+    try:
+        iid = m.instance_id() if callable(m.instance_id) else m.instance_id
+        e = f.by_id(int(iid))
+        if e.is_a("IfcSurfaceStyleShading"):
+            e = next((x for x in f.get_inverse(e) if x.is_a("IfcSurfaceStyle")), e)
+        if e.is_a("IfcSurfaceStyle") and e.Name:
+            name = e.Name
+    except Exception:                   # no id, or not a style: keep the kernel's
+        pass
+    return SimpleNamespace(name=name, surface=getattr(m, "surface", None),
+                           diffuse=m.diffuse)
+
+
+class Clip(int):
+    """A host's UNCUT shape, clipping the ground restored in its voids
+    (Restore) before they are dug. Not cut; `whole` when every void of the
+    host is still to dig, and then drawn beyond the cut in place of the
+    voided host (Voided of the same host)."""
+
+    def __new__(cls, host_id, whole=False):
+        c = super().__new__(cls, host_id)
+        c.whole = whole
+        return c
+
+
+class Voided(int):
+    """The surface flag (0 or 1) of a body with voids, carrying its `host`
+    id: beyond the cut, a whole Clip of the same host draws in its place."""
+
+    def __new__(cls, surface, host):
+        v = super().__new__(cls, bool(surface))
+        v.host = host
+        return v
+
+
+class Restore(int):
+    """Ground restored in a host's void before the dig: drawn clipped to the
+    host's uncut shape (Clip of the same host)."""
+
+
+def _uncut(f, host):
+    """(verts, tris) of `host` without its voids, world coordinates."""
+    import ifcopenshell.geom as geom
+    import numpy as np
+    s = geom.settings()
+    s.set("use-world-coords", True)
+    s.set("disable-opening-subtractions", True)
+    try:
+        g = geom.create_shape(s, host).geometry
+    except Exception:                   # no body: nothing to restore into
+        return None, None
+    return (np.asarray(g.verts, dtype=float).reshape(-1, 3),
+            np.asarray(g.faces, dtype=np.int64).reshape(-1, 3))
+
+
+def _cut_into(drawing, warped, to2d) -> None:
+    """The plane's cut of every warped body into `drawing`: filled rings per
+    layer, open surfaces as ground lines, excavations as limit lines, and
+    restored ground clipped to its host's uncut shape."""
+    from shapely.geometry import Polygon
+    from shapely.geometry.polygon import orient
+    from shapely.ops import unary_union
+    clips, cuts = {}, []
+    for _name, layer, surface, u, dist, z, t, trgb, _in in warped:
+        segs, rgbs = _plane_cut(u, dist, z, t, trgb)
+        if not segs:
+            continue
+        segs = [(to2d(*a), to2d(*b)) for a, b in segs]
+        if isinstance(surface, Clip):
+            rings = _polygons(segs, 0.0, drawing.length)
+            clips[int(surface)] = unary_union(
+                [Polygon(r[0], r[1:]) for r in rings]) if rings else None
+            continue
+        cuts.append((layer, surface, segs, rgbs))
+    for layer, surface, segs, rgbs in cuts:
+        if surface is LIMIT:              # the limit of excavation: a line
+            segs = _clip_segments_x(segs, 0.0, drawing.length)
+            drawing.limits += _chain(segs) if segs else []
+            continue
+        rgb = max(set(rgbs), key=rgbs.count)
+        if isinstance(surface, Restore):
+            rings = _polygons(segs, 0.0, drawing.length)
+            region = clips.get(int(surface))
+            if not rings or region is None:
+                continue
+            kept = unary_union([Polygon(r[0], r[1:]) for r in rings]).intersection(region)
+            rings = [[list(orient(g, 1.0).exterior.coords)]
+                     + [list(i.coords) for i in orient(g, 1.0).interiors]
+                     for g in getattr(kept, "geoms", [kept])
+                     if isinstance(g, Polygon) and not g.is_empty and g.area > 1e-8]
+            if rings:
+                drawing.cut.append((layer, rgb, rings))
+            continue
+        rings = [] if surface else _polygons(segs, 0.0, drawing.length)
+        if not rings:
+            segs = _clip_segments_x(segs, 0.0, drawing.length)
+            if not segs:
+                continue
+        if rings:
+            drawing.cut.append((layer, rgb, rings))
+        else:                     # a surface, or a body whose cut does not close
+            for line in _chain(segs):
+                drawing.ground.append((layer.replace("E-CUT-", "E-GROUND-"), rgb, line))
+
+
+def _extent(drawing) -> list:
+    """Every drawn elevation: cuts, ground lines, edges beyond, limits."""
+    zs = [p[1] for _l, _r, polys in drawing.cut for poly in polys for loop in poly
+          for p in loop]
+    zs += [p[1] for _l, _r, line in drawing.ground for p in line]
+    zs += [p[1] for line in drawing.beyond for p in line]
+    zs += [p[1] for line in drawing.limits for p in line]
+    return zs
+
+
+def _beyond(warped) -> list:
+    """The warped bodies whose edges beyond the cut are drawn: not limits
+    or restored ground; before the dig, a host whose every void is still to
+    dig is drawn uncut (its whole Clip) in place of its voided body."""
+    whole = {int(w[2]) for w in warped if isinstance(w[2], Clip) and w[2].whole}
+
+    out = []
+    for w in warped:
+        s = w[2]
+        if s is LIMIT or isinstance(s, Restore):
+            continue
+        if isinstance(s, Clip):
+            if s.whole:                  # a solid: its flag is a host id, not
+                out.append((*w[:2], False, *w[3:]))   # a surface flag
+            continue
+        if not (isinstance(s, Voided) and s.host in whole):
+            out.append(w)
+    return out
+
+
+def _body_items(el):
+    """Every representation item of an element's shape, an IfcMappedItem
+    replaced by the items of the solid it instances (emit_ifc instancing:
+    a post is a mapped item whose source is the extruded solid)."""
+    out = []
+    for r in (el.Representation.Representations if el.Representation else ()):
+        for i in r.Items:
+            if i.is_a("IfcMappedItem"):
+                out.extend(i.MappingSource.MappedRepresentation.Items)
+            else:
+                out.append(i)
+    return out
+
+
+def is_excavation(el) -> bool:
+    """Excavation: an IfcEarthworksCut (voiding the ground), or the pay-item
+    body emit_ifc writes for an unhosted one (IfcEarthworksElement,
+    ObjectType EXCAVATION, #364) - ground removed either way."""
+    if el.is_a("IfcEarthworksCut"):
+        return True
+    return (el.is_a("IfcEarthworksElement")
+            and (getattr(el, "ObjectType", None) or "").upper() == "EXCAVATION")
+
+
+def _surface_rgb(m) -> tuple:
+    """A style's own colour: the SURFACE colour, not the diffuse the kernel
+    scales by (1 - transparency) - a cut face is solid, so see-through earth
+    must still fill as earth, not half-dark."""
+    for c in (getattr(m, "surface", None), m.diffuse):
+        if c is not None:
+            return tuple(c.components)
+    return (0.6, 0.6, 0.6)
+
+
+def _cut_layer(el, mat, mats, rgb, tri_rgb):
+    """(layer, tri_rgb) of a cut: the layer names the material (its
+    IfcMaterial, else its IfcSurfaceStyle, else its class), and when that
+    name does not say what it is, the kind its style, element name or class
+    does (drain rock, AB, CDF), as the Blender add-on reads it - whatever
+    its colour. Only an unstyled body takes the kind's colour."""
+    from .section_style import style_of
+    style = next((m.name for m in mats if getattr(m, "name", None)
+                  and not _unstyled(_surface_rgb(m))), None)
+    base = getattr(mat, "Name", None) or style or el.is_a()
+    # the class last: an unstyled IfcWall named "Lean Concrete" is lean
+    k = style_of(getattr(mat, "Name", None), style, el.Name, el.is_a())
+    layer = _layer_name(base)
+    # judged on the layer as written (sanitised, 40 characters): the hatch
+    # builders classify that, and a cut name can read differently
+    if k is not None and style_of(layer.replace("E-CUT-", "")) is not k:
+        layer = _layer_name(k.kind)
+    if k is not None and all(_unstyled(c) for c in rgb):
+        tri_rgb = [k.rgb] * len(tri_rgb)
+    return layer, tri_rgb
+
+
+def _unstyled(rgb) -> bool:
+    """The kernel's default grey (no IfcSurfaceStyle)."""
+    return all(abs(c - d) < 1e-3 for c, d in zip(rgb, (0.6, 0.6, 0.6))) or \
+        all(abs(c - d) < 1e-3 for c, d in zip(rgb, (0.8, 0.8, 0.8)))
 
 
 def _layer_name(s: str) -> str:
@@ -225,20 +519,23 @@ class _Unroll:
         return float(np.ptp(np.unwrap(np.radians(az)))) > 1e-6
 
 
+def _stationer_for(f, name):
+    from .alignment_station import AlignmentStationer, alignments
+    found = alignments(f)
+    if not found:
+        raise ValueError("no IFC4X3 IfcAlignment to draw along")
+    label = lambda a: a.Name or f"#{a.id()}"  # noqa: E731  AlignmentStationer.name
+    al = next((a for a in found if label(a) == name), None) if name else found[0]
+    if al is None:
+        raise ValueError(f"no IfcAlignment {name!r} (has {[label(a) for a in found]})")
+    return AlignmentStationer(f, al)
+
+
 def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing:
     """The view's cut, ground lines and visible edges (see the module
     docstring). `f`: an open IFC4X3 file with the alignment."""
     import numpy as np
-    from .alignment_station import AlignmentStationer, alignments
-    found = alignments(f)
-    if not found:
-        raise ValueError("no IFC4X3 IfcAlignment to develop along")
-    al = next((a for a in found if a.Name == view.alignment), None) \
-        if view.alignment else found[0]
-    if al is None:
-        raise ValueError(f"no IfcAlignment {view.alignment!r} "
-                         f"(has {[a.Name for a in found]})")
-    st = AlignmentStationer(f, al)
+    st = _stationer_for(f, view.alignment)
     unit = st.station_unit
     to_m = st.from_unit(1.0, unit)                        # unit -> metres
     proj = lambda s: s * to_m / st.unit_scale             # noqa: E731  unit -> project
@@ -298,33 +595,88 @@ def develop(f, view: ElevationView, *, max_edge: float | None = None) -> Drawing
         warped.append((name, layer, surface, u, dist, z, t, trgb, inside))
     drawing.elements = len(warped)
     # ---------------------------------------------------------------- cut
-    for name, layer, surface, u, dist, z, t, trgb, inside in warped:
-        segs, rgbs = _plane_cut(u, dist, z, t, trgb)
-        if not segs:
-            continue
-        segs = [(to2d(*a), to2d(*b)) for a, b in segs]
-        rgb = max(set(rgbs), key=rgbs.count)
-        rings = [] if surface else _polygons(segs, 0.0, drawing.length)
-        if not rings:
-            segs = _clip_segments_x(segs, 0.0, drawing.length)
-            if not segs:
-                continue
-        if rings:
-            drawing.cut.append((layer, rgb, rings))
-        else:                     # a surface, or a body whose cut does not close
-            for line in _chain(segs):
-                drawing.ground.append((layer.replace("E-CUT-", "E-GROUND-"), rgb, line))
+    _cut_into(drawing, warped, to2d)
     # ----------------------------------------------------- visible beyond
-    drawing.beyond = _visible_edges(warped, to2d, drawing, view, depth * k, k)
+    drawing.beyond = _visible_edges(_beyond(warped), to2d,
+                                    drawing, view, depth * k, k)
     # ---------------------------------------------------------- ticks
     drawing.ticks = _ticks(st, un, view, d0, d1, to2d, unit, k)
-    zs = [p[1] for _l, _r, polys in drawing.cut for poly in polys for loop in poly
-          for p in loop]
-    zs += [p[1] for _l, _r, line in drawing.ground for p in line]
-    zs += [p[1] for line in drawing.beyond for p in line]
+    zs = _extent(drawing)
     if zs:
         drawing.extent = (0.0, min(zs), drawing.length, max(zs))
     return drawing
+
+
+def cross_section(f, view: SectionView) -> Drawing:
+    """The section square to the alignment at `view.station`: the cut
+    filled per styling, open surfaces as ground lines, the visible edges up
+    to `depth` beyond, offset ticks along the bottom. The plane is the one
+    the Blender add-on's section camera stands on: vertical, square to the
+    PLAN tangent."""
+    import numpy as np
+    st = _stationer_for(f, view.alignment)
+    unit = st.station_unit
+    to_m = st.from_unit(1.0, unit)                        # unit -> metres
+    k = 1.0 / to_m                                        # metres -> unit
+    d = st.distance_at(view.station * to_m / st.unit_scale)
+    if not -1e-6 <= d <= st.length + 1e-6:
+        raise ValueError(f"{view.name}: station {view.station} is not along {st.name}")
+    fr = st.frame(d)
+    T = np.array(fr.plan_tangent[:2]) * (-1.0 if view.look_back else 1.0)
+    R = np.array([T[1], -T[0]])                           # the viewer's right
+    P = np.array(fr.point[:2])
+    half = view.width * to_m / 2.0
+    depth = view.depth * to_m
+    ex = view.exaggeration
+    za = st.to_unit(st.elevation_m(0.0), unit)            # model z -> elevation
+    zb = st.to_unit(st.elevation_m(1.0), unit) - za
+
+    def to2d(u, z):
+        return u * k, z * ex
+
+    drawing = Drawing(view=view, unit=unit, length=2.0 * half * k,
+                      foot_m=st.foot_m, tick_kind="offset")
+    warped = []
+    for name, layer, surface, v, t, trgb in _all_bodies(f, view.date):
+        rel = v[:, :2] - P
+        dist, across = rel @ T, rel @ R
+        tz, tx = dist[t], across[t]
+        # the cut: every triangle the plane crosses, however wide, so a body
+        # wider than the view (the ground) closes; beyond: within the width
+        crosses = (tz.max(1) >= 0.0) & (tz.min(1) <= 0.0)
+        keep = crosses | ((tz.max(1) >= 0.0) & (tz.min(1) <= depth)
+                          & (tx.max(1) >= -half - 1.0) & (tx.min(1) <= half + 1.0))
+        if not keep.any():
+            continue
+        idx = np.nonzero(keep)[0]
+        warped.append((name, layer, surface, across + half, dist,
+                       za + zb * v[:, 2], t[idx], [trgb[i] for i in idx], None))
+    drawing.elements = len(warped)
+    _cut_into(drawing, warped, to2d)
+    drawing.beyond = _visible_edges(_beyond(warped), to2d,
+                                    drawing, view, depth * k, k)
+    # an offset tick every whole unit: (x, offset left); looking ahead the
+    # left is on the viewer's left
+    w2 = view.width / 2.0
+    o = math.ceil(-w2 - 1e-9)
+    while o <= w2 + 1e-9:
+        drawing.ticks.append((float(w2 + (o if view.look_back else -o)), float(o)))
+        o += 1
+    drawing.ticks.sort()
+    zs = _extent(drawing)
+    if zs:
+        drawing.extent = (0.0, min(zs), drawing.length, max(zs))
+    else:
+        g = st.to_unit(st.elevation_m(fr.point[2]), unit) * ex
+        drawing.extent = (0.0, g - 1.0, drawing.length, g + 1.0)
+    return drawing
+
+
+def offset_label(offset_left: float) -> str:
+    """'CL', '10 Lt', '7.5 Rt' from an offset left (whole units bare)."""
+    if abs(offset_left) < 1e-9:
+        return "CL"
+    return f"{abs(offset_left):g} {'Lt' if offset_left > 0 else 'Rt'}"
 
 
 def _plane_cut(u, dist, z, t, trgb):
@@ -378,13 +730,21 @@ def _polygons(segs, x0, x1):
     polys = [p for p in polygonize(lines) if p.area > 1e-8]
     if not polys:
         return []
+    # even-odd: polygonize returns every face of the arrangement, and an
+    # enclosed cavity's boundary is a face too (a backfilled overex inside the
+    # ground). A face is solid when an odd number of face outlines enclose it.
+    outlines = [Polygon(p.exterior) for p in polys]
+    polys = [p for p in polys
+             if sum(o.contains(p.representative_point()) for o in outlines) % 2 == 1]
+    if not polys:
+        return []
     merged = unary_union(polys)
     ys = [c[1] for a, b in segs for c in (a, b)]
     merged = merged.intersection(box(x0, min(ys) - 1.0, x1, max(ys) + 1.0))
     out = []
     for p in getattr(merged, "geoms", [merged]):
-        if not isinstance(p, Polygon):
-            continue
+        if not isinstance(p, Polygon) or p.is_empty or p.area <= 1e-8:
+            continue                  # clipped away: outside the view
         p = orient(p, 1.0)
         out.append([list(p.exterior.coords)] + [list(i.coords) for i in p.interiors])
     return out
@@ -432,6 +792,7 @@ def _visible_edges(warped, to2d, drawing, view, depth_u, k):
     zbuf = np.full((ny, nx), np.inf)
     for tri in tris2d:
         _raster(zbuf, tri, res, y0)
+    _raster_cut(zbuf, drawing.cut, res, y0)
     tol = 2.0 * res + 1e-6
     out = []
     for (p, q) in edges:
@@ -476,6 +837,34 @@ def _merge_runs(segs, res):
     m = linemerge(MultiLineString(lines))
     geoms = m.geoms if isinstance(m, MultiLineString) else [m]
     return [list(g.simplify(res * 0.05).coords) for g in geoms]
+
+
+def _raster_cut(zbuf, cut, res, y0) -> None:
+    """The cut faces into the depth buffer at depth 0 (holes left open), so
+    what lies behind a filled cut is hidden by it - the cut is a face, not
+    the open edge of a clipped solid."""
+    import numpy as np
+    import shapely
+    from shapely.geometry import Polygon
+    ny, nx = zbuf.shape
+    for _layer, _rgb, rings in cut:
+        for ring in rings:
+            if not ring or len(ring[0]) < 3:
+                continue
+            poly = Polygon(ring[0], [h for h in ring[1:] if len(h) >= 3])
+            if poly.is_empty:
+                continue
+            a, b, c, d = poly.bounds
+            i0, i1 = max(0, int(a / res)), min(nx - 1, int(math.ceil(c / res)))
+            j0 = max(0, int((b - y0) / res))
+            j1 = min(ny - 1, int(math.ceil((d - y0) / res)))
+            if i1 < i0 or j1 < j0:
+                continue
+            X, Y = np.meshgrid((np.arange(i0, i1 + 1) + 0.5) * res,
+                               (np.arange(j0, j1 + 1) + 0.5) * res + y0)
+            inside = shapely.contains_xy(poly, X, Y)
+            sub = zbuf[j0:j1 + 1, i0:i1 + 1]
+            sub[inside] = np.minimum(sub[inside], 0.0)
 
 
 def _clip_tri(poly, depth):
@@ -611,19 +1000,9 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
         oy = y_cursor - y0
         y_cursor = oy + y1 + 2.0 * sheet.height * (v.scale or fit_scale(dr, sheet))
         dy = lambda p: (p[0], p[1] + oy)            # noqa: E731
+        scale = v.scale or fit_scale(dr, sheet)
         for layer, rgb, rings in dr.cut:
-            if layer not in doc.layers:
-                doc.layers.add(layer).rgb = tuple(int(c * 255) for c in rgb)
-            for ring in rings:
-                h = msp.add_hatch(dxfattribs={"layer": layer})
-                h.rgb = tuple(int(c * 255) for c in rgb)
-                h.paths.add_polyline_path([dy(p) for p in ring[0]], is_closed=True)
-                for hole in ring[1:]:
-                    h.paths.add_polyline_path([dy(p) for p in hole], is_closed=True)
-                for loop in ring:
-                    msp.add_lwpolyline([dy(p) for p in loop], close=True,
-                                       dxfattribs={"layer": layer, "color": 7,
-                                                   "lineweight": 50})
+            _cut_to_dxf(doc, msp, layer, rgb, rings, dy, scale)
         for layer, rgb, line in dr.ground:
             if layer not in doc.layers:
                 doc.layers.add(layer).rgb = tuple(int(c * 255) for c in rgb)
@@ -632,7 +1011,13 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
         for line in dr.beyond:
             msp.add_lwpolyline([dy(p) for p in line],
                                dxfattribs={"layer": "E-BEYOND", "lineweight": 18})
-        scale = v.scale or fit_scale(dr, sheet)
+        if dr.limits and LIMIT_LAYER not in doc.layers:
+            lay = doc.layers.add(LIMIT_LAYER, color=30, linetype="DASHED")
+            lay.description = "Limit of excavation (pay line)"
+        for line in dr.limits:
+            msp.add_lwpolyline([dy(p) for p in line],
+                               dxfattribs={"layer": LIMIT_LAYER, "lineweight": 25,
+                                           "linetype": "DASHED"})
         th = 0.10 * scale                            # 0.10" text on the sheet
         # labelled ticks at least an inch apart on the sheet, minor ones between
         from .alignment_station import format_station
@@ -647,7 +1032,9 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
             msp.add_line((x, y0 + oy - (th if is_major else th / 2)), (x, y0 + oy),
                          dxfattribs={"layer": "E-GRID"})
             if is_major:
-                msp.add_text(format_station(sta, dr.unit, 0), height=th,
+                label = (offset_label(sta) if dr.tick_kind == "offset"
+                         else format_station(sta, dr.unit, 0))
+                msp.add_text(label, height=th,
                              dxfattribs={"layer": "E-TEXT"}).set_placement(
                     (x, y0 + oy - 2.5 * th), align=TextEntityAlignment.TOP_CENTER)
         ystep = _nice(max((y1 - y0) / 6.0, 3.0 * th))
@@ -659,7 +1046,10 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
                          dxfattribs={"layer": "E-TEXT"}).set_placement(
                 (-th, e + oy), align=TextEntityAlignment.MIDDLE_RIGHT)
             e += ystep
-        title = v.title or (
+        sec_title = (f"{v.name}: SECTION AT STA {format_station(v.station, dr.unit)}, "
+                     f"LOOKING {'BACK' if v.look_back else 'AHEAD'}"
+                     if isinstance(v, SectionView) else None)
+        title = v.title or sec_title or (
             f"{v.name}: DEVELOPED ELEVATION {v.offset:.2f} {v.side.upper()}, "
             f"LOOKING {'RIGHT' if v.look_from.lower().startswith('l') else 'LEFT'}"
             f"{'' if v.true_view else ' (MIRRORED: STATIONS LEFT TO RIGHT)'}")
@@ -684,14 +1074,82 @@ def write_dxf(drawings: list, path: str, sheet: Sheet | None = None) -> list[str
                      + (f"   AS OF {v.date}" if v.date else ""),
                      height=0.16).set_placement((sheet.margin + 0.3, sheet.margin + 0.45))
         fits = (x1 - x0) / scale <= vw + 1e-6 and (y1 - y0) / scale <= vh + 1e-6
-        report.append(f"{lay.name}: {v.from_station:.2f} to {v.to_station:.2f}, "
-                      f"{dr.length:.2f} along the line, 1\" = {scale:g}"
+        span = (f"section at {format_station(v.station, dr.unit)}, {dr.length:.2f} wide"
+                if isinstance(v, SectionView) else
+                f"{v.from_station:.2f} to {v.to_station:.2f}, {dr.length:.2f} along the line")
+        report.append(f"{lay.name}: {span}, 1\" = {scale:g}"
                       + ("" if fits else "  (DOES NOT FIT the sheet at this scale)"))
     _ = colors
     if drawings and "Layout1" in doc.layouts:
         doc.layouts.delete("Layout1")             # ezdxf's empty default sheet
     doc.saveas(path)
     return report
+
+
+def _cut_to_dxf(doc, msp, layer, rgb, rings, dy, scale) -> None:
+    """One material's cut: a solid fill in its colour on `layer` (a colour
+    plot; freeze it for black and white), its hatch pattern in ink on
+    `layer`-PATT (bimforge.bim.section_style: concrete stipple, earth, fill,
+    gravel ...) with the heavy cut outline, so freezing the colour layers
+    leaves a black-and-white section. Rebar plots solid, and a bar
+    smaller than MIN_DOT_IN on paper as a dot that size."""
+    from .section_style import MIN_DOT_IN, hatch_scale, style_of
+    kind = style_of(layer.replace("E-CUT-", ""))
+    col = tuple(int(c * 255) for c in rgb)
+    patt = f"{layer}-PATT"
+    for name, colour in ((layer, col), (patt, None)):
+        if name not in doc.layers:
+            lay = doc.layers.add(name, color=7)
+            if colour:
+                lay.rgb = colour
+    rebar = kind is not None and kind.dxf == "SOLID"
+    r_min = MIN_DOT_IN / 2.0 * scale
+    for ring in rings:
+        if not ring or len(ring[0]) < 3:
+            continue
+        outer = [dy(p) for p in ring[0]]
+        h = msp.add_hatch(dxfattribs={"layer": layer})
+        h.rgb = col
+        h.paths.add_polyline_path(outer, is_closed=True)
+        for hole in ring[1:]:
+            h.paths.add_polyline_path([dy(p) for p in hole], is_closed=True)
+        if rebar:
+            _area, cx, cy = _ring_centroid(outer)
+            ink = msp.add_hatch(color=7, dxfattribs={"layer": patt})
+            # a dot only when the whole cut fits inside it (a long thin bar
+            # keeps its length and outline), as the Blender add-on's _dot
+            if max(math.hypot(x - cx, y - cy) for x, y in outer) < r_min:
+                ink.paths.add_edge_path().add_arc((cx, cy), r_min, 0.0, 360.0)
+                continue                      # the dot is the bar: no outline
+            ink.paths.add_polyline_path(outer, is_closed=True)
+        elif kind is not None:
+            ink = msp.add_hatch(color=7, dxfattribs={"layer": patt,
+                                                     "lineweight": 9})
+            ink.set_pattern_fill(kind.dxf, scale=hatch_scale(kind, scale))
+            ink.paths.add_polyline_path(outer, is_closed=True)
+            for hole in ring[1:]:
+                ink.paths.add_polyline_path([dy(p) for p in hole], is_closed=True)
+        for loop in ring:               # on the ink layer: kept in B/W
+            msp.add_lwpolyline([dy(p) for p in loop], close=True,
+                               dxfattribs={"layer": patt, "color": 7,
+                                           "lineweight": 50})
+
+
+def _ring_centroid(pts):
+    """(signed area, cx, cy) of a closed ring."""
+    a = cx = cy = 0.0
+    n = len(pts)
+    for i in range(n):
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
+        c = x0 * y1 - x1 * y0
+        a += c
+        cx += (x0 + x1) * c
+        cy += (y0 + y1) * c
+    a *= 0.5
+    if abs(a) < 1e-18:
+        xs, ys = zip(*pts)
+        return 0.0, sum(xs) / n, sum(ys) / n
+    return a, cx / (6 * a), cy / (6 * a)
 
 
 def _nice(x: float) -> float:

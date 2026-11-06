@@ -125,6 +125,7 @@ def write_review(out_dir, findings, rows, *, crops=None,
         if f.page is not None:
             md.append(f"- page: {f.page[0]:.1f}, {f.page[1]:.1f} pt")
         md += [f"- check: {f.check}", "", f.detail]
+        md += [f"- {c['text']}" for c in f.chains]
         md += [f"- {p}" for p in f.paths]
         if f.id in crops:
             md += ["", f"![{f.id}]({Path(crops[f.id]).name})"]

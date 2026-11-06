@@ -26,6 +26,7 @@ def build(params: dict, ctx) -> StructureModel:
     if not runs:
         raise ValueError("tubular-handrail: params.runs is required")
     model = StructureModel("tubular-handrail", ctx)
+    model.instancing = True            # twenty posts: one mapped solid
     for run in runs:
         name = run.get("name", "handrail")
         if "straight_length_ft" not in run:

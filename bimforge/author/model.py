@@ -66,10 +66,41 @@ class Element:
     #: Deterministic-GUID key; defaults to "element/<name>".
     guid_key: str | None = None
     predefined_type: str | None = None
+    #: IfcObject.ObjectType: the user-defined type name an importer shows
+    #: beside the class ("Type 842 concrete barrier"). Required by IFC when
+    #: predefined_type is USERDEFINED. A class the schema lacks overrides it
+    #: with the class it wanted (emit_ifc's fallback record).
+    object_type: str | None = None
+    #: The element TYPE this occurrence is of (IfcRelDefinesByType): one
+    #: IfcWallType / IfcRailingType / IfcMemberType ... per distinct
+    #: (class, type_name) in the file, named `type_name`, carrying the same
+    #: predefined type. A viewer groups occurrences by it (Revit: the family
+    #: type; FreeCAD and Bonsai: the type tree), so twenty posts read as one
+    #: kind of post. None = untyped, as before.
+    type_name: str | None = None
+    #: Property sets written on the product, {pset name: {property: value}}:
+    #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
+    #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
+    psets: dict = field(default_factory=dict)
+    #: The element this one is a PART of (IfcRelAggregates), by name: a
+    #: post or rail of a handrail run, an end block of a barrier run. The
+    #: part leaves the spatial container and hangs under its whole, which
+    #: is what a viewer's tree shows (and what Revit's category is read
+    #: from). The whole is an ordinary Element, usually geometry-less, that
+    #: carries the run's class and type (an IfcRailing/HANDRAIL). None = a
+    #: top-level element, contained in the spatial structure as before.
+    part_of: str | None = None
     #: Free-text estimator note (e.g. the spillway-pilot ogee reporting the sf of its
     #: expanded-polystyrene void). Carried on the model document; emitters
     #: that have a description slot may write it, others ignore it.
     description: str | None = None
+    #: An excavation that is ground REMOVED, not a body: the name of the
+    #: element it voids (the existing-ground solid). An IfcEarthworksCut with
+    #: `voids` is emitted as itself, related to that host by
+    #: IfcRelVoidsElement, so viewers draw the ground with the hole and do not
+    #: draw the cut as a solid, while its quantities and pay codes stay on it.
+    #: Without `voids` an IfcEarthworksCut is emitted as before (#364).
+    voids: str | None = None
     #: IFC4X3 facility part this element is contained in (issue #318): a part
     #: name (``"ABUTMENT"``, ``"Abut 1"``) or a mapping ``{name,
     #: predefined_type?, usage_type?}``; normalized to a
@@ -168,14 +199,23 @@ class StructureModel:
     #: outputs), "error" (a failure: outputs deleted) or "off". Warn is the
     #: default while existing families are brought up to solid bodies.
     solid_body_gate: str = "warn"
-    #: How an alignment sweep is written under IFC4X3: "exact" (default) as
-    #: an IfcSectionedSolidHorizontal on the IfcAlignment's curve, or "mesh"
-    #: as the faceted brep it is everywhere else (IFC4, DXF, STEP). "mesh" is
-    #: for viewers on ifcopenshell 0.8.x (Bonsai 0.8.x bundles 0.8.5), which
-    #: misplaces every IfcSectionedSolidHorizontal cross-section: it adds a
-    #: spurious offset that grows with distance along the curve, so the
-    #: solid lands rotated and moved off the line. The IfcAlignment itself
-    #: is still written.
+    #: Write repeated identical bodies (twenty posts, twenty mortar pockets)
+    #: as ONE IfcRepresentationMap each, placed by IfcMappedItem, instead of
+    #: twenty copies of the solid (emit_ifc; a prism, box, rod or tube body
+    #: qualifies; anything else keeps its own solid). A viewer then knows the
+    #: parts are the same thing, and the file is smaller. Off by default so
+    #: an existing consumer's file is unchanged; the rail and barrier
+    #: families turn it on, and a spec may with `outputs.ifc_instancing`.
+    instancing: bool = False
+    #: How this model's alignment sweeps are written under IFC4X3: "exact"
+    #: (default), an IfcSectionedSolidHorizontal on the IfcAlignment's
+    #: curve, or "mesh", the faceted brep it is everywhere else (IFC4, DXF,
+    #: STEP), for a viewer that cannot draw the sectioned solid: ifcopenshell
+    #: 0.8.5 (Bonsai 0.8.x) misplaces every cross-section by an offset that
+    #: grows with distance along the curve, and 0.9 lofts it open. The
+    #: IfcAlignment is written either way. A spec sets it with
+    #: `ifc: {sweeps: mesh}`; `emit_ifc(sweeps=)` / `outputs.ifc_sweeps`
+    #: override it for one emit (emit_ifc.SWEEP_MODES).
     ifc_sweeps: str = "exact"
 
     def add(self, element: Element) -> Element:

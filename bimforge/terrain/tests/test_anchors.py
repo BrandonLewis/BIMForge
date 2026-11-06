@@ -104,3 +104,48 @@ def test_load_anchors(tmp_path):
     empty = tmp_path / "e.yaml"
     empty.write_text("", encoding="utf-8")
     assert load_anchors(empty) == {}
+
+
+# ------------------------------------------------------------ break lines
+def test_break_lines_are_placed_like_the_records():
+    raw = {"vertical_datum": "NGVD29",
+           "breaks": [{"page": [[10, 20], [30, 20], [40, 25]],
+                       "note": "roadway cut"},
+                      {"xy": [[0, 0], [5, 5]]}]}
+    a = place_anchors(raw, page_to_world=lambda x, y: (2 * x, -2 * y))
+    assert a.breaks == [
+        {"points": [(20.0, -40.0), (60.0, -40.0), (80.0, -50.0)],
+         "note": "roadway cut", "label": "break 1 (roadway cut)"},
+        {"points": [(0.0, 0.0), (5.0, 5.0)], "note": None,
+         "label": "break 2"}]
+
+
+def test_no_breaks_is_an_empty_list():
+    assert place_anchors({"vertical_datum": "X"}).breaks == []
+
+
+@pytest.mark.parametrize("breaks, match", [
+    (5, "breaks: must be a list"),
+    ([[[0, 0], [1, 1]]], r"breaks\[0\]: expected a record \{page \| xy"),
+    ([{"page": [[0, 0]]}], r"breaks\[0\]: needs at least 2 points"),
+    ([{"page": [0, 0]}], r"breaks\[0\]: page point 0 must be 2 numbers"),
+    ([{"xy": [[0, 0], [1, "a"]]}], r"breaks\[0\]: xy point 1 must be a number"),
+    ([{"xy": [[0, 0], [1, float("nan")]]}],
+     r"breaks\[0\]: xy point 1 must be a finite number"),
+    ([{"note": "x"}], r"breaks\[0\]: needs page or xy"),
+    ([{"page": [[0, 0], [1, 1]], "xy": [[0, 0], [1, 1]]}],
+     r"breaks\[0\]: give page or xy, not both"),
+    ([{"xy": "abc"}], r"breaks\[0\]: xy must be a list of points"),
+    ([{"page": [[3, 4], [3, 4], [3, 4]]}],
+     r"breaks\[0\]: has zero length \(every point is the same\)"),
+])
+def test_malformed_break_lines_raise_value_error(breaks, match):
+    with pytest.raises(ValueError, match=match):
+        place_anchors({**_OK, "breaks": breaks},
+                      page_to_world=lambda x, y: (x, y))
+
+
+def test_a_page_break_without_a_placement_source_says_how_to_place_it():
+    with pytest.raises(ValueError, match="--tie"):
+        place_anchors({"vertical_datum": "X",
+                       "breaks": [{"page": [[0, 0], [1, 1]]}]})
