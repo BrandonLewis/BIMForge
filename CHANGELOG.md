@@ -4,6 +4,17 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.108 — 2026-11-06
+
+### Changed
+
+- **Python 3.10 is no longer supported**: `requires-python` is `>=3.11`.
+  3.10 reaches end of life in October 2026, and current dependency fixes
+  (pillow 13, scipy 1.16) already need 3.11+. CI runs the floor and the
+  newest supported interpreter, 3.11 and 3.13. Nothing in the package
+  changed; a 3.10 interpreter now gets 0.1.107 from PyPI instead of a
+  broken resolve.
+
 ## 0.1.107 — 2026-11-06
 
 ### Added
