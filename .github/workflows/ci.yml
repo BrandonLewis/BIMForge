@@ -43,7 +43,7 @@ jobs:
               sys.exit("estimating_tools is installed; bimforge must test standalone")
           print("standalone ok")
           PY
-      - run: python -m pytest bimforge -q
+      - run: python -m pytest bimforge tests -q
       - name: Dependency vulnerability audit (pip-audit)
         # newest leg only: a fix can need a newer Python than the floor, and an
         # unfixable floor resolve is not ours to fix
