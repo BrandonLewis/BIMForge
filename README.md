@@ -90,6 +90,20 @@ depend on it. BIMForge keeps its own copies of the stationing and drawing
 modules (`bimforge.bim.alignment_station`, `developed`, `schedule_state`,
 `section_style`) for `est-bim stations` and `est-bim elevation`.
 
+## Alignments on a finished model
+
+```bash
+est-bim landxml-alignments alignments/*.xml -o alignments.yaml
+est-bim add-alignments model.ifc --spec alignments.yaml --path alignments
+```
+
+`landxml-alignments` turns LandXML 1.2 alignments into the `pob`/`run`
+traverses the authoring layer uses, gated on closure. `add-alignments` adds
+them to a georeferenced IFC4X3 that was not built with them, such as a
+federated or foreign file. It writes the horizontal layout, an optional
+vertical `profile:`, and stationing referents (`--referents NAME=STA,...` adds
+more), and it writes nothing unless every alignment closes on its traverse.
+
 ## GIS (QGIS)
 
 ```bash

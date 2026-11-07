@@ -3007,8 +3007,39 @@ def main(argv=None) -> int:
     el.add_argument("--out", help="DXF to write (default: the set's out:)")
     el.add_argument("--date", help="draw the model as it stands that day (4D)")
 
+    aa = sub.add_parser("add-alignments", help="add IfcAlignment (horizontal, optional "
+                                               "vertical, station referents) to a "
+                                               "georeferenced IFC4X3 from pob/run blocks")
+    aa.add_argument("ifc", help="a georeferenced IFC4X3 (has an IfcMapConversion)")
+    aa.add_argument("--spec", required=True,
+                    help="YAML holding the alignment blocks (a build spec, or "
+                         "landxml-alignments output)")
+    aa.add_argument("--path", default="params.site.alignments",
+                    help="dotted path to the alignment list inside --spec "
+                         "(default params.site.alignments)")
+    aa.add_argument("--out", help="write here instead of in place")
+    aa.add_argument("--tol-ft", type=float, default=0.01, dest="tol_ft",
+                    help="gate tolerance, feet (default 0.01)")
+    aa.add_argument("--referents", action="append", default=[], metavar="NAME=STA,STA",
+                    help="extra referent stations (feet) for the named alignment, "
+                         "e.g. 'ALIGNMENT 1=352.91,372.41'; repeatable")
+
+    lx = sub.add_parser("landxml-alignments", help="LandXML 1.2 alignments -> pob/run "
+                                                   "alignment YAML (gated on closure)")
+    lx.add_argument("xml", nargs="+", help="LandXML file(s)")
+    lx.add_argument("-o", "--out", required=True, help="alignment YAML to write")
+    lx.add_argument("--tol-ft", type=float, default=0.01, dest="tol_ft",
+                    help="closure / gap tolerance, feet (default 0.01)")
+    lx.add_argument("--kink-deg", type=float, default=0.01, dest="kink_deg",
+                    help="split an alignment where consecutive elements turn by "
+                         "more than this (default 0.01 deg)")
+
     args = parser.parse_args(argv)
     try:
+        if args.cmd == "add-alignments":
+            return _run_add_alignments(args)
+        if args.cmd == "landxml-alignments":
+            return _run_landxml_alignments(args)
         if args.cmd == "elevation":
             return _run_elevation(args)
         if args.cmd == "stations":
@@ -3131,6 +3162,54 @@ def _run_stations(args) -> int:
             w.writerow(cols)
             for gid, ps in sorted(read(f).items(), key=lambda kv: f.by_guid(kv[0]).Name or ""):
                 w.writerow([f.by_guid(gid).Name, gid] + [ps.get(c, "") for c in cols[2:]])
+    return 0
+
+
+def _run_add_alignments(args) -> int:
+    """est-bim add-alignments: bimforge.bim.add_alignment on a file; writes only on a pass."""
+    import ifcopenshell
+    import yaml
+    from bimforge.bim.add_alignment import AlignmentGateError, add_alignments
+    data = yaml.safe_load(open(args.spec, encoding="utf-8"))
+    try:
+        for key in args.path.split("."):
+            data = data[key]
+    except (KeyError, TypeError):
+        print(f"error: {args.spec} has no {args.path}", file=sys.stderr)
+        return 2
+    aligns = data if isinstance(data, list) else [data]
+    extra = {}
+    for item in args.referents:
+        name, _, stas = item.partition("=")
+        extra[name.strip()] = [float(s) for s in stas.split(",") if s.strip()]
+    f = ifcopenshell.open(args.ifc)
+    try:
+        reps = add_alignments(f, aligns, tol_ft=args.tol_ft, referents=extra)
+    except AlignmentGateError as e:
+        print(f"GATE FAILED - nothing written: {e}", file=sys.stderr)
+        return 1
+    out = args.out or args.ifc
+    f.write(out)
+    print(f"wrote {out} ({len(reps)} IfcAlignment)", file=sys.stderr)
+    return 0
+
+
+def _run_landxml_alignments(args) -> int:
+    """est-bim landxml-alignments: bimforge.author.landxml.read_landxml -> YAML."""
+    from pathlib import Path
+
+    import yaml
+    from bimforge.author.landxml import LandXMLGateError, read_landxml
+    try:
+        doc = read_landxml(args.xml, tol_ft=args.tol_ft, kink_deg=args.kink_deg)
+    except LandXMLGateError as e:
+        print(f"GATE FAILED - nothing written: {e}", file=sys.stderr)
+        return 1
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
+    print(f"wrote {out} ({len(doc['alignments'])} alignments, EPSG {doc['epsg']})",
+          file=sys.stderr)
     return 0
 
 
