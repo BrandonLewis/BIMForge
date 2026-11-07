@@ -6,6 +6,25 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ### Added
 
+- **`est-bim add-alignments`** (`bimforge.bim.add_alignment`): adds IfcAlignment to a
+  finished, georeferenced IFC4X3 from `pob`/`run` blocks. That covers a federated or
+  foreign file, or a model whose alignment is known only after the build. It writes
+  the horizontal layout, an optional vertical (`profile: pvis`, `vc_length_ft`) and
+  Pset_Stationing referents: at the start, at every segment break, and at any
+  `--referents NAME=STA,...`. A tangent-to-tangent break is laid out as an angle
+  point (a radius-0 PI), so an all-tangent traverse keeps every leg instead of
+  collapsing to one chord. The gate checks start, end, every angle point and every
+  PVI elevation; the file is written only if it passes. It refuses a file that
+  already holds an alignment of the same name, so a rerun never stacks a second
+  copy. This brings upstream a post-processor that lived in an estimating repo.
+- **`est-bim landxml-alignments`** (`bimforge.author.landxml`): LandXML 1.2
+  alignments to `pob`/`run` YAML. It splits at angle points, dedupes repeated
+  files, and is gated on closure, element gaps and a single EPSG code.
+  Improvements over the script it replaces:
+  - A repeated alignment is gated too: two files with the same traverse but
+    different stated end points are no longer silently deduplicated.
+  - A `<Line>` without the optional `length` attribute uses its chord.
+
 - **The Caltrans catalog tests and scripts, ported from estimating-plugin**
   (#5). `tests/test_caltrans_manifest.py` checks `data/caltrans-2025/manifest.json`
   (all 91 sheets with URL, sha256 and size, and every transcribed family in
