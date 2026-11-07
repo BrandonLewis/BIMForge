@@ -4,6 +4,23 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **The Caltrans catalog tests and scripts, ported from estimating-plugin**
+  (#5). `tests/test_caltrans_manifest.py` checks `data/caltrans-2025/manifest.json`
+  (all 91 sheets with URL, sha256 and size, and every transcribed family in
+  scope) and, where the sheets are fetched, their digests;
+  `tests/test_d90_catalog.py` checks the D90 headwall catalog's fixed rules;
+  `tests/test_dgn_to_dxf.py` covers the converter's command lines. CI runs
+  `tests/` beside `bimforge/`. `scripts/fetch_caltrans_dgn.py` and
+  `scripts/dgn_to_dxf.py` come with them; the converter takes ExDgnImport
+  from `--dgn-importer` or `ODA_DGN_IMPORTER` and has no machine default.
+
+### Fixed
+
+- The provenance scan flags a Windows machine path written with
+  backslashes, not only one written with forward slashes.
+
 ## 0.1.108 — 2026-11-06
 
 ### Changed

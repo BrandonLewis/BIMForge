@@ -4,7 +4,7 @@ Refuses to let three things into the tree:
 
 * an employer bid number (`B2217`, `b2235-2026-09-16`): fixtures cite public
   sources or derive their quantities in-repo, never a real pursuit;
-* a developer-machine path (`/home/<user>/`, `/Users/`, `C:/Users`);
+* a developer-machine path (`/home/<user>/`, `/Users/`, `C:/Users`, `C:\\Users`);
 * a credential-shaped string (private-key headers, JWTs, bearer / API tokens).
 
 Project-specific tokens (organisation and site names) are supplied by the
@@ -32,7 +32,7 @@ def _word(token: str) -> str:
 
 
 BIDS = _word(r"b2[0-9]{3}")
-PATHS = r"/home/[a-z][a-z0-9_-]*/|/Users/|c:/users"
+PATHS = r"/home/[a-z][a-z0-9_-]*/|/Users/|c:/users|c:\\+users"
 SECRETS = (
     r"BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{10,}|"
     r"Bearer [A-Za-z0-9._-]{20,}|ApiKey [A-Za-z0-9._-]{16,}"

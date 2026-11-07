@@ -6,3 +6,9 @@ __pycache__/
 build/
 dist/
 .pytest_cache/
+
+# Caltrans standard-plan source sheets (DGN) and their DXF conversions: 79 MB,
+# re-downloadable with scripts/fetch_caltrans_dgn.py and checked against
+# data/caltrans-2025/manifest.json (tests/test_caltrans_manifest.py).
+/data/caltrans-2025/dgn/
+/data/caltrans-2025/dxf/
