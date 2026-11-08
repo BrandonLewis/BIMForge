@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.109 — 2026-11-08
+
 ### Added
 
 - **`est-bim add-alignments`** (`bimforge.bim.add_alignment`): adds IfcAlignment to a
