@@ -512,6 +512,7 @@ def test_wingwall_stems_stand_plumb_on_the_channel_and_batter_toward_the_earth()
     -Y is the retained earth here and +Y the channel, fixed by the footing: it
     is built `side=-1.0`, which puts the toe (C) on +Y and the heel (B) on -Y.
     """
+    from bimforge.author.primitives import outward_normals
     m = build(_battered_spec(), CTX)
     for side in ("left", "right"):
         plate = m.element(f"HW1 wingwall {side}").geometry
@@ -522,8 +523,11 @@ def test_wingwall_stems_stand_plumb_on_the_channel_and_batter_toward_the_earth()
             assert lol_base[0] == pytest.approx(lol_top[0], abs=1e-12)
             assert lol_base[1] == pytest.approx(lol_top[1], abs=1e-12), (
                 f"{side} section {i}: the lol face is not plumb")
-            # the offset face BATTERS by exactly H*batter ...
-            spread = math.hypot(off_base[0] - off_top[0], off_base[1] - off_top[1])
+            # the offset face BATTERS by exactly H*batter, measured square to
+            # the face (the mitred corner section runs along the mitre, #24) ...
+            n = outward_normals(plate.lol, +1.0)[0]
+            spread = abs((off_base[0] - off_top[0]) * n[0]
+                         + (off_base[1] - off_top[1]) * n[1])
             h = lol_top[2] - lol_base[2]
             assert spread == pytest.approx(h * plate.batter, abs=1e-9), (
                 f"{side} section {i}: {spread:.6f} ft of batter over {h:.4f} ft "
@@ -536,46 +540,77 @@ def test_wingwall_stems_stand_plumb_on_the_channel_and_batter_toward_the_earth()
                     f"the exposed face plumb.")
 
 
-def test_putting_the_batter_on_the_right_face_does_not_change_the_volume():
-    """The fix slides the lol one wall thickness onto the creek face and offsets
-    back the other way, so the top-of-wall footprint is identical and only the
-    base thickening swaps sides. The trapezoid section is untouched, which is
-    why this was safe to change on a live family: it is the same concrete.
-
-    Checked against the closed form rather than against a rebuilt "old" wall,
-    because that comparison cannot be made exact -- shifting every coordinate by
-    a foot re-rounds the divergence-theorem sum and the two agree only to ~2e-10
-    relative. The closed form belongs to neither convention.
+def test_putting_the_batter_on_the_right_face_kept_the_top_of_wall():
+    """#314 slid the lol one wall thickness onto the creek face and offset back
+    the other way, so only the base thickening swapped sides. The same wing
+    built the old way (lol on the earth face, offset toward the channel, the
+    same mitre) has the identical top-of-wall footprint: the wall did not move.
     """
     from bimforge.author.primitives import BatteredWall, outward_normals
     m = build(_battered_spec(), CTX)
-    T, batter, wl = 1.0, 0.5 / 12.0, 8.0
-    h_hi, h_lo = 6.0, 1.0
-    # A trapezoid section (t_top + H*batter wide) swept along a straight leg
-    # whose H ramps h_hi -> h_lo integrates to
-    #     wl * (T*mean(H) + batter*mean(H^2)/2),   mean(H^2) = (a^2+ab+b^2)/3.
-    mean_h = (h_hi + h_lo) / 2.0
-    mean_h2 = (h_hi ** 2 + h_hi * h_lo + h_lo ** 2) / 3.0
-    expect = wl * (T * mean_h + batter * mean_h2 / 2.0)
-    assert expect == pytest.approx(30.38888889, abs=1e-7)   # guards the algebra
+    T, batter = 1.0, 0.5 / 12.0
     for side in ("left", "right"):
         fixed = m.element(f"HW1 wingwall {side}").geometry
-        assert fixed.volume_cf == pytest.approx(expect, rel=1e-9), (
-            f"{side}: {fixed.volume_cf:.6f} cf is not the trapezoid integral "
-            f"{expect:.6f} cf, so the section changed and not merely its side")
-        # ... and the top of wall occupies the same plan footprint it did before
-        # the fix, which is what makes the volume result mean something: the
-        # wall did not move, only which face carries the batter.
+        ci = -1 if side == "left" else 0
+        earth_corner = fixed._sections[ci][2][:2]          # earth face, top
         n_earth = outward_normals(fixed.lol, +1.0)[0]
-        dx, dy = n_earth[0] * T, n_earth[1] * T
+        free = fixed.lol[0] if side == "left" else fixed.lol[-1]
+        free = (free[0] + n_earth[0] * T, free[1] + n_earth[1] * T)
+        lol = [free, earth_corner] if side == "left" else [earth_corner, free]
+        top = [(p[0], e) for p, e in zip(lol, (
+            (1.0, 6.0) if side == "left" else (6.0, 1.0)))]
+        nb = (earth_corner[0] + (1.0 if side == "left" else -1.0), 0.0)
         was = BatteredWall(
-            "pre-#314", lol=[(x + dx, y + dy) for (x, y) in fixed.lol],
-            top_profile=[(k + dx, e) for (k, e) in fixed.top_profile],
-            key_index=0, base_el=0.0, t_top=T, batter=batter, side=-1.0,
-            base_profile=(None if fixed.base_profile is None else
-                          [(k + dx, e) for (k, e) in fixed.base_profile]))
-        top_fixed = sorted((round(q[0], 9), round(q[1], 9))
+            "pre-#314", lol=lol, top_profile=top, key_index=0, base_el=0.0,
+            t_top=T, batter=batter, side=-1.0,
+            mitre_to=nb if side == "left" else None,
+            mitre_from=nb if side == "right" else None)
+        top_fixed = sorted((round(q[0], 9), round(q[1], 9), round(q[2], 9))
                            for s in fixed._sections for q in (s[2], s[3]))
-        top_was = sorted((round(q[0], 9), round(q[1], 9))
+        top_was = sorted((round(q[0], 9), round(q[1], 9), round(q[2], 9))
                          for s in was._sections for q in (s[2], s[3]))
         assert top_fixed == top_was, f"{side}: the wall moved"
+
+
+# --- #24: the panel batters too, and the wings close on it ------------------
+
+def test_the_panel_batters_toward_the_earth_with_its_creek_face_plumb():
+    m = build(_battered_spec(), CTX)
+    panel = m.element("HW1 headwall panel").geometry
+    assert panel.batter == pytest.approx(0.5 / 12.0)
+    v = panel.body_solids()[0]["verts"]
+    assert {round(p[1], 9) for p in v if p[1] > 0.5} == {1.0}        # plumb, y = T
+    base_earth = min(p[1] for p in v if p[2] == 0.0)
+    assert base_earth == pytest.approx(-6.0 * 0.5 / 12.0)            # -H*batter
+
+
+@pytest.mark.parametrize("batter", ["NONE", "0.5:12"])
+def test_each_wing_closes_on_the_panel_end_with_no_gap_or_overlap(batter):
+    """The wing's corner section IS the panel's end face: the same four points
+    (creek base, earth base, earth top, creek top). Anything else is a plumb
+    step at the creek face, a wing proud of the panel, or concrete counted
+    twice, which is what ending the wing square to its own leg produced."""
+    spec = copy.deepcopy(SPEC)
+    spec["tables"]["type_1_case_1"]["table"]["6"]["batter"] = batter
+    m = build(spec, CTX)
+    panel = m.element("HW1 headwall panel").geometry
+    k0, k1 = panel.end_slopes
+    assert k0 > 0 and k1 < 0, "a 30 deg flare must mitre both ends"
+    v = panel.body_solids()[0]["verts"]
+    for side, k, x_end in (("left", k0, 0.0), ("right", k1, 10.0)):
+        end = {tuple(round(c, 9) for c in p) for p in v
+               if abs(p[0] - (x_end + k * p[1])) < 1e-9}
+        wing = m.element(f"HW1 wingwall {side}").geometry
+        corner = wing._sections[-1 if side == "left" else 0]
+        assert {tuple(round(c, 9) for c in p) for p in corner} == end, (
+            f"{side}: the wing's corner section is not the panel's end face")
+
+
+def test_the_mitre_trims_the_concrete_the_square_ends_double_counted():
+    """Square-ended wings overlapped the panel in plan; mitred, the panel is
+    shorter at its creek face by T*tan(a/2) a side and the wings stop on it."""
+    m = build(SPEC, CTX)
+    panel = m.element("HW1 headwall panel").geometry
+    k0, k1 = panel.end_slopes
+    assert k0 == pytest.approx(math.tan(math.radians(15.0)), abs=1e-9)
+    assert k1 == pytest.approx(-math.tan(math.radians(15.0)), abs=1e-9)
