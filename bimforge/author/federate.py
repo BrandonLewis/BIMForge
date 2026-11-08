@@ -208,6 +208,8 @@ class FederationResult:
     site_products: int = 0
     #: top-level IfcAlignments carried (aggregated to the project).
     alignments: int = 0
+    #: facilities / parts folded into an earlier one (`merge_facilities`).
+    merged_facilities: int = 0
 
 
 class MixedSchemaError(ValueError):
@@ -583,8 +585,83 @@ def _open_sources(sources, ctx, unit_check: bool):
     return opened
 
 
-def federate(sources, out_path: str, ctx, *, unit_check: bool = True
-             ) -> FederationResult:
+def _spatial_children(ent) -> list:
+    return [c for r in ent.IsDecomposedBy or () for c in r.RelatedObjects
+            if c.is_a("IfcSpatialElement")]
+
+
+def _fold_spatial(tgt, keep, dup) -> int:
+    """Move everything `dup` holds onto `keep` (same class and name) and
+    remove `dup`: contained products, non-spatial aggregates, and child parts,
+    which fold recursively into a same-named child of `keep` or are
+    re-aggregated under it. Returns the number of spatial entities removed."""
+    import ifcopenshell.api
+    import ifcopenshell.util.element
+    import ifcopenshell.util.placement
+    import numpy as np
+    kp, dp = keep.ObjectPlacement, dup.ObjectPlacement
+    if kp is not None and dp is not None and not np.allclose(
+            ifcopenshell.util.placement.get_local_placement(kp),
+            ifcopenshell.util.placement.get_local_placement(dp)):
+        raise ValueError(f"merge_facilities: {dup.is_a()} {dup.Name!r} is placed "
+                         "differently in two sources; cannot merge")
+    removed = 0
+    mine = {(c.is_a(), c.Name): c for c in _spatial_children(keep)}
+    for child in _spatial_children(dup):
+        twin = mine.get((child.is_a(), child.Name))
+        if twin is not None:
+            if getattr(twin, "PredefinedType", None) != getattr(child, "PredefinedType", None):
+                raise ValueError(f"merge_facilities: part {child.Name!r} has two "
+                                 "different predefined types")
+            removed += _fold_spatial(tgt, twin, child)
+        else:
+            ifcopenshell.api.run("aggregate.assign_object", tgt, products=[child],
+                                 relating_object=keep)
+            mine[(child.is_a(), child.Name)] = child
+    for rel in (list(dup.ContainsElements or ())
+                + list(getattr(dup, "ReferencesElements", None) or ())):
+        rel.RelatingStructure = keep
+    others = [o for r in dup.IsDecomposedBy or () for o in r.RelatedObjects
+              if not o.is_a("IfcSpatialElement")]
+    if others:
+        ifcopenshell.api.run("aggregate.assign_object", tgt, products=others,
+                             relating_object=keep)
+    for rel in list(dup.Decomposes or ()):
+        rest = [o for o in rel.RelatedObjects if o != dup]
+        if rest:
+            rel.RelatedObjects = rest
+        else:
+            tgt.remove(rel)
+    if dp is not None and kp is not None:
+        for pl in list(tgt.get_inverse(dp)):
+            if pl.is_a("IfcLocalPlacement") and pl.PlacementRelTo == dp:
+                pl.PlacementRelTo = kp
+    for rel in list(tgt.get_inverse(dup)):
+        if rel.is_a("IfcRelationship"):
+            tgt.remove(rel)
+    tgt.remove(dup)
+    if dp is not None and not tgt.get_total_inverses(dp):
+        ifcopenshell.util.element.remove_deep2(tgt, dp)
+    return removed + 1
+
+
+def _merge_same_facilities(tgt, site) -> int:
+    """Fold facilities of one class and name under the site into the first."""
+    first: dict = {}
+    removed = 0
+    for fac in _spatial_children(site):
+        if not fac.is_a("IfcFacility") or fac.is_a("IfcBuilding"):
+            continue
+        key = (fac.is_a(), fac.Name)
+        if key in first:
+            removed += _fold_spatial(tgt, first[key], fac)
+        else:
+            first[key] = fac
+    return removed
+
+
+def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
+             merge_facilities: bool = False) -> FederationResult:
     """Merge co-registered source IFCs into one federated file at `out_path`.
 
     `sources` is a list of ``(ifc_path, storey_name)``; each source's products
@@ -593,6 +670,11 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True
     IfcSite (the name then only namespaces its GlobalIds). `ctx` is the
     ProjectContext for the federated file — its base point, guid_ns and
     schema, which must match the sources'. Returns a FederationResult.
+
+    `merge_facilities`: sources that describe one facility (same class and
+    name, e.g. a bridge and the bridge's earthwork modelled apart) become one
+    facility, their part trees merged by part name, the first source's
+    GlobalIds kept. Off: every source's facility is carried as its own.
     """
     import ifcopenshell
 
@@ -645,6 +727,10 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True
         result.per_source[name] = n
         result.products += n
 
+    if merge_facilities and used_facility_path:
+        result.merged_facilities = _merge_same_facilities(f, site)
+        result.facilities = sum(1 for c in _spatial_children(site)
+                                if c.is_a("IfcFacility") and not c.is_a("IfcBuilding"))
     # the placeholder storey emit_ifc opened the file with holds nothing
     placeholder_pl = placeholder.ObjectPlacement
     for rel in list(f.get_inverse(placeholder)):
