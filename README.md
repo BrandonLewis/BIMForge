@@ -34,6 +34,18 @@ est-bim --help      # dxf2bim, ifc2dxf, takeoff, schedule, cost5d, kml, calibrat
 est-sheets --help   # control / layout / structure sheet production
 ```
 
+## Your own families
+
+`est-bim build spec.yaml --family-path families/` resolves the spec's
+`family:` from any module in `families/` that exports
+`FAMILIES = {"my-wall": build}`, alongside the shipped families and the
+`bimforge.families` entry points. A spec can also carry `ifc_surfaces:`
+(colours merged over the style pack for that build) and
+`gate: {unread_params: warn}`, which reports any param the family never read.
+A table-driven family reads only the catalog row it selects, so give its
+spec `gate: {ignore: [tables]}`. Family module names must be unique: the
+folder is imported by plain module name.
+
 ## What a viewer sees
 
 The IFC is written for FreeCAD, Revit and Bonsai as much as for the takeoff:

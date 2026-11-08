@@ -2992,6 +2992,9 @@ def main(argv=None) -> int:
                                 "outputs/project)")
     b.add_argument("--check-only", action="store_true", dest="check_only",
                    help="run the pre-emit validation gate and exit; write nothing")
+    b.add_argument("--family-path", action="append", default=[], dest="family_paths",
+                   metavar="DIR", help="also resolve the spec's family from the modules "
+                   "in DIR that export FAMILIES = {name: build}; repeatable")
 
     stn = sub.add_parser("stations", help="write every element's station / offset "
                                           "along its IfcAlignment into the IFC")
@@ -3095,7 +3098,8 @@ def main(argv=None) -> int:
         if args.cmd == "build":
             from bimforge.author.families.registry import build_from_spec
             try:
-                return build_from_spec(args.spec, check_only=args.check_only)
+                return build_from_spec(args.spec, check_only=args.check_only,
+                                       family_paths=args.family_paths)
             except (OSError, ValueError, KeyError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1

@@ -4,6 +4,24 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **`est-bim build --family-path DIR`** (repeatable; `registry.load_family_dirs`,
+  `available(family_paths)`, `build_from_spec(..., family_paths=)`): resolve a
+  spec's family from a folder of family modules, each exporting
+  `FAMILIES = {name: build}`, without packaging them as entry points. The folder
+  goes on `sys.path`, so a module can import its siblings. A module that fails to
+  import is skipped with a note, and a name declared twice or shadowing a shipped
+  family is an error.
+- **Spec `ifc_surfaces`** (`registry.spec_stylepack`): `{layer or IfcClass: {rgb,
+  transparency, material, reflectance, specular}}` merged over the style pack's
+  `ifc.surfaces` for one build, so a model can carry its own presentation colours.
+- **Spec `gate.unread_params: off | warn | error`** with `gate.ignore`
+  (`bimforge.author.params_tracking`): reports spec params the family never read, a
+  transcribed value the model silently ignores. `error` makes it a pre-emit gate
+  failure. Off by default, so existing specs build exactly as before;
+  `build_from_spec(..., unread_params=)` sets the default for a caller.
+
 ## 0.1.109 — 2026-11-08
 
 ### Added
