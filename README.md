@@ -42,6 +42,9 @@ est-sheets --help   # control / layout / structure sheet production
 `bimforge.families` entry points. A spec can also carry `ifc_surfaces:`
 (colours merged over the style pack for that build) and
 `gate: {unread_params: warn}`, which reports any param the family never read.
+A table-driven family reads only the catalog row it selects, so give its
+spec `gate: {ignore: [tables]}`. Family module names must be unique: the
+folder is imported by plain module name.
 
 ## What a viewer sees
 

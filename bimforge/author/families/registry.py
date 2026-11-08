@@ -108,6 +108,11 @@ def load_family_dirs(family_paths) -> dict:
     module. A module that fails to import for want of an optional dependency
     is skipped with a note rather than taking every other family down with it;
     a name declared twice is an error.
+
+    Because the import is by plain name and the directory goes FIRST on
+    sys.path, a module named like one already imported (or like a stdlib
+    module) resolves to that module instead: give family modules unique
+    names.
     """
     out: dict = {}
     for d in family_paths or ():

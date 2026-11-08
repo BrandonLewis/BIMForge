@@ -13,6 +13,9 @@ applies it from the spec's gate block:
       unread_params: warn      # off (default) | warn | error
       ignore: [notes, sheets]  # path prefixes that are documentation only
 
+A table-driven family (catalog rows from `tables_file`) reads only the row it
+selects, so the others report as unread: give such a spec `ignore: [tables]`.
+
 Examples:
     tracked = TrackedParams(spec["params"])
     model = builder(tracked, ctx)
@@ -33,6 +36,10 @@ class TrackedParams(Mapping):
     leaves a family actually touched. Iterating ``.items()`` or ``.values()``
     counts as reading the children, which is right: a family that walks
     ``wingwalls["units"]`` has read every unit.
+
+    A sequence comes back as a fresh list of wrapped items, so a family that
+    mutates a params list in place changes a copy while tracking is on
+    (`warn` / `error`); build from the values rather than editing them.
     """
 
     __slots__ = ("_data", "_seen", "_prefix")
