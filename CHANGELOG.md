@@ -29,6 +29,13 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   nesting. A parent that no element names directly is still written, and a
   bare-name parent resolves to the part declared in full. Two different full
   declarations of one name, or a parent cycle, are refused.
+- **`federate(..., merge_facilities=True)`**: sources that describe one facility
+  (same class and name, such as a bridge and its structure earthwork modelled
+  apart) become one facility. Their part trees merge by part name, recursively,
+  and the first source's GlobalIds are kept. Containment, references, aggregates
+  and placements move to the surviving parts. Two sources placing the facility
+  differently, or one part with two predefined types, are refused. Off by
+  default.
 
 ### Fixed
 

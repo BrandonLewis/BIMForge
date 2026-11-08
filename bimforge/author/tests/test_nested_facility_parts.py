@@ -88,3 +88,40 @@ def test_rules_parse_nested_parents():
     assert parse_part("Deck").parent is None
     with pytest.raises(ValueError, match="unknown keys"):
         parse_part({"name": "x", "parents": "y"})
+
+
+def _earthwork():
+    """The same bridge's structure excavation, modelled apart (its own source)."""
+    m = StructureModel("Earthwork", _ctx(facility=Facility("bridge", "Br 44-0300", "GIRDER")))
+    m.add(_box("Abut 1 structure backfill", 0.0, "IfcEarthworksFill", (-2.0, 3.0),
+               spatial_part=A1_FDN))
+    m.add(_box("Abut 3 structure backfill", 90.0, "IfcEarthworksFill", (-2.0, 3.0),
+               spatial_part=SpatialPart("Abutment 3 foundation", "FOUNDATION", parent=SpatialPart(
+                   "Abutment 3", "ABUTMENT", "LONGITUDINAL", parent=SUB))))
+    return m
+
+
+def test_federate_merges_one_facility_modelled_in_two_sources(tmp_path):
+    br, ew = tmp_path / "bridge.ifc", tmp_path / "earthwork.ifc"
+    emit_ifc(_nested(), str(br))
+    emit_ifc(_earthwork(), str(ew))
+    out = tmp_path / "fed.ifc"
+    res = federate([(br, "Bridge"), (ew, "Earthwork")], str(out), _ctx(),
+                   merge_facilities=True)
+    f = ifcopenshell.open(str(out))
+    assert [b.Name for b in f.by_type("IfcBridge")] == ["Br 44-0300"]
+    assert res.facilities == 1 and res.merged_facilities == 4  # bridge, sub, A1, A1 fdn
+    parts = {p.Name: p for p in f.by_type("IfcBridgePart")}
+    assert len(parts) == len(f.by_type("IfcBridgePart"))        # no duplicate parts
+    assert _children(parts["Substructure"]) == [("IfcBridgePart", "Abutment 1"),
+                                                ("IfcBridgePart", "Abutment 3")]
+    assert _contained_in(f, "Abut 1 structure backfill") == parts["Abutment 1 foundation"]
+    assert _contained_in(f, "Pile A1-1") == parts["Abutment 1 foundation"]
+    assert _contained_in(f, "Abut 3 structure backfill") == parts["Abutment 3 foundation"]
+    assert _validate(out) == []
+    assert _ifc_spatial_chain_check(None, str(out)) == []
+
+    # without the flag each source keeps its own facility, as before
+    out2 = tmp_path / "fed2.ifc"
+    federate([(br, "Bridge"), (ew, "Earthwork")], str(out2), _ctx())
+    assert len(ifcopenshell.open(str(out2)).by_type("IfcBridge")) == 2
