@@ -21,6 +21,23 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   transcribed value the model silently ignores. `error` makes it a pre-emit gate
   failure. Off by default, so existing specs build exactly as before;
   `build_from_spec(..., unread_params=)` sets the default for a caller.
+- **Nested facility parts** (`SpatialPart.parent`, spec part `parent:`): a part
+  aggregates under its parent part rather than the facility, so a bridge reads
+  Substructure > Abutment 1 > Foundation in one emit, and federate carries the
+  nesting. A parent that no element names directly is still written, and a
+  bare-name parent resolves to the part declared in full. Two different full
+  declarations of one name, or a parent cycle, are refused.
+
+### Fixed
+
+- **A merged IFC face no longer opens the shell.** The coplanar-facet merge
+  could leave a planar polygon with a vertex a fraction of a millimetre from an
+  edge it is not on, for example a notch from a boolean sliver. The kernel's
+  tolerance closes the gap and mis-triangulates the face: one earthwork backfill
+  read back with 8 open edges and 5.9% over its volume, so the post-emit gate
+  deleted the outputs. A plane group whose merged polygon has a
+  `minimum_clearance` under 1 mm (`facets.MIN_CLEARANCE`) is now written as its
+  triangles.
 
 ## 0.1.109 — 2026-11-08
 

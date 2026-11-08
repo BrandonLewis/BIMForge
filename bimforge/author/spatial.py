@@ -22,6 +22,19 @@ Spec shape (`project:` block of an est-bim build spec):
       - {match: "(?i)abut", part: ABUTMENT}
       - {match: "(?i)deck|girder", part: {name: Deck, predefined_type: DECK}}
 
+Parts nest: a part's `parent` is another part (or the bare name of one) and
+the part is aggregated under it instead of under the facility, so a bridge
+can read Substructure > Abutment 1 > Foundation:
+
+    sub = {name: Substructure, predefined_type: SUBSTRUCTURE}
+    a1 = {name: Abutment 1, predefined_type: ABUTMENT, parent: sub}
+    - {match: "^Pile A1 ", part: {name: Abutment 1 foundation,
+                                  predefined_type: FOUNDATION, parent: a1}}
+
+A parent that no element names directly is still written. Part names are
+unique within a structure, so a bare-name parent refers to the part declared
+in full elsewhere.
+
 `kind` is one of FACILITY_KINDS. `name` defaults to the structure (model) name.
 `predefined_type` is the facility's enum (IfcBridgeTypeEnum etc.); a value the
 enum does not have becomes USERDEFINED + ObjectType. A part is a string (its
@@ -106,6 +119,26 @@ class SpatialPart:
     name: str
     predefined_type: str | None = None
     usage_type: str | None = None
+    #: the part this one is aggregated under (None: under the facility)
+    parent: "SpatialPart | None" = None
+
+    @property
+    def bare(self) -> bool:
+        """Only a name: a reference to a part declared in full elsewhere."""
+        return (self.predefined_type is None and self.usage_type is None
+                and self.parent is None)
+
+    def lineage(self) -> list["SpatialPart"]:
+        """This part's ancestors, outermost first, then the part itself."""
+        out, node, seen = [], self, set()
+        while node is not None:
+            if node.name in seen:
+                raise ValueError(f"spatial part {self.name!r}: parent cycle "
+                                 f"through {node.name!r}")
+            seen.add(node.name)
+            out.append(node)
+            node = node.parent
+        return out[::-1]
 
 
 def parse_part(value, where: str = "spatial_part") -> SpatialPart | None:
@@ -117,7 +150,7 @@ def parse_part(value, where: str = "spatial_part") -> SpatialPart | None:
     if isinstance(value, str):
         return SpatialPart(name=value)
     if isinstance(value, dict):
-        unknown = set(value) - {"name", "predefined_type", "usage_type"}
+        unknown = set(value) - {"name", "predefined_type", "usage_type", "parent"}
         if unknown:
             raise ValueError(f"{where}: unknown keys {sorted(unknown)}")
         if not value.get("name"):
@@ -130,9 +163,10 @@ def parse_part(value, where: str = "spatial_part") -> SpatialPart | None:
             name=str(value["name"]),
             predefined_type=(str(value["predefined_type"])
                              if value.get("predefined_type") else None),
-            usage_type=str(usage).upper() if usage else None)
+            usage_type=str(usage).upper() if usage else None,
+            parent=parse_part(value.get("parent"), f"{where}.parent"))
     raise ValueError(f"{where}: expected a part name or a mapping "
-                     f"{{name, predefined_type?, usage_type?}}, got {value!r}")
+                     f"{{name, predefined_type?, usage_type?, parent?}}, got {value!r}")
 
 
 @dataclass(frozen=True)
