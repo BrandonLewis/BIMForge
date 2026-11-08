@@ -18,12 +18,21 @@ The spec file:
               facility: {kind: bridge, predefined_type: GIRDER}}  # 4X3 only)
     spatial_parts:          # optional: element-name regex -> facility part
       - {match: "(?i)abut", part: ABUTMENT}
-    gate: {solid_bodies: warn}   # optional: warn (default) | error | off
+    gate: {solid_bodies: warn,   # optional: warn (default) | error | off
+           unread_params: warn, # optional: off (default) | warn | error -
+           ignore: [notes]}     #  params the family never reads (params_tracking)
+    ifc_surfaces:           # optional: {layer or IfcClass: {rgb, transparency,
+      IfcCovering: {rgb: [0.5, 0.5, 0.5]}  # ...}} merged over the style pack's
     bodies:                 # optional: element-name regex -> body kind
       - {match: "^existing-grade", body: surface}
     placement:              # optional: put a local-frame family on a line
       alignment: ROUTE-1    # (bimforge.author.placement; the line comes from
       items: [...]          #  project.alignments: ./alignments.yaml)
+
+A family is resolved from the shipped set, the `bimforge.families` entry
+points, and any `family_paths` directory (`est-bim build --family-path DIR`):
+every module there that exports a `FAMILIES = {name: build}` dict. A name
+declared twice, anywhere, is an error.
 
 `project.alignments` names the project's shared alignments file: params
 `alignment: {ref: NAME}` / `profile: {ref: NAME}` read from it, `placement:`
@@ -37,6 +46,8 @@ pre (refuse-to-write; --check-only stops here) -> emitters -> gate post
 """
 from __future__ import annotations
 
+import importlib
+import sys
 from pathlib import Path
 
 import yaml
@@ -68,9 +79,10 @@ def _shipped():
     }
 
 
-def available() -> dict:
-    """name -> builder, shipped + entry-point registered (external wins ties
-    are NOT allowed: a collision is an error, not a shadow)."""
+def available(family_paths=()) -> dict:
+    """name -> builder, shipped + entry-point registered + `family_paths`
+    directories (external wins ties are NOT allowed: a collision is an error,
+    not a shadow)."""
     out = dict(_shipped())
     from importlib.metadata import entry_points
     for ep in entry_points(group=FAMILY_GROUP):
@@ -78,11 +90,50 @@ def available() -> dict:
             raise ValueError(f"family {ep.name!r} from {ep.value} collides "
                              f"with a shipped family")
         out[ep.name] = ep.load()
+    for name, (builder, origin) in load_family_dirs(family_paths).items():
+        if name in out:
+            raise ValueError(f"family {name!r} from {origin} collides with a "
+                             f"shipped or entry-point family")
+        out[name] = builder
     return out
 
 
-def get(name: str):
-    fams = available()
+def load_family_dirs(family_paths) -> dict:
+    """name -> (builder, origin file) from every module in each directory
+    that exports `FAMILIES = {name: build}`.
+
+    Each directory goes on sys.path and its modules are imported by their
+    plain names, so family modules can import their siblings (shared checks,
+    solids helpers). Discovered rather than listed, so a new family is one new
+    module. A module that fails to import for want of an optional dependency
+    is skipped with a note rather than taking every other family down with it;
+    a name declared twice is an error.
+    """
+    out: dict = {}
+    for d in family_paths or ():
+        d = Path(d).resolve()
+        if not d.is_dir():
+            raise ValueError(f"family path {d} is not a directory")
+        if str(d) not in sys.path:
+            sys.path.insert(0, str(d))
+        for path in sorted(d.glob("*.py")):
+            if path.name.startswith("_"):
+                continue
+            try:
+                mod = importlib.import_module(path.stem)
+            except ImportError as exc:
+                print(f"skipping {path.name}: {exc}", file=sys.stderr)
+                continue
+            for name, builder in (getattr(mod, "FAMILIES", None) or {}).items():
+                if name in out:
+                    raise ValueError(f"family {name!r} is declared in both "
+                                     f"{out[name][1]} and {path}")
+                out[name] = (builder, str(path))
+    return out
+
+
+def get(name: str, family_paths=()):
+    fams = available(family_paths)
     if name not in fams:
         raise KeyError(f"unknown family {name!r} (available: {sorted(fams)})")
     return fams[name]
@@ -139,6 +190,15 @@ def load_spec(path: Path | str) -> dict:
         proj["alignments"] = str(ap)
     if spec.get("placement") is not None and not proj.get("alignments"):
         raise ValueError(f"{path.name}: placement: needs project.alignments")
+    surfaces = spec.get("ifc_surfaces")
+    if surfaces is not None and not isinstance(surfaces, dict):
+        raise ValueError(f"{path.name}: ifc_surfaces: must be a mapping "
+                         f"({{layer or IfcClass: {{rgb: [r, g, b], ...}}}})")
+    from bimforge.author.params_tracking import UNREAD_PARAM_MODES
+    unread = (spec.get("gate") or {}).get("unread_params")
+    if unread is not None and str(unread).lower() not in UNREAD_PARAM_MODES:
+        raise ValueError(f"{path.name}: gate.unread_params {unread!r} must be "
+                         f"one of {UNREAD_PARAM_MODES}")
     if spec.get("spatial_parts") is not None:
         from bimforge.author.spatial import parse_rules
         parse_rules(spec["spatial_parts"], f"{path.name}: spatial_parts")
@@ -197,19 +257,47 @@ def station_ifc(model, ifc_path, log=None) -> dict | None:
     return rep
 
 
-def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
-    """The est-bim build pipeline. Returns a process exit code."""
-    import sys
+def spec_stylepack(spec: dict):
+    """The active style pack with the spec's `ifc_surfaces` merged OVER its
+    `ifc.surfaces`: a model's own presentation colours (stone tones for rock
+    slope protection, say) without touching the pack. None when the spec has
+    none, so emit_ifc resolves the pack exactly as before."""
+    extra = spec.get("ifc_surfaces")
+    if not extra:
+        return None
+    from bimforge.cad.stylepack import StylePack, resolve_style_pack
+    base = resolve_style_pack()
+    styles = dict(base.styles)
+    ifc = dict(styles.get("ifc") or {})
+    ifc["surfaces"] = {**(ifc.get("surfaces") or {}), **extra}
+    styles["ifc"] = ifc
+    return StylePack(templates_dir=base.templates_dir, styles=styles)
 
+
+def build_from_spec(spec_path: Path | str, check_only: bool = False,
+                    family_paths=(), unread_params: str = "off") -> int:
+    """The est-bim build pipeline. Returns a process exit code.
+
+    `family_paths`: directories of extra family modules (`load_family_dirs`).
+    `unread_params`: the default for the spec's `gate.unread_params`.
+    """
     from bimforge.author import gate, paycodes as pc_mod
+    from bimforge.author.params_tracking import (
+        TrackedParams, unread_params as find_unread, unread_params_check)
     from bimforge.author.project import ProjectContext
 
     spec = load_spec(spec_path)
-    builder = get(spec["family"])
+    builder = get(spec["family"], family_paths)
     ctx = ProjectContext.from_spec(spec["project"])
     pc = pc_mod.load(spec["paycodes"])
     alignments = spec_alignments(spec)
-    model = builder(spec_params(spec, alignments), ctx)
+    gate_cfg = spec.get("gate") or {}
+    unread = str(gate_cfg.get("unread_params", unread_params)).lower()
+    ignore = tuple(gate_cfg.get("ignore") or ())
+    params = spec_params(spec, alignments)
+    if unread != "off":
+        params = TrackedParams(params)
+    model = builder(params, ctx)
     place_from_spec(model, spec, alignments,
                     log=lambda m: print(m, file=sys.stderr))
     if spec.get("spatial_parts"):
@@ -225,8 +313,14 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
     if "sweeps" in (spec.get("ifc") or {}):
         model.ifc_sweeps = str(spec["ifc"]["sweeps"]).lower()
 
-    rep = gate.run_pre(model, pc)
+    extra_pre = [unread_params_check(params, ignore)] if unread == "error" else []
+    rep = gate.run_pre(model, pc, extra_checks=extra_pre)
     print(rep.format("pre"), file=sys.stderr)
+    if unread == "warn":
+        # after the gate, so a parameter a check reads lazily counts as read
+        for p in find_unread(params, ignore):
+            print(f"warning: spec declares {p!r} but the family never reads it",
+                  file=sys.stderr)
     if not rep.passed:
         return 1
     if check_only:
@@ -244,6 +338,7 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False) -> int:
             from bimforge.author.emit_ifc import emit_ifc
             print(emit_ifc(model, outs["ifc"], pc,
                            allow_local=bool(outs.get("ifc_allow_local")),
+                           stylepack=spec_stylepack(spec),
                            sweeps=outs.get("ifc_sweeps")),   # None: the model's
                   file=sys.stderr)
             written["ifc"] = outs["ifc"]
