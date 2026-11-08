@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.110 — 2026-11-08
+
 ### Added
 
 - **`est-bim build --family-path DIR`** (repeatable; `registry.load_family_dirs`,
