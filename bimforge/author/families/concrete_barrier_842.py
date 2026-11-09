@@ -10,6 +10,8 @@ supplies only the 842-specific geometry/rebar/validation/end-block adapters
 plus a `BarrierTemplate` instance. section_fn/endblock_fn pass the run dict
 (not {}) into the geometry builders, lighting up per-row "Mod" dimension
 overrides -- with no override keys present the output is unchanged.
+A section those dimensions cannot draw is the run's explicit `profile`
+ring (barrier_custom; end blocks, rebar and validation still run).
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ from bimforge.author.barrier_842_endblock import (
 from bimforge.author.barrier_842_endblock import nose_section as _nose_842
 from bimforge.author.barrier_842_rebar import barrier_842_bars
 from bimforge.author.barrier_842_transition import transition_elements
+from bimforge.author.barrier_custom import custom_rings
 from bimforge.author.barrier_section import BarrierSection
 from bimforge.author.barrier_template import (
     BarrierTemplate, bar_elements, build_barrier, _path_total_length)
@@ -25,6 +28,10 @@ from bimforge.author.model import Element
 from bimforge.author.type_842_profile import type_842_profile
 
 _TRENCH_MIN_LEN = 40.0                 # B11-82 Note 8
+
+#: the type_842_profile dims a run's explicit `profile` replaces
+_MOD_KEYS = ("stem_h_ft", "top_slope_x_ft", "base_w_ft", "back_x_ft",
+             "step_x_ft", "step_from_top_ft", "chamfer_in")
 
 
 def _rebar_groups(top_z: float, base_kind: str) -> list:
@@ -49,13 +56,23 @@ def _rebar_groups(top_z: float, base_kind: str) -> list:
 # --- template-driven build -----------------------------------------------
 
 def _section_842(run: dict) -> BarrierSection:
-    """A BarrierSection wrapping the running (sloping-face) 842 profile."""
+    """A BarrierSection wrapping the running (sloping-face) 842 profile, or
+    the run's explicit `profile` ring."""
     base_kind = run.get("base_kind", "deck")
-    ring = type_842_profile(run, base_kind=base_kind, face="sloping")  # run: Mod
+    custom = _rings(run, None)
+    ring = (custom[0] if custom else
+            type_842_profile(run, base_kind=base_kind, face="sloping"))  # run: Mod
     # "type_842" shape is a label only -- the explicit "profile" ring is
     # consumed via BarrierSection's explicit-profile path (no generator needed).
     return BarrierSection("type_842", "std", {"barriers": {"type_842": {
         "shape": "type_842", "variants": {"std": {"profile": ring}}}}})
+
+
+def _rings(run: dict, kind):
+    """(inboard, nose) from the run's explicit profile (the nose plumbed from
+    it unless the run gives `nose_profile`), or None for a standard run."""
+    return custom_rings(run, kind, what=run.get("name", "842"),
+                        mod_keys=_MOD_KEYS, derive_nose=True)
 
 
 def _rebar_842(name, section, run, run_len):
@@ -92,7 +109,7 @@ def _endblock_842(name, run, section, *, kind, pos, y_nose, y_inboard):
     # `(kind)` parenthetical is retained as descriptive text.
     sol = endblock_solid(f"{name} 842 barrier end block ({kind}) [{pos}]", run,
                          base_kind=base_kind, y_nose=y_nose, y_inboard=y_inboard,
-                         ifc="IfcWall", layer="S-CONC")
+                         ifc="IfcWall", layer="S-CONC", rings=_rings(run, kind))
     # length_ft is an explicit analytic quantity so the LF pay item
     # (CONC-BARRIER-842) sums running-prism + blocks back to the full run.
     els.append(Element.from_geometry(
@@ -114,6 +131,9 @@ def _endblock_rings_842(run, section, kind):
     between -- the SAME pair the straight `endblock_solid` lofts (running
     sloping face -> plumb vertical nose), so vertex counts correspond per
     variant (deck=6, wall=7, trench=10 -- #320 stepped the 842A/842B rings)."""
+    custom = _rings(run, kind)
+    if custom:
+        return custom
     base_kind = run.get("base_kind", "deck")
     inboard = type_842_profile(run, base_kind=base_kind, face="sloping")
     nose = _nose_842(run, base_kind=base_kind)
@@ -127,6 +147,13 @@ _TEMPLATE = BarrierTemplate(
     endblock_fn=_endblock_842, validate_fn=_validate_842,
     standard_plan="B11-81",
     endblock_rings_fn=_endblock_rings_842)
+
+
+def template() -> BarrierTemplate:
+    """The family's BarrierTemplate, for a job that needs more than a run's
+    `profile` / `nose_profile`: `dataclasses.replace(template(), ...)` swaps
+    one callable and keeps the rest."""
+    return _TEMPLATE
 
 
 def build(params: dict, ctx):

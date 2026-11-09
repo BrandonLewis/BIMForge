@@ -146,12 +146,14 @@ class _EndBlockSolid:
 def endblock_solid(name: str, row: dict, *, approach: bool,
                    y_inboard: float, y_nose: float,
                    ifc: str = "IfcWall",
-                   layer: str | None = "S-CONC") -> _EndBlockSolid:
+                   layer: str | None = "S-CONC",
+                   rings: tuple | None = None) -> _EndBlockSolid:
     """Build the tapered end-block loft. The extrusion length is the actual
-    |y_nose - y_inboard|."""
-    return _EndBlockSolid(name, type_732sw_profile(row),
-                          nose_section(row, approach=approach),
-                          y_inboard, y_nose, ifc, layer)
+    |y_nose - y_inboard|. `rings` (inboard, nose) replaces the standard pair
+    (a run's explicit profile, barrier_custom)."""
+    inboard, nose = rings or (type_732sw_profile(row),
+                              nose_section(row, approach=approach))
+    return _EndBlockSolid(name, inboard, nose, y_inboard, y_nose, ifc, layer)
 
 
 #: block length (feet), B11-58/59 "6'-0" Min".

@@ -12,6 +12,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `x = xmax + k1*y`. Either one measures the volume from the faces and drops the
   `exact` extrusion. **`BatteredWall(mitre_from=, mitre_to=)`** mitres an end
   section as though the wall turned that corner.
+- **Mod barriers: a run's own section ring** (`concrete-barrier-842`,
+  `concrete-barrier-732sw`; #26). `runs[].profile: [[x, z], ...]` replaces the
+  computed section, and the run keeps the family's end blocks, rebar and
+  validation, straight, `path` and `on:` alike. The 842 derives its end-block
+  nose from the ring (`barrier_custom.plumb_nose`: the B11-82 Section G-G
+  substitution, exact for the three standard rings). `nose_profile` (one ring, or
+  `{approach: ..., departure: ...}`) gives it outright, and the 732SW, whose nose
+  is not a plumbed running section, needs it. A ring that crosses itself, a nose
+  that cannot pair with it by index, or a ring given together with the family's
+  Mod dimension keys is refused. The 842 also takes **`chamfer_in`**, which cuts
+  B11-82's top-corner chamfers on the standard ring and its nose. `template()` on
+  both modules returns the family's `BarrierTemplate`, in place of the private
+  `_TEMPLATE`.
 
 ### Fixed
 
@@ -22,8 +35,6 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   are gone. On the shipped D90 example (no batter) the two structures' panels and
   wings drop from 10.134 to 9.967 cy, the concrete the square-ended wings counted
   twice. A flared panel is now an `IfcFacetedBrep`, not an extrusion.
-### Fixed
-
 - **Plan-sheet vectors honour the PDF's clip paths** (#17). `extract_sheet` cuts
   each stroke to the clip active where it is drawn, so line work outside a
   viewport's clip no longer comes back from `est-bim contours` (or measure,
@@ -31,6 +42,7 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   bounding box, which is exact for rectangular viewport clips. `est-bim contours`
   logs what the clip removed and records it as `pdf_clip: {cut, dropped}` in the
   manifest; `extract_sheet(..., honor_clip=False)` keeps the old harvest.
+
 ## 0.1.110 — 2026-11-08
 
 ### Added
