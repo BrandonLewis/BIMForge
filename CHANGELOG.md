@@ -13,6 +13,49 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   bounding box, which is exact for rectangular viewport clips. `est-bim contours`
   logs what the clip removed and records it as `pdf_clip: {cut, dropped}` in the
   manifest; `extract_sheet(..., honor_clip=False)` keeps the old harvest.
+## 0.1.110 — 2026-11-08
+
+### Added
+
+- **`est-bim build --family-path DIR`** (repeatable; `registry.load_family_dirs`,
+  `available(family_paths)`, `build_from_spec(..., family_paths=)`): resolve a
+  spec's family from a folder of family modules, each exporting
+  `FAMILIES = {name: build}`, without packaging them as entry points. The folder
+  goes on `sys.path`, so a module can import its siblings. A module that fails to
+  import is skipped with a note, and a name declared twice or shadowing a shipped
+  family is an error.
+- **Spec `ifc_surfaces`** (`registry.spec_stylepack`): `{layer or IfcClass: {rgb,
+  transparency, material, reflectance, specular}}` merged over the style pack's
+  `ifc.surfaces` for one build, so a model can carry its own presentation colours.
+- **Spec `gate.unread_params: off | warn | error`** with `gate.ignore`
+  (`bimforge.author.params_tracking`): reports spec params the family never read, a
+  transcribed value the model silently ignores. `error` makes it a pre-emit gate
+  failure. Off by default, so existing specs build exactly as before;
+  `build_from_spec(..., unread_params=)` sets the default for a caller.
+- **Nested facility parts** (`SpatialPart.parent`, spec part `parent:`): a part
+  aggregates under its parent part rather than the facility, so a bridge reads
+  Substructure > Abutment 1 > Foundation in one emit, and federate carries the
+  nesting. A parent that no element names directly is still written, and a
+  bare-name parent resolves to the part declared in full. Two different full
+  declarations of one name, or a parent cycle, are refused.
+- **`federate(..., merge_facilities=True)`**: sources that describe one facility
+  (same class and name, such as a bridge and its structure earthwork modelled
+  apart) become one facility. Their part trees merge by part name, recursively,
+  and the first source's GlobalIds are kept. Containment, references, aggregates
+  and placements move to the surviving parts. Two sources placing the facility
+  differently, or one part with two predefined types, are refused. Off by
+  default.
+
+### Fixed
+
+- **A merged IFC face no longer opens the shell.** The coplanar-facet merge
+  could leave a planar polygon with a vertex a fraction of a millimetre from an
+  edge it is not on, for example a notch from a boolean sliver. The kernel's
+  tolerance closes the gap and mis-triangulates the face: one earthwork backfill
+  read back with 8 open edges and 5.9% over its volume, so the post-emit gate
+  deleted the outputs. A plane group whose merged polygon has a
+  `minimum_clearance` under 1 mm (`facets.MIN_CLEARANCE`) is now written as its
+  triangles.
 
 ## 0.1.109 — 2026-11-08
 

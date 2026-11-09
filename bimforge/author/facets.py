@@ -40,6 +40,13 @@ PLANE_TOL = 1e-7
 #: Below this (unit^2) a polygon the union leaves behind is a sliver, not a
 #: face: dropped.
 AREA_EPS = 1e-14
+#: A merged polygon whose vertices come closer than this (unit) to an edge
+#: they are not on (shapely `minimum_clearance`: a near self-touch, a notch
+#: left by a boolean sliver) is not written: a CAD kernel's tolerance closes
+#: the gap and mis-triangulates the face, opening the shell and changing its
+#: volume. Its plane group is written as the triangles it came from, which
+#: the kernel sews. 1 mm in the emitter's metres.
+MIN_CLEARANCE = 1e-3
 
 
 def _sub(a, b):
@@ -187,6 +194,10 @@ def _merge_group(n, d, tris) -> list:
     if len(parts) == len(polys) and all(
             len(p.exterior.coords) == 4 and not p.interiors for p in parts):
         # nothing touched anything: the triangles, as they were
+        return [(list(t), []) for t in tris]
+    if any(p.area > AREA_EPS and p.minimum_clearance < MIN_CLEARANCE
+           for p in parts):
+        # a near self-touch a kernel would close: the triangles are safer
         return [(list(t), []) for t in tris]
 
     # the group's own vertices, for T-junction closure on the merged boundary
