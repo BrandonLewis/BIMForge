@@ -4,6 +4,15 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **Plan-sheet vectors honour the PDF's clip paths** (#17). `extract_sheet` cuts
+  each stroke to the clip active where it is drawn, so line work outside a
+  viewport's clip no longer comes back from `est-bim contours` (or measure,
+  regions) as phantom contours and labels that never plot. A clip is taken as its
+  bounding box, which is exact for rectangular viewport clips. `est-bim contours`
+  logs what the clip removed and records it as `pdf_clip: {cut, dropped}` in the
+  manifest; `extract_sheet(..., honor_clip=False)` keeps the old harvest.
 ## 0.1.110 — 2026-11-08
 
 ### Added

@@ -1165,6 +1165,11 @@ def _run_contours(args) -> int:
     _log(f"sheet {args.sheet}: {len(sv.segments)} segments, "
          f"{len(sv.texts)} text spans"
          f"{'' if sv.texts else ' (flattened — no text layer)'}")
+    clip_cut = getattr(sv, "clip_cut", 0)
+    clip_dropped = getattr(sv, "clip_dropped", 0)
+    if clip_cut or clip_dropped:
+        _log(f"  PDF clip paths: {clip_dropped} stroke(s) outside them "
+             f"dropped, {clip_cut} cut at the clip edge (they never plot)")
 
     if args.profile:
         _print_contours_profile(args, sv)
@@ -1297,6 +1302,8 @@ def _run_contours(args) -> int:
                 "layers": {}}
     if clip is not None:
         manifest["clip"] = list(clip)
+    # strokes the PDF's own clip paths cut or hid (#17), sheet-wide
+    manifest["pdf_clip"] = {"cut": clip_cut, "dropped": clip_dropped}
     for spec in specs:
         rec = extract_contours(sv, spec, zone, georef=georef, bounds=bounds,
                                clip=clip, min_length_ft=args.min_length,
