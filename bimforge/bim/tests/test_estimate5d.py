@@ -574,7 +574,7 @@ def test_an_undeclared_unit_basis_is_the_si_base_unit():
 
 
 def _item_ifc():
-    """Castle Oaks Item 5 in miniature: a frame (weight, priced) and two
+    """A fence item in miniature: a frame (weight, priced) and two
     footings (volume, no rate of their own), all under item 5."""
     f = ifcopenshell.file(schema="IFC4")
     ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")

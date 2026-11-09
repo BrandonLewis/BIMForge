@@ -35,9 +35,9 @@ sums to 0 cannot carry a lump sum; the code is reported in
 `zero_count_lump_sums` and extends $0.
 
 THE GOVERNING CODE. A bid item is priced on one pay quantity, and the other
-codes it takes off are incidental to it: Castle Oaks' Item 5 pays by the
-anti-climb frame's steel weight, and its footings, fabric and gates carry
-no rate. A code without a unit_price whose item_number names a priced item
+codes it takes off are incidental to it: a fence item that pays by the
+frame's steel weight takes off its footings, fabric and gates too, and they
+carry no rate. A code without a unit_price whose item_number names a priced item
 has its elements assigned (IfcRelAssignsToControl) to that item's parent —
 covered, at $0, with no CostQuantities, so the price stays on the steel —
 and is reported in `covered_by_item`, not `codes_without_rate`.
