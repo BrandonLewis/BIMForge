@@ -1016,13 +1016,37 @@ class SectionPrism:
     def __init__(self, name: str, profile: list, length: float,
                  y0: float = 0.0, voids: list | None = None,
                  ifc: str = "IfcBuildingElementProxy",
-                 layer: str | None = None) -> None:
+                 layer: str | None = None, batter: float = 0.0,
+                 end_slopes: tuple = (0.0, 0.0)) -> None:
+        """`batter` leans the NEAR (y0) face back by `batter` ft per ft below
+        the profile's top, so the section is `length` deep at its top and
+        deeper toward its base; the far face stays plumb (a retaining wall's
+        battered earth face, the voids carried straight through it).
+
+        `end_slopes = (k0, k1)` cuts the two ends on vertical planes
+        x = xmin + k0*(y - y0) and x = xmax + k1*(y - y0) instead of square:
+        a panel mitred into the walls that meet it (#24). Profile vertices on
+        x = xmin / x = xmax ride those planes; nothing else moves.
+
+        Either one makes the solid something no single extrusion expresses,
+        so its volume is then measured from its faces, and it carries no
+        `exact` extrusion."""
         if length <= 0:
             raise ValueError(f"{name}: length must be positive")
         self.name, self.profile = name, copy_ring(profile)
         self.length, self.y0 = float(length), float(y0)
         self.voids = [copy_ring(v) for v in (voids or [])]
         self.ifc, self.layer = ifc, layer
+        self.batter = float(batter)
+        self.end_slopes = (float(end_slopes[0]), float(end_slopes[1]))
+        zs = [p[1] for p in self.profile]
+        if self.length + self.batter * (max(zs) - min(zs)) <= 0:
+            raise ValueError(f"{name}: batter {self.batter:g} inverts the section")
+
+    @property
+    def sheared(self) -> bool:
+        """True when a batter or a mitred end makes this more than an extrusion."""
+        return bool(self.batter or self.end_slopes[0] or self.end_slopes[1])
 
     #: `area_sf` is the CROSS-SECTION (volume = area_sf x length), not a plan
     #: footprint; `Element.from_geometry` must not export it as the element's
@@ -1035,6 +1059,12 @@ class SectionPrism:
 
     @property
     def volume_cf(self) -> float:
+        if self.sheared:
+            # measured from the emitted faces: the shortcut below is exact
+            # only for a straight extrusion
+            d = self.body_solids()[0]
+            v = d["verts"]
+            return _signed_volume([(v[a], v[b], v[c]) for a, b, c in d["tris"]])
         return self.area_sf * self.length
 
     def body_solids(self) -> list[dict]:
@@ -1054,8 +1084,21 @@ class SectionPrism:
         y0, y1 = self.y0, self.y0 + self.length
         verts: list = []
         index: dict = {}
+        xs = [p[0] for p in outer]
+        xmin, xmax, ztop = min(xs), max(xs), max(p[1] for p in outer)
+        k0, k1 = self.end_slopes
 
-        def vid(x, y, z):
+        def at(x, z, far):
+            """The 3D point of profile vertex (x, z) on the near or far face."""
+            y = y1 if far else y0 - self.batter * (ztop - z)
+            if x == xmin:
+                x += k0 * (y - y0)
+            elif x == xmax:
+                x += k1 * (y - y0)
+            return x, y, z
+
+        def vid(x, z, far):
+            x, y, z = at(x, z, far)
             key = (round(x, 9), round(y, 9), round(z, 9))
             if key not in index:
                 index[key] = len(verts)
@@ -1063,12 +1106,22 @@ class SectionPrism:
             return index[key]
 
         tris = []
-        for i0, i1, i2 in caps:
+        if self.sheared:
+            # a mitre slides the end vertices along x on each face by its own
+            # amount, so a triangle clipped in the profile's frame can fold
+            # once its corner moves: clip each face in its OWN (x, z) frame
+            near = ear_clip([(at(x, z, False)[0], z) for x, z in merged])
+            far = ear_clip([(at(x, z, True)[0], z) for x, z in merged])
+        else:
+            near = far = caps
+        for i0, i1, i2 in near:
             (xa, za), (xb, zb), (xc, zc) = merged[i0], merged[i1], merged[i2]
             # a CCW (x, z) triangle faces -Y: outward on the near cap; the
             # far cap is the same triangle reversed (+Y outward).
-            tris.append((vid(xa, y0, za), vid(xb, y0, zb), vid(xc, y0, zc)))
-            tris.append((vid(xa, y1, za), vid(xc, y1, zc), vid(xb, y1, zb)))
+            tris.append((vid(xa, za, False), vid(xb, zb, False), vid(xc, zc, False)))
+        for i0, i1, i2 in far:
+            (xa, za), (xb, zb), (xc, zc) = merged[i0], merged[i1], merged[i2]
+            tris.append((vid(xa, za, True), vid(xc, zc, True), vid(xb, zb, True)))
         # Side walls run along the ORIGINAL rings, not the bridged one: the
         # bridge edges are zero-width and would emit coincident wall pairs.
         # The CW void rings get inward-facing walls from the same edge rule,
@@ -1082,11 +1135,18 @@ class SectionPrism:
         for r in [_split_ring_at(outer, on_edge)] + [
                 _split_ring_at(_wound(v, ccw=False), on_edge) for v in voids]:
             for p, q in zip(r, r[1:] + r[:1]):
-                qa, pa = vid(q[0], y0, q[1]), vid(p[0], y0, p[1])
-                pb, qb = vid(p[0], y1, p[1]), vid(q[0], y1, q[1])
+                qa, pa = vid(q[0], q[1], False), vid(p[0], p[1], False)
+                pb, qb = vid(p[0], p[1], True), vid(q[0], q[1], True)
                 tris.append((qa, pa, pb))
                 tris.append((qa, pb, qb))
-        xs = [p[0] for p in outer]
+        if self.sheared:
+            # the footprint at the base, where a batter reaches furthest
+            zb = min(p[1] for p in outer)
+            (ax, ay, _), (bx, by, _) = at(xmin, zb, False), at(xmax, zb, False)
+            (cx, cy, _), (dx, dy, _) = at(xmax, zb, True), at(xmin, zb, True)
+            return [{"kind": "mesh", "units": "ft", "verts": verts,
+                     "tris": _outward_tris(verts, tris),
+                     "plan": [[(ax, ay), (bx, by), (cx, cy), (dx, dy)]]}]
         plan = [[(min(xs), y0), (max(xs), y0), (max(xs), y1), (min(xs), y1)]]
         # The section in the x-z plane at y0, swept +Y for `length`: exactly
         # one IfcExtrudedAreaSolid (#330). The voids ride as the profile's
@@ -1125,7 +1185,12 @@ class BatteredWall:
                  key_index: int, base_el: float, t_top: float, batter: float,
                  side: float, base_profile: list | None = None,
                  ifc: str = "IfcWall",
-                 layer: str | None = None) -> None:
+                 layer: str | None = None, mitre_from: tuple | None = None,
+                 mitre_to: tuple | None = None) -> None:
+        """`mitre_from` / `mitre_to` are plan points the line of layout runs
+        in from before `lol[0]` / on to after `lol[-1]`: that end's section is
+        mitred as though the wall turned that corner, so it closes on the
+        wall it meets there (#24). The extra leg itself is not built."""
         if len(lol) < 2:
             raise ValueError(f"{name}: lol needs at least two points")
         if key_index not in (0, 1):
@@ -1141,6 +1206,10 @@ class BatteredWall:
         self.ifc, self.layer = ifc, layer
 
         normals = outward_normals(self.lol, side)
+        n_in = (None if mitre_from is None
+                else outward_normals([tuple(mitre_from), self.lol[0]], side)[0])
+        n_out = (None if mitre_to is None
+                 else outward_normals([self.lol[-1], tuple(mitre_to)], side)[0])
         sections: list = []
         report: list = []
 
@@ -1174,8 +1243,13 @@ class BatteredWall:
             report.append((s, h, tb))
 
         for i, (px, py) in enumerate(self.lol):
-            m = (normals[0] if i == 0 else normals[-1] if i == len(normals)
-                 else mitre_offset(normals[i - 1], normals[i]))
+            if i == 0:
+                m = normals[0] if n_in is None else mitre_offset(n_in, normals[0])
+            elif i == len(normals):
+                m = (normals[-1] if n_out is None
+                     else mitre_offset(normals[-1], n_out))
+            else:
+                m = mitre_offset(normals[i - 1], normals[i])
             add(px, py, (px, py)[key_index], m)
             if i >= len(self.lol) - 1:
                 continue
