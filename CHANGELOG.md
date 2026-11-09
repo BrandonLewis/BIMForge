@@ -4,6 +4,24 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **`SectionPrism(batter=, end_slopes=)`**: a section that leans its near face back
+  by `batter` (a retaining wall's battered earth face, voids carried straight
+  through it) and cuts its ends on vertical planes `x = xmin + k0*y`,
+  `x = xmax + k1*y`. Either one measures the volume from the faces and drops the
+  `exact` extrusion. **`BatteredWall(mitre_from=, mitre_to=)`** mitres an end
+  section as though the wall turned that corner.
+
+### Fixed
+
+- **culvert-headwall: the panel batters and the wingwalls close on it** (#24).
+  The headwall panel now carries the B3-1A batter on its earth face with its creek
+  face plumb, like the wings. Each wing and the panel meet on one vertical plane
+  bisecting the corner, so the plumb step at the creek face and the plan overlap
+  are gone. On the shipped D90 example (no batter) the two structures' panels and
+  wings drop from 10.134 to 9.967 cy, the concrete the square-ended wings counted
+  twice. A flared panel is now an `IfcFacetedBrep`, not an extrusion.
 ### Fixed
 
 - **Plan-sheet vectors honour the PDF's clip paths** (#17). `extract_sheet` cuts

@@ -7,10 +7,11 @@ crosses the vertical wall square (skew_deg = 0) cuts a circle; at plan skew
 angle theta it cuts a true ELLIPSE -- horizontal semi-axis (along the wall
 length u) = r / cos(theta), vertical semi-axis = r -- so `elliptical_void`
 generalizes the proven pipe_headwall._main_leg circular-void model and
-`circular_void` is its skew=0 special case. The Type-1 back BATTER is ignored
-(a few-percent, takeoff-acceptable simplification, mirroring headwall_926's
-documented wingwall-offset note). A voided panel carries length + net volume
-only (the gate's LxWxH invariant applies to solid prisms only).
+`circular_void` is its skew=0 special case. The panel carries the Type-1 BATTER
+on its earth face (-Y), its creek face (+Y) plumb, the same faces as the
+wingwalls (#24), and its ends may be mitred into the wingwalls that meet it. A
+voided panel carries length + net volume only (the gate's LxWxH invariant
+applies to solid prisms only).
 """
 from __future__ import annotations
 
@@ -53,9 +54,15 @@ def elliptical_void(dia: float, skew_deg: float, cu: float, cz: float,
 
 
 def headwall_stem(name: str, wall, length: float, pipe: dict,
-                  skew_deg: float = 0.0) -> SectionPrism:
-    """Headwall panel: length x H elevation, thickness T, elliptical pipe
-    void widened by plan skew (skew_deg = 0 -> circular void)."""
+                  skew_deg: float = 0.0,
+                  end_slopes: tuple = (0.0, 0.0)) -> SectionPrism:
+    """Headwall panel: length x H elevation, thickness T at the top battering
+    by `wall.batter` toward the earth (-Y) with the creek face (y = T) plumb,
+    elliptical pipe void widened by plan skew (skew_deg = 0 -> circular void).
+
+    `end_slopes = (k0, k1)`: the ends cut on the vertical planes
+    x = k0*y and x = length + k1*y (the mitres the wingwalls close on), as
+    `SectionPrism` takes them."""
     H, T = wall.H, wall.T
     dia = float(pipe["dia_ft"])
     r = dia / 2.0
@@ -67,14 +74,20 @@ def headwall_stem(name: str, wall, length: float, pipe: dict,
     # panel top/side/end would silently under-report net volume. Guard the
     # actual position, not just dia vs H (using the skew-widened semi-axis a
     # along u, and the unwidened r along z).
-    if not (a <= cu <= length - a and r <= cz <= H - r):
+    # ... and a mitred end trims the creek face back by k*T: the void has to
+    # clear the panel where it is shortest
+    lo = max(0.0, end_slopes[0] * T)
+    hi = length + min(0.0, end_slopes[1] * T)
+    if not (lo + a <= cu <= hi - a and r <= cz <= H - r):
         raise ValueError(
             f"pipe (dia {dia}, center u={cu}, z={cz}, skew {skew_deg}) "
             f"does not fit inside the {length} x {H} ft headwall panel")
     face = [(0.0, 0.0), (length, 0.0), (length, H), (0.0, H)]
     void = elliptical_void(dia, skew_deg, cu, cz)
     return SectionPrism(name, face, T, y0=0.0, voids=[void],
-                        ifc="IfcWall", layer="S-CONC")
+                        ifc="IfcWall", layer="S-CONC",
+                        batter=float(getattr(wall, "batter", 0.0) or 0.0),
+                        end_slopes=end_slopes)
 
 
 def headwall_footing(name: str, wall, length: float) -> Prism:

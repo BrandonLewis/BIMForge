@@ -275,6 +275,7 @@ def build(params: dict, ctx) -> StructureModel:
 
         # --- wingwall stems (BatteredWall lofted along each leg) -------------
         wws = []
+        end_slopes = [0.0, 0.0]          # the panel's mitres, left and right
         for side in ("left", "right"):
             if side not in wings:
                 continue
@@ -324,14 +325,38 @@ def build(params: dict, ctx) -> StructureModel:
             n_creek = outward_normals(leg_lol, -1.0)[0]
             dx, dy = n_creek[0] * wall.T, n_creek[1] * wall.T
             dkey = (dx, dy)[0]                        # key_index=0 -> shift x
+            creek = [(x + dx, y + dy) for (x, y) in leg_lol]
+            # The wing meets the panel on ONE vertical plane (#24): through
+            # the corner where the two earth faces meet (the LOL vertex) and
+            # where the two creek faces meet, the wing's creek line crossing
+            # the panel's at y = T. Both faces of both walls sit the same
+            # distance off their LOL, so that plane bisects the corner, and
+            # the battered earth faces meet on it at every height too. Ending
+            # the wing square to its own leg instead left a plumb step at the
+            # creek face and overlapped the panel in plan.
+            ci, fi = (1, 0) if side == "left" else (0, 1)
+            (cx0, cy0), (fx, fy) = creek[ci], creek[fi]
+            ux, uy = fx - cx0, fy - cy0
+            s_t = 0.0 if abs(uy) < 1e-12 else (wall.T - cy0) / uy
+            corner = (cx0 + ux * s_t, wall.T)
+            creek[ci] = corner
+            earth_x = 0.0 if side == "left" else L
+            end_slopes[0 if side == "left" else 1] = (corner[0] - earth_x) / wall.T
+            panel_dir = 1.0 if side == "left" else -1.0
+            top_prof = [((corner[0] if i == ci else k + dkey), e)
+                        for i, (k, e) in enumerate(top_prof)]
             bw = BatteredWall(
                 f"{name} wingwall {side}",
-                lol=[(x + dx, y + dy) for (x, y) in leg_lol],
-                top_profile=[(k + dkey, e) for (k, e) in top_prof],
+                lol=creek,
+                top_profile=top_prof,
                 key_index=0, base_el=0.0, t_top=wall.T, batter=wall.batter,
                 side=+1.0,
                 base_profile=(None if base_prof is None
                               else [(k + dkey, e) for (k, e) in base_prof]),
+                mitre_to=((corner[0] + panel_dir, wall.T) if side == "left"
+                          else None),
+                mitre_from=((corner[0] + panel_dir, wall.T) if side == "right"
+                            else None),
                 ifc="IfcWall", layer="S-CONC")
             model.add(Element.from_geometry(
                 bw.name, bw, ifc_class="IfcWall", layer="S-CONC",
@@ -340,7 +365,8 @@ def build(params: dict, ctx) -> StructureModel:
 
         # --- headwall panel ---------------------------------------------------
         stem = headwall_stem(f"{name} headwall panel", wall, L, s["pipe"],
-                             skew_deg=float(s.get("skew_deg", 0.0)))
+                             skew_deg=float(s.get("skew_deg", 0.0)),
+                             end_slopes=tuple(end_slopes))
         model.add(Element.from_geometry(
             stem.name, stem, ifc_class="IfcWall", layer="S-CONC",
             quantities={"length_ft": L, "volume_cf": stem.volume_cf}))
