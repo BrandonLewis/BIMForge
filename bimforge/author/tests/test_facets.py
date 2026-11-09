@@ -175,3 +175,24 @@ def test_emitted_brep_has_merged_faces_and_the_same_volume(tmp_path):
                         np.cross(v[tri[:, 1]], v[tri[:, 2]])).sum()) / 6.0
     assert vol / k ** 3 == pytest.approx(p.volume_cf, rel=1e-9)
     assert math.isclose(p.volume_cf, 10 * 4 * 4.0)
+
+
+def _notch(width):
+    """A unit square with a slit down to y = 0.3 at x = 0.5, `width` wide at
+    the top: one polygon whose two slit vertices are `width` apart."""
+    h = width / 2.0
+    P = [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0.5 + h, 1, 0), (0.5, 0.3, 0),
+         (0.5 - h, 1, 0), (0, 1, 0)]
+    return [(P[0], P[1], P[4]), (P[1], P[2], P[4]), (P[2], P[3], P[4]),
+            (P[0], P[4], P[5]), (P[0], P[5], P[6])]
+
+
+def test_a_near_self_touching_merge_is_written_as_its_triangles():
+    """A boolean sliver can leave a merged face whose vertices sit a fraction
+    of a millimetre from an edge they are not on; a kernel's tolerance closes
+    that gap, mis-triangulates the face and opens the shell (a backfill body
+    read back 5.9% over its volume). Such a group stays triangles."""
+    tight = merge_coplanar_facets(_notch(4e-5))
+    assert len(tight) == 5 and all(len(o) == 3 and not h for o, h in tight)
+    (face,) = merge_coplanar_facets(_notch(0.1))      # a real notch merges
+    assert len(face[0]) == 7

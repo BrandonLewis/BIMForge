@@ -101,6 +101,10 @@ class SheetVectors:
     height: float                          # unrotated page height, points
     segments: list[Segment] = field(default_factory=list)
     texts: list[TextSpan] = field(default_factory=list)
+    #: strokes the PDF's clip paths cut short / hid entirely (#17): in the
+    #: content stream but not on the plotted sheet
+    clip_cut: int = 0
+    clip_dropped: int = 0
 
 
 def rotate_to_visual(x: float, y: float, rotation: int,
@@ -250,12 +254,58 @@ def _item_points(item) -> list[tuple[float, float]]:
     return []
 
 
-def extract_sheet(pdf_path, page_index: int, *, min_path_pt: float = 2.0) -> SheetVectors:
+def _clip_to_rect(a, b, rect):
+    """Liang-Barsky: the part of segment a->b inside rect (x0, y0, x1, y1),
+    as (a', b'), or None when none of it is."""
+    (x1, y1), (x2, y2) = a, b
+    dx, dy = x2 - x1, y2 - y1
+    u1, u2 = 0.0, 1.0
+    for p, q in ((-dx, x1 - rect[0]), (dx, rect[2] - x1),
+                 (-dy, y1 - rect[1]), (dy, rect[3] - y1)):
+        if p == 0.0:
+            if q < 0.0:
+                return None
+            continue
+        t = q / p
+        if p < 0.0:
+            u1 = max(u1, t)
+        else:
+            u2 = min(u2, t)
+        if u1 > u2:
+            return None
+    return ((x1 + u1 * dx, y1 + u1 * dy), (x1 + u2 * dx, y1 + u2 * dy))
+
+
+def _active_clip(clips, level):
+    """The intersection of the clip rects still open at drawing ``level``.
+    ``clips`` is the stack of (level, rect) from get_drawings(extended=True);
+    a clip at level L encloses the drawings at levels above L, so entries at
+    or above ``level`` belong to a closed sibling scope and are popped."""
+    while clips and clips[-1][0] >= level:
+        clips.pop()
+    if not clips:
+        return None
+    x0 = max(r[0] for _, r in clips)
+    y0 = max(r[1] for _, r in clips)
+    x1 = min(r[2] for _, r in clips)
+    y1 = min(r[3] for _, r in clips)
+    return (x0, y0, x1, y1)
+
+
+def extract_sheet(pdf_path, page_index: int, *, min_path_pt: float = 2.0,
+                  honor_clip: bool = True) -> SheetVectors:
     """Extract one page's vector segments and text spans.
 
     ``page_index`` is 0-based. ``min_path_pt`` drops any drawing path whose
     total flattened length is shorter (hatch/pattern noise filter); pass 0.0
     to keep everything.
+
+    ``honor_clip`` cuts each stroke to the PDF clip paths active where it is
+    drawn (#17): line work outside a viewport's clip is in the content stream
+    but never plots, and would otherwise come back as phantom contours and
+    labels. A clip is taken as its bounding box, which is exact for the
+    rectangular viewport clips plot sets use. ``SheetVectors.clip_cut`` and
+    ``clip_dropped`` count what it changed.
     """
     doc = fitz.open(pdf_path)
     try:
@@ -273,7 +323,18 @@ def extract_sheet(pdf_path, page_index: int, *, min_path_pt: float = 2.0) -> She
         sv = SheetVectors(page_index=page_index, rotation=rotation,
                           width=float(width), height=float(height))
 
-        for grp in page.get_drawings():
+        clips: list = []
+        for grp in page.get_drawings(extended=honor_clip):
+            if honor_clip:
+                rect = _active_clip(clips, grp["level"])
+                if grp["type"] == "clip":
+                    s = grp["scissor"]
+                    clips.append((grp["level"], (s.x0, s.y0, s.x1, s.y1)))
+                    continue
+                if grp["type"] == "group":
+                    continue
+            else:
+                rect = None
             dashes = _norm_dashes(grp.get("dashes"))
             stroke_w = float(grp.get("width") or 0.0)
             color = grp.get("color")
@@ -293,6 +354,14 @@ def extract_sheet(pdf_path, page_index: int, *, min_path_pt: float = 2.0) -> She
                 for a, b in zip(pts, pts[1:]):
                     if a == b:
                         continue
+                    if rect is not None:
+                        cut = _clip_to_rect(a, b, rect)
+                        if cut is None or cut[0] == cut[1]:
+                            sv.clip_dropped += 1
+                            continue
+                        if cut != (a, b):
+                            sv.clip_cut += 1
+                            a, b = cut
                     sv.segments.append(Segment(a[0], a[1], b[0], b[1],
                                                dashes=dashes, width=stroke_w,
                                                color=color, curved=curved,

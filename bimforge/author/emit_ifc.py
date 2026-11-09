@@ -1318,8 +1318,10 @@ def _effective_facilities(models, schema):
 
 
 def _model_parts(m, fac):
-    """Distinct parts of a model, in first-appearance order: name -> part.
-    Two elements naming one part with different types is a spec error."""
+    """Distinct parts of a model, ancestors included, parents before their
+    children, otherwise in first-appearance order: name -> part. A bare-name
+    reference (a parent written by name only) resolves to the part declared in
+    full; two full declarations of one name that differ are a spec error."""
     parts: dict = {}
     if fac is None or fac.part_class is None:
         return parts
@@ -1327,12 +1329,30 @@ def _model_parts(m, fac):
         part = getattr(el, "spatial_part", None)
         if part is None:
             continue
-        seen = parts.setdefault(part.name, part)
-        if seen != part:
-            raise ValueError(
-                f"{m.name}: spatial part {part.name!r} is declared twice with "
-                f"different types ({seen} vs {part}, on {el.name!r})")
-    return parts
+        for node in part.lineage():
+            seen = parts.get(node.name)
+            if seen is None or (seen.bare and not node.bare):
+                parts[node.name] = node
+            elif not node.bare and seen != node:
+                raise ValueError(
+                    f"{m.name}: spatial part {node.name!r} is declared twice "
+                    f"with different types ({seen} vs {node}, on {el.name!r})")
+    # a bare reference first seen before its full declaration was registered
+    # out of order: re-sort so every parent precedes its children
+    ordered: dict = {}
+
+    def visit(name, stack=()):
+        if name in ordered:
+            return
+        if name in stack:
+            raise ValueError(f"{m.name}: spatial part parent cycle through {name!r}")
+        part = parts[name]
+        if part.parent is not None:
+            visit(part.parent.name, (*stack, name))
+        ordered[name] = parts[name]
+    for name in list(parts):
+        visit(name)
+    return ordered
 
 
 def _spatial_keys(m, fac):
@@ -1383,7 +1403,8 @@ def _facility_tree(run, f, ctx, models, facilities, site, project, combined):
         spatials.append(facility)
         aggregates.append((facility, site))
         parts = {}
-        for name, part in _model_parts(m, fac).items():
+        model_parts = _model_parts(m, fac)
+        for name, part in model_parts.items():
             ent = run("root.create_entity", f, ifc_class=fac.part_class,
                       name=name)
             ent.GlobalId = ctx.guid(_gk(scope, f"spatial/part/{name}"))
@@ -1393,7 +1414,8 @@ def _facility_tree(run, f, ctx, models, facilities, site, project, combined):
             # UsageType is REQUIRED on every IfcFacilityPart in IFC4X3_ADD2.
             ent.UsageType = part.usage_type or "NOTDEFINED"
             spatials.append(ent)
-            aggregates.append((ent, facility))
+            parent = model_parts[name].parent
+            aggregates.append((ent, parts[parent.name] if parent else facility))
             parts[name] = ent
         homes.append(_Home(facility, parts,
                            keyed=[facility, *parts.values()], owner=m.name))
