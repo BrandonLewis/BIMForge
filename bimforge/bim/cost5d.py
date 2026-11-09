@@ -29,6 +29,7 @@ from dataclasses import dataclass
 import ifcopenshell.api.classification as cl
 import ifcopenshell.api.control as ctl
 import ifcopenshell.api.cost as cost
+import ifcopenshell.api.project as project_api
 import ifcopenshell.api.pset as pset_api
 import ifcopenshell.api.resource as res
 import ifcopenshell.guid
@@ -111,10 +112,38 @@ def _remove_named(model, cost_name: str, crew_prefix: str) -> None:
                         pset_api.remove_pset(
                             model, product=ci,
                             pset=drel.RelatingPropertyDefinition)
-        cost.remove_cost_schedule(model, cs)
+        remove_declared_cost_schedule(model, cs)
     for r in list(model.by_type("IfcConstructionResource")):
         if r.Name and r.Name.startswith(crew_prefix):
             res.remove_resource(model, r)
+
+
+def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
+                               status: str | None = None):
+    """An IfcCostSchedule declared to the IfcProject (IfcRelDeclares).
+
+    A control that sits outside the project's decomposition and declarations
+    is not part of the project: viewers and ProjectCommand only find a cost
+    schedule through the project, so every schedule bimforge writes is
+    declared. `status` is the schedule's Status (PLANNED, APPROVED, ...)."""
+    cs = cost.add_cost_schedule(model, name=name,
+                                predefined_type=predefined_type)
+    if status:
+        cs.Status = status
+    projects = model.by_type("IfcProject")
+    if projects:
+        project_api.assign_declaration(model, definitions=[cs],
+                                       relating_context=projects[0])
+    return cs
+
+
+def remove_declared_cost_schedule(model, cs) -> None:
+    """remove_cost_schedule, first dropping the schedule's IfcRelDeclares
+    (ifcopenshell leaves it behind, pointing at nothing)."""
+    for rel in list(getattr(cs, "HasContext", None) or []):
+        project_api.unassign_declaration(model, definitions=[cs],
+                                         relating_context=rel.RelatingContext)
+    cost.remove_cost_schedule(model, cs)
 
 
 def _classification(model):
@@ -167,7 +196,8 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
                 (scoped if scoped is not None else model.by_type("IfcTask"))}
     by_id = {t.id: t for t in sched.tasks}
 
-    cs = cost.add_cost_schedule(model, name=cost_name, predefined_type="BUDGET")
+    cs = add_declared_cost_schedule(model, name=cost_name,
+                                    predefined_type="BUDGET")
     classif = _classification(model)
     report = CostEmbedReport(schedule_name=name)
     missing: set = set()

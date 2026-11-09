@@ -4,6 +4,38 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.111 — 2026-11-08
+
+### Changed
+
+- **`est-bim estimate5d` writes the bid as a TENDER schedule** (was ESTIMATE). It
+  is named `"<name> bid"`, with Status PLANNED, and `--stage awarded` (`embed_estimate(...,
+  stage="awarded")`) writes PRICEDBILLOFQUANTITIES / APPROVED. A re-run replaces a
+  pre-0.1.111 `"<name> estimate"` ESTIMATE schedule. This frees ESTIMATE for the
+  internal cost schedule.
+- **Pay items are keyed by bid item.** A parent IfcCostItem's Identification is the
+  map entry's `item_number` (the code when there is none), and every code an item
+  takes off lands under that one parent. An internal schedule pairs with it by
+  Identification.
+
+### Added
+
+- **UnitBasis on every estimate5d cost value**: an IfcMeasureWithUnit of 1 raw unit
+  of the child's quantity. That is the quantity's own Unit, else the project unit, else
+  EACH for a count, else the SI base unit at the raw unit's size. Item total =
+  AppliedValue x quantity / UnitBasis.
+- **The governing code.** A code with no `unit_price` whose `item_number` names a
+  priced item has its elements assigned (IfcRelAssignsToControl) to that item at $0,
+  with no CostQuantities, and is reported in `covered_by_item` rather than as
+  missing a rate. A code whose item prices nothing is still `codes_without_rate`.
+
+### Fixed
+
+- **Cost schedules are declared to the IfcProject** (IfcRelDeclares), via
+  `cost5d.add_declared_cost_schedule` / `remove_declared_cost_schedule`, in
+  estimate5d, cost5d (BUDGET) and estimate-model (ESTIMATE). A re-run drops the old
+  declaration with the schedule.
+
 ## 0.1.110 — 2026-11-08
 
 ### Added

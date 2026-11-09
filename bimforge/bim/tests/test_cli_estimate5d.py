@@ -55,7 +55,7 @@ def test_cli_estimate5d_writes_est_ifc_and_prints_variance(tmp_path, capsys):
     assert out_path.exists()                      # default: <stem>.est.ifc
     model = ifcopenshell.open(str(out_path))
     (cs,) = model.by_type("IfcCostSchedule")
-    assert cs.PredefinedType == "ESTIMATE"
+    assert cs.PredefinedType == "TENDER"
     out = capsys.readouterr().out
     assert "extended" in out.lower()
     assert "vs BM" in out                         # the variance line

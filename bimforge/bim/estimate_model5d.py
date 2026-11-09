@@ -69,7 +69,9 @@ import ifcopenshell.api.root as root
 import ifcopenshell.api.sequence as sq
 import ifcopenshell.api.spatial as spatial
 
-from bimforge.bim.cost5d import COST_ITEM_PSET, _classification, _code_reference
+from bimforge.bim.cost5d import (COST_ITEM_PSET, _classification, _code_reference,
+                                 add_declared_cost_schedule,
+                                 remove_declared_cost_schedule)
 from bimforge.bim.estimate5d import _walk_items
 from bimforge.bim.schedule4d import embed_schedule
 from bimforge.bim.schedule_model import CanonicalSchedule, ScheduleTask
@@ -190,7 +192,7 @@ def _remove_prior(model, name: str) -> None:
                 cost.remove_cost_value(model, ci, cv)
             _remove_psets(model, ci)
         _remove_psets(model, cs)
-        cost.remove_cost_schedule(model, cs)
+        remove_declared_cost_schedule(model, cs)
     for ws in model.by_type("IfcWorkSchedule"):
         if ws.Name == name and _marked(ws):
             _remove_psets(model, ws)
@@ -387,8 +389,8 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
     act_by_id = {a.get("id"): k for k, a in acts.items()}
 
     # -- cost schedule: parent per item, child per share -------------------
-    cs = cost.add_cost_schedule(model, name=f"{name} cost",
-                                predefined_type="ESTIMATE")
+    cs = add_declared_cost_schedule(model, name=f"{name} cost",
+                                    predefined_type="ESTIMATE")
     _set_pset(model, cs, MARKER_PSET, {"EstimateId": est_id,
                                        "Writer": "est-bim estimate-model"})
     classif = _classification(model)
