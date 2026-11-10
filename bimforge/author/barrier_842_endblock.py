@@ -26,18 +26,21 @@ def nose_section(row: dict, *, base_kind: str = "deck") -> list:
 def endblock_solid(name: str, row: dict, *, base_kind: str = "deck",
                    y_inboard: float, y_nose: float,
                    ifc: str = "IfcWall",
-                   layer: str | None = "S-CONC") -> _EndBlockSolid:
+                   layer: str | None = "S-CONC",
+                   rings: tuple | None = None) -> _EndBlockSolid:
     """Tapered end-block loft; extrusion length is |y_nose - y_inboard|.
+    `rings` (inboard, nose) replaces the standard pair (a run's explicit
+    profile, barrier_custom).
 
     Uses the centroid 4-fan (``fan=True``): the sloping->vertical taper twists
     the traffic-face side quad, and a single diagonal would bias its volume
     ~2.9% high; the 4-fan integrates it to the exact prismatoid CF.
     """
-    return _EndBlockSolid(name,
-                          type_842_profile(row, base_kind=base_kind,
-                                           face="sloping"),
-                          nose_section(row, base_kind=base_kind),
-                          y_inboard, y_nose, ifc, layer, fan=True)
+    inboard, nose = rings or (
+        type_842_profile(row, base_kind=base_kind, face="sloping"),
+        nose_section(row, base_kind=base_kind))
+    return _EndBlockSolid(name, inboard, nose, y_inboard, y_nose, ifc, layer,
+                          fan=True)
 
 
 def endblock_bars(length_ft: float = ENDBLOCK_842_LEN, *, approach: bool) -> list:

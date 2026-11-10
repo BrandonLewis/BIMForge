@@ -21,6 +21,7 @@ from bimforge.author.barrier_732sw_endblock import (
 from bimforge.author.barrier_732sw_endblock import nose_section as _nose_732
 from bimforge.author.barrier_732sw_rebar import barrier_732sw_bars
 from bimforge.author.barrier_732sw_transition import transition_elements
+from bimforge.author.barrier_custom import custom_rings
 from bimforge.author.barrier_section import BarrierSection, type_732sw_profile
 from bimforge.author.barrier_template import BarrierTemplate, bar_elements, build_barrier
 from bimforge.author.model import Element
@@ -69,7 +70,21 @@ def _row_732(run: dict) -> dict:
     return row
 
 
+def _rings(run: dict, kind):
+    """(inboard, nose) from the run's explicit profile, or None for a
+    standard run. The 732SW nose is not a plumbed running section (its top
+    rises on approach and the sidewalk notch solidifies), so a profile run
+    with end blocks gives its `nose_profile`."""
+    mod = [k for k in SECTION_DEFAULTS if k != "deck_slope_pct"]
+    return custom_rings(run, kind, what=run.get("name", "732SW"),
+                        mod_keys=mod, derive_nose=False)
+
+
 def _section_732(run: dict) -> BarrierSection:
+    custom = _rings(run, None)
+    if custom:
+        return BarrierSection("type_732sw", "std", {"barriers": {"type_732sw": {
+            "shape": "type_732sw", "variants": {"std": {"profile": custom[0]}}}}})
     row = _row_732(run)
     return BarrierSection("type_732sw", "std", {"barriers": {"type_732sw": {
         "shape": "type_732sw", "variants": {"std": row}}}})
@@ -94,7 +109,8 @@ def _endblock_732(name, run, section, *, kind, pos, y_nose, y_inboard):
     # position-normalized equivalence test accounts for this.
     sol = endblock_solid(f"{name} 732sw barrier end block ({kind}) [{pos}]",
                          row, approach=approach, y_nose=y_nose,
-                         y_inboard=y_inboard, ifc="IfcWall", layer="S-CONC")
+                         y_inboard=y_inboard, ifc="IfcWall", layer="S-CONC",
+                         rings=_rings(run, kind))
     # length_ft is an explicit analytic quantity so the LF pay item
     # (CONC-BARRIER-732SW) sums running-prism + blocks back to the full run.
     els.append(Element.from_geometry(
@@ -140,6 +156,9 @@ def _endblock_rings_732(run, section, kind):
     between -- the SAME pair the straight `endblock_solid` lofts (running
     Section A-A -> solidified nose, top raised on approach), both 8-vertex and
     index-corresponding."""
+    custom = _rings(run, kind)
+    if custom:
+        return custom
     row = _row_732(run)
     inboard = list(type_732sw_profile(row))
     nose = _nose_732(row, approach=(kind == "approach"))
@@ -153,6 +172,13 @@ _TEMPLATE = BarrierTemplate(
     endblock_fn=_endblock_732, extras_fn=_extras_732,
     standard_plan="B11-58",
     endblock_rings_fn=_endblock_rings_732)
+
+
+def template() -> BarrierTemplate:
+    """The family's BarrierTemplate, for a job that needs more than a run's
+    `profile` / `nose_profile`: `dataclasses.replace(template(), ...)` swaps
+    one callable and keeps the rest."""
+    return _TEMPLATE
 
 
 def build(params: dict, ctx):

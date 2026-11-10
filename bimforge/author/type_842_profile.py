@@ -43,11 +43,16 @@ single 1/4" on a plumb back.
 Done by substitution, so vertex COUNT and ORDER survive: the loft pairs
 running<->nose by index, and the two rings must match per variant
 (deck=6, wall=7, trench=10). The step's two vertices coincide at the nose, so
-the nose ring carries exactly one zero-length edge by design. 1" chamfers and
-R-fillets are squared off -- a documented sub-percent simplification matching
-the shipped 732SW/836 sharp-corner convention.
+the nose ring carries exactly one zero-length edge by design. R-fillets are
+squared off, and so are B11-82's 1" chamfers unless the row asks for them:
+`chamfer_in` cuts the two top corners of both rings alike (two vertices
+each, so they still pair). Squared, they are a sub-percent simplification
+matching the shipped 732SW/836 sharp-corner convention. A section these
+dimensions cannot draw is a run's explicit `profile` (barrier_custom).
 """
 from __future__ import annotations
+
+from bimforge.author.barrier_custom import chamfer_top
 
 #: governing dims (feet), verified against B11-82. Deck (842) dims are measured
 #: from the EDGE OF DECK. The shared-stem dims (_H, _X_TOPSLOPE, _X_BASE_DECK)
@@ -154,4 +159,6 @@ def type_842_profile(row: dict, *, base_kind: str = "deck",
         # geometry below the joint (wall, haunch, footing) is untouched.
         swap = {x_base_deck: x_top, x_back_lo: x_back_up}
         ring = [(swap.get(x, x), z) for x, z in ring]
+    if row.get("chamfer_in"):
+        ring = chamfer_top(ring, float(row["chamfer_in"]) / 12.0)
     return ring
