@@ -4,6 +4,17 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **A work schedule's StartTime is never the time the file was written** (#36).
+  `embed_schedule` used to pass a source's missing `start_date` (a gw file without
+  one, an XER without `plan_start_date`) through to ifcopenshell, which wrote
+  `now()`. The schedule now starts at its earliest dated task, and
+  `est-bim schedule` says so. A schedule with no date anywhere (an estimate's
+  unscheduled activities) still gets today's date, since StartTime is mandatory,
+  but `EmbedReport.start_from` is `"none"` and both `est-bim schedule` and
+  `est-bim estimate-model` warn that the start is not real.
+
 ## 0.1.111 — 2026-11-08
 
 ### Changed

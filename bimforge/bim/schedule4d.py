@@ -77,6 +77,8 @@ class EmbedReport:
     codes_without_elements: list = field(default_factory=list)
     selectors_without_elements: list = field(default_factory=list)
     unscheduled_elements: list = field(default_factory=list)
+    start_time: date | None = None       # the IfcWorkSchedule's StartTime
+    start_from: str = ""                 # "start_date", "earliest task", "none"
 
     @property
     def unscheduled_element_count(self) -> int:
@@ -85,6 +87,23 @@ class EmbedReport:
 
 def _iso_date(value: str | None):
     return date.fromisoformat(value[:10]) if value else None
+
+
+def _schedule_start(sched: CanonicalSchedule) -> tuple[date, str]:
+    """(StartTime, where it came from). IfcWorkSchedule.StartTime is
+    mandatory, and ifcopenshell fills a missing one with now(): the moment
+    the file was written, which a consumer reads as the schedule's start
+    (#36). A source without a project start (a gw file without start_date,
+    an XER without plan_start_date) starts at its earliest dated task. One
+    with no date anywhere (an estimate's activities before they are
+    scheduled) has no start to give: it gets today's date, marked "none" so
+    the caller says so."""
+    if sched.start_date:
+        return _iso_date(sched.start_date), "start_date"
+    starts = [_iso_date(t.start) for t in sched.tasks if t.start]
+    if not starts:
+        return date.today(), "none"
+    return min(starts), "earliest task"
 
 
 def _all_tasks(ws) -> list:
@@ -291,9 +310,9 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     """
     sched.validate()
     name = schedule_name or sched.name or "Schedule"
+    start_time, start_from = _schedule_start(sched)
     _remove_schedule_named(model, name)
-    ws = sq.add_work_schedule(model, name=name,
-                              start_time=_iso_date(sched.start_date))
+    ws = sq.add_work_schedule(model, name=name, start_time=start_time)
     _add_calendar(model, sched, f"{name} calendar")
 
     # classification-code -> elements (code join), plus the full element set
@@ -323,7 +342,8 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
                     raise ValueError(f"task {t.id}: invalid {label} "
                                      f"{pattern!r}: {exc}")
 
-    report = EmbedReport(schedule_name=name)
+    report = EmbedReport(schedule_name=name, start_time=start_time,
+                         start_from=start_from)
 
     # tasks, parents before children (shallower WBS first)
     def depth(t):

@@ -350,3 +350,15 @@ def test_rerun_leaves_other_tools_schedules_alone():
     # cost5d's crew ("Staging: Stage 1") survives; ours is replaced, not doubled
     crews = sorted(r.Name for r in f.by_type("IfcLaborResource"))
     assert crews == [f"{NAME}: crew Concrete crew", "Staging: Stage 1"]
+
+
+def test_an_unscheduled_estimate_says_its_start_is_not_real():
+    # #36: with no activity dated, StartTime can only be today; say so
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    for act in model["activities"]:
+        act["start_date"] = act["end_date"] = act["finish_date"] = None
+    summary = embed_estimate_model(f, model)
+    assert any("no activity has a start_date" in w for w in summary["warnings"])
+    _f, dated, _ftg, _wall = _embed()
+    assert not any("no activity has a start_date" in w for w in dated["warnings"])
