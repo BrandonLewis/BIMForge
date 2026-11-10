@@ -4,18 +4,7 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
-### Fixed
-
-- **A work schedule's StartTime is never the time the file was written** (#36).
-  `embed_schedule` used to pass a source's missing `start_date` (a gw file without
-  one, an XER without `plan_start_date`) through to ifcopenshell, which wrote
-  `now()`. The schedule now starts at its earliest dated task, and
-  `est-bim schedule` says so. A schedule with no date anywhere (an estimate's
-  unscheduled activities) still gets today's date, since StartTime is mandatory,
-  but `EmbedReport.start_from` is `"none"` and both `est-bim schedule` and
-  `est-bim estimate-model` warn that the start is not real.
-
-## 0.1.111 — 2026-11-08
+## 0.1.111 — 2026-11-09
 
 ### Changed
 
@@ -40,19 +29,6 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   with no CostQuantities, and is reported in `covered_by_item` rather than as
   missing a rate. A code whose item prices nothing is still `codes_without_rate`.
 
-### Fixed
-
-- **Cost schedules are declared to the IfcProject** (IfcRelDeclares), via
-  `cost5d.add_declared_cost_schedule` / `remove_declared_cost_schedule`, in
-  estimate5d, cost5d (BUDGET) and estimate-model (ESTIMATE). A re-run drops the old
-  declaration with the schedule.
-- **estimate5d no longer crashes on an IFC4X3 count.** The EACH UnitBasis wrote its
-  IfcCountMeasure as `1.0`, which IFC4X3 (an INTEGER there, a NUMBER in IFC4)
-  refuses with `RuntimeError: Attribute not set`, so any IFC4X3 model with an
-  IfcQuantityCount could not be estimated. It is now written as `1`.
-
-### Added
-
 - **`SectionPrism(batter=, end_slopes=)`**: a section that leans its near face back
   by `batter` (a retaining wall's battered earth face, voids carried straight
   through it) and cuts its ends on vertical planes `x = xmin + k0*y`,
@@ -74,6 +50,24 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `_TEMPLATE`.
 
 ### Fixed
+
+- **A work schedule's StartTime is never the time the file was written** (#36).
+  `embed_schedule` used to pass a source's missing `start_date` (a gw file without
+  one, an XER without `plan_start_date`) through to ifcopenshell, which wrote
+  `now()`. The schedule now starts at its earliest dated task, and
+  `est-bim schedule` says so. A schedule with no date anywhere (an estimate's
+  unscheduled activities) still gets today's date, since StartTime is mandatory,
+  but `EmbedReport.start_from` is `"none"` and both `est-bim schedule` and
+  `est-bim estimate-model` warn that the start is not real.
+
+- **Cost schedules are declared to the IfcProject** (IfcRelDeclares; #38), via
+  `cost5d.add_declared_cost_schedule` / `remove_declared_cost_schedule`, in
+  estimate5d, cost5d (BUDGET) and estimate-model (ESTIMATE). A re-run drops the old
+  declaration with the schedule.
+- **estimate5d no longer crashes on an IFC4X3 count.** The EACH UnitBasis wrote its
+  IfcCountMeasure as `1.0`, which IFC4X3 (an INTEGER there, a NUMBER in IFC4)
+  refuses with `RuntimeError: Attribute not set`, so any IFC4X3 model with an
+  IfcQuantityCount could not be estimated. It is now written as `1`.
 
 - **culvert-headwall: the panel batters and the wingwalls close on it** (#24).
   The headwall panel now carries the B3-1A batter on its earth face with its creek
