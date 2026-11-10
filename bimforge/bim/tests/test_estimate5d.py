@@ -537,11 +537,18 @@ def test_a_count_basis_is_one_each_and_rerun_leaves_no_orphans():
     costs = {"PILE-200W-FRN": {"cost": 0.0, "labor_hours": None,
                                "unit_price": 900.0}}
     for _ in range(3):
-        estimate5d.embed_estimate(model, tmap, costs)
+        report = estimate5d.embed_estimate(model, tmap, costs)
     (child,) = _children(_parents(model)[0])
-    basis = child.CostValues[0].UnitBasis
+    cv = child.CostValues[0]
+    basis = cv.UnitBasis
     assert basis.UnitComponent.is_a("IfcContextDependentUnit")
     assert basis.UnitComponent.Name == "EACH"
+    # the money multiplies out: $900 per 1 EACH x Count 1
+    total = (cv.AppliedValue.wrappedValue
+             * child.CostQuantities[0].CountValue
+             / basis.ValueComponent.wrappedValue)
+    assert total == pytest.approx(900.0, rel=1e-9)
+    assert report.extended_total == pytest.approx(900.0, rel=1e-9)
     assert all(model.get_inverse(m)
                for m in model.by_type("IfcMeasureWithUnit"))
     assert len([u for u in model.by_type("IfcContextDependentUnit")
@@ -562,15 +569,22 @@ def test_an_undeclared_unit_basis_is_the_si_base_unit():
     ifcopenshell.api.classification.add_reference(
         f, products=[beam], identification="STL", name="Steel",
         classification=system)
-    estimate5d.embed_estimate(f, {"project_ref": "B9", "codes": {
+    report = estimate5d.embed_estimate(f, {"project_ref": "B9", "codes": {
         "STL": {"measure": "GrossWeight", "unit": "KG"}}},
         {"STL": {"cost": 0.0, "labor_hours": None, "unit_price": 3.0}})
     (child,) = _children(_parents(f)[0])
-    basis = child.CostValues[0].UnitBasis
+    cv = child.CostValues[0]
+    basis = cv.UnitBasis
     unit = basis.UnitComponent
     assert unit.is_a("IfcSIUnit")
     assert (unit.Prefix, unit.Name) == ("KILO", "GRAM")
     assert basis.ValueComponent.wrappedValue == 1.0   # undeclared mass is kg
+    # 100 kg at $3/kg: a gram/kilogram mix-up would be off by 1000
+    total = (cv.AppliedValue.wrappedValue
+             * child.CostQuantities[0].WeightValue
+             / basis.ValueComponent.wrappedValue)
+    assert total == pytest.approx(300.0, rel=1e-9)
+    assert report.extended_total == pytest.approx(300.0, rel=1e-9)
 
 
 def _item_ifc():
