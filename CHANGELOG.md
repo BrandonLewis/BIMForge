@@ -35,6 +35,10 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `cost5d.add_declared_cost_schedule` / `remove_declared_cost_schedule`, in
   estimate5d, cost5d (BUDGET) and estimate-model (ESTIMATE). A re-run drops the old
   declaration with the schedule.
+- **estimate5d no longer crashes on an IFC4X3 count.** The EACH UnitBasis wrote its
+  IfcCountMeasure as `1.0`, which IFC4X3 (an INTEGER there, a NUMBER in IFC4)
+  refuses with `RuntimeError: Attribute not set`, so any IFC4X3 model with an
+  IfcQuantityCount could not be estimated. It is now written as `1`.
 
 ### Added
 

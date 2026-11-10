@@ -12,10 +12,10 @@ from bimforge.bim import estimate5d
 M_TO_LF = 3.28083989501
 
 
-def _pile_ifc(codes=("PILE-200W-FRN",)):
+def _pile_ifc(codes=("PILE-200W-FRN",), schema="IFC4"):
     """One IfcPile, Length 12_500 native mm (= 12.5 m), Count 1, one
     classification reference per entry in `codes`."""
-    f = ifcopenshell.file(schema="IFC4")
+    f = ifcopenshell.file(schema=schema)
     ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
     ifcopenshell.api.unit.assign_unit(f)   # default: MILLIMETRES
     pile = ifcopenshell.api.root.create_entity(f, ifc_class="IfcPile",
@@ -529,8 +529,11 @@ def test_unit_basis_is_one_raw_unit_of_the_quantity():
     assert total == pytest.approx(10.0 * 12.5 * M_TO_LF, rel=1e-9)
 
 
-def test_a_count_basis_is_one_each_and_rerun_leaves_no_orphans():
-    model = _pile_ifc()
+@pytest.mark.parametrize("schema", ["IFC4", "IFC4X3_ADD2"])
+def test_a_count_basis_is_one_each_and_rerun_leaves_no_orphans(schema):
+    # IfcCountMeasure is a NUMBER in IFC4 but an INTEGER in IFC4X3: the
+    # basis must be written as 1, not 1.0, or IFC4X3 refuses it
+    model = _pile_ifc(schema=schema)
     tmap = {"project_ref": "B9", "codes": {
         "PILE-200W-FRN": {"measure": "Count", "unit": "EA",
                           "item_number": "7"}}}

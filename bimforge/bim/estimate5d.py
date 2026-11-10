@@ -172,6 +172,8 @@ class _UnitBasis:
                 unit = self._once(("si", dim), lambda: unit_api.add_si_unit(
                     m, unit_type=_UNIT_TYPE[dim], prefix=_SI_PREFIX.get(dim)))
                 value = q_scale
+        if dim == "count":
+            value = int(value)      # IfcCountMeasure is INTEGER in IFC4X3
         return self._once(("basis", dim, unit.id(), value), lambda: m.create_entity(
             "IfcMeasureWithUnit",
             ValueComponent=m.create_entity(_MEASURE_TYPE[dim], value),
