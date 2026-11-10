@@ -131,3 +131,18 @@ def test_iso_hours_never_scientific():
     assert _iso_hours(400.0) == "PT400H"
     assert _iso_hours(2.5) == "PT2.5H"
     assert _iso_hours(1234567.0) == "PT1234567H"
+
+
+def test_every_schedule_is_declared_by_the_project_and_reruns_leave_one_rel():
+    # #38: a cost schedule outside the project's declarations is an orphan
+    model = _ifc_with_task("1")
+    costs = {"A": {"cost": 10000.0, "labor_hours": 400.0}}
+    for _ in range(3):
+        cost5d.embed_cost_and_resources(model, _sched(), costs)
+    (project,) = model.by_type("IfcProject")
+    declared = [d for rel in model.by_type("IfcRelDeclares")
+                if rel.RelatingContext == project for d in rel.RelatedDefinitions]
+    for cls in ("IfcCostSchedule", "IfcWorkSchedule"):
+        for s in model.by_type(cls):
+            assert declared.count(s) == 1, (cls, s.Name)
+    assert all(rel.RelatedDefinitions for rel in model.by_type("IfcRelDeclares"))

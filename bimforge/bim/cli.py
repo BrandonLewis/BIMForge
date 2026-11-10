@@ -396,6 +396,13 @@ def _run_schedule(args) -> int:
           f"({report.tasks_timed} dated), {report.sequences} dependencies, "
           f"{report.assigned_elements} elements assigned across "
           f"{report.assignments} links.")
+    if report.start_from == "earliest task":
+        print(f"The schedule starts {report.start_time} (its earliest task; "
+              f"the source gives no start_date).")
+    elif report.start_from == "none":
+        print(f"\nReview: the schedule has no start_date and no dated task, so "
+              f"its StartTime is today ({report.start_time}), not a real start.",
+              file=sys.stderr)
     print(f"4D IFC written to {out}")
     # both-ways gaps, on stderr like the takeoff QC warnings
     if report_map.unmapped:

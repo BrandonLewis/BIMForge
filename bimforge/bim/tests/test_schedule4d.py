@@ -378,3 +378,58 @@ def test_embed_invalid_filter_regex_is_clean_error(sample_ifc):
                      filter_name_re="([")])
     with pytest.raises(ValueError, match="invalid filter_re"):
         embed_schedule(ifcopenshell.open(sample_ifc), sched)
+
+
+def _start_time(model, name):
+    (ws,) = [w for w in model.by_type("IfcWorkSchedule") if w.Name == name]
+    return ws.StartTime
+
+
+def test_the_schedule_start_is_the_sources_start_date(sample_ifc):
+    g, report = _embed(sample_ifc, _schedule(), out_name="start.ifc")
+    assert _start_time(g, "Sample BL V.01").startswith("2026-07-10")
+    assert report.start_from == "start_date"
+
+
+def test_without_a_start_date_the_schedule_starts_at_its_earliest_task(sample_ifc):
+    # #36: never the moment the file was written
+    sched = CanonicalSchedule(name="NoStart", tasks=[
+        ScheduleTask(id="b", name="B", wbs="2", start="2027-04-02",
+                     finish="2027-04-09"),
+        ScheduleTask(id="a", name="A", wbs="1", start="2027-03-01T07:00:00",
+                     finish="2027-03-05"),
+        ScheduleTask(id="u", name="Undated", wbs="3")])
+    g, report = _embed(sample_ifc, sched, out_name="nostart.ifc")
+    assert _start_time(g, "NoStart").startswith("2027-03-01")
+    assert report.start_from == "earliest task"
+
+
+def test_a_schedule_with_no_date_anywhere_says_so(sample_ifc, tmp_path, capsys):
+    import json
+    from datetime import date
+
+    from bimforge.bim.cli import main
+    sched = CanonicalSchedule(name="Undated", tasks=[
+        ScheduleTask(id="a", name="A", wbs="1")])
+    report = embed_schedule(ifcopenshell.open(sample_ifc), sched)
+    assert (report.start_from, report.start_time) == ("none", date.today())
+    src = tmp_path / "undated.gw.json"
+    src.write_text(json.dumps({"name": "U", "tasks": [
+        {"id": "a", "name": "A", "wbs": "1"}]}), encoding="utf-8")
+    assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
+                 "--out", str(tmp_path / "u.ifc")]) == 0
+    assert "no start_date and no dated task" in capsys.readouterr().err
+
+
+def test_cli_says_where_the_schedule_start_came_from(sample_ifc, tmp_path, capsys):
+    import json
+
+    from bimforge.bim.cli import main
+    src = tmp_path / "nostart.gw.json"
+    src.write_text(json.dumps({"name": "CLI NoStart", "tasks": [
+        {"id": "a", "name": "A", "wbs": "1", "start_date": "2027-03-01",
+         "end_date": "2027-03-05"}]}), encoding="utf-8")
+    out = tmp_path / "nostart.4d.ifc"
+    assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
+                 "--out", str(out)]) == 0
+    assert "starts 2027-03-01 (its earliest task" in capsys.readouterr().out

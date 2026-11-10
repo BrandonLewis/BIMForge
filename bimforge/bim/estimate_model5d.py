@@ -357,6 +357,10 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
     sched = CanonicalSchedule(name=name, start_date=starts[0] if starts
                               else None, tasks=tasks)
     s_report = embed_schedule(model, sched, schedule_name=name)
+    if s_report.start_from == "none":
+        warnings.append(f"no activity has a start_date: the work schedule's "
+                        f"StartTime is today ({s_report.start_time}), not a "
+                        f"real start")
     ws = next(w for w in model.by_type("IfcWorkSchedule") if w.Name == name)
     _set_pset(model, ws, MARKER_PSET, {"EstimateId": est_id,
                                        "Writer": "est-bim estimate-model"})
