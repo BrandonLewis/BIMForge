@@ -546,16 +546,17 @@ def _run_estimate5d(args) -> int:
         costs = _json.loads(Path(args.costs).read_text(encoding="utf-8"))
         validate_costs(costs)
         model = ifcopenshell.open(args.ifc)
-        report = embed_estimate(model, tmap, costs, schedule_name=args.name)
+        report = embed_estimate(model, tmap, costs, schedule_name=args.name,
+                                stage=args.stage)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     out = args.out or str(Path(args.ifc).with_suffix(".est.ifc"))
     model.write(out)
-    print(f"Embedded ESTIMATE '{report.schedule_name}': {report.parents} bid "
-          f"item(s), {report.children} element child(ren), extended "
-          f"${report.extended_total:,.0f}.")
+    print(f"Embedded {report.schedule_type} '{report.schedule_name}': "
+          f"{report.parents} pay item(s), {report.children} element "
+          f"child(ren), extended ${report.extended_total:,.0f}.")
     print(f"estimate IFC written to {out}")
     for code, v in sorted(report.by_code.items()):
         if v["variance_pct"] is None:
@@ -564,6 +565,8 @@ def _run_estimate5d(args) -> int:
         else:
             print(f"  {code}: extended ${v['extended']:,.0f} vs BM "
                   f"${v['bm_cost']:,.0f} ({v['variance_pct']:+.1f}%)")
+    for code, item in sorted(report.covered_by_item.items()):
+        print(f"  {code}: no unit_price -- covered at $0 by pay item {item}")
     for label, entries in (
             ("no unit_price — skipped", report.codes_without_rate),
             ("no explicit measure — skipped", report.codes_without_measure),
@@ -2541,8 +2544,9 @@ def main(argv=None) -> int:
     c5.add_argument("--out", default=None)
 
     e5 = sub.add_parser("estimate5d",
-                        help="embed a quantity-backed ESTIMATE cost schedule "
-                             "(CostQuantities reference the elements' own Qtos)")
+                        help="embed the bid as a quantity-backed TENDER cost "
+                             "schedule (CostQuantities reference the elements' "
+                             "own Qtos)")
     e5.add_argument("--ifc", required=True)
     e5.add_argument("--map", required=True,
                     help="the takeoff map yaml est-bim takeoff reads")
@@ -2550,6 +2554,9 @@ def main(argv=None) -> int:
                     help="costs.json with unit_price (and optional unit) per code")
     e5.add_argument("--name", default=None,
                     help="schedule base name (default: the map's project_ref)")
+    e5.add_argument("--stage", choices=("tender", "awarded"), default="tender",
+                    help="tender: TENDER / PLANNED (at bid, the default); "
+                         "awarded: PRICEDBILLOFQUANTITIES / APPROVED")
     e5.add_argument("--out", help="output IFC path (default: alongside the "
                                   "input, <stem>.est.ifc)")
 

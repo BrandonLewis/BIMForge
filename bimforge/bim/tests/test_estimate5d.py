@@ -1,9 +1,10 @@
-"""estimate5d: quantity-backed ESTIMATE cost schedule (spec 2026-08-12)."""
+"""estimate5d: the bid as a quantity-backed TENDER cost schedule."""
 import ifcopenshell
 import ifcopenshell.api.classification
 import ifcopenshell.api.pset
 import ifcopenshell.api.root
 import ifcopenshell.api.unit
+import ifcopenshell.util.unit
 import pytest
 
 from bimforge.bim import estimate5d
@@ -48,12 +49,12 @@ def test_embed_authors_estimate_schedule_with_shared_qto_entity():
     model = _pile_ifc()
     report = estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
     (cs,) = model.by_type("IfcCostSchedule")
-    assert cs.PredefinedType == "ESTIMATE"
-    assert cs.Name == "B9 estimate"          # "<project_ref> estimate"
+    assert (cs.PredefinedType, cs.Status) == ("TENDER", "PLANNED")
+    assert cs.Name == "B9 bid"               # "<project_ref> bid"
     parents = [ci for rel in (cs.Controls or [])
                for ci in rel.RelatedObjects if ci.is_a("IfcCostItem")]
     (parent,) = parents
-    assert parent.Identification == "PILE-200W-FRN"
+    assert parent.Identification == "0055"   # the bid item, not the code
     # the parent is VALUELESS — consumers sum the children
     assert not (parent.CostValues or [])
     (child,) = _children(parent)
@@ -331,14 +332,14 @@ def test_coexists_with_cost5d_budget_schedule():
     budget_items = len(model.by_type("IfcCostItem"))
     estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
     kinds = {cs.PredefinedType for cs in model.by_type("IfcCostSchedule")}
-    assert kinds == {"BUDGET", "ESTIMATE"}
+    assert kinds == {"BUDGET", "TENDER"}
     # estimate5d added exactly its parent+child; BUDGET items untouched
     assert len(model.by_type("IfcCostItem")) == budget_items + 2
     # and a re-run of estimate5d must not disturb the BUDGET schedule
     estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
     assert len(model.by_type("IfcCostItem")) == budget_items + 2
     assert {cs.PredefinedType for cs in model.by_type("IfcCostSchedule")} \
-        == {"BUDGET", "ESTIMATE"}
+        == {"BUDGET", "TENDER"}
 
 
 # ----------------------------------------------------------------------------
@@ -480,3 +481,179 @@ def test_lump_sum_over_zero_counts_is_reported_not_priced(cfg, price, pay):
     report = estimate5d.embed_estimate(model, tmap, costs)
     assert report.zero_count_lump_sums == [("SIG", pay)]
     assert report.extended_total == 0.0
+
+
+# ----------------------------------------------------------------------------
+# The TENDER schedule: declared, UnitBasis, pay items, the governing code
+# ----------------------------------------------------------------------------
+def _parents(model):
+    (cs,) = model.by_type("IfcCostSchedule")
+    return [ci for rel in (cs.Controls or [])
+            for ci in rel.RelatedObjects if ci.is_a("IfcCostItem")]
+
+
+def test_the_schedule_is_declared_to_the_project_and_stays_so_on_rerun():
+    model = _pile_ifc()
+    for _ in range(2):
+        estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
+    (cs,) = model.by_type("IfcCostSchedule")
+    (project,) = model.by_type("IfcProject")
+    (rel,) = model.by_type("IfcRelDeclares")    # the old one went with it
+    assert rel.RelatingContext == project
+    assert list(rel.RelatedDefinitions) == [cs]
+
+
+def test_awarded_stage_is_a_priced_bill_of_quantities():
+    model = _pile_ifc()
+    estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS, stage="awarded")
+    (cs,) = model.by_type("IfcCostSchedule")
+    assert (cs.PredefinedType, cs.Status) == ("PRICEDBILLOFQUANTITIES",
+                                              "APPROVED")
+    with pytest.raises(ValueError, match="stage"):
+        estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS, stage="budget")
+
+
+def test_unit_basis_is_one_raw_unit_of_the_quantity():
+    # the pile's Length is native mm: AppliedValue is $ per 1 mm, and says so
+    model = _pile_ifc()
+    estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
+    (child,) = _children(_parents(model)[0])
+    cv = child.CostValues[0]
+    basis = cv.UnitBasis
+    assert basis.ValueComponent.wrappedValue == 1.0
+    assert basis.UnitComponent == ifcopenshell.util.unit.get_project_unit(
+        model, "LENGTHUNIT")
+    q = child.CostQuantities[0]
+    total = (cv.AppliedValue.wrappedValue * q.LengthValue
+             / basis.ValueComponent.wrappedValue)
+    assert total == pytest.approx(10.0 * 12.5 * M_TO_LF, rel=1e-9)
+
+
+def test_a_count_basis_is_one_each_and_rerun_leaves_no_orphans():
+    model = _pile_ifc()
+    tmap = {"project_ref": "B9", "codes": {
+        "PILE-200W-FRN": {"measure": "Count", "unit": "EA",
+                          "item_number": "7"}}}
+    costs = {"PILE-200W-FRN": {"cost": 0.0, "labor_hours": None,
+                               "unit_price": 900.0}}
+    for _ in range(3):
+        report = estimate5d.embed_estimate(model, tmap, costs)
+    (child,) = _children(_parents(model)[0])
+    cv = child.CostValues[0]
+    basis = cv.UnitBasis
+    assert basis.UnitComponent.is_a("IfcContextDependentUnit")
+    assert basis.UnitComponent.Name == "EACH"
+    # the money multiplies out: $900 per 1 EACH x Count 1
+    total = (cv.AppliedValue.wrappedValue
+             * child.CostQuantities[0].CountValue
+             / basis.ValueComponent.wrappedValue)
+    assert total == pytest.approx(900.0, rel=1e-9)
+    assert report.extended_total == pytest.approx(900.0, rel=1e-9)
+    assert all(model.get_inverse(m)
+               for m in model.by_type("IfcMeasureWithUnit"))
+    assert len([u for u in model.by_type("IfcContextDependentUnit")
+                if u.Name == "EACH"]) == 1
+
+
+def test_an_undeclared_unit_basis_is_the_si_base_unit():
+    f = ifcopenshell.file(schema="IFC4")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    beam = ifcopenshell.api.root.create_entity(f, ifc_class="IfcBeam",
+                                               name="B")
+    qto = ifcopenshell.api.pset.add_qto(f, product=beam,
+                                        name="Qto_BeamBaseQuantities")
+    ifcopenshell.api.pset.edit_qto(f, qto=qto,
+                                   properties={"GrossWeight": 100.0})
+    system = ifcopenshell.api.classification.add_classification(
+        f, classification="BidSchedule")
+    ifcopenshell.api.classification.add_reference(
+        f, products=[beam], identification="STL", name="Steel",
+        classification=system)
+    report = estimate5d.embed_estimate(f, {"project_ref": "B9", "codes": {
+        "STL": {"measure": "GrossWeight", "unit": "KG"}}},
+        {"STL": {"cost": 0.0, "labor_hours": None, "unit_price": 3.0}})
+    (child,) = _children(_parents(f)[0])
+    cv = child.CostValues[0]
+    basis = cv.UnitBasis
+    unit = basis.UnitComponent
+    assert unit.is_a("IfcSIUnit")
+    assert (unit.Prefix, unit.Name) == ("KILO", "GRAM")
+    assert basis.ValueComponent.wrappedValue == 1.0   # undeclared mass is kg
+    # 100 kg at $3/kg: a gram/kilogram mix-up would be off by 1000
+    total = (cv.AppliedValue.wrappedValue
+             * child.CostQuantities[0].WeightValue
+             / basis.ValueComponent.wrappedValue)
+    assert total == pytest.approx(300.0, rel=1e-9)
+    assert report.extended_total == pytest.approx(300.0, rel=1e-9)
+
+
+def _item_ifc():
+    """A fence item in miniature: a frame (weight, priced) and two
+    footings (volume, no rate of their own), all under item 5."""
+    f = ifcopenshell.file(schema="IFC4")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    ifcopenshell.api.unit.assign_unit(f)
+    system = ifcopenshell.api.classification.add_classification(
+        f, classification="BidSchedule")
+    made = {}
+    for name, cls, qname, props, code in (
+            ("Frame", "IfcMember", "Qto_MemberBaseQuantities",
+             {"GrossWeight": 500.0}, "AC-STL"),
+            ("Ftg 1", "IfcFooting", "Qto_FootingBaseQuantities",
+             {"GrossVolume": 0.5}, "AC-FTG"),
+            ("Ftg 2", "IfcFooting", "Qto_FootingBaseQuantities",
+             {"GrossVolume": 0.5}, "AC-FTG")):
+        el = ifcopenshell.api.root.create_entity(f, ifc_class=cls, name=name)
+        qto = ifcopenshell.api.pset.add_qto(f, product=el, name=qname)
+        ifcopenshell.api.pset.edit_qto(f, qto=qto, properties=props)
+        ifcopenshell.api.classification.add_reference(
+            f, products=[el], identification=code, name=code,
+            classification=system)
+        made[name] = el
+    return f, made
+
+
+ITEM_MAP = {"project_ref": "B9", "codes": {
+    "AC-STL": {"measure": "GrossWeight", "unit": "KG", "item_number": "5"},
+    "AC-FTG": {"measure": "GrossVolume", "unit": "M3", "item_number": "5"},
+    "LOOSE": {"measure": "GrossVolume", "unit": "M3", "item_number": "6"}}}
+ITEM_COSTS = {"AC-STL": {"cost": 0.0, "labor_hours": None,
+                         "unit_price": 4.0}}
+
+
+def test_unrated_codes_are_covered_at_zero_by_their_items_governing_code():
+    model, els = _item_ifc()
+    report = estimate5d.embed_estimate(model, ITEM_MAP, ITEM_COSTS)
+    (parent,) = _parents(model)
+    assert parent.Identification == "5"
+    # the price stays on the steel: one child, the frame's weight
+    (child,) = _children(parent)
+    assert [q.Name for q in child.CostQuantities] == ["GrossWeight"]
+    assert report.extended_total == pytest.approx(2000.0)
+    # the footings are the pay item's, at $0, with no quantities of its own
+    linked = {o.Name for rel in (parent.Controls or [])
+              for o in rel.RelatedObjects}
+    assert linked == {"Ftg 1", "Ftg 2"}
+    assert not (parent.CostQuantities or []) and not (parent.CostValues or [])
+    assert report.covered_by_item == {"AC-FTG": "5"}
+    # an unrated code whose item prices nothing is still a missing rate
+    assert report.codes_without_rate == ["LOOSE"]
+
+
+def test_a_rerun_drops_the_governing_links_with_the_schedule():
+    model, els = _item_ifc()
+    for _ in range(2):
+        estimate5d.embed_estimate(model, ITEM_MAP, ITEM_COSTS)
+    for ftg in (els["Ftg 1"], els["Ftg 2"]):
+        rels = [r for r in (ftg.HasAssignments or [])
+                if r.is_a("IfcRelAssignsToControl")]
+        assert len(rels) == 1
+
+
+def test_a_pre_0_1_111_estimate_schedule_is_replaced_on_rerun():
+    import ifcopenshell.api.cost as cost
+    model = _pile_ifc()
+    cost.add_cost_schedule(model, name="B9 estimate",
+                           predefined_type="ESTIMATE")
+    estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
+    assert [cs.Name for cs in model.by_type("IfcCostSchedule")] == ["B9 bid"]
