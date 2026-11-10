@@ -20,6 +20,12 @@ MOD = [(0.3333, 0.0), (1.75, 0.0), (1.2708, 2.9), (1.2708, 3.5 - C),
        (0.0208, 2.3333), (0.3333, 2.3333)]
 
 
+def _flat(ring):
+    """[(x, z), ...] -> [x, z, ...]: pytest.approx compares flat sequences
+    only on the pytest CI runs."""
+    return [c for p in ring for c in p]
+
+
 def _ctx():
     return ProjectContext.from_spec({
         "name": "t", "epsg": 2226, "base": [0.0, 0.0],
@@ -44,8 +50,8 @@ def _volume(el):
 @pytest.mark.parametrize("base_kind", ["deck", "wall", "trench"])
 def test_the_derived_nose_is_section_g_g_for_the_standard_rings(base_kind):
     run = type_842_profile({}, base_kind=base_kind)
-    assert plumb_nose(run) == pytest.approx(
-        type_842_profile({}, base_kind=base_kind, face="vertical"))
+    assert _flat(plumb_nose(run)) == pytest.approx(
+        _flat(type_842_profile({}, base_kind=base_kind, face="vertical")))
 
 
 def test_the_derived_nose_plumbs_a_mod_ring_and_keeps_its_vertex_count():
@@ -54,7 +60,7 @@ def test_the_derived_nose_plumbs_a_mod_ring_and_keeps_its_vertex_count():
     front = 1.2708
     assert nose[1] == pytest.approx((front, 0.0))   # the toe pulls in
     assert nose[2] == pytest.approx((front, 2.9))   # so does the slope break
-    assert nose[3:7] == pytest.approx(MOD[3:7])     # the chamfered top stays
+    assert _flat(nose[3:7]) == pytest.approx(_flat(MOD[3:7]))     # the chamfered top stays
     assert [x for x, _ in nose[7:]] + [nose[0][0]] == pytest.approx([0.0208] * 3)
 
 
@@ -81,12 +87,14 @@ def test_an_explicit_nose_profile_wins():
             (0.0208, 2.3333), (0.0208, 2.0)]
     inboard, got = f842._TEMPLATE.endblock_rings_fn(
         {"profile": MOD, "nose_profile": nose}, None, "approach")
-    assert inboard == pytest.approx(MOD) and got == pytest.approx(nose)
+    assert _flat(inboard) == pytest.approx(_flat(MOD))
+    assert _flat(got) == pytest.approx(_flat(nose))
 
 
 def test_a_curved_run_morphs_between_the_custom_rings():
     inboard, nose = f842._TEMPLATE.endblock_rings_fn({"profile": MOD}, None, "departure")
-    assert inboard == pytest.approx(MOD) and nose == pytest.approx(plumb_nose(MOD))
+    assert _flat(inboard) == pytest.approx(_flat(MOD))
+    assert _flat(nose) == pytest.approx(_flat(plumb_nose(MOD)))
 
 
 @pytest.mark.parametrize("bad, match", [
@@ -109,8 +117,8 @@ def test_a_clockwise_ring_builds_the_same_barrier():
         m = f842.build({"runs": [_run(profile=ring)]}, _ctx())
         vols.append(sorted(abs(_volume(e)) for e in _named(m, "842 barrier")))
     assert vols[0] == pytest.approx(vols[1])
-    assert plumb_nose(list(reversed(MOD))) == pytest.approx(
-        list(reversed(plumb_nose(MOD))))
+    assert _flat(plumb_nose(list(reversed(MOD)))) == pytest.approx(
+        _flat(reversed(plumb_nose(MOD))))
 
 
 def test_a_nose_that_twists_through_the_loft_is_refused():
