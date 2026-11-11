@@ -1,0 +1,317 @@
+{
+  "ModelVersion": "2.0",
+  "OrganizationCode": "bimforge",
+  "DictionaryCode": "families",
+  "DictionaryName": "bimforge structure families",
+  "DictionaryVersion": "0.1",
+  "LanguageIsoCode": "en-US",
+  "LanguageOnly": false,
+  "UseOwnUri": false,
+  "License": "Apache-2.0",
+  "Status": "Preview",
+  "MoreInfoUrl": "https://github.com/BrandonLewis/BIMForge",
+  "Classes": [
+    {
+      "Code": "concrete-barrier-842",
+      "Name": "Concrete barrier Type 842",
+      "ClassType": "Class",
+      "Definition": "A run of Caltrans Type 842 concrete barrier: the whole whose barrier, end blocks, reinforcing and hardware are its parts.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallPARAPET"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-81",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B11-81",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    },
+    {
+      "Code": "concrete-barrier-732sw",
+      "Name": "Concrete barrier Type 732SW",
+      "ClassType": "Class",
+      "Definition": "A run of Caltrans Type 732SW concrete barrier with sidewalk: the whole whose barrier, end blocks, reinforcing and hardware are its parts.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallPARAPET"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-58",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B11-58",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    },
+    {
+      "Code": "tubular-handrailing-b11-51",
+      "Name": "Tubular handrailing B11-51",
+      "ClassType": "Class",
+      "Definition": "A run of tubular handrailing: the whole whose rails, posts, end returns, cap plates, splice sleeves and pocket mortar are its parts.",
+      "RelatedIfcEntityNamesList": [
+        "IfcRailing",
+        "IfcRailingHANDRAIL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-51",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_RailingCommon",
+          "PredefinedValue": "B11-51",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    },
+    {
+      "Code": "b11-51-top-rail",
+      "Name": "B11-51 top rail",
+      "ClassType": "Class",
+      "Definition": "The continuous top rail, the member the handrailing is paid by the linear foot on. The IFC type name appends the hollow section size.",
+      "RelatedIfcEntityNamesList": [
+        "IfcRailing",
+        "IfcRailingHANDRAIL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-51",
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/tubular-handrailing-b11-51"
+        }
+      ]
+    },
+    {
+      "Code": "b11-51-lower-rail",
+      "Name": "B11-51 lower rail",
+      "ClassType": "Class",
+      "Definition": "A continuous rail below the top rail. The IFC type name appends the hollow section size.",
+      "RelatedIfcEntityNamesList": [
+        "IfcMember"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-51",
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/tubular-handrailing-b11-51"
+        }
+      ]
+    },
+    {
+      "Code": "b11-51-post",
+      "Name": "B11-51 post",
+      "ClassType": "Class",
+      "Definition": "A vertical post. The IFC type name appends the hollow section size.",
+      "RelatedIfcEntityNamesList": [
+        "IfcMember",
+        "IfcMemberPOST"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-51",
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/tubular-handrailing-b11-51"
+        }
+      ]
+    },
+    {
+      "Code": "b11-51-end-return",
+      "Name": "B11-51 end return",
+      "ClassType": "Class",
+      "Definition": "The return closing the end of a rail. The IFC type name appends the hollow section size.",
+      "RelatedIfcEntityNamesList": [
+        "IfcMember"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-51",
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/tubular-handrailing-b11-51"
+        }
+      ]
+    },
+    {
+      "Code": "b11-51-rail-cap-plate",
+      "Name": "B11-51 rail cap plate",
+      "ClassType": "Class",
+      "Definition": "The plate capping an open rail end.",
+      "RelatedIfcEntityNamesList": [
+        "IfcPlate"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-51",
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/tubular-handrailing-b11-51"
+        }
+      ]
+    },
+    {
+      "Code": "b11-51-splice-sleeve",
+      "Name": "B11-51 splice sleeve",
+      "ClassType": "Class",
+      "Definition": "The sleeve splicing the rail across a deck or wall joint.",
+      "RelatedIfcEntityNamesList": [
+        "IfcMember"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-51",
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/tubular-handrailing-b11-51"
+        }
+      ]
+    },
+    {
+      "Code": "b11-51-post-pocket-mortar",
+      "Name": "B11-51 post pocket mortar",
+      "ClassType": "Class",
+      "Definition": "The mortar filling the pocket a post is set in. Its ObjectType is \"Post pocket mortar\".",
+      "RelatedIfcEntityNamesList": [
+        "IfcBuildingElementProxy"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B11-51",
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/tubular-handrailing-b11-51"
+        }
+      ]
+    },
+    {
+      "Code": "pipe-guardrail-d90",
+      "Name": "Pipe guardrail (D90 headwall)",
+      "ClassType": "Class",
+      "Definition": "The pipe guardrail on top of a D90 headwall.",
+      "RelatedIfcEntityNamesList": [
+        "IfcRailing",
+        "IfcRailingGUARDRAIL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan D90",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_RailingCommon",
+          "PredefinedValue": "D90",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    }
+  ],
+  "Properties": [
+    {
+      "Code": "Alignment",
+      "Name": "Alignment",
+      "DataType": "String",
+      "Definition": "Name of the IfcAlignment the element is stationed on.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    },
+    {
+      "Code": "StationStart",
+      "Name": "StationStart",
+      "DataType": "Real",
+      "Definition": "Station where the element's body starts.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body. Measured in the project length unit."
+    },
+    {
+      "Code": "StationEnd",
+      "Name": "StationEnd",
+      "DataType": "Real",
+      "Definition": "Station where the element's body ends.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body. Measured in the project length unit."
+    },
+    {
+      "Code": "StationStartText",
+      "Name": "StationStartText",
+      "DataType": "String",
+      "Definition": "StationStart as station text, such as 547+58.20, in StationUnit.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    },
+    {
+      "Code": "StationEndText",
+      "Name": "StationEndText",
+      "DataType": "String",
+      "Definition": "StationEnd as station text, in StationUnit.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    },
+    {
+      "Code": "OffsetLeftMin",
+      "Name": "OffsetLeftMin",
+      "DataType": "Real",
+      "Definition": "Smallest offset of the body from the line, positive to the left.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body. Measured in the project length unit."
+    },
+    {
+      "Code": "OffsetLeftMax",
+      "Name": "OffsetLeftMax",
+      "DataType": "Real",
+      "Definition": "Largest offset of the body from the line, positive to the left.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body. Measured in the project length unit."
+    },
+    {
+      "Code": "OffsetText",
+      "Name": "OffsetText",
+      "DataType": "String",
+      "Definition": "The offset range as text, such as 12.00 Lt to 3.50 Rt, in StationUnit.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    },
+    {
+      "Code": "StationUnit",
+      "Name": "StationUnit",
+      "DataType": "String",
+      "Definition": "Unit of the station and offset texts: ft or m.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    },
+    {
+      "Code": "AnchorStation",
+      "Name": "AnchorStation",
+      "DataType": "Real",
+      "Definition": "Authored station of an element a placement put on the line.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body. Measured in the project length unit."
+    },
+    {
+      "Code": "AnchorStationText",
+      "Name": "AnchorStationText",
+      "DataType": "String",
+      "Definition": "AnchorStation as station text, in StationUnit.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    },
+    {
+      "Code": "AnchorOffsetLeft",
+      "Name": "AnchorOffsetLeft",
+      "DataType": "Real",
+      "Definition": "Authored offset of a placed element, positive to the left.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body. Measured in the project length unit."
+    },
+    {
+      "Code": "AnchorOffsetText",
+      "Name": "AnchorOffsetText",
+      "DataType": "String",
+      "Definition": "AnchorOffsetLeft as text, in StationUnit.",
+      "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    }
+  ]
+}
