@@ -34,9 +34,11 @@ IfcCostSchedule "<schedule> cost"  ESTIMATE, declared, BidSheet_EstimateModel ma
 
 - **Top-level items** are assigned to the schedule (IfcRelAssignsToControl, as
   `cost.add_cost_item(cost_schedule=...)` does); nested items inherit it.
-- **Bid item key.** `pay_item_id(item_number, code)` is the item number, else
-  the code: the rule estimate5d's `_item_key` applies today, moved to one
-  shared helper both writers call, so the two cannot drift. The current
+- **Bid item key.** `pay_item_id(item_number, code)` is the bare item number,
+  else the code: the rule estimate5d's `_item_key` applies today, moved to one
+  shared helper both writers call, so the two cannot drift. It strips an
+  "Item #" / "Item No." prefix ("Item # 2" becomes "2"), because ProjectCommand
+  found a 0.1.111 bid writing `Item # 2` where its estimate would write `2`. The current
   uniqueness suffixes (`"<code> [<schedule>]"`, `"<code> [item <id>]"`) apply
   only when two bid items in the model resolve to the same key. They are a
   data error ProjectCommand reports as a duplicate, and the embed also warns.
@@ -118,10 +120,10 @@ bid item's `BidSheet_EstimateItem` as `CostKey`, and `read_costs` keys each
 leaf by its top-level item's `CostKey`, else that item's Identification (a
 top-level indirect `"MOB"`, and cost5d's flat items, as today).
 
-Each per-task record also gains `"cost_code"`: the code node's Identification
-(`"10.03-300"`), or null for cost5d files. That gives the finer split without
-changing a key. Where one key's leaves fall under several code nodes in one
-task, `cost_code` is the first; the split is in `_shares`.
+Each per-task record of an estimate-model file also gains `"cost_code"`: the
+code node's Identification (`"10.03-300"`). A task is one activity, which has one
+cost code, so the field is never ambiguous. cost5d records carry no such key,
+so their shape is unchanged.
 
 The consumers are `est-bim cost5d --costs` (`cli.py`),
 `cost5d.load_schedule_costs`, `costload.distribute_to_tasks` and
