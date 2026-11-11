@@ -413,3 +413,22 @@ def test_count_as_must_be_a_number(tmp_path):
     with pytest.raises(ValueError, match="count_as"):
         normalize_map({"codes": {"MOB": {"measures": [
             {"measure": "Count", "unit": "EA", "count_as": True}]}}})
+
+
+def test_ifc2x3_is_refused_by_name(tmp_path):
+    """IFC4X3 is the target and IFC4 the fallback; an IFC2X3 model is turned
+    away with a message that says so, not an AttributeError mid-read."""
+    import ifcopenshell.guid
+    from bimforge.bim.ifc_takeoff import build_takeoff, classifications_of
+    f = ifcopenshell.file(schema="IFC2X3")
+    wall = f.create_entity("IfcWall", GlobalId=ifcopenshell.guid.new())
+    ref = f.create_entity("IfcClassificationReference", ItemReference="510120")
+    f.create_entity("IfcRelAssociatesClassification",
+                    GlobalId=ifcopenshell.guid.new(), RelatedObjects=[wall],
+                    RelatingClassification=ref)
+    path = str(tmp_path / "old.ifc")
+    f.write(path)
+    with pytest.raises(ValueError, match="IFC2X3 is not supported.*IFC4X3"):
+        build_takeoff(path, {})
+    with pytest.raises(ValueError, match="IFC2X3 is not supported"):
+        classifications_of(wall)

@@ -68,6 +68,21 @@ The IFC is written for FreeCAD, Revit and Bonsai as much as for the takeoff:
   open; Revit does not open IFC4X3), `outputs.ifc_sweeps: mesh` writes the
   closed mesh instead and keeps the `IfcAlignment`.
 
+## Checking a model before takeoff
+
+`bimforge/bim/contract/takeoff.ids` is the takeoff's input contract as a
+buildingSMART IDS document, so a Revit or Tekla export can be checked in any
+IDS tool before it reaches `est-bim takeoff`:
+
+```bash
+pip install 'bimforge[ids]'
+python -m ifctester bimforge/bim/contract/takeoff.ids model.ifc
+```
+
+A failure there is a pay quantity that would come out wrong or missing.
+`takeoff-coverage.ids` beside it is advisory: it lists measured elements with
+no classification code, which the takeoff only warns about.
+
 ## Web pages: takeoff and the 4D/5D dashboard
 
 ```bash
