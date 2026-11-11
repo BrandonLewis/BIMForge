@@ -169,12 +169,27 @@ def convert(value: float, dim: str, unit: str) -> float:
 # ----------------------------------------------------------------------------
 # Read IFC
 # ----------------------------------------------------------------------------
+#: The schemas the takeoff reads: IFC4X3 is the target, IFC4 the fallback.
+SUPPORTED_SCHEMAS = ("IFC4X3", "IFC4")
+
+
+def require_supported_schema(model) -> None:
+    """Refuse a model the takeoff cannot read, by name. IFC2X3 keeps a
+    classification code in a different attribute and has no infrastructure
+    entities; it used to fail with an AttributeError deep in the read."""
+    if model.schema not in SUPPORTED_SCHEMAS:
+        raise ValueError(
+            f"{model.schema} is not supported: the takeoff reads IFC4X3, or "
+            f"IFC4 as a fallback. Re-export the model as IFC4X3 or IFC4.")
+
+
 def classifications_of(element) -> list[dict]:
     """EVERY {system, code, name} classification on the element, in
     association order. IFC permits more than one, and heavy-civil pay
     structures require it — furnish by the foot AND drive by the each off
     one physical pile (issue #106). Truncating to the first silently drops
     pay items."""
+    require_supported_schema(element.file)
     out = []
     for rel in getattr(element, "HasAssociations", []) or []:
         if not rel.is_a("IfcRelAssociatesClassification"):
@@ -316,6 +331,7 @@ def ifc_leg(ifc_path: str) -> dict:
     takeoff itself sums — audit and takeoff read the model identically by
     construction)."""
     model = ifcopenshell.open(ifc_path)
+    require_supported_schema(model)
     scales = _unit_scales(model)
     return {el.GlobalId: {
                 "name": el.Name or f"{el.is_a()}-{el.GlobalId[:6]}",
@@ -435,6 +451,7 @@ def build_takeoff(ifc_path: str, tmap: dict) -> tuple[dict, list[str]]:
 
 
 def _build_takeoff(model, tmap: dict) -> tuple[dict, list[str]]:
+    require_supported_schema(model)
     scales = _unit_scales(model)
     codes_cfg, defaults, entries_by_code = normalize_map(tmap)
 

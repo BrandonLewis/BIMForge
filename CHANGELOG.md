@@ -4,6 +4,13 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Changed
+
+- **An IFC2X3 model is refused by name.** `est-bim takeoff`, the takeoff workbook and
+  the web bundle now stop with "IFC2X3 is not supported: the takeoff reads IFC4X3, or
+  IFC4 as a fallback" (`ifc_takeoff.require_supported_schema`). A classified IFC2X3
+  element used to raise an AttributeError mid-read.
+
 ### Added
 
 - **The takeoff contract as IDS.** `bimforge/bim/contract/takeoff.ids` states what
