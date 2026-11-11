@@ -196,3 +196,24 @@ def test_a_near_self_touching_merge_is_written_as_its_triangles():
     assert len(tight) == 5 and all(len(o) == 3 and not h for o, h in tight)
     (face,) = merge_coplanar_facets(_notch(0.1))      # a real notch merges
     assert len(face[0]) == 7
+
+
+# a 4 x 4 square with a triangular hole whose apex t sits on the edge c-d
+_PINCH_P = {"a": (0, 0, 0), "b": (4, 0, 0), "c": (4, 4, 0), "d": (0, 4, 0),
+            "h1": (1, 1, 0), "h2": (3, 1, 0), "t": (2, 4, 0)}
+_PINCH_T = [("a", "b", "h2"), ("a", "h2", "h1"), ("b", "c", "h2"),
+            ("c", "t", "h2"), ("t", "d", "h1"), ("d", "a", "h1")]
+
+
+def test_a_hole_touching_the_outer_bound_is_written_as_its_triangles():
+    """A hole whose vertex lies on the outer bound is valid to OGC, but IFC
+    viewers drop the face (web-ifc skips it; #42). minimum_clearance misses
+    it, since the shared vertex sits on the edges it is near. Such a group
+    stays triangles, with the patch's full area."""
+    out = merge_coplanar_facets(
+        [tuple(_PINCH_P[k] for k in t) for t in _PINCH_T])
+    assert len(out) == 6 and all(len(o) == 3 and not h for o, h in out)
+    area = sum(abs((o[1][0] - o[0][0]) * (o[2][1] - o[0][1])
+                   - (o[2][0] - o[0][0]) * (o[1][1] - o[0][1])) / 2
+               for o, _ in out)
+    assert area == pytest.approx(16 - 3)      # the 3 m^2 hole stays open
