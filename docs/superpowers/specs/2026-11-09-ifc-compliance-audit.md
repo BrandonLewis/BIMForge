@@ -17,7 +17,7 @@ Date: 2026-11-09. Base: main `d5abdfb` (0.1.111). Read-only audit; nothing chang
 
 | # | Defect | Where | Fix |
 |---|---|---|---|
-| 0.1 | **estimate5d crashes on IFC4X3** for any element with an IfcQuantityCount (`RuntimeError: Attribute not set`). This shipped in 0.1.111; reproduced. IfcCountMeasure is INTEGER in 4X3, and the code passes `1.0`. | `bim/estimate5d.py:76,177` | Pass `int` for the count basis; add a 4X3 count test |
+| 0.1 | **estimate5d crashes on IFC4X3** for any element with an IfcQuantityCount (`RuntimeError: Attribute not set`). This shipped in 0.1.111; reproduced. IfcCountMeasure is INTEGER in 4X3, and the code passes `1.0`. | `bim/estimate5d.py:76,177` | **Fixed in #44 (0.1.111).** Pass `int` for the count basis; add a 4X3 count test |
 | 0.2 | federate orphans every IfcBuildingStorey (WR41, 14 files). Dropping the placeholder storey removes the whole Building→storeys IfcRelAggregates. | `author/federate.py:736-737` | Unassign only the placeholder |
 | 0.3 | IfcSectionedSolidHorizontal `DirectrixIs3D` fails (12 files). With no vertical profile the directrix is the 2D horizontal curve. | `author/emit_alignment.py:156`, `emit_ifc.py:703` | Emit a flat IfcGradientCurve, or fall back to the faceted body |
 | 0.4 | IfcAnnotation has a Representation but no ObjectPlacement (`PlacementForShapeRepresentation`). | `author/emit_ifc.py:1115-1122` | Place it relative to its container |
@@ -34,7 +34,7 @@ Date: 2026-11-09. Base: main `d5abdfb` (0.1.111). Read-only audit; nothing chang
 - **Georef.** Write IfcProjectedCRS.MapUnit (US survey foot) and the datums from pyproj, and keep `Scale` so the current readers still work (`emit_ifc.py:1586-1597`). Federation should refuse sources whose MapConversion or CRS differ (`federate.py:559-586`).
 - **4D.**
   - IfcWorkSchedule PredefinedType defaults to PLANNED (#37).
-  - StartTime and CreationDate come from the data, not `now()` (#36).
+  - ~~StartTime and CreationDate come from the data, not `now()` (#36).~~ Done in #43 (0.1.111).
   - The project calendar gets IfcRelAssignsToControl to the root tasks.
   - estimate_model5d tasks get PredefinedType CONSTRUCTION.
   - Task finish is written as 17:00 and start as 08:00, not midnight (readers slice `[:10]`).
