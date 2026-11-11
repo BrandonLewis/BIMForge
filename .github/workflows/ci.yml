@@ -32,7 +32,7 @@ jobs:
         # a bimforge dependency
         run: |
           python -m pip install -U pip setuptools wheel
-          pip install -e '.[all,terrain]' pytest
+          pip install -e '.[all,terrain,ids]' pytest
       - name: Standalone — the estimating layer must not be present
         # bimforge imports nothing from estimating_tools; the suite proves it
         # by running where that package cannot be imported at all.
