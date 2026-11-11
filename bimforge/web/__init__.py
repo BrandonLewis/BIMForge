@@ -13,11 +13,20 @@ hosts:
   the same bundle from the open file, and provides `window.bimforgeHost`
   so a click on an element selects it there.
 
+The *sheet bundle* (`sheet_bundle`) is the second contract: the same IFC
+flattened into chunked tables with per-chunk GLB geometry, for the IFC
+Navigator Excel add-in, which hands edits back as a change-set that
+`changes.apply_changes` writes into the IFC.
+
 The contract is versioned (`contract.CONTRACT`); a page refuses a bundle
 of another major version rather than guess.
 """
+from bimforge.web.changes import apply_changes, validate_changes
 from bimforge.web.contract import CONTRACT, build_bundle, validate_bundle
+from bimforge.web.sheet_bundle import (build_sheet_bundle, validate_manifest,
+                                       write_sheet_bundle)
 from bimforge.web.site import serve_site, write_site
 
 __all__ = ["CONTRACT", "build_bundle", "validate_bundle", "serve_site",
-           "write_site"]
+           "write_site", "build_sheet_bundle", "write_sheet_bundle",
+           "validate_manifest", "apply_changes", "validate_changes"]

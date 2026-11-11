@@ -92,6 +92,24 @@ earn against one kind alone. The pages carry no external library and open from
 disk. A host (an editor's bridge add-on) provides `window.bimforgeHost` to
 turn a click into a selection; standalone, a click copies GlobalIds.
 
+## Excel: the sheet bundle and change-sets
+
+```bash
+est-bim sheet-bundle model.ifc -o model-sheet/           # tables + GLB geometry, one chunk per container
+est-bim apply-changes model.ifc changes.json -o out.ifc  # write a change-set back
+```
+
+`sheet-bundle` flattens an IFC into what a spreadsheet can edit (contract
+`bimforge-sheet/1`, `bimforge.web.sheet_bundle`): a manifest and, per
+spatial container, the elements, their single-value properties with IFC
+value types, the types' properties, the `Qto_*` quantities in SI, and a GLB
+of the chunk's meshes from the same geometry iterator the takeoff checks
+use. The IFC Navigator Excel add-in (in
+[estimating-tools](https://github.com/BrandonLewis/estimating-tools)) loads
+a chunk into sheets, measures on the GLB, and saves a change-set
+(`bimforge-changes/1`) that `apply-changes` validates whole and writes with
+IfcOpenShell. The add-in never parses or writes IFC; this package does both.
+
 ## Blender: sections along an alignment
 
 The Blender add-on that slides a live cross-section along an IFC4X3

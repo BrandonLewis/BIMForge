@@ -291,6 +291,57 @@ def _run_web(args) -> int:
     return 0
 
 
+def _run_sheet_bundle(args) -> int:
+    """The sheet bundle for the IFC Navigator Excel add-in: chunked tables
+    (elements, properties, types, quantities) and per-chunk GLB geometry."""
+    from pathlib import Path
+
+    from bimforge.web import build_sheet_bundle, write_sheet_bundle
+
+    try:
+        bundle = build_sheet_bundle(args.ifc, chunk_by=args.chunk_by,
+                                    geometry=not args.no_geometry)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    out = Path(args.out) if args.out else Path(args.ifc).with_name(
+        Path(args.ifc).stem + "-sheet")
+    write_sheet_bundle(bundle, out)
+    m = bundle["manifest"]
+    c = m["model"]["counts"]
+    print(f"sheet bundle written to {out}: {c['elements']} elements, "
+          f"{c['properties']} properties, {c['types']} types in "
+          f"{c['chunks']} chunk(s)"
+          + (", with geometry" if m["geometry"] else ", no geometry")
+          + f" ({m['model']['schema']})")
+    for entry in m["chunks"]:
+        print(f"  {entry['id']}: {entry['elements']} elements, "
+              f"{entry['properties']} properties"
+              + ("" if entry["files"]["geometry"] else " (no geometry)"))
+    return 0
+
+
+def _run_apply_changes(args) -> int:
+    """Write a change-set (bimforge-changes/1) into an IFC. Refuses the
+    whole set, writing nothing, when any operation is invalid."""
+    from pathlib import Path
+
+    from bimforge.web import apply_changes
+    from bimforge.web.changes import load_changes
+
+    out = Path(args.out) if args.out else Path(args.ifc)
+    try:
+        report = apply_changes(args.ifc, load_changes(args.changes), out)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"{report['applied']} operation(s) applied to {report['objects']} "
+          f"object(s) -> {out}: {report['added_psets']} pset(s) added, "
+          f"{report['removed']} propert{'y' if report['removed'] == 1 else 'ies'} "
+          f"removed, {report['renamed']} renamed")
+    return 0
+
+
 def _run_takeoff_workbook(args) -> int:
     """Per-element, formula-driven takeoff workbook (issue #367): one row
     per element per pay code with Qty / #_surfaces / L / W / H / CY /
@@ -2456,6 +2507,26 @@ def main(argv=None) -> int:
     w.add_argument("--open", action="store_true",
                    help="open the browser (with --serve)")
 
+    sb = sub.add_parser("sheet-bundle",
+                        help="write the chunked sheet bundle (tables + GLB "
+                             "geometry) the IFC Navigator Excel add-in loads")
+    sb.add_argument("ifc", help="input IFC file")
+    sb.add_argument("-o", "--out", help="bundle directory (default: "
+                                        "<ifc>-sheet/)")
+    sb.add_argument("--chunk-by", choices=("container", "none"),
+                    default="container", dest="chunk_by",
+                    help="one chunk per spatial container (default) or one "
+                         "chunk for the whole model")
+    sb.add_argument("--no-geometry", action="store_true", dest="no_geometry",
+                    help="tables only, no GLB meshes")
+
+    ac = sub.add_parser("apply-changes",
+                        help="write an add-in change-set (bimforge-changes/1) "
+                             "into an IFC")
+    ac.add_argument("ifc", help="input IFC file")
+    ac.add_argument("changes", help="change-set JSON")
+    ac.add_argument("-o", "--out", help="write here instead of in place")
+
     tw = sub.add_parser("takeoff-workbook",
                         help="write a verifiable per-element takeoff "
                              "workbook (xlsx): Qty, #_surfaces, L, W, H, "
@@ -3082,6 +3153,10 @@ def main(argv=None) -> int:
             return _run_takeoff(args)
         if args.cmd == "web":
             return _run_web(args)
+        if args.cmd == "sheet-bundle":
+            return _run_sheet_bundle(args)
+        if args.cmd == "apply-changes":
+            return _run_apply_changes(args)
         if args.cmd == "takeoff-workbook":
             return _run_takeoff_workbook(args)
         if args.cmd == "sfca":

@@ -4,6 +4,22 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **`est-bim sheet-bundle`** (`bimforge.web.sheet_bundle`): the IFC flattened into the tables
+  a spreadsheet edits, contract `bimforge-sheet/1`. A manifest plus one chunk per spatial
+  container (`--chunk-by none` for one chunk), each with its elements, the elements' own
+  single-value properties with their IFC value types, the types' properties, the `Qto_*`
+  quantities in SI, and a GLB of the chunk's meshes from the geometry iterator (one node per
+  GlobalId, Y-up, offset recorded in the manifest so georeferenced coordinates survive float32).
+  Byte-deterministic for an unchanged model. This is what the IFC Navigator Excel add-in loads.
+- **`est-bim apply-changes`** (`bimforge.web.changes`): writes a `bimforge-changes/1` change-set
+  (`set_property`, `remove_property`, `set_name` by GlobalId, on elements or types) into an IFC
+  through IfcOpenShell's pset API. Every operation is validated first; one bad GlobalId, op or
+  value refuses the whole set and writes nothing. Values are coerced from spreadsheet text to the
+  named IFC type.
+- `bimforge.web.glb`: a dependency-free GLB writer for per-element meshes.
+
 ## 0.1.111 — 2026-11-09
 
 ### Changed
