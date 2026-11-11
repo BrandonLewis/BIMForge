@@ -4,6 +4,15 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **A coplanar merge no longer writes a face whose hole touches its outer bound**
+  (#42). Such a face is valid to OGC, but IFC viewers drop it (web-ifc skips it in
+  `GetFlatMesh`), and the 0.1.110 clearance guard missed it because the shared vertex
+  lies on the edges it is near. `facets` now writes a plane group as its triangles
+  when an inner bound comes within `MIN_CLEARANCE` of the outer bound or of another
+  inner bound.
+
 ## 0.1.111 — 2026-11-09
 
 ### Changed
