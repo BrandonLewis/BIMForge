@@ -138,6 +138,11 @@ top-level items.
   (#37, negative lag, IfcRelAssignsToProduct): separate work.
 - Labour hours on IfcResourceTime (ProjectCommand doesn't read them).
 - BUDGET / approval stage for the ESTIMATE schedule.
+- Estimate value per element. With no CostQuantities, ProjectCommand lists each
+  element-linked leaf as "unapportioned" in its Issues. That is expected:
+  coverage and the bid-vs-estimate margin use totals and are unaffected. For
+  per-element earned value, leaves would switch to rates + CostQuantities +
+  UnitBasis.
 
 ## Tests
 
