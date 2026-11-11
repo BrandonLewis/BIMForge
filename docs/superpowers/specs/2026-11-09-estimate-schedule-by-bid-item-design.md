@@ -91,45 +91,52 @@ uses it, so a composite is never read as $0:
 ProjectCommand reads Category verbatim and groups by exact string (confirmed);
 an `Unallocated` component with no Category shows as uncategorised.
 
-**Currency.** The file declares an IfcMonetaryUnit (USD) in its
-IfcUnitAssignment when it has none, so cost values have a currency (audit
-Phase 1). The TENDER and ESTIMATE schedules share it.
+**Currency.** `add_declared_cost_schedule` (used by cost5d, estimate5d and
+estimate-model) adds an IfcMonetaryUnit (USD) to the project's
+IfcUnitAssignment when the project has one and it holds no monetary unit, so
+cost values have a currency (audit Phase 1) and every schedule shares it. A
+file with no unit assignment is left alone.
 
 ## Locating the schedule
 
-Today the readers find the schedule by the exact name `"<ws> cost"`. They will
-find it by type instead: the IfcCostSchedule with PredefinedType ESTIMATE that
-carries the `BidSheet_EstimateModel` marker (estimate-model), else the one
-named `"<ws> cost"` (cost5d, unchanged). The writer refuses to leave two
-ESTIMATE schedules in a file: a re-run replaces its own, and an ESTIMATE
-schedule it did not write is a warning, not a second one.
+Today the readers find the schedule by the exact name `"<ws> cost"`. That stays
+the first lookup (cost5d and estimate-model alike). When no schedule has that
+name, the readers take the ESTIMATE schedule whose `BidSheet_EstimateModel`
+marker names the work schedule (`WorkSchedule = <ws>`, a new marker property),
+so a schedule renamed in another tool is still found. The writer warns when the
+file holds an ESTIMATE schedule it did not write: ProjectCommand reads only the
+first one.
 
 ## read_costs keys
 
-`read_costs` keys each leaf by its Identification, which leaves no longer
-have. For an estimate-model file it keys each leaf by its **top-level** item's
-Identification, the bid item (`"10"`), so the `costs` keys stay a bid item
-number, as `costload.distribute_to_tasks` matches against
-`t.bid_item_codes` (`bid_items=[item_number]` on the tasks). A top-level
-indirect (`"MOB"`) keys as itself. Each record also gains `"cost_code"`: the
-code node's Identification (`"10.PS-FTG"`), which gives the finer split
-without changing the key.
+The `costs` keys do **not** change. Today an estimate-model key is the item's
+cost-item Identification: the item code, else its number, made unique
+(`item_identifications`). `est-bim cost5d --costs` matches those keys against
+a stage-model schedule's `bid_item_codes`, so they must stay. The top-level
+Identification becomes the pay item id, so the writer keeps the old key in the
+bid item's `BidSheet_EstimateItem` as `CostKey`, and `read_costs` keys each
+leaf by its top-level item's `CostKey`, else that item's Identification (a
+top-level indirect `"MOB"`, and cost5d's flat items, as today).
 
-cost5d files are flat and keep their keys.
+Each per-task record also gains `"cost_code"`: the code node's Identification
+(`"10.03-300"`), or null for cost5d files. That gives the finer split without
+changing a key. Where one key's leaves fall under several code nodes in one
+task, `cost_code` is the first; the split is in `_shares`.
 
 The consumers are `est-bim cost5d --costs` (`cli.py`),
 `cost5d.load_schedule_costs`, `costload.distribute_to_tasks` and
-`bimforge/web/contract.py`. Each is checked and its tests are kept; totals per
-task must not change.
+`bimforge/web/contract.py`. Their tests stay unchanged apart from the new
+field; totals per task must not change.
 
 ## Contract view
 
 `web/contract._shares` reads the bid item from the leaf's immediate parent's
 `BidSheet_EstimateItem`. With the code node in between, it walks up to the
-**top-level** item for `item_number` (the pset stays on the bid item), and takes
-`code` from the code node, as the classification or the part after `"<item>."`.
-`_bid_items` keeps scanning for `BidSheet_EstimateItem`; it is written only on
-top-level items.
+**top-level** item for `item_number`. `code` stays the bid item's code (its
+classification), because the dashboard joins shares to takeoff rows by
+`item_number`, then by `code` (`dashboard.js:131,221`). Each share gains
+`cost_code`, the code node's Identification. `_bid_items` keeps scanning for
+`BidSheet_EstimateItem`; it is written only on top-level items.
 
 ## Out of scope
 
@@ -155,16 +162,17 @@ top-level items.
 - A spread activity lands as `"<item>.<code>"` under each item it pays; a
   share with no item becomes a top-level `"<code>"` item.
 - `read_costs` per-task totals and categories match the pre-change values for
-  the existing fixtures, and its `costs` keys are still bid item numbers.
+  the existing fixtures, and its `costs` keys are unchanged (`"51-CONC"`).
 - A composite value reads at its components' sum in `total_of`,
   `categories_of`, `read_costs` and `_shares` (none reads $0).
-- `_shares` gives the top-level item's `item_number` and the code node's code.
-- The file has one IfcMonetaryUnit; the schedule is found by type when it is
-  renamed.
+- `_shares` gives the top-level item's `item_number`, the item's `code`, and
+  the code node's `cost_code`.
+- The file has one IfcMonetaryUnit after a re-run; a renamed ESTIMATE
+  schedule is still found through its marker.
 - A re-run leaves exactly one ESTIMATE schedule and one IfcRelDeclares.
 
 ## Release
 
 0.1.112, with CHANGELOG **Changed** (schedule shape, read_costs keys) and
 **Added** (composed cost values, top-level indirects, the monetary
-unit, `cost_code` in read_costs records).
+unit, `cost_code` in read_costs records and shares).
