@@ -4,6 +4,30 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Changed
+
+- **An IFC2X3 model is refused by name.** `est-bim takeoff`, the takeoff workbook and
+  the web bundle now stop with "IFC2X3 is not supported: the takeoff reads IFC4X3, or
+  IFC4 as a fallback" (`ifc_takeoff.require_supported_schema`). A classified IFC2X3
+  element used to raise an AttributeError mid-read.
+
+### Added
+
+- **The takeoff contract as IDS.** `bimforge/bim/contract/takeoff.ids` states what
+  `est-bim takeoff` needs from any IFC (ours, Revit's, Tekla's) as a buildingSMART
+  IDS 1.0 document: a classified element carries a quantity to measure, each named
+  quantity is stored as its own dimension, and every classification reference has a
+  code. `takeoff-coverage.ids` is the advisory companion: every measured element is
+  classified. Both are generated from the reader's own tables
+  (`python -m bimforge.bim.takeoff_ids`) and run in any IDS checker;
+  `pip install 'bimforge[ids]'` adds `ifctester`. IFC4 and IFC4X3 only.
+- **A draft family dictionary** in bSDD's import format,
+  `bimforge/author/dictionary/bimforge-families.bsdd.json`: the classes the typed
+  families emit (Type 842 and 732SW barrier runs, B11-51 tubular handrailing and its
+  parts, the D90 pipe guardrail), their IFC entities and standard-plan `Reference`,
+  and the `BIMForge_LinearReference` properties. It is a local file; nothing is
+  published to bSDD and nothing reads it yet.
+
 ### Fixed
 
 - **A coplanar merge no longer writes a face whose hole touches its outer bound**

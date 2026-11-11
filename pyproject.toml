@@ -31,6 +31,7 @@ bim = ["pymupdf"]                     # PDF plan sheets; the rest of the BIM sta
 draw = ["matplotlib"]
 solids = ["build123d"]
 xlsx = ["openpyxl"]                   # bar bending schedules + quantity workbooks (emit_bbs)
+ids = ["ifctester"]                 # run the takeoff contract (bimforge/bim/contract/*.ids)
 terrain = ["pillow", "scipy", "laspy[lazrs]", "trimesh", "manifold3d", "networkx"]
 all = ["pymupdf", "matplotlib", "build123d", "openpyxl"]
 
@@ -51,8 +52,8 @@ exclude = [
 ]
 
 [tool.setuptools.package-data]
-"bimforge.bim" = ["examples/*"]
+"bimforge.bim" = ["examples/*", "contract/*.ids"]
 "bimforge.bim.plansheet" = ["*.yaml"]
 "bimforge.cad" = ["templates/*.dxf"]
-"bimforge.author" = ["examples/*"]
+"bimforge.author" = ["examples/*", "dictionary/*.json"]
 "bimforge.web" = ["static/*.html", "static/assets/*"]
