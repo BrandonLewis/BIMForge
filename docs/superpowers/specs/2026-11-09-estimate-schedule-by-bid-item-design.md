@@ -67,8 +67,15 @@ item the share names:
 estimate_model5d's leaves: one IfcCostValue with `ArithmeticOperator=ADD` and
 its Components the per-category values (an uncategorised balance becomes an
 `Unallocated` component with no Category, as now). The composite carries no
-AppliedValue of its own (pending ProjectCommand's confirmation). cost5d keeps
-its current sibling values.
+AppliedValue of its own (agreed with ProjectCommand: it sums the components,
+and a written total would be one more thing to mismatch). cost5d keeps its
+current sibling values.
+
+**No CostQuantities on leaves.** IFC 4.3 reads a cost item's values as unit
+rates when it carries CostQuantities (amount × summed quantity / UnitBasis),
+and ProjectCommand follows that rule. Leaves carry extended totals, so they
+carry no CostQuantities; the element is linked by IfcRelAssignsToControl
+only, as today. A test asserts that no leaf has CostQuantities.
 
 **One evaluator.** `cost_categories` gets `value_of(cv)`: a value's
 AppliedValue, else the ADD sum of its Components (recursively). Every reader
@@ -80,9 +87,9 @@ uses it, so a composite is never read as $0:
 - `web/contract._shares` (the same inline sum).
 
 **Category vocabulary.** BIMForge keeps `CATEGORIES` ("Labor", "Material",
-"Equipment", "Subcontract", "Other"). The casing ProjectCommand matches will be
-confirmed with it before implementation; if it needs upper case, only the
-written Category string changes, and readers compare case-insensitively.
+"Equipment", "Subcontract", "Other"), spelled one way across the file.
+ProjectCommand reads Category verbatim and groups by exact string (confirmed);
+an `Unallocated` component with no Category shows as uncategorised.
 
 **Currency.** The file declares an IfcMonetaryUnit (USD) in its
 IfcUnitAssignment when it has none, so cost values have a currency (audit
@@ -138,7 +145,8 @@ top-level items.
   Identifications equal the TENDER parents' Identifications.
 - Every Identification in the ESTIMATE schedule is unique; parents and code
   nodes are valueless; each leaf has exactly one ADD value whose components
-  sum to its share (cents).
+  sum to its share (cents), with no AppliedValue on the composite and no
+  CostQuantities on the leaf.
 - A spread activity lands as `"<item>.<code>"` under each item it pays; a
   share with no item becomes a top-level `"<code>"` item.
 - `read_costs` per-task totals and categories match the pre-change values for
