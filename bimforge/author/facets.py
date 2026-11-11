@@ -163,6 +163,18 @@ def merge_coplanar_facets(triangles) -> list:
     return faces
 
 
+def _hole_touches(poly) -> bool:
+    """Whether an inner ring of `poly` comes within MIN_CLEARANCE of its
+    outer ring or of another inner ring."""
+    rings = list(poly.interiors)
+    for i, ring in enumerate(rings):
+        if ring.distance(poly.exterior) < MIN_CLEARANCE:
+            return True
+        if any(ring.distance(other) < MIN_CLEARANCE for other in rings[i + 1:]):
+            return True
+    return False
+
+
 def _merge_group(n, d, tris) -> list:
     from shapely.geometry import MultiPolygon, Polygon
     from shapely.geometry.polygon import orient
@@ -198,6 +210,11 @@ def _merge_group(n, d, tris) -> list:
     if any(p.area > AREA_EPS and p.minimum_clearance < MIN_CLEARANCE
            for p in parts):
         # a near self-touch a kernel would close: the triangles are safer
+        return [(list(t), []) for t in tris]
+    if any(p.area > AREA_EPS and _hole_touches(p) for p in parts):
+        # a hole meeting the outer bound (or another hole) at a vertex: valid
+        # to OGC, but viewers drop the face (#42), and minimum_clearance
+        # misses it, the shared vertex being on the edges it is near
         return [(list(t), []) for t in tris]
 
     # the group's own vertices, for T-junction closure on the merged boundary
