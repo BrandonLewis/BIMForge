@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.112 — 2026-11-10
+
 ### Changed
 
 - **An IFC2X3 model is refused by name.** `est-bim takeoff`, the takeoff workbook and
