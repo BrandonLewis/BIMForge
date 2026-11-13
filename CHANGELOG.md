@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.113 — 2026-11-12
+
 ### Fixed
 
 - **An alignment's zero-length closing segment faces the way the alignment ends**
