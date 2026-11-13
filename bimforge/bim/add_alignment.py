@@ -41,6 +41,7 @@ import re
 import sys
 
 from bimforge.author.alignment import M_PER_FT
+from bimforge.author.emit_alignment import fix_terminator
 from bimforge.bim.alignment_station import format_station
 
 
@@ -102,26 +103,6 @@ def traverse_pis(al: dict):
         radii.append(seg["radius"])
     pts.append((A.end_point[1], A.end_point[0]))
     return A, pts, radii, sorted(set(breaks))
-
-
-def _fix_terminator(alapi, ifc_al) -> None:
-    """The zero-length terminator must carry the alignment's FINAL direction.
-
-    ifcopenshell 0.8.5's PI layout writes a wrong StartDirection on the
-    terminator's IfcAlignmentHorizontalSegment (the IfcCurveSegment geometry is
-    right). Recompute it from the preceding segment's end tangent; on 0.9 this
-    recomputes the value already there.
-    """
-    segs = alapi.get_layout_segments(alapi.get_horizontal_layout(ifc_al))
-    if len(segs) < 2:
-        return
-    term, prev = segs[-1].DesignParameters, segs[-2].DesignParameters
-    if term.SegmentLength != 0.0:
-        return
-    d = prev.StartDirection
-    if prev.PredefinedType == "CIRCULARARC" and prev.StartRadiusOfCurvature:
-        d += prev.SegmentLength / prev.StartRadiusOfCurvature   # signed: CCW +
-    term.StartDirection = math.atan2(math.sin(d), math.cos(d))
 
 
 def _rename_referents(f, ifc_al) -> list[float]:
@@ -259,7 +240,7 @@ def add_alignments(f, alignments: list[dict], tol_ft: float = 0.01,
             ifcopenshell.api.run("aggregate.assign_object", f, products=[ifc_al],
                                  relating_object=site)
         ifc_al.Description = al.get("desc")
-        _fix_terminator(alapi, ifc_al)
+        fix_terminator(alapi, ifc_al)
         existing = _rename_referents(f, ifc_al)
         added = 0
         for s in sorted(set(referents.get(al["name"], []))):
