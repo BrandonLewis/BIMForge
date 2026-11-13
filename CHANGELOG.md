@@ -4,6 +4,15 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **An alignment's zero-length closing segment faces the way the alignment ends**
+  (#51). ifcopenshell 0.9 writes the terminator `IfcAlignmentHorizontalSegment` π off
+  the end tangent whenever the final heading is past 90°; the geometry was right, so
+  only the semantic segment disagreed. `emit_alignment.fix_terminator` (moved from
+  `bim.add_alignment`, which already applied it) now runs for every authored alignment
+  too.
+
 ## 0.1.112 — 2026-11-10
 
 ### Changed
