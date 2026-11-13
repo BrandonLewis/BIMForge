@@ -4,16 +4,17 @@
 This is the post-processor for everything else: a federated file, a
 foreign IFC, or a model whose alignment is only known after the build. It
 reads alignment blocks, `pob` + `run` (tangent / curve) in survey feet, the
-same shape `bimforge.author.alignment.Alignment` takes, and lays each one out
-with ifcopenshell's PI method. That writes an IfcAlignment with its
-IfcAlignmentHorizontal and segments (business logic), the IfcCompositeCurve
-of IfcCurveSegments (geometry) and the zero-length terminator, plus an
-IfcReferent with Pset_Stationing at the start, at every segment break and at
+same shape `bimforge.author.alignment.Alignment` takes. Each horizontal
+segment is written as bimforge's traverse has it (a LINE or CIRCULARARC per
+tangent or curve); ifcopenshell builds the IfcCompositeCurve of
+IfcCurveSegments (geometry) from them and the zero-length terminator. An
+IfcReferent with Pset_Stationing marks the start, every segment break and
 any extra stations asked for.
 
-Every tangent-to-tangent break is laid out as a PI with radius 0 (an angle
-point). A PI list built from curves alone collapses an all-tangent traverse
-to one chord from POB to end, and an end-point check alone still passes.
+The horizontal is not laid out with ifcopenshell's PI method: it misplaces a
+curve that follows a curve with no tangent between (a curve split across two
+sheets came out as a 313-degree loop the other way; a reverse curve divides
+by zero) while the start and end still match (#52). The vertical still is.
 
 Coordinates go through the file's own IfcMapConversion (CRS feet -> model
 metres, with its rotation), so the alignment lands in the same engineering
@@ -28,7 +29,8 @@ through the IfcMapConversion: (EL - OrthogonalHeight) / Scale.
 
 Gated before the caller writes anything. Each alignment's start and end,
 recovered from the written curve, must match the traverse within `tol_ft`.
-Every angle point must be the start of a written horizontal segment. With a
+Every angle point must be the start of a written horizontal segment, and
+every horizontal segment must end where the next one starts. With a
 profile, each PVI elevation recovered from the written vertical segments must
 match as well. `add_alignments` raises `AlignmentGateError` on any miss. The
 file is then left changed in memory, so do not write it. `est-bim
@@ -43,6 +45,9 @@ import sys
 from bimforge.author.alignment import M_PER_FT
 from bimforge.author.emit_alignment import fix_terminator
 from bimforge.bim.alignment_station import format_station
+
+#: the pre-#51 name; callers outside bimforge (job wrappers) still import it
+_fix_terminator = fix_terminator
 
 
 class AlignmentGateError(ValueError):
@@ -103,6 +108,40 @@ def traverse_pis(al: dict):
         radii.append(seg["radius"])
     pts.append((A.end_point[1], A.end_point[0]))
     return A, pts, radii, sorted(set(breaks))
+
+
+def _horizontal(f, alapi, layout, A, mc) -> None:
+    """Write the traverse's tangents and curves as horizontal segments.
+
+    Survey azimuth (clockwise from grid north) -> model angle: counter-
+    clockwise from model +x, which the IfcMapConversion turns by `mc[2]` from
+    grid east. IFC's positive radius turns left; bimforge's sign is +1 right.
+    """
+    for seg in A.segments:
+        if seg["kind"] == "tangent":
+            n0, e0, az = seg["n0"], seg["e0"], seg["az"]
+            r, kind = 0.0, "LINE"
+        else:
+            n0, e0, az = A.point_az(seg["s0"])
+            r, kind = -seg["sign"] * seg["radius"] * M_PER_FT, "CIRCULARARC"
+        x, y = to_model(e0, n0, mc)
+        d = math.radians(90.0 - az) - mc[2]
+        alapi.create_layout_segment(f, layout, f.create_entity(
+            "IfcAlignmentHorizontalSegment",
+            StartPoint=f.create_entity("IfcCartesianPoint", Coordinates=(x, y)),
+            StartDirection=math.atan2(math.sin(d), math.cos(d)),
+            StartRadiusOfCurvature=r, EndRadiusOfCurvature=r,
+            SegmentLength=seg["length"] * M_PER_FT, PredefinedType=kind))
+
+
+def _seg_end(sp) -> tuple[float, float]:
+    """A horizontal segment's end, evaluated from its own design parameters."""
+    x, y = sp.StartPoint.Coordinates
+    d, L, r = sp.StartDirection, sp.SegmentLength, sp.StartRadiusOfCurvature
+    if not r:
+        return x + L * math.cos(d), y + L * math.sin(d)
+    cx, cy = x - r * math.sin(d), y + r * math.cos(d)
+    return cx + r * math.sin(d + L / r), cy - r * math.cos(d + L / r)
 
 
 def _rename_referents(f, ifc_al) -> list[float]:
@@ -172,6 +211,13 @@ def _gate(f, alapi, ifc_al, A, hp, radii, prof, mc, oh, tol_ft) -> list[str]:
             miss = min(math.hypot(x - sx, y - sy) for sx, sy, *_ in starts) / M_PER_FT
             if miss > tol_ft:
                 problems.append(f"angle point missing from the layout ({miss:.3f} ft)")
+    hsegs = [s.DesignParameters for s in
+             alapi.get_layout_segments(alapi.get_horizontal_layout(ifc_al))]
+    for a, b in zip(hsegs, hsegs[1:]):
+        gap = math.dist(_seg_end(a), b.StartPoint.Coordinates) / M_PER_FT
+        if gap > tol_ft:
+            problems.append(f"a {a.PredefinedType} segment ends {gap:.3f} ft "
+                            "from the next one's start")
     shape = ifcopenshell.geom.create_shape(ifcopenshell.geom.settings(),
                                            alapi.get_basis_curve(ifc_al))
     v = shape.verts
@@ -197,6 +243,7 @@ def add_alignments(f, alignments: list[dict], tol_ft: float = 0.01,
     """
     import ifcopenshell.api
     import ifcopenshell.api.alignment as alapi
+    import ifcopenshell.util.alignment
 
     if not f.schema.upper().startswith("IFC4X3"):
         raise AlignmentGateError(f"the file is {f.schema}; IfcAlignment needs IFC4X3")
@@ -225,9 +272,16 @@ def add_alignments(f, alignments: list[dict], tol_ft: float = 0.01,
             vp = [((p["station"] - A.s_start) * M_PER_FT, (p["elevation"] - oh) / mc[3]) for p in pv]
             vp[-1] = ((A.s_end - A.s_start) * M_PER_FT, vp[-1][1])
             vlen = [float(prof.get("vc_length_ft", 0.0)) * M_PER_FT] * (len(vp) - 2)
-        ifc_al = alapi.create_by_pi_method(
-            f, al["name"], hp, [r * M_PER_FT for r in radii],
-            vpoints=vp, lengths=vlen, start_station=A.s_start * M_PER_FT)
+        vertical = bool(vp and vlen)       # as create_by_pi_method decided it
+        ifc_al = alapi.create(f, al["name"], include_vertical=vertical)
+        _horizontal(f, alapi, alapi.get_horizontal_layout(ifc_al), A, mc)
+        if vertical:
+            alapi.layout_vertical_alignment_by_pi_method(
+                f, alapi.get_vertical_layout(ifc_al), vp, vlen)
+        start = A.s_start * M_PER_FT
+        alapi.add_stationing_referent(
+            f, f"{al['name']} {ifcopenshell.util.alignment.station_as_string(f, start)}",
+            ifc_al, 0.0, start)
         if prof and prof.get("desc"):
             vl = alapi.get_vertical_layout(ifc_al)
             if vl is not None:

@@ -12,6 +12,14 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   only the semantic segment disagreed. `emit_alignment.fix_terminator` (moved from
   `bim.add_alignment`, which already applied it) now runs for every authored alignment
   too.
+- **`est-bim add-alignments` writes a curve that follows a curve where the traverse
+  has it** (#52). ifcopenshell's PI layout misplaces a curve with no tangent before it:
+  a curve split across two sheets came out as a 313° loop turning the other way, with
+  the next segment starting up to 182 m away, and a reverse curve divided by zero. The
+  start and end still matched, so the gate passed. The horizontal segments are now
+  written straight from bimforge's traverse, as `emit_alignment` writes them, and the
+  vertical is still laid out by PI. The gate also checks that every horizontal segment
+  ends where the next one starts.
 
 ## 0.1.112 — 2026-11-10
 

@@ -154,3 +154,51 @@ def test_cli_writes_on_a_pass_and_nothing_on_a_failure(tmp_path):
     assert cli_main(["add-alignments", str(ifc), "--spec", str(bad),
                      "--path", "alignments"]) == 1
     assert ifc.read_bytes() == before
+
+
+def _seg_end(sp):
+    """A horizontal segment's end point, evaluated from its own parameters."""
+    x, y = sp.StartPoint.Coordinates
+    d, L, r = sp.StartDirection, sp.SegmentLength, sp.StartRadiusOfCurvature
+    if not r:
+        return x + L * math.cos(d), y + L * math.sin(d)
+    cx, cy = x - r * math.sin(d), y + r * math.cos(d)
+    return cx + r * math.sin(d + L / r), cy - r * math.cos(d + L / r)
+
+
+def _curve(radius, delta_deg, turn):
+    return {"kind": "curve", "radius": radius, "delta": f"{delta_deg}-0-0",
+            "turn": turn, "length": radius * math.radians(delta_deg)}
+
+
+#: curve directly into curve, no tangent between: a curve split across two
+#: sheets, a compound curve and a reverse curve (#52)
+BACK_TO_BACK = {
+    "split": [_curve(380.0, 46, "L"), _curve(380.0, 46, "L")],
+    "compound": [_curve(339.0, 59, "R"), _curve(200.0, 29, "R")],
+    "reverse": [_curve(400.0, 50, "L"), _curve(300.0, 50, "R")],
+}
+
+
+@pytest.mark.parametrize("kind", sorted(BACK_TO_BACK))
+def test_back_to_back_curves_are_written_as_the_traverse(kind):
+    """ifcopenshell's PI layout misplaces a curve that follows a curve with no
+    tangent between (a 92-degree split curve came out as a 313-degree loop the
+    other way, and the next segment started 55 m away; #52), and the gate's
+    start and end check did not see it. Each segment must end where the next
+    one starts and lie on the traverse."""
+    from bimforge.author.alignment import Alignment
+    run = [_tangent("N 0-0-0 E", 200.0)] + [dict(c) for c in BACK_TO_BACK[kind]]
+    f = _model()
+    add_alignments(f, [{"name": kind, "pob": POB, "run": run}])
+    (al,) = f.by_type("IfcAlignment")
+    segs = [s for s in _h_segments(al)]
+    for a, b in zip(segs, segs[1:]):
+        gap = math.dist(_seg_end(a), b.StartPoint.Coordinates) / M_PER_FT
+        assert gap < 0.001, f"{a.PredefinedType} ends {gap:.3f} ft from the next start"
+    A = Alignment(POB, run)
+    mc = map_conversion(f)
+    for seg, sp in zip(A.segments, segs):
+        n, e, _az = A.point_az(seg["s1"])
+        x, y = to_model(e, n, mc)
+        assert math.dist(_seg_end(sp), (x, y)) / M_PER_FT < 0.001
