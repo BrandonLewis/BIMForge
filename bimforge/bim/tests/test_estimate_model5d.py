@@ -368,7 +368,8 @@ def test_rerun_leaves_other_tools_schedules_alone():
     assert names == [NAME, "Staging"]
     assert sorted(c.Name for c in f.by_type("IfcCostSchedule")) == [
         f"{NAME} cost", "Staging cost"]
-    assert read_costs(f, "Staging")["costs"]["X"]["cost"] ==         pytest.approx(10.0)
+    assert read_costs(f, "Staging")["costs"]["X"]["cost"] == \
+        pytest.approx(10.0)
     # cost5d's crew ("Staging: Stage 1") survives; ours is replaced, not doubled
     crews = sorted(r.Name for r in f.by_type("IfcLaborResource"))
     assert crews == [f"{NAME}: crew Concrete crew", "Staging: Stage 1"]
@@ -418,7 +419,8 @@ def test_a_share_with_no_bid_item_is_a_top_level_indirect():
     assert summary["indirect_items"] == 1
     assert not any("left out" in w for w in summary["warnings"])
     got = read_costs(f, NAME)
-    assert got["tasks"]["a3"]["costs"]["01-500"]["cost"] ==         pytest.approx(500.0)
+    assert got["tasks"]["a3"]["costs"]["01-500"]["cost"] == \
+        pytest.approx(500.0)
     assert got["tasks"]["a3"]["costs"]["01-500"]["cost_code"] == "01-500"
     assert Decimal(summary["allocated_total"]) == Decimal("520.01")
 
@@ -473,7 +475,8 @@ def test_item_numbers_equal_after_the_prefix_is_stripped_stay_distinct():
     keys = {_psets(ci)["BidSheet_EstimateItem"]["CostKey"]
             for ci in parents.values()}
     assert keys == {"51-CONC", "Item # 10"}
-    assert "bid items 1, 2 share pay item id '10' — written as '10 [A]', "         "'10 [B]'; ProjectCommand will report a duplicate" in summary["warnings"]
+    assert "bid items 1, 2 share pay item id '10' — written as '10 [A]', " \
+        "'10 [B]'; ProjectCommand will report a duplicate" in summary["warnings"]
     _f, clean, _ftg, _wall = _embed()
     assert not any("share pay item id" in w for w in clean["warnings"])
 
@@ -534,7 +537,8 @@ def test_an_indirect_code_equal_to_a_bid_item_key_is_qualified():
     got = read_costs(f, NAME)
     assert got["costs"]["20"]["cost"] == pytest.approx(300.0)    # not 500
     assert got["costs"]["20 [indirect]"]["cost"] == pytest.approx(200.0)
-    assert "indirect cost code '20' is also a bid item's id/key — written "         "as '20 [indirect]'" in summary["warnings"]
+    assert "indirect cost code '20' is also a bid item's id/key — written " \
+        "as '20 [indirect]'" in summary["warnings"]
     assert not any("pair it with" in w for w in summary["warnings"])
 
 

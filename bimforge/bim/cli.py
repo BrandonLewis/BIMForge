@@ -577,6 +577,8 @@ def _run_estimate5d(args) -> int:
     for item, amount in sorted(report.items_without_elements.items()):
         print(f"  item {item}: ${amount:,.2f}, no elements (costs.json items)")
     for code, snap in sorted(report.snapped_to_cost.items()):
+        if abs(snap["drift"]) < 0.0005:     # float noise, not worth a line
+            continue
         print(f"  {code}: rates scaled {snap['scale_pct']:+.4f}% so its "
               f"children sum to its cost ${snap['cost']:,.2f}")
     for label, entries in (
