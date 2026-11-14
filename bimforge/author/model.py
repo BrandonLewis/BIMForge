@@ -172,6 +172,10 @@ class StructureModel:
     elements: list[Element] = field(default_factory=list)
     #: name -> list of element names aggregated into an IfcElementAssembly.
     assemblies: dict[str, list[str]] = field(default_factory=dict)
+    #: name -> list of element names assigned to an IfcGroup (#59): things
+    #: selected and hidden together without a common parent, such as a pit
+    #: (whose parent is the ground it voids) and its backfill.
+    groups: dict[str, list[str]] = field(default_factory=dict)
     #: Openings: (host element name, opening Element) — emitted as
     #: IfcOpeningElement voids on the host.
     openings: list[tuple[str, Element]] = field(default_factory=list)
