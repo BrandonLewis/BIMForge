@@ -15,10 +15,12 @@ connected region, with its holes. What it guarantees:
 
 * **the surface is unchanged** -- a merged face covers exactly the triangles
   it replaces, so the enclosed volume is the mesh's to the last bit;
-* **the shell stays closed** -- every vertex of the group's triangles that
-  lies on a merged face's boundary is kept on it, so a neighbouring face that
-  ends at that vertex still shares an edge with this one (no T-junction
-  opened by the merge);
+* **the shell stays closed** -- every vertex of a merged face's own
+  triangles that lies on its boundary is kept on it, so a neighbouring face
+  that ends at that vertex still shares an edge with this one (no T-junction
+  opened by the merge); a vertex of another piece in the same plane is not
+  added (#47). A body whose merge would still leave more open or
+  non-manifold edges than its triangles had is written as its triangles;
 * **orientation is kept** -- the outer loop runs counter-clockwise about the
   facets' outward normal and a hole loop clockwise, the IfcFaceOuterBound /
   IfcFaceBound convention;
@@ -160,7 +162,25 @@ def merge_coplanar_facets(triangles) -> list:
             faces.append((list(g["tris"][0]), []))
             continue
         faces.extend(_merge_group(g["n"], g["d"], g["tris"]))
+    raw = [(list(t), []) for key in order for t in groups[key]["tris"]]
+    if _edge_faults(faces) > _edge_faults(raw):
+        # the merge left the shell less closed than its triangles (pieces
+        # touching edge-on, #47): the triangles, which the kernel sews
+        return raw
     return faces
+
+
+def _edge_faults(faces) -> int:
+    """Edges of `faces` used by one face (open) or by three or more
+    (non-manifold), points compared exactly."""
+    uses: dict = {}
+    for outer, holes in faces:
+        for ring in [outer, *holes]:
+            ring = [tuple(float(c) for c in p) for p in ring]
+            for p, q in zip(ring, ring[1:] + ring[:1]):
+                k = (p, q) if p <= q else (q, p)
+                uses[k] = uses.get(k, 0) + 1
+    return sum(1 for n in uses.values() if n != 2)
 
 
 def _hole_touches(poly) -> bool:
@@ -217,8 +237,12 @@ def _merge_group(n, d, tris) -> list:
         # misses it, the shared vertex being on the edges it is near
         return [(list(t), []) for t in tris]
 
-    # the group's own vertices, for T-junction closure on the merged boundary
-    own = list(to2d)
+    # each part's own vertices, for T-junction closure on its boundary: the
+    # vertices of the triangles it was merged from. A neighbouring face that
+    # ends on the boundary shares an edge with one of those triangles, so
+    # these are all the closure needs. Another part's vertices lying on it
+    # (a separate piece touching this one edge-on) would open the shell (#47).
+    own_of = _part_vertices(parts, polys)
     origin = (n[0] * d, n[1] * d, n[2] * d)
 
     def lift(q):
@@ -230,7 +254,7 @@ def _merge_group(n, d, tris) -> list:
             to2d[q] = p
         return p
 
-    def ring3d(coords, ccw: bool):
+    def ring3d(coords, own):
         ring = _dedupe_ring([(float(x), float(y)) for x, y in coords])
         if len(ring) < 3:
             return None
@@ -242,19 +266,39 @@ def _merge_group(n, d, tris) -> list:
     out = []
     # sort by the first vertex so the output does not depend on GEOS's
     # internal ordering of disjoint pieces
-    for poly in sorted((p for p in parts if p.area > AREA_EPS),
-                       key=lambda p: tuple(p.exterior.coords[0])):
+    for poly, own in sorted(((p, o) for p, o in zip(parts, own_of)
+                             if p.area > AREA_EPS),
+                            key=lambda po: tuple(po[0].exterior.coords[0])):
         poly = orient(poly, 1.0)              # exterior CCW, holes CW
-        outer = ring3d(poly.exterior.coords, True)
+        outer = ring3d(poly.exterior.coords, own)
         if outer is None:
             continue
         holes = []
         for ring in poly.interiors:
-            h = ring3d(ring.coords, False)
+            h = ring3d(ring.coords, own)
             if h is not None:
                 holes.append(h)
         out.append((outer, holes))
     return out
+
+
+def _part_vertices(parts, polys) -> list:
+    """For each of `parts` (the union's polygons), the 2D vertices of the
+    triangles in `polys` it was merged from, in first-seen order. A
+    triangle belongs to the part nearest its representative point (inside
+    it, bar round-off)."""
+    from shapely import STRtree
+
+    own = [dict() for _ in parts]
+    if len(parts) == 1:
+        targets = [0] * len(polys)
+    else:
+        tree = STRtree(parts)
+        targets = [int(tree.nearest(t.representative_point())) for t in polys]
+    for tri, i in zip(polys, targets):
+        for q in tri.exterior.coords[:-1]:
+            own[i].setdefault((float(q[0]), float(q[1])), None)
+    return [list(o) for o in own]
 
 
 def merged_face_count(triangles) -> int:
