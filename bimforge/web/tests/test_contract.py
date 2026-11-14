@@ -268,6 +268,7 @@ def test_rows_carry_prices_from_the_bid_list_and_shares_from_the_5d(tmp_path):
     sh = b["costs"]["shares"]
     assert {(s["task"], s["code"]) for s in sh} == {("t1", "F-CONC"), ("t2", "W-CONC"), ("t3", "POSTS")}
     assert all(s["element"] is None and s["item_number"] is None for s in sh)
+    assert all("cost_code" not in s for s in sh)      # no code nodes in cost5d
     assert next(s for s in sh if s["task"] == "t1")["cost"] == 12000.0
     assert next(s for s in sh if s["task"] == "t1")["labor_hours"] == 300.0
 

@@ -419,6 +419,7 @@ def test_a_share_with_no_bid_item_is_a_top_level_indirect():
     assert not any("left out" in w for w in summary["warnings"])
     got = read_costs(f, NAME)
     assert got["tasks"]["a3"]["costs"]["01-500"]["cost"] ==         pytest.approx(500.0)
+    assert got["tasks"]["a3"]["costs"]["01-500"]["cost_code"] == "01-500"
     assert Decimal(summary["allocated_total"]) == Decimal("520.01")
 
 
@@ -466,12 +467,15 @@ def test_item_numbers_equal_after_the_prefix_is_stripped_stay_distinct():
     model = _model_json(ftg.GlobalId, wall.GlobalId)
     model["items"][1]["item_number"] = "Item # 10"
     model["items"][1]["schedule"] = "B"
-    embed_estimate_model(f, model)
+    summary = embed_estimate_model(f, model)
     _, parents = _parents(f)
     assert set(parents) == {"10 [A]", "10 [B]"}
     keys = {_psets(ci)["BidSheet_EstimateItem"]["CostKey"]
             for ci in parents.values()}
     assert keys == {"51-CONC", "Item # 10"}
+    assert "bid items 1, 2 share pay item id '10' — written as '10 [A]', "         "'10 [B]'; ProjectCommand will report a duplicate" in summary["warnings"]
+    _f, clean, _ftg, _wall = _embed()
+    assert not any("share pay item id" in w for w in clean["warnings"])
 
 
 def test_estimate_and_tender_pair_by_identification():
@@ -511,3 +515,61 @@ def test_estimate_and_tender_pair_by_identification():
                 for ci in rel.RelatedObjects if ci.is_a("IfcCostItem")}
 
     assert tops("TENDER") == tops("ESTIMATE") == {"7"}
+
+
+def test_an_indirect_code_equal_to_a_bid_item_key_is_qualified():
+    # a3's code "20" is item 2's pay id and CostKey: part of a3 pays item 2,
+    # part names no item. The indirect must not read back under item 2
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["activities"][2]["cost_code"] = "20"
+    model["shares"][2]["cost"] = "300"              # item 2's own share
+    model["shares"].append(dict(model["shares"][2], item_id=None, cost="200"))
+    summary = embed_estimate_model(f, model)
+    _, parents = _parents(f)
+    assert set(parents) == {"10", "20", "20 [indirect]"}
+    idents = [ci.Identification for ci in f.by_type("IfcCostItem")
+              if ci.Identification]
+    assert len(idents) == len(set(idents))
+    got = read_costs(f, NAME)
+    assert got["costs"]["20"]["cost"] == pytest.approx(300.0)    # not 500
+    assert got["costs"]["20 [indirect]"]["cost"] == pytest.approx(200.0)
+    assert "indirect cost code '20' is also a bid item's id/key — written "         "as '20 [indirect]'" in summary["warnings"]
+    assert not any("pair it with" in w for w in summary["warnings"])
+
+
+def test_a_duplicate_identification_in_the_schedule_is_warned_about():
+    # item 2 numbered "10.03-300" collides with item 1's 03-300 code node
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["items"][1]["item_number"] = "10.03-300"
+    summary = embed_estimate_model(f, model)
+    dup = [w for w in summary["warnings"] if "repeats" in w]
+    assert len(dup) == 1 and "'10.03-300'" in dup[0]
+    _f, clean, _ftg, _wall = _embed()
+    assert not any("repeats" in w for w in clean["warnings"])
+
+
+def test_a_renamed_schedule_is_replaced_on_a_rerun():
+    f, _, ftg, wall = _embed()
+    (cs,) = f.by_type("IfcCostSchedule")
+    cs.Name = "Renamed in another tool"
+    again = embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    estimates = [c for c in f.by_type("IfcCostSchedule")
+                 if c.PredefinedType == "ESTIMATE"]
+    assert [c.Name for c in estimates] == [f"{NAME} cost"]
+    assert not any("another ESTIMATE schedule" in w
+                   for w in again["warnings"])
+
+
+def test_a_spread_activity_lands_under_each_item_it_pays():
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["shares"][2]["cost"] = "250"              # a3 spread on items 1, 2
+    model["shares"].append(dict(model["shares"][2], item_id=1))
+    embed_estimate_model(f, model)
+    _, parents = _parents(f)
+    assert "10.01-500" in {n.Identification for n in _kids(parents["10"])}
+    assert "20.01-500" in {n.Identification for n in _kids(parents["20"])}
+    got = read_costs(f, NAME)
+    assert got["costs"]["20"]["cost"] == pytest.approx(250.0)

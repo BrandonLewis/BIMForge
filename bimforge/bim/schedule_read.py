@@ -559,9 +559,13 @@ def _cost_key(ci) -> str:
 
 def _cost_code(ci) -> str | None:
     """The code node's Identification ("10.03-300"): the leaf's parent when
-    that parent is itself nested, else None (cost5d, older files)."""
+    that parent is itself nested; or a top-level parent with no
+    BidSheet_EstimateItem (an estimate-model indirect, "01-500"); else None
+    (cost5d items have no parent, older files' parents carry the pset)."""
     parent = _nest_parent(ci)
-    if parent is None or _nest_parent(parent) is None:
+    if parent is None:
+        return None
+    if _nest_parent(parent) is None and             _pset(parent, "BidSheet_EstimateItem") is not None:
         return None
     return parent.Identification
 

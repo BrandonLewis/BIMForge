@@ -22,14 +22,17 @@ and writes it into an IFC as:
   item that carries allocation shares, its Identification the pay item id
   the TENDER schedule uses (`estimate5d.pay_item_id`: the bare item number,
   else the code; made unique by schedule label, else item id, when items
-  share it), its Name the description, unit, quantity, prices and CostKey
-  (read_costs' key: the code-based Identification before 0.1.112) in
-  BidSheet_EstimateItem, classified under cost5d's cost-code system.
+  share it, with a warning), its Name the description; unit, quantity,
+  prices and CostKey (read_costs' key: the code-based Identification
+  before 0.1.112) in BidSheet_EstimateItem, classified under cost5d's
+  cost-code system.
   Beneath it a valueless "<item>.<cost code>" item per activity cost code
   (the activity key when it has none), and beneath that a leaf per share
   with no Identification and ONE ADD IfcCostValue whose components are
   the share's money by kind. A share that names no item is filed under a
-  top-level item keyed by its cost code alone (an indirect). Shares carry
+  top-level item keyed by its cost code alone (an indirect), written
+  "<code> [indirect]" when the code is also a bid item's id or key, so
+  read_costs never merges it into that item. Shares carry
   EXACT amounts; the leaves' cents are the running sum rounded half-up,
   differenced, so they sum to the item's allocated total (the exact sum,
   rounded once) — two $10.004 shares write $10.00 + $10.01 = $20.01. Each
@@ -37,7 +40,11 @@ and writes it into an IFC as:
   (never CostQuantities: the values are totals, not rates), and carries
   Bimforge_CostItem (TaskId, LaborHours), so `schedule_read.read_costs`
   reads it back per task and item. Items with no shares get no cost item;
-  they are listed in the summary.
+  they are listed in the summary. The marker names the work schedule
+  (WorkSchedule), so a schedule renamed in another tool is still found
+  and replaced. ProjectCommand pairs by Identification and reads one
+  ESTIMATE schedule per file: a repeated Identification, or another
+  ESTIMATE schedule in the file, is warned about.
 - **one IfcLaborResource per distinct crew** ("<schedule>: crew <name>"),
   its headcount and members in BidSheet_Crew, assigned to every task the
   crew works. Hours stay on the cost items (a crew shared by several tasks
@@ -176,7 +183,11 @@ def _remove_prior(model, name: str) -> None:
     embed_schedule (`_check_names` has made sure it is the only one)."""
     cost_name = f"{name} cost"
     for cs in list(model.by_type("IfcCostSchedule")):
-        if cs.Name != cost_name or not _marked(cs):
+        marker = _pset(cs, MARKER_PSET)
+        # ours by name, or renamed in another tool but still marked ours
+        if marker is None or (cs.Name != cost_name and not (
+                cs.PredefinedType == "ESTIMATE"
+                and marker.get("WorkSchedule") == name)):
             continue
         for ci in _walk_items(cs):
             for arel in list(getattr(ci, "Controls", None) or []):
@@ -436,6 +447,16 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
                         f"the model's items do not list — left out")
     keys = item_identifications(items)
     pay_ids = pay_identifications(items)
+    by_pay = defaultdict(list)
+    for it in items:
+        by_pay[_pay_id(it)].append(it["id"])
+    for pay, ids in by_pay.items():
+        if len(ids) > 1:
+            warnings.append(
+                f"bid items {', '.join(str(i) for i in ids)} share pay item "
+                f"id {pay!r} — written as "
+                f"{', '.join(repr(pay_ids[i]) for i in ids)}; ProjectCommand "
+                f"will report a duplicate")
     elem_by_id = {e.get("id"): e for e in elements}
     parents = children = code_items = indirect_items = 0
     grand = Decimal(0)
@@ -530,22 +551,34 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
     indirect = defaultdict(list)
     for share in by_item.get(None, []):
         indirect[code_of(share)].append(share)
-    taken = set(pay_ids.values())
+    taken = set(pay_ids.values()) | set(keys.values()) | {
+        ci.Identification for ci in _walk_items(cs)}
     for ccode, group in indirect.items():
+        ident = ccode
         if ccode in taken:
-            warnings.append(f"indirect cost code {ccode!r} is also a pay "
-                            f"item id — ProjectCommand will pair it with "
-                            f"that item")
+            # keyed apart, so read_costs never merges it into the bid item
+            ident = f"{ccode} [indirect]"
+            warnings.append(f"indirect cost code {ccode!r} is also a bid "
+                            f"item's id/key — written as {ident!r}")
         act = acts.get(activity_of(group[0])) or {}
         exact = [_dec(s.get("cost")) for s in group]
         top = cost.add_cost_item(model, cost_schedule=cs)
         cost.edit_cost_item(model, top, attributes={
-            "Name": act.get("name") or ccode, "Identification": ccode})
+            "Name": act.get("name") or ccode, "Identification": ident})
         _code_reference(model, top, ccode, classif)
         grand += _cents(sum(exact, Decimal(0)))
         for share, cents in zip(group, apportion_cents(exact)):
             leaf(top, share, cents)
         indirect_items += 1
+
+    # ProjectCommand pairs TENDER and ESTIMATE by Identification alone
+    repeated = sorted(k for k, n in Counter(
+        ci.Identification for ci in _walk_items(cs) if ci.Identification
+    ).items() if n > 1)
+    if repeated:
+        warnings.append(f"the ESTIMATE schedule repeats Identification(s) "
+                        f"{', '.join(repr(k) for k in repeated)} — "
+                        f"ProjectCommand will report a duplicate")
 
     # -- crews: one labor resource per distinct crew -----------------------
     crews: dict = {}
