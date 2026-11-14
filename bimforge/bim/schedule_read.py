@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from bimforge.bim.cost_categories import add_categories, categories_of
+from bimforge.bim.cost_categories import add_categories, categories_of, total_of
 
 
 def element_start_dates(model) -> dict[int, str]:
@@ -533,6 +533,52 @@ def _leaf_cost_items(cs) -> list:
     return out
 
 
+def _nest_parent(ci):
+    """The cost item `ci` is nested under, else None."""
+    return next((rel.RelatingObject for rel in getattr(ci, "Nests", None) or []
+                 if rel.RelatingObject.is_a("IfcCostItem")), None)
+
+
+def _top_item(ci):
+    """The top-level cost item above `ci` (`ci` itself when it is one)."""
+    while (parent := _nest_parent(ci)) is not None:
+        ci = parent
+    return ci
+
+
+def _cost_key(ci) -> str:
+    """read_costs' key for a leaf: its bid item's CostKey (estimate_model5d
+    keeps the pre-0.1.112 key there, since the item's Identification is now
+    the pay item id), else the top-level item's Identification (a cost5d
+    item is its own top; an older estimate-model parent carried the key)."""
+    top = _top_item(ci)
+    ps = _pset(top, "BidSheet_EstimateItem") or {}
+    return str(ps.get("CostKey") or top.Identification or ci.Identification
+               or ci.Name or ci.GlobalId)
+
+
+def _cost_code(ci) -> str | None:
+    """The code node's Identification ("10.03-300"): the leaf's parent when
+    that parent is itself nested, else None (cost5d, older files)."""
+    parent = _nest_parent(ci)
+    if parent is None or _nest_parent(parent) is None:
+        return None
+    return parent.Identification
+
+
+def cost_schedules_for(model, sname: str) -> list:
+    """The cost schedules of work schedule `sname`: those named
+    "<sname> cost", else the ESTIMATE ones whose BidSheet_EstimateModel
+    marker names it (a schedule renamed in another tool)."""
+    named = [c for c in model.by_type("IfcCostSchedule")
+             if c.Name == f"{sname} cost"]
+    if named:
+        return named
+    return [c for c in model.by_type("IfcCostSchedule")
+            if (_pset(c, "BidSheet_EstimateModel") or {}).get("WorkSchedule")
+            == sname]
+
+
 def read_costs(model, name: str | None = None) -> dict:
     """Read 5D back out of an IFC (issue #335 §7).
 
@@ -566,6 +612,12 @@ def read_costs(model, name: str | None = None) -> dict:
     (`estimate_model5d` nests share items under each bid item), so an
     item's children are never counted twice.
 
+    An estimate-model leaf (0.1.112+) is keyed by its bid item's CostKey,
+    the key earlier versions used, and its record also carries
+    `cost_code`, the "<item>.<code>" node it sits under. The cost schedule
+    is "<name> cost", else the ESTIMATE schedule whose
+    BidSheet_EstimateModel marker names the work schedule.
+
     Per-code hours come from each cost item's Bimforge_CostItem (0.1.88 and earlier: Pset_BimforgeCostItem). A model
     embedded before #335 has only the per-task crew: a single-code task's
     hours go to its code, and a multi-code task's are split by cost, with a
@@ -574,7 +626,7 @@ def read_costs(model, name: str | None = None) -> dict:
     ws = _work_schedule(model, name)
     sname = ws.Name or ""
     cost_name = f"{sname} cost"
-    css = [c for c in model.by_type("IfcCostSchedule") if c.Name == cost_name]
+    css = cost_schedules_for(model, sname)
     if not css:
         raise ValueError(f"no IfcCostSchedule named {cost_name!r} — is this "
                          f"the 5D IFC (est-bim cost5d)?")
@@ -591,9 +643,8 @@ def read_costs(model, name: str | None = None) -> dict:
                                       "labor_hours": None, "categories": {}})
 
     for ci in _leaf_cost_items(css[0]):
-        code = ci.Identification or ci.Name or ci.GlobalId
-        value = sum(_number(cv.AppliedValue) or 0.0
-                    for cv in ci.CostValues or [])
+        code = _cost_key(ci)
+        value = total_of(ci)               # an ADD composite included
         linked = [o for rel in getattr(ci, "Controls", None) or []
                   for o in rel.RelatedObjects or [] if o.is_a("IfcTask")]
         ps = _pset(ci, *_COST_ITEM_PSETS)
@@ -610,6 +661,9 @@ def read_costs(model, name: str | None = None) -> dict:
         rec = entry(tid)["costs"].setdefault(code, {"cost": 0.0,
                                                     "labor_hours": None,
                                                     "categories": {}})
+        cost_code = _cost_code(ci)
+        if cost_code and "cost_code" not in rec:
+            rec["cost_code"] = cost_code    # estimate-model: "<item>.<code>"
         rec["cost"] += value
         tasks[tid]["cost"] += value
         cats = categories_of(ci)             # {Labor: .., Material: ..}

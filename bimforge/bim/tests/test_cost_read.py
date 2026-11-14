@@ -266,3 +266,18 @@ def test_a_partial_split_keeps_the_balance_and_a_reader_split_re_embeds():
     with pytest.raises(ValueError, match="categories"):
         validate_costs({"A": {"cost": 1.0, "labor_hours": None,
                               "categories": {"Plant": 1.0}}})
+
+
+def test_a_renamed_estimate_schedule_is_found_through_its_marker():
+    import ifcopenshell.api.pset as pset
+    from bimforge.bim.schedule_read import cost_schedules_for
+    sched = _sched()
+    f = _model()    # this file's helper: embeds the schedule and its costs
+    (cs,) = f.by_type("IfcCostSchedule")
+    cs.Name = "Renamed in another tool"
+    assert cost_schedules_for(f, sched.name) == []
+    ps = pset.add_pset(f, product=cs, name="BidSheet_EstimateModel")
+    pset.edit_pset(f, pset=ps, properties={"WorkSchedule": sched.name})
+    assert cost_schedules_for(f, sched.name) == [cs]
+    assert read_costs(f, sched.name)["costs"]["A"]["cost"] == \
+        pytest.approx(10000.0)
