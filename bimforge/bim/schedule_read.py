@@ -565,7 +565,8 @@ def _cost_code(ci) -> str | None:
     parent = _nest_parent(ci)
     if parent is None:
         return None
-    if _nest_parent(parent) is None and             _pset(parent, "BidSheet_EstimateItem") is not None:
+    if _nest_parent(parent) is None \
+            and _pset(parent, "BidSheet_EstimateItem") is not None:
         return None
     return parent.Identification
 

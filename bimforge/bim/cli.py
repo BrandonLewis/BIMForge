@@ -680,8 +680,10 @@ def _run_estimate_model(args) -> int:
         return 1
     print(json.dumps(summary, indent=2))
     print(f"Embedded '{summary['schedule_name']}': {summary['tasks']} task(s), "
-          f"{summary['cost_items']} item(s) / {summary['share_items']} share "
-          f"cost item(s) (${float(summary['allocated_total']):,.2f}), "
+          f"{summary['cost_items']} item(s) / {summary['code_items']} cost "
+          f"code(s) / {summary['indirect_items']} indirect(s) / "
+          f"{summary['share_items']} share cost item(s) "
+          f"(${float(summary['allocated_total']):,.2f}), "
           f"{summary['labor_resources']} crew(s); written to {args.out}",
           file=sys.stderr)
     if summary["unmatched_elements"]:
