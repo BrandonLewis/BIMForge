@@ -34,3 +34,35 @@ Known limits of X.1, by design of IDS: quantity sets are selected by name
 (`Qto_*` or `*BaseQuantities`), where the reader takes any quantity set; and
 measure selection, the takeoff map, unit scaling and unmatched map codes are
 not expressible.
+
+## Geometry: checks and outputs
+
+From a review on 2026-11-14 of how bodies are created and checked, against
+how open-source CAD kernels work. The ten shipped examples were rebuilt and
+measured: every body is a closed solid, 139 of 158 are exact parametric
+solids (extrusions and revolutions), and each matches its stated volume.
+
+| ID | Item | State |
+|---|---|---|
+| G.1 | The QTO and bar-schedule workbooks are not byte-identical between rebuilds. `openpyxl` overwrites the modified time on save, so the pinned stamps in `emit_qto.py` and `emit_bbs.py` have no effect. `takeoff_workbook._save_deterministic` already does this right: reuse it, and test it. | Next (bug) |
+| G.2 | An overlap gate. No check finds two elements occupying the same space, which is how a headwall's double-counted concrete passed (10.134 against 9.967 cy, #24). Bounding boxes first, then the common volume, with an opt-out for catalog examples that place alternatives together. | Next |
+| G.3 | Three outputs disagree with the IFC. STEP writes a post as a true cylinder where the IFC writes the equal-area polygon (+0.64% on the posts, inside the element's 0.5% tolerance today). The DXF plan of a tube is drawn at the origin, ignoring its position and axis. `WarpedStem` states its analytic volume, 0.3% off the facets it emits, against "quantities come from geometry". | Next |
+| G.4 | Orientation checked face by face. Edges are compared undirected and volumes taken absolute, so one flipped face lowers the stated and the emitted volume together. A directed-edge check in `mesh_topology`. | Next |
+| G.5 | The terrain carve fails quietly. With the mesh libraries missing or a failed cut, `carve` returns the open surface and a removed volume of 0, with only a log line. Fail, or return no volume. | Next |
+| G.6 | The post-gate tessellates the written IFC twice (`_ifc_mesh_check`, then `_ifc_solid_body_check`). Share the meshes, and skip topology for surface bodies. | Later |
+| G.7 | Owner's call. `true_volume_check` rebuilds every solid in OpenCascade on each build whenever build123d is installed, with or without STEP output: about 70% of build time (4.6 s against 1.7 s on the bridge example). Limiting it to STEP builds or a gate flag is faster, and gives up a second kernel's opinion on every solid. | Not ruled |
+| G.8 | Owner's call. Formwork contact area counts side faces that lie against another element. Measured on the examples and not yet verified: 6 to 22% of side area on the D90 headwall, 40 to 46% on the retaining wall's footings. Whether a contact is a joint that needs a bulkhead is an estimator's judgment, so a deduction would need a flag per element from the family. | Not ruled |
+
+Considered and not taken up:
+
+- One OpenCascade solid as the source of every output. Revit and Tekla map
+  the parametric IFC solids to native members, and a B-rep cannot give them
+  back. It would also replace "quantities from the emitted faces".
+- Stable names for faces. Faces are classified by direction on every read
+  and no face identity is stored anywhere, so there is nothing to keep
+  stable.
+- Exact-arithmetic or all-manifold booleans. The degenerate-geometry bugs
+  on record came from export precision and from readers' kernels, and each
+  was fixed more cheaply.
+- A cache of built geometry. A build takes 2 to 5 s and the geometry under
+  10 ms of it.
