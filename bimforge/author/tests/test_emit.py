@@ -177,6 +177,12 @@ def test_emit_ifc_round_trips_through_build_takeoff(tmp_path):
     assert conv.Northings == pytest.approx(1_943_000.0)
     assert conv.Scale == pytest.approx(1.0 / m.ctx.ft_to_m)
     assert f.by_type("IfcProjectedCRS")[0].Name == "EPSG:2226"
+    # #58: the CRS states its unit, and its datum from the EPSG registry
+    # when the spec gives none
+    crs = f.by_type("IfcProjectedCRS")[0]
+    assert crs.MapUnit.Name == "US survey foot"
+    assert crs.GeodeticDatum == (m.ctx.geodetic_datum
+                                 or "North American Datum 1983")
     # L x W invariant on the emitted Qto (contract: L*W == GrossArea)
     from bimforge.bim.ifc_takeoff import quantities_of
     el = [e for e in f.by_type("IfcFooting")][0]

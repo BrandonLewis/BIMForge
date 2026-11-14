@@ -3,6 +3,9 @@
   model space  = (dxf_coord - base) * unit_to_m   (base subtracted in DXF units)
   MapConversion.Eastings/Northings = base in CRS units (yaml values, unchanged)
   MapConversion.Scale = 1/unit_to_m               (model metres -> CRS units)
+  IfcProjectedCRS.MapUnit = the CRS's unit        (#58; else it reads as metres)
+
+for a drawing in the CRS's own unit; one in another unit goes through metres.
 
 0.1.10 subtracted the un-converted base from metre coordinates (model coords
 like -4.5e6 m) and wrote Scale=1.0 — any consumer trusting MapConversion
@@ -133,3 +136,65 @@ def test_build_ifc_writes_true_north_from_convergence(tmp_path):
     ex, ey = true_north_direction(2227, BASE_E, BASE_N)
     assert float(tn.DirectionRatios[0]) == pytest.approx(ex, abs=1e-6)
     assert float(tn.DirectionRatios[1]) == pytest.approx(ey, abs=1e-6)
+
+
+# --- #58: the CRS states its own unit ---------------------------------------
+
+def _build(tmp_path, units="ft", epsg=2227, schema=None, unit_to_m=FT):
+    dxf = _write_dxf(tmp_path / "site.dxf")
+    cfg = _config(BASE_E, BASE_N)
+    cfg["units"]["dxf_length_unit"] = units
+    cfg["georeference"]["crs_epsg"] = epsg
+    if schema:
+        cfg["project"]["schema"] = schema
+    ifc = str(tmp_path / "site.ifc")
+    build_ifc(extract_features(dxf, cfg["layers"], unit_to_m), cfg, ifc)
+    return ifcopenshell.open(ifc)
+
+
+@pytest.mark.parametrize("schema", [None, "IFC4"])
+def test_a_feet_crs_states_the_us_survey_foot(tmp_path, schema):
+    # without MapUnit a CRS takes the project's length unit (the metre), so a
+    # schema-following reader took ftUS eastings and northings as metres
+    model = _build(tmp_path, schema=schema)
+    crs = model.by_type("IfcProjectedCRS")[0]
+    unit = crs.MapUnit
+    assert unit.is_a("IfcConversionBasedUnit")
+    assert (unit.UnitType, unit.Name) == ("LENGTHUNIT", "US survey foot")
+    assert unit.ConversionFactor.ValueComponent.wrappedValue ==         pytest.approx(1200 / 3937, rel=1e-12)
+    metre = unit.ConversionFactor.UnitComponent
+    assert (metre.UnitType, metre.Name, metre.Prefix) ==         ("LENGTHUNIT", "METRE", None)
+    dims = unit.Dimensions
+    assert (dims.LengthExponent, dims.MassExponent, dims.TimeExponent) ==         (1, 0, 0)
+    # the map's unit, not the project's: model space stays in metres
+    assert unit not in model.by_type("IfcUnitAssignment")[0].Units
+    # dxf2bim names the CRS and its datum from the EPSG registry
+    assert crs.Description == "NAD83 / California zone 3 (ftUS)"
+    assert crs.GeodeticDatum == "North American Datum 1983"
+
+
+def test_a_metre_crs_states_the_metre(tmp_path):
+    model = _build(tmp_path, units="m", epsg=26910, unit_to_m=1.0)
+    unit = model.by_type("IfcProjectedCRS")[0].MapUnit
+    assert unit.is_a("IfcSIUnit")
+    assert (unit.UnitType, unit.Name, unit.Prefix) ==         ("LENGTHUNIT", "METRE", None)
+
+
+def test_a_drawing_in_another_unit_than_the_crs_goes_through_metres(tmp_path):
+    # a mm DXF on a metre CRS: dxf2bim passed the mm base through as metre
+    # eastings and wrote Scale 1000, putting the model 1000x off
+    model = _build(tmp_path, units="mm", epsg=26910, unit_to_m=0.001)
+    conv = model.by_type("IfcMapConversion")[0]
+    assert float(conv.Eastings) == pytest.approx(BASE_E / 1000)
+    assert float(conv.Northings) == pytest.approx(BASE_N / 1000)
+    assert float(conv.Scale) == pytest.approx(1.0)
+    assert model.by_type("IfcProjectedCRS")[0].MapUnit.Name == "METRE"
+
+
+def test_a_scale_that_disagrees_with_the_crs_unit_is_refused(tmp_path):
+    # Scale 1.0 says the map is in metres, but EPSG:2227 is in US survey
+    # feet: the base would be 3.28x off
+    from bimforge.bim.georef import write_map_unit
+    model = _build(tmp_path)
+    with pytest.raises(ValueError, match="US survey foot"):
+        write_map_unit(model, 2227, 1.0)
