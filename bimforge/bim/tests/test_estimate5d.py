@@ -681,3 +681,46 @@ def test_the_tender_pay_item_is_the_bare_number():
     tops = {ci.Identification for rel in cs.Controls or []
             for ci in rel.RelatedObjects if ci.is_a("IfcCostItem")}
     assert tops == {"55"}
+
+
+def _two_piles():
+    model = _pile_ifc()
+    p2 = ifcopenshell.api.root.create_entity(model, ifc_class="IfcPile",
+                                             name="P-2")
+    qto = ifcopenshell.api.pset.add_qto(model, product=p2,
+                                        name="Qto_PileBaseQuantities")
+    ifcopenshell.api.pset.edit_qto(model, qto=qto,
+                                   properties={"Length": 6_250.0})
+    ifcopenshell.api.classification.add_reference(
+        model, products=[p2], identification="PILE-200W-FRN", name="",
+        classification=model.by_type("IfcClassification")[0])
+    return model
+
+
+def _money(child):
+    cv = child.CostValues[0]
+    q = child.CostQuantities[0]
+    return (cv.AppliedValue.wrappedValue * q[3]
+            / cv.UnitBasis.ValueComponent.wrappedValue)
+
+
+def test_residue_is_trimmed_so_the_children_sum_to_the_cost():
+    # $10/LF x 18.75 m = $615.1575; the bid's cost is the rounded $615.16
+    model = _two_piles()
+    costs = {"PILE-200W-FRN": {**PILE_COSTS["PILE-200W-FRN"], "cost": 615.16}}
+    report = estimate5d.embed_estimate(model, PILE_MAP, costs)
+    kids = _children(_parents(model)[0])
+    assert sum(_money(k) for k in kids) == pytest.approx(615.16, abs=1e-9)
+    assert report.by_code["PILE-200W-FRN"]["extended"] == \
+        pytest.approx(615.16, abs=1e-9)
+    assert report.extended_total == pytest.approx(615.16, abs=1e-9)
+    assert report.snapped_to_cost["PILE-200W-FRN"] == \
+        pytest.approx(10.0 * 18.75 * M_TO_LF - 615.16, abs=1e-9)
+
+
+def test_a_real_variance_is_reported_not_trimmed():
+    model = _pile_ifc()
+    report = estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)  # 500
+    (child,) = _children(_parents(model)[0])
+    assert _money(child) == pytest.approx(10.0 * 12.5 * M_TO_LF, rel=1e-9)
+    assert report.snapped_to_cost == {}

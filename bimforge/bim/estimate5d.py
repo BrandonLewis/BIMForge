@@ -35,6 +35,11 @@ children of a lump sum sum to the capped price (#366). Elements whose Count
 sums to 0 cannot carry a lump sum; the code is reported in
 `zero_count_lump_sums` and extends $0.
 
+When a code's extension is within float / unit-conversion residue of its
+costs.json `cost` (`RESIDUE_REL`, at least $0.01), its rates are scaled by
+cost / extension, so its children sum to the cost exactly (#49; reported in
+`snapped_to_cost`). A larger gap is a real variance and stays in `by_code`.
+
 THE GOVERNING CODE. A bid item is priced on one pay quantity, and the other
 codes it takes off are incidental to it: a fence item that pays by the
 frame's steel weight takes off its footings, fabric and gates too, and they
@@ -78,7 +83,15 @@ _MEASURE_TYPE = {"length": "IfcLengthMeasure", "area": "IfcAreaMeasure",
                  "count": "IfcCountMeasure"}
 _SI_PREFIX = {"mass": "KILO"}      # SI mass is the gram; quantity_scale is kg
 EACH = "EACH"
+#: a code's extension within this of its cost is float / unit-conversion
+#: residue, trimmed so its children sum to the cost exactly (#49); a larger
+#: gap is a real variance (model quantity is not the bid quantity), reported
+RESIDUE_REL = 1e-4
 LEGACY_MARKER = "BidSheet_EstimateModel"   # estimate_model5d's schedules
+
+
+def _is_residue(extended: float, cost: float) -> bool:
+    return abs(extended - cost) <= max(0.01, RESIDUE_REL * abs(cost))
 
 
 @dataclass
@@ -101,6 +114,9 @@ class EstimateEmbedReport:
     # (code, pay quantity): a lump sum / count_as over elements whose Count
     # sums to 0 — nothing to spread the price over, so it extends $0
     zero_count_lump_sums: list = field(default_factory=list)
+    # {code: extended - cost}: residue trimmed off the code's rates so its
+    # children sum to its cost exactly
+    snapped_to_cost: dict = field(default_factory=dict)
 
 
 def _rate_for(code: str, entry: dict, costs: dict, *, plural: bool,
@@ -315,6 +331,7 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
         entries = entries_by_code.get(code)
         plural = entries is not None
         code_extended = 0.0
+        code_values = []
         code_authored = False
         for entry in (entries or [cfg]):
             measure = entry.get("measure")
@@ -406,6 +423,7 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
             for cv, rate, raw_qty, _ in priced:
                 cost.edit_cost_value(model, cv,
                                      attributes={"AppliedValue": rate * factor})
+                code_values.append(cv)
                 entry_extended += rate * factor * raw_qty
             if not priced:
                 # every eligible element was type-level: nothing to price
@@ -417,6 +435,13 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
             code_authored = True
         if code_authored:
             bm = (costs.get(code) or {}).get("cost")
+            if bm and code_extended and _is_residue(code_extended, bm):
+                k = bm / code_extended      # rate = cost / sum(q / basis)
+                for cv in code_values:
+                    cost.edit_cost_value(model, cv, attributes={
+                        "AppliedValue": cv.AppliedValue.wrappedValue * k})
+                report.snapped_to_cost[code] = code_extended - bm
+                code_extended = float(bm)
             report.by_code[code] = {
                 "extended": code_extended,
                 "bm_cost": bm,
