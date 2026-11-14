@@ -35,7 +35,7 @@ def from_ganttwarrior(doc: dict) -> CanonicalSchedule:
 
     `bid_item_codes` is structure, not presentation (#302). It is the join key
     every downstream surface needs, and dropping it failed silently: `est-bim
-    schedule` assigned no IFC elements (no code → no IfcRelAssignsToProcess) and
+    schedule` assigned no IFC elements (no code → no task-to-element link) and
     `cost5d`/`costload` reported every task unpriced even with the codes in
     `costs.json`. GanttWarrior 0.2 writes them; a pre-0.2 export has no such key
     and still loads, with `[]`.

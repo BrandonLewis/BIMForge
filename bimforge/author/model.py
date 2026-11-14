@@ -48,6 +48,10 @@ class Element:
     #: Pay codes ([] = reference geometry, never a pay quantity).
     classifications: list[str] = field(default_factory=list)
     material: str | None = None
+    #: The IfcMaterial.Category the material is written with (#65), one of
+    #: ifc_styles.MATERIAL_CATEGORIES. None: from the material's name, else
+    #: from the element's surface (ifc_styles.material_category).
+    material_category: str | None = None
     density_pcf: float | None = None
     #: Placement: model-frame feet. Emitters place the element here.
     x_ft: float = 0.0
@@ -168,6 +172,10 @@ class StructureModel:
     elements: list[Element] = field(default_factory=list)
     #: name -> list of element names aggregated into an IfcElementAssembly.
     assemblies: dict[str, list[str]] = field(default_factory=dict)
+    #: name -> list of element names assigned to an IfcGroup (#59): things
+    #: selected and hidden together without a common parent, such as a pit
+    #: (whose parent is the ground it voids) and its backfill.
+    groups: dict[str, list[str]] = field(default_factory=dict)
     #: Openings: (host element name, opening Element) — emitted as
     #: IfcOpeningElement voids on the host.
     openings: list[tuple[str, Element]] = field(default_factory=list)

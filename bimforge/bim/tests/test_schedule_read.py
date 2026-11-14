@@ -284,23 +284,24 @@ def _staged(ifc_path, out_name="staged.4d.ifc"):
     tasks = {t.Name: t for t in m.by_type("IfcTask")}
     cols = sorted(m.by_type("IfcColumn"), key=lambda e: e.GlobalId)
     for el in cols[:2]:
-        sq.assign_process(m, relating_process=tasks["Piling stage 1"],
-                          related_object=el)
+        sq.assign_product(m, relating_product=el,
+                          related_object=tasks["Piling stage 1"])
     for el in cols[2:]:
-        sq.assign_process(m, relating_process=tasks["Piling stage 2"],
-                          related_object=el)
+        sq.assign_product(m, relating_product=el,
+                          related_object=tasks["Piling stage 2"])
     out = os.path.join(os.path.dirname(ifc_path), out_name)
     m.write(out)
     return out, [c.GlobalId for c in cols]
 
 
-def _to_outputs(path, out_name):
-    """Post-process every input link into an output link (Bonsai playback)."""
+def _to_inputs(path, out_name):
+    """Rewrite every output link as an input link, the way embed_schedule
+    wrote them before #60."""
     m = ifcopenshell.open(path)
-    for rel in list(m.by_type("IfcRelAssignsToProcess")):
-        task = rel.RelatingProcess
-        for el in rel.RelatedObjects:
-            sq.assign_product(m, relating_product=el, related_object=task)
+    for rel in list(m.by_type("IfcRelAssignsToProduct")):
+        el = rel.RelatingProduct
+        for task in rel.RelatedObjects:
+            sq.assign_process(m, relating_process=task, related_object=el)
         m.remove(rel)
     out = os.path.join(os.path.dirname(path), out_name)
     m.write(out)
@@ -314,8 +315,8 @@ def _undirected(links):
 
 def test_task_elements_reads_inputs_and_outputs_alike(sample_ifc):
     path, cols = _staged(sample_ifc)
-    outs = _to_outputs(path, "staged.out.ifc")
-    m_in, m_out = ifcopenshell.open(path), ifcopenshell.open(outs)
+    ins = _to_inputs(path, "staged.in.ifc")
+    m_in, m_out = ifcopenshell.open(ins), ifcopenshell.open(path)
     links_in, links_out = task_elements(m_in), task_elements(m_out)
     assert _undirected(links_in) == _undirected(links_out)
     assert {l["direction"] for ls in links_in.values() for l in ls} == \
@@ -354,8 +355,8 @@ def _tmap():
 @pytest.mark.parametrize("outputs", [False, True])
 def test_takeoff_by_task_splits_each_row(sample_ifc, outputs):
     path, cols = _staged(sample_ifc, f"tbt{outputs}.4d.ifc")
-    if outputs:
-        path = _to_outputs(path, "tbt.out.ifc")
+    if not outputs:                          # a model written before #60
+        path = _to_inputs(path, f"tbt{outputs}.in.ifc")
     takeoff, warnings = takeoff_by_task(path, _tmap())
     rows = {r["cost_code"]: r for r in takeoff["rows"]}
 
@@ -384,7 +385,8 @@ def test_two_constructive_tasks_earliest_claims_with_warning(sample_ifc):
     path, cols = _staged(sample_ifc, "dup.4d.ifc")
     m = ifcopenshell.open(path)
     p2 = next(t for t in m.by_type("IfcTask") if t.Name == "Piling stage 2")
-    sq.assign_process(m, relating_process=p2, related_object=m.by_guid(cols[0]))
+    sq.assign_product(m, relating_product=m.by_guid(cols[0]),
+                      related_object=p2)
     out = path.replace(".4d.ifc", ".dup2.ifc")
     m.write(out)
     takeoff, warnings = takeoff_by_task(out, _tmap())
@@ -400,7 +402,8 @@ def test_takeoff_by_task_with_a_replanned_schedule(sample_ifc):
     path, cols = _staged(sample_ifc, "replan.4d.ifc")
     m = ifcopenshell.open(path)
     p2 = next(t for t in m.by_type("IfcTask") if t.Name == "Piling stage 2")
-    sq.assign_process(m, relating_process=p2, related_object=m.by_guid(cols[0]))
+    sq.assign_product(m, relating_product=m.by_guid(cols[0]),
+                      related_object=p2)
     out = path.replace(".4d.ifc", ".r2.ifc")
     m.write(out)
     plan = read_schedule(ifcopenshell.open(out))
@@ -461,7 +464,8 @@ def test_renamed_replan_in_a_multi_schedule_file_matches_by_global_id(
                    if t.Name == "Piling stage 1"
                    and t.TaskTime and t != _task_named(m, "Staged", "P1"))
     for gid in cols[2:]:
-        sq.assign_process(m, relating_process=copy_p1, related_object=m.by_guid(gid))
+        sq.assign_product(m, relating_product=m.by_guid(gid),
+                          related_object=copy_p1)
     out = path.replace(".4d.ifc", ".m2.ifc")
     m.write(out)
 

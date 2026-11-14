@@ -6,6 +6,7 @@ distance to the IFC curve ifcopenshell builds from the emitted layouts.
 """
 from __future__ import annotations
 
+import math
 import uuid
 
 import pytest
@@ -133,3 +134,43 @@ def test_ifc4_opt_out_writes_no_alignment_and_says_so(tmp_path, capsys):
     _out, f = _emit(tmp_path, m)
     assert f.schema == "IFC4"                 # which has no IfcAlignment at all
     assert "IfcAlignment is IFC4X3-only" in capsys.readouterr().err
+
+
+def _end_direction(sp):
+    """A horizontal segment's direction at its end (radians, CCW from +x)."""
+    d = sp.StartDirection
+    if sp.PredefinedType == "CIRCULARARC" and sp.StartRadiusOfCurvature:
+        d += sp.SegmentLength / sp.StartRadiusOfCurvature
+    return d
+
+
+@pytest.mark.parametrize("bearing", ["N 10-0-0 E", "S 80-0-0 E",
+                                     "S 10-0-0 W", "N 80-0-0 W"])
+@pytest.mark.parametrize("ends_on", ["tangent", "curve"])
+def test_the_closing_segment_carries_the_final_direction(tmp_path, bearing,
+                                                          ends_on):
+    """ifcopenshell 0.9 writes the zero-length terminator pi off the end
+    tangent when the final heading is past 90 degrees (#51); the geometry is
+    right, so only the semantic segment disagrees. Every quadrant, ending on a
+    tangent or on a curve, closes facing the way the alignment ends."""
+    import ifcopenshell.api.alignment as api
+    run = [{"kind": "tangent", "bearing": bearing, "length": 120.0}]
+    if ends_on == "curve":
+        run.append({"kind": "curve", "delta": "25-0-0", "radius": 400.0,
+                    "turn": "R", "length": 174.533})
+    ctx = ProjectContext(name="Alignment Fixture", schema="IFC4X3_ADD2",
+                         epsg=2226, base_e=6_594_000.0, base_n=1_943_000.0,
+                         base_h=200.0, guid_ns=uuid.UUID(int=51))
+    al = Alignment(POB, run, name="ML")
+    sw = SweptSection("deck", RECT, al, al.s_start, al.s_end, origin=ctx)
+    m = StructureModel("align", ctx)
+    m.add(Element.from_geometry("deck", sw, ifc_class="IfcSlab",
+                                quantities={"volume_cf": sw.volume_cf}))
+    _out, f = _emit(tmp_path, m)
+    (ifc_al,) = f.by_type("IfcAlignment")
+    segs = [s.DesignParameters for s in
+            api.get_layout_segments(api.get_horizontal_layout(ifc_al))]
+    last, term = segs[-2], segs[-1]
+    assert term.SegmentLength == 0.0
+    d = term.StartDirection - _end_direction(last)
+    assert abs(math.atan2(math.sin(d), math.cos(d))) < 1e-9

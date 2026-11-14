@@ -24,6 +24,11 @@ wall; a tie-back goes in when the fill reaches its elevation).
 The thin remainder at the top (less than `min_top_fraction` of a lift) is
 merged into the lift below, as the last lift is in the field.
 
+Not for 4D (#59): a 4D viewer drains or fills one earthwork solid by volume
+over its task, so model a pit as one hosted IfcEarthworksCut and its
+backfill as one solid derived from it (`author.backfill.derive_backfill`).
+Lifts stay for families that still schedule fill lift by lift, until none do.
+
 manifold3d is an optional dependency (``pip install 'bimforge[terrain]'``).
 
 Examples:

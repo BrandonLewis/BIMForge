@@ -27,7 +27,8 @@ import warnings
 import numpy as np
 
 from bimforge.author.alignment import poly_area
-from bimforge.author.ifc_styles import resolve_surface, sanitize_pack
+from bimforge.author.ifc_styles import (material_category, resolve_surface,
+                                        sanitize_pack)
 from bimforge.author.primitives import (
     ARC_SEGMENTS, equal_area_polygon_radius, exact_of,
     taper_prism_triangles)
@@ -137,6 +138,14 @@ def _style_name(appear: dict, key: str | None) -> str:
     return appear.get("material") or key or "Surface"
 
 
+def _colour_or_factor_attr(v):
+    """A palette's factor-or-rgb (ifc_styles._colour_or_factor) as the
+    IfcColourOrFactor attribute style.add_surface_style takes."""
+    if isinstance(v, list):
+        return {"Name": None, "Red": v[0], "Green": v[1], "Blue": v[2]}
+    return float(v)
+
+
 def _surface_style(run, f, cache: dict, appear: dict, key: str | None):
     """The cached IfcSurfaceStyle for one resolved appearance.
 
@@ -147,8 +156,11 @@ def _surface_style(run, f, cache: dict, appear: dict, key: str | None):
     not collapse onto one style.
     """
     name = _style_name(appear, key)
+    diffuse, spec_colour = appear.get("diffuse"), appear.get("specular_colour")
     skey = (name, tuple(appear["rgb"]), appear["transparency"],
-            appear.get("reflectance"), appear.get("specular"))
+            appear.get("reflectance"), appear.get("specular"),
+            tuple(diffuse) if isinstance(diffuse, list) else diffuse,
+            tuple(spec_colour) if isinstance(spec_colour, list) else spec_colour)
     style = cache.get(skey)
     if style is not None:
         return style
@@ -160,10 +172,15 @@ def _surface_style(run, f, cache: dict, appear: dict, key: str | None):
     # independently optional, so a specular set without a reflectance method
     # must not be silently dropped. ReflectanceMethod is mandatory on the
     # entity, and NOTDEFINED is what the enum provides for exactly this.
-    if appear.get("reflectance") or appear.get("specular") is not None:
+    if (appear.get("reflectance") or appear.get("specular") is not None
+            or diffuse is not None or spec_colour is not None):
         ifc_class = "IfcSurfaceStyleRendering"
         attrs["ReflectanceMethod"] = appear.get("reflectance") or "NOTDEFINED"
-        attrs["DiffuseColour"] = 1.0 - float(appear["transparency"])
+        attrs["DiffuseColour"] = (_colour_or_factor_attr(diffuse)
+                                  if diffuse is not None
+                                  else 1.0 - float(appear["transparency"]))
+        if spec_colour is not None:
+            attrs["SpecularColour"] = _colour_or_factor_attr(spec_colour)
         if appear.get("specular") is not None:
             attrs["SpecularHighlight"] = {
                 "IfcSpecularRoughness": float(appear["specular"])}
@@ -172,6 +189,22 @@ def _surface_style(run, f, cache: dict, appear: dict, key: str | None):
         ifc_class=ifc_class, attributes=attrs)
     cache[skey] = style
     return style
+
+
+def _note_category(seen: dict, appear: dict, el) -> None:
+    """Record the IfcMaterial.Category of `el`'s material (#65), the first
+    element that uses a material deciding; a later element that would give
+    it another category is warned about, not obeyed."""
+    name = appear["material"]
+    cat = material_category(name, el.material_category, appear.get("category"))
+    if name not in seen:
+        seen[name] = (cat, el.name)
+    elif cat != seen[name][0]:
+        warnings.warn(
+            f"material {name!r}: {el.name!r} gives category {cat!r}, but "
+            f"{seen[name][1]!r} already gave {seen[name][0]!r} - one material "
+            f"has one IfcMaterial.Category; keeping {seen[name][0]!r}",
+            UserWarning, stacklevel=2)
 
 
 def _warn_if_width_is_a_thickness(el, area_ft2: float, length: float,
@@ -1194,6 +1227,8 @@ def _assert_guid_uniqueness(model, *, scope: str = "", spatial_keys=()) -> None:
         note(op.guid_key, f"opening {op.name}")
     for asm_name in model.assemblies:
         note(f"assembly/{asm_name}", f"assembly {asm_name}")
+    for grp_name in getattr(model, "groups", None) or {}:
+        note(f"group/{grp_name}", f"group {grp_name}")
     # one named type is ONE IfcTypeObject: its GlobalId is keyed by class
     # and name, so two predefined types under one name would be two type
     # objects with one GlobalId. Refused here, before any write.
@@ -1584,17 +1619,21 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                combined)
 
     if ctx.epsg is not None:
+        from bimforge.bim.georef import crs_datum, write_map_unit
         run("georeference.add_georeferencing", f)
         run("georeference.edit_georeferencing", f,
             projected_crs={"Name": ctx.crs_name,
                            "Description": ctx.crs_desc or None,
-                           "GeodeticDatum": ctx.geodetic_datum,
+                           "GeodeticDatum": (ctx.geodetic_datum
+                                             or crs_datum(ctx.epsg)),
                            "VerticalDatum": ctx.vertical_datum},
             coordinate_operation={
                 "Eastings": ctx.base_e, "Northings": ctx.base_n,
                 "OrthogonalHeight": ctx.base_h,
                 "Scale": 1.0 / ctx.ft_to_m,
             })
+        # #58: without MapUnit the CRS would take the project's metre
+        write_map_unit(f, ctx.epsg, 1.0 / ctx.ft_to_m)
 
         # Grid north != true north by the grid convergence angle. Model axes
         # ARE the grid axes, so the declaration belongs on the context's
@@ -1635,6 +1674,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         _check_parts(m)
     by_material: dict = {}     # material name -> [products]
     mat_appear: dict = {}      # material name -> the appearance it resolved on
+    mat_category: dict = {}    # material name -> (IfcMaterial.Category, element)
     cls_cache: dict = {}
     by_code: dict[str, list] = {}
     by_name_by_model: dict[int, dict] = {}
@@ -1666,6 +1706,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                  f"IFC4X3 (the schema is {ctx.schema})")
             voiding[el.name] = host
         hosts |= set(voiding.values())
+        ground = [e.name for e in m.elements
+                  if e.ifc_class == "IfcGeographicElement"]
         for el in m.elements:
             # an IfcEarthworksCut voids a host only when it names one
             # (Element.voids); unhosted, it is rewritten (#364)
@@ -1674,6 +1716,14 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             else:
                 wanted, object_type = _unhosted_cut_class(ctx.schema, el.ifc_class,
                                                           el.name)
+                if el.ifc_class == "IfcEarthworksCut" and ground:
+                    # #59: the hosted cut is the standard form; a 4D viewer
+                    # opens the ground over a pit as it is dug
+                    warnings.warn(
+                        f"{el.name!r}: an excavation written unhosted while "
+                        f"{ground[0]!r} is in the model - set voids="
+                        f"{ground[0]!r} to write it as an IfcEarthworksCut "
+                        f"voiding the ground", UserWarning, stacklevel=2)
             ifc_class = _class_for_schema(ctx.schema, wanted, el.name)
             product = run("root.create_entity", f, ifc_class=ifc_class,
                           predefined_type=el.predefined_type, name=el.name)
@@ -1699,10 +1749,15 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             if el.name not in voiding:        # a feature hangs off its host
                 run("spatial.assign_container", f, products=[product],
                     relating_structure=home.container_for(el))
-            appear = resolve_surface(el.layer, el.ifc_class, pack_ifc, el.material)
+            # the material's own category keys its look (#65), after its
+            # name and layer, before its class
+            appear = resolve_surface(
+                el.layer, el.ifc_class, pack_ifc, el.material,
+                category=material_category(el.material, el.material_category))
             if appear["material"]:
                 by_material.setdefault(appear["material"], []).append(product)
                 mat_appear.setdefault(appear["material"], appear)
+                _note_category(mat_category, appear, el)
             # an opening host keeps its sweeps as meshes: ifcopenshell draws
             # an IfcSectionedSolidHorizontal as an open shell (#9820), and a
             # boolean against an open shell is silently dropped — the
@@ -1876,6 +1931,20 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 run("aggregate.assign_object", f, products=[by_name[n]],
                     relating_object=asm)
 
+        # #59: an IfcGroup ties a pit to its backfill. It is an assignment,
+        # not a parent, so a hosted cut (whose parent is its ground) can join
+        for grp_name, members in (getattr(m, "groups", None) or {}).items():
+            missing = [n for n in members if n not in by_name]
+            if missing:
+                raise ValueError(f"{m.name}: group {grp_name!r} names "
+                                 f"{', '.join(map(repr, missing))}, not an "
+                                 f"element of the model")
+            grp = run("root.create_entity", f, ifc_class="IfcGroup",
+                      name=grp_name)
+            grp.GlobalId = ctx.guid(_gk(scope, f"group/{grp_name}"))
+            run("group.assign_group", f,
+                products=[by_name[n] for n in members], group=grp)
+
     # annotations (issue #195): instanced IfcAnnotation, only when a model
     # carries a plan — so every family that emits none is byte-identical to
     # before (no annotation context, no IfcAnnotation created). The Plan/
@@ -1898,6 +1967,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
 
     for name in sorted(by_material):
         mat = run("material.add_material", f, name=name)
+        # #65: what kind of material this is, in IFC's own keywords; a reader
+        # styles by it, never by the free-text Name
+        mat.Category = (mat_category.get(name) or (None,))[0]
         run("material.assign_material", f, products=by_material[name], material=mat)
         # Give the MATERIAL an appearance too, not just the shapes. Viewers
         # that colour by material (and Revit's IFC link) read
@@ -1921,6 +1993,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                      for _host, op in m.openings}
         assigned |= {ctx.guid(_gk(scope, f"assembly/{name}"))
                      for name in m.assemblies}
+        assigned |= {ctx.guid(_gk(scope, f"group/{name}"))
+                     for name in (getattr(m, "groups", None) or {})}
         assigned |= {ctx.guid(_annotation_guid_key(scope, i, plan))
                      for i, plan in enumerate(getattr(m, "annotations", None)
                                               or [])}

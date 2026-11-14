@@ -92,6 +92,28 @@ def _horizontal(f, layout, al, origin, k):
             PredefinedType=kind))
 
 
+def fix_terminator(api, ifc_al) -> None:
+    """The zero-length terminator must carry the alignment's FINAL direction.
+
+    ifcopenshell writes a wrong StartDirection on the terminator's
+    IfcAlignmentHorizontalSegment (the IfcCurveSegment geometry is right):
+    0.8.5's PI layout, and 0.9 whenever the final heading is past 90 degrees,
+    where it comes out pi off (#51). Recompute it from the preceding segment's
+    end tangent. Both writers call this: emit_alignments and
+    bim.add_alignment.
+    """
+    segs = api.get_layout_segments(api.get_horizontal_layout(ifc_al))
+    if len(segs) < 2:
+        return
+    term, prev = segs[-1].DesignParameters, segs[-2].DesignParameters
+    if term.SegmentLength != 0.0:
+        return
+    d = prev.StartDirection
+    if prev.PredefinedType == "CIRCULARARC" and prev.StartRadiusOfCurvature:
+        d += prev.SegmentLength / prev.StartRadiusOfCurvature   # signed: CCW +
+    term.StartDirection = math.atan2(math.sin(d), math.cos(d))
+
+
 def _vertical(f, layout, al, prof, origin, k):
     """The profile over the whole traverse, cut at every BVC/EVC.
 
@@ -146,6 +168,7 @@ def emit_alignments(run, f, models, ctx, site) -> dict:
         ifc_al = api.create(f, al.name if n == 1 else f"{al.name} ({n})",
                             include_vertical=prof is not None)
         _horizontal(f, api.get_horizontal_layout(ifc_al), al, origin, k)
+        fix_terminator(api, ifc_al)
         if prof is not None:
             _vertical(f, api.get_vertical_layout(ifc_al), al, prof, origin, k)
         api.add_stationing_referent(

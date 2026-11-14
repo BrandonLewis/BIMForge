@@ -47,5 +47,5 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.2 | ESTIMATE schedule keyed by pay item, cost codes nested, ADD-composed leaves, one cost evaluator, currency. Spec `docs/superpowers/specs/2026-11-09-estimate-schedule-by-bid-item-design.md`. | This PR |
 | C.3 | Audit Phase 0: the remaining bugs (0.2 to 0.10). | Next |
 | C.4 | Audit Phase 1: additive units, types and statuses (#37). | Next |
-| C.5 | Audit Phase 2: relationship semantics (task outputs as IfcRelAssignsToProduct, resources via assign_process). | Next, coordinated with ProjectCommand |
+| C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. | In progress, coordinated with ProjectCommand |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |

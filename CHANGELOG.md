@@ -13,9 +13,9 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   single ADD-composed IfcCostValue (its components are the money by kind) and
   no CostQuantities. `read_costs` keys and the dashboard's share `code` are
   unchanged; the old key rides on the bid item as `BidSheet_EstimateItem.CostKey`.
-  A reader older than 0.1.112 reads the composed leaves as $0, and re-running an
+  A reader older than 0.1.117 reads the composed leaves as $0, and re-running an
   older `estimate-model` over a new file leaves orphan cost values: adopt
-  0.1.112 everywhere at once.
+  0.1.117 everywhere at once.
 - **Pay item ids are the bare item number** in both schedules
   (`estimate5d.pay_item_id`): "Item # 2" is written "2".
 - **A TENDER rate over an undeclared unit is per one raw unit** (`estimate5d`):
@@ -24,11 +24,6 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   SQUARE_METRE, else an IfcConversionBasedUnit), not the SI base unit valued at
   that size, so a reader that divides by the basis value without converting
   units (ProjectCommand's) reads the right money.
-
-- **An IFC2X3 model is refused by name.** `est-bim takeoff`, the takeoff workbook and
-  the web bundle now stop with "IFC2X3 is not supported: the takeoff reads IFC4X3, or
-  IFC4 as a fallback" (`ifc_takeoff.require_supported_schema`). A classified IFC2X3
-  element used to raise an AttributeError mid-read.
 
 ### Added
 
@@ -55,6 +50,127 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   float residue of its `cost` (0.001%, at least $0.01) has its non-count rates
   scaled so its children sum to the cost exactly, and `estimate5d` refuses to
   write a schedule that does not read back at its priced total to $0.01.
+
+## 0.1.116 — 2026-11-14
+
+### Added
+
+- **A backfill derived from its pit** (#59). `author.backfill.derive_backfill(model,
+  pit, name, top=...)` adds one IfcEarthworksFill (BACKFILL) whose solid is the pit
+  clipped at the backfill's top (a level or a surface) less every element body
+  standing in it, cut with manifold3d when the model is built: a stem rising above the
+  backfill takes away only its buried part. Its `volume_cf` is the solid's volume, held
+  by a stated-quantity assertion. Ground and other earthwork bodies are never taken
+  away; `exclude=` names more. A body that is not a closed solid, nothing left to
+  backfill, or a backfill in another number of pieces than `pieces=` (default 1) is
+  refused. A 4D viewer animates the one solid by volume, so no lifts are needed;
+  `author.lifts` is no longer the way for 4D.
+- **Groups** (#59). `StructureModel.groups` ({name: [element names]}) is written as one
+  named IfcGroup each, with IfcRelAssignsToGroup; `derive_backfill(group=...)` ties a
+  pit and its backfill together ("Abut 1 earthwork"). A group is an assignment, not a
+  parent, so a hosted cut (whose parent is the ground it voids) can join one where it
+  cannot join an IfcElementAssembly. A group naming a missing element is refused.
+- **Every IfcMaterial states its IFC Category** (#65): `concrete`, `steel`, `aluminium`,
+  `block`, `brick`, `stone`, `wood`, `glass`, `gypsum`, `plastic` or `earth`, so a
+  viewer can give each kind of material its own surface without parsing the free-text
+  Name. It comes from `Element.material_category`, else the first keyword in the
+  material's name (shotcrete, mortar and concrete are concrete; pipe, rod, bar and cable
+  are steel; ground, backfill, fill and excavation are earth; timber and plyform are
+  wood; ...), else the element's surface; no match leaves it unset. One material has
+  one Category: a clash is warned and the first element decides.
+- **Palettes** (#65). A style pack's `ifc.surfaces` can be keyed by
+  `material:<name>` and `category:<category>` as well as by layer and IFC class, in
+  that order (name, layer, category, class), each key merging field by field over the
+  built-in entry. Entries take `diffuse` and `specular_colour` (a factor or an rgb)
+  alongside colour, transparency, reflectance and roughness; `texture` is reserved and
+  ignored with a warning. A build spec's `style_pack:` (or `est-bim build
+  --style-pack`) picks the palette for one job, over the org pack. Every category has a
+  built-in look (steel and aluminium METAL, glass GLASS and see-through, concrete,
+  stone, masonry, wood and earth MATT), so a material whose layer the table does not
+  know now reads as what it is rather than as its IFC class's default.
+
+### Changed
+
+- **An excavation written unhosted while existing ground is in the model is warned**
+  (#59). The hosted IfcEarthworksCut (`Element.voids` naming the ground) is the
+  standard form a 4D viewer opens the ground with; the unhosted rewrite to
+  IfcEarthworksElement / EXCAVATION (#364) is unchanged.
+
+## 0.1.115 — 2026-11-14
+
+### Fixed
+
+- **A georeferenced IFC states the unit of its map coordinates** (#58). Neither
+  `emit_ifc` nor `dxf2bim` set `IfcProjectedCRS.MapUnit`, and a CRS without one takes
+  the project's length unit, the metre, so a reader that follows the schema took a
+  US-survey-feet CRS's eastings and northings as metres. Both now write the CRS's
+  unit from the EPSG registry, through one helper (`bim.georef.write_map_unit`): an
+  `IfcConversionBasedUnit` ('US survey foot', 'foot') or the SI metre. A
+  MapConversion Scale that disagrees with that unit is refused.
+- **`dxf2bim` converts a drawing in another unit than its CRS through metres.** A mm
+  DXF on a metre CRS passed its mm base through as metre eastings and wrote Scale
+  1000, putting the model 1000x off; a drawing in the CRS's own unit (a ft DXF on a
+  ftUS CRS) is unchanged.
+- **`dxf2bim` names the CRS and its geodetic datum** from the EPSG registry unless the
+  layer map's `georeference` block gives `crs_desc` / `geodetic_datum` /
+  `vertical_datum`; `emit_ifc` falls back to the registry datum when the project spec
+  gives none.
+
+### Changed
+
+- **Tasks link to the elements they build or take away as outputs, not inputs**
+  (#60). `est-bim schedule` and `est-bim estimate-model` wrote every task-to-element
+  link as `IfcRelAssignsToProcess`, which IFC, Bonsai and other 4D readers take as
+  material the task consumes, so a construction task showed nothing built. They now
+  write `IfcRelAssignsToProduct` (the element relating, the task related) for both
+  construction tasks and DEMOLITION / DISMANTLE / REMOVAL tasks; the task's
+  PredefinedType still says which. bimforge's readers read both forms, so older
+  models load as before, and re-embedding a schedule replaces its old input links.
+  `schedule-read`'s link `direction` is now `"output"` for these links.
+
+## 0.1.114 — 2026-11-13
+
+### Fixed
+
+- **A merged face no longer opens the shell where two pieces touch edge-on** (#47).
+  A body fused from separate closed pieces (formwork: a kicker flush against a stud)
+  can put two pieces' faces in one plane group as two parts. The T-junction closure
+  put every vertex of the group on every part's boundary, so one piece's corners split
+  the other's edge where its neighbouring face did not: 3 open edges and 1 non-manifold
+  edge, and the post-emit gate deleted the outputs. Each part now keeps only the
+  vertices of its own triangles. As a backstop, a body whose merge would leave more
+  open or non-manifold edges than its triangles had is written as its triangles.
+
+## 0.1.113 — 2026-11-12
+
+### Fixed
+
+- **An alignment's zero-length closing segment faces the way the alignment ends**
+  (#51). ifcopenshell 0.9 writes the terminator `IfcAlignmentHorizontalSegment` π off
+  the end tangent whenever the final heading is past 90°; the geometry was right, so
+  only the semantic segment disagreed. `emit_alignment.fix_terminator` (moved from
+  `bim.add_alignment`, which already applied it) now runs for every authored alignment
+  too.
+- **`est-bim add-alignments` writes a curve that follows a curve where the traverse
+  has it** (#52). ifcopenshell's PI layout misplaces a curve with no tangent before it:
+  a curve split across two sheets came out as a 313° loop turning the other way, with
+  the next segment starting up to 182 m away, and a reverse curve divided by zero. The
+  start and end still matched, so the gate passed. The horizontal segments are now
+  written straight from bimforge's traverse, as `emit_alignment` writes them, and the
+  vertical is still laid out by PI. The gate also checks that every horizontal segment
+  ends where the next one starts.
+
+## 0.1.112 — 2026-11-10
+
+### Changed
+
+- **An IFC2X3 model is refused by name.** `est-bim takeoff`, the takeoff workbook and
+  the web bundle now stop with "IFC2X3 is not supported: the takeoff reads IFC4X3, or
+  IFC4 as a fallback" (`ifc_takeoff.require_supported_schema`). A classified IFC2X3
+  element used to raise an AttributeError mid-read.
+
+### Added
+
 - **The takeoff contract as IDS.** `bimforge/bim/contract/takeoff.ids` states what
   `est-bim takeoff` needs from any IFC (ours, Revit's, Tekla's) as a buildingSMART
   IDS 1.0 document: a classified element carries a quantity to measure, each named
@@ -69,6 +185,15 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   parts, the D90 pipe guardrail), their IFC entities and standard-plan `Reference`,
   and the `BIMForge_LinearReference` properties. It is a local file; nothing is
   published to bSDD and nothing reads it yet.
+
+### Fixed
+
+- **A coplanar merge no longer writes a face whose hole touches its outer bound**
+  (#42). Such a face is valid to OGC, but IFC viewers drop it (web-ifc skips it in
+  `GetFlatMesh`), and the 0.1.110 clearance guard missed it because the shared vertex
+  lies on the edges it is near. `facets` now writes a plane group as its triangles
+  when an inner bound comes within `MIN_CLEARANCE` of the outer bound or of another
+  inner bound.
 
 ## 0.1.111 — 2026-11-09
 

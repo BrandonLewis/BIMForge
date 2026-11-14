@@ -20,8 +20,9 @@ from bimforge.bim.cost_categories import add_categories, categories_of, total_of
 def element_start_dates(model) -> dict[int, str]:
     """Map each scheduled element's entity id → earliest task ScheduleStart.
 
-    Walks `IfcRelAssignsToProcess` (task → products, authored by slice 2)
-    and `IfcRelAssignsToProduct` (product ← task, the output form), reads
+    Walks `IfcRelAssignsToProduct` (product ← task, the output form
+    embed_schedule writes, #60) and `IfcRelAssignsToProcess` (task → products,
+    the input form it wrote before), reads
     the task's `IfcTaskTime.ScheduleStart`, and keeps the earliest
     date (`YYYY-MM-DD`) per element when several tasks touch it. Elements no
     task schedules simply don't appear — the caller leaves them untimed
@@ -399,9 +400,9 @@ def read_schedule(model, name: str | None = None):
 def task_elements(model, name: str | None = None) -> dict[str, list[dict]]:
     """Map task id -> the elements it is linked to (issue #335).
 
-    Reads both directions a 4D model uses: inputs (`IfcRelAssignsToProcess`,
-    what embed_schedule writes) and outputs (`IfcRelAssignsToProduct`, what
-    Bonsai playback wants and post-processors convert to). Each link is
+    Reads both directions a 4D model uses: outputs (`IfcRelAssignsToProduct`,
+    what embed_schedule writes since #60 and Bonsai playback wants) and inputs
+    (`IfcRelAssignsToProcess`, what it wrote before). Each link is
     `{"global_id", "name", "direction": "input" | "output"}`, in file order,
     with the same element+direction listed once. `name` limits the map to
     one IfcWorkSchedule's tasks (as read_schedule picks it); None reads
@@ -548,7 +549,7 @@ def _top_item(ci):
 
 def _cost_key(ci) -> str:
     """read_costs' key for a leaf: its bid item's CostKey (estimate_model5d
-    keeps the pre-0.1.112 key there, since the item's Identification is now
+    keeps the pre-0.1.117 key there, since the item's Identification is now
     the pay item id), else the top-level item's Identification (a cost5d
     item is its own top; an older estimate-model parent carried the key)."""
     top = _top_item(ci)
@@ -618,7 +619,7 @@ def read_costs(model, name: str | None = None) -> dict:
     (`estimate_model5d` nests share items under each bid item), so an
     item's children are never counted twice.
 
-    An estimate-model leaf (0.1.112+) is keyed by its bid item's CostKey,
+    An estimate-model leaf (0.1.117+) is keyed by its bid item's CostKey,
     the key earlier versions used, and its record also carries
     `cost_code`, the "<item>.<code>" node it sits under. The cost schedule
     is "<name> cost", else the ESTIMATE schedule whose
