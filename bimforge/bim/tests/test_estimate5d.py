@@ -724,3 +724,48 @@ def test_a_real_variance_is_reported_not_trimmed():
     (child,) = _children(_parents(model)[0])
     assert _money(child) == pytest.approx(10.0 * 12.5 * M_TO_LF, rel=1e-9)
     assert report.snapped_to_cost == {}
+
+
+def test_an_item_with_no_elements_is_a_total_leaf():
+    model = _pile_ifc()
+    costs = {**PILE_COSTS,
+             "items": {"Item # 1": {"cost": 7670.0,
+                                    "description": "Mobilization"}}}
+    report = estimate5d.embed_estimate(model, PILE_MAP, costs)
+    tops = {ci.Identification: ci for ci in _parents(model)}
+    assert set(tops) == {"0055", "1"}
+    mob = tops["1"]
+    assert mob.Name == "Mobilization"
+    assert not _children(mob) and not (mob.CostQuantities or ())
+    (cv,) = mob.CostValues
+    assert cv.AppliedValue.wrappedValue == 7670.0 and cv.Category is None
+    assert report.items_without_elements == {"1": 7670.0}
+    assert report.extended_total == pytest.approx(
+        7670.0 + 10.0 * 12.5 * M_TO_LF, rel=1e-9)
+    assert report.parents == 2
+
+
+def test_an_items_entry_that_elements_already_price_is_refused():
+    model = _pile_ifc()
+    with pytest.raises(ValueError, match="0055"):
+        estimate5d.embed_estimate(model, PILE_MAP, {
+            **PILE_COSTS, "items": {"0055": {"cost": 1.0}}})
+
+
+def test_the_schedule_must_read_back_at_the_priced_total(monkeypatch):
+    model = _pile_ifc()
+    real = estimate5d._leaf_money
+    monkeypatch.setattr(estimate5d, "_leaf_money",
+                        lambda ci: real(ci) + 0.02)
+    with pytest.raises(ValueError, match="not written"):
+        estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
+
+
+def test_a_rerun_with_items_leaves_one_of_each():
+    model = _pile_ifc()
+    costs = {**PILE_COSTS, "items": {"1": {"cost": 7670.0}}}
+    for _ in range(2):
+        estimate5d.embed_estimate(model, PILE_MAP, costs)
+    assert sorted(ci.Identification for ci in _parents(model)) == \
+        ["0055", "1"]
+    assert len(model.by_type("IfcCostSchedule")) == 1

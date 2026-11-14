@@ -61,6 +61,20 @@ def test_cli_estimate5d_writes_est_ifc_and_prints_variance(tmp_path, capsys):
     assert "vs BM" in out                         # the variance line
 
 
+
+def test_cli_estimate5d_prints_items_no_element_carries(tmp_path, capsys):
+    ifc = tmp_path / "m.ifc"
+    _pile_ifc(ifc)
+    tmap, costs = _write_inputs(tmp_path)
+    data = json.loads(costs.read_text(encoding="utf-8"))
+    data["items"] = {"1": {"cost": 7670.0, "description": "Mobilization"}}
+    costs.write_text(json.dumps(data), encoding="utf-8")
+    rc = cli.main(["estimate5d", "--ifc", str(ifc), "--map", str(tmap),
+                   "--costs", str(costs)])
+    assert rc == 0
+    assert (tmp_path / "m.est.ifc").exists()
+    assert "item 1: $7,670.00, no elements" in capsys.readouterr().out
+
 def test_cli_estimate5d_bad_inputs_are_one_line_errors(tmp_path, capsys):
     ifc = tmp_path / "m.ifc"
     _pile_ifc(ifc)

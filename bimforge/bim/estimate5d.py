@@ -40,6 +40,12 @@ costs.json `cost` (`RESIDUE_REL`, at least $0.01), its rates are scaled by
 cost / extension, so its children sum to the cost exactly (#49; reported in
 `snapped_to_cost`). A larger gap is a real variance and stays in `by_code`.
 
+A bid item no element carries (mobilization) is listed in costs.json under
+"items" ({"<item_number>": {"cost", "description"?}}) and written as a
+top-level leaf with one total IfcCostValue and no CostQuantities. Before
+returning, the schedule is read back the way a consumer sums it; if that
+differs from the priced total by more than $0.01, embed_estimate raises.
+
 THE GOVERNING CODE. A bid item is priced on one pay quantity, and the other
 codes it takes off are incidental to it: a fence item that pays by the
 frame's steel weight takes off its footings, fabric and gates too, and they
@@ -67,6 +73,7 @@ import ifcopenshell.util.unit as unit_util
 from bimforge.bim.cost5d import (_classification, _code_reference,
                                  add_declared_cost_schedule,
                                  remove_declared_cost_schedule)
+from bimforge.bim.costload import ITEMS_KEY, code_costs
 from bimforge.bim.ifc_takeoff import (
     DEFAULT_UNIT, MEASURE_DIM, classifications_of, convert, count_quantity,
     normalize_map, quantities_of, quantity_entities, quantity_scale,
@@ -117,6 +124,9 @@ class EstimateEmbedReport:
     # {code: extended - cost}: residue trimmed off the code's rates so its
     # children sum to its cost exactly
     snapped_to_cost: dict = field(default_factory=dict)
+    # {pay item: cost}: costs.json "items" no element carries (mobilization),
+    # each written as a top-level total with no CostQuantities
+    items_without_elements: dict = field(default_factory=dict)
 
 
 def _rate_for(code: str, entry: dict, costs: dict, *, plural: bool,
@@ -285,6 +295,20 @@ def _remove_named(model, cost_name: str, legacy_name: str) -> None:
             _remove_basis(model, basis)
 
 
+def _leaf_money(ci) -> float:
+    """What a consumer reads off a leaf: AppliedValue x quantity / UnitBasis
+    per value, or the AppliedValue itself when there are no CostQuantities."""
+    qty = sum(float(q[3]) for q in ci.CostQuantities or ())
+    total = 0.0
+    for cv in ci.CostValues or ():
+        v = float(cv.AppliedValue.wrappedValue) if cv.AppliedValue else 0.0
+        if ci.CostQuantities:
+            basis = cv.UnitBasis.ValueComponent.wrappedValue                 if cv.UnitBasis is not None else 1.0
+            v = v * qty / basis
+        total += v
+    return total
+
+
 def embed_estimate(model, tmap: dict, costs: dict, *,
                    schedule_name: str | None = None,
                    stage: str = "tender") -> EstimateEmbedReport:
@@ -294,6 +318,8 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
         raise ValueError(f"stage must be one of {sorted(STAGES)}, got {stage!r}")
     schedule_type, status = STAGES[stage]
     codes_cfg, _defaults, entries_by_code = normalize_map(tmap)
+    lumps = costs.get(ITEMS_KEY) or {}
+    costs = code_costs(costs)
     name = schedule_name or tmap.get("project_ref") or "Estimate"
     cost_name = f"{name} bid"
     _remove_named(model, cost_name, legacy_name=f"{name} estimate")
@@ -472,5 +498,33 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
                                related_objects=els)
         _code_reference(model, parent, code, classif)
         report.covered_by_item[code] = item
+
+    # bid items no element carries (mobilization): a top-level total each,
+    # so the schedule totals the bid (#49)
+    for number, rec in lumps.items():
+        item = pay_item_id(number, number)
+        if item in parents:
+            raise ValueError(f"costs.json items: {item} is a pay item the "
+                             f"map's elements already price")
+        amount = float(rec["cost"])
+        lump = cost.add_cost_item(model, cost_schedule=cs)
+        cost.edit_cost_item(model, lump, attributes={
+            "Name": rec.get("description") or item, "Identification": item})
+        cv = cost.add_cost_value(model, parent=lump)
+        cost.edit_cost_value(model, cv, attributes={"AppliedValue": amount,
+                                                    "Name": "Total"})
+        parents[item] = lump
+        report.items_without_elements[item] = amount
+        report.extended_total += amount
     report.parents = len(parents)
+
+    # the gate: the schedule reads back, as a consumer sums it, at what it
+    # prices, to the cent, or it is not written
+    written = sum(_leaf_money(ci) for ci in _walk_items(cs)
+                  if not any(rel.RelatedObjects
+                             for rel in (ci.IsNestedBy or [])))
+    if abs(written - report.extended_total) > 0.01:
+        raise ValueError(f"the {schedule_type} schedule reads "
+                         f"${written:,.2f} but prices "
+                         f"${report.extended_total:,.2f}: not written")
     return report

@@ -574,6 +574,11 @@ def _run_estimate5d(args) -> int:
                   f"${v['bm_cost']:,.0f} ({v['variance_pct']:+.1f}%)")
     for code, item in sorted(report.covered_by_item.items()):
         print(f"  {code}: no unit_price -- covered at $0 by pay item {item}")
+    for item, amount in sorted(report.items_without_elements.items()):
+        print(f"  item {item}: ${amount:,.2f}, no elements (costs.json items)")
+    for code, drift in sorted(report.snapped_to_cost.items()):
+        print(f"  {code}: rates trimmed by ${drift:+,.4f} so its children "
+              f"sum to its cost")
     for label, entries in (
             ("no unit_price — skipped", report.codes_without_rate),
             ("no explicit measure — skipped", report.codes_without_measure),
@@ -2558,7 +2563,9 @@ def main(argv=None) -> int:
     e5.add_argument("--map", required=True,
                     help="the takeoff map yaml est-bim takeoff reads")
     e5.add_argument("--costs", required=True,
-                    help="costs.json with unit_price (and optional unit) per code")
+                    help="costs.json with unit_price (and optional unit) per "
+                         "code, and optional \"items\" for bid items no "
+                         "element carries")
     e5.add_argument("--name", default=None,
                     help="schedule base name (default: the map's project_ref)")
     e5.add_argument("--stage", choices=("tender", "awarded"), default="tender",
