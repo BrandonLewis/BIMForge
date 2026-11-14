@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.117 — 2026-11-14
+
 ### Fixed
 
 - **The unhosted-excavation warning names the terrain** (#59). It took the first
