@@ -539,8 +539,11 @@ def test_a_count_basis_is_one_each_and_rerun_leaves_no_orphans(schema):
                           "item_number": "7"}}}
     costs = {"PILE-200W-FRN": {"cost": 0.0, "labor_hours": None,
                                "unit_price": 900.0}}
+    dims = None
     for _ in range(3):
         report = estimate5d.embed_estimate(model, tmap, costs)
+        if dims is None:
+            dims = len(model.by_type("IfcDimensionalExponents"))
     (child,) = _children(_parents(model)[0])
     cv = child.CostValues[0]
     basis = cv.UnitBasis
@@ -556,6 +559,7 @@ def test_a_count_basis_is_one_each_and_rerun_leaves_no_orphans(schema):
                for m in model.by_type("IfcMeasureWithUnit"))
     assert len([u for u in model.by_type("IfcContextDependentUnit")
                 if u.Name == "EACH"]) == 1
+    assert len(model.by_type("IfcDimensionalExponents")) == dims
 
 
 def test_an_undeclared_unit_basis_is_one_unit_of_the_raw_size():
@@ -964,3 +968,47 @@ def test_items_normalising_to_one_pay_item_are_refused():
             **PILE_COSTS,
             "items": {"1": {"cost": 1.0}, "Item # 1": {"cost": 2.0}}})
     assert not model.by_type("IfcCostItem")
+
+
+def test_an_items_entry_no_element_here_makes_is_a_lump_leaf():
+    # MOB is in a shared map but no element carries it, so it makes no parent
+    model = _pile_ifc()
+    tmap = {"project_ref": "B9", "codes": {
+        **PILE_MAP["codes"], "MOB": {"measure": "Count", "unit": "LS",
+                                     "item_number": "1"}}}
+    report = estimate5d.embed_estimate(model, tmap, {
+        **PILE_COSTS, "items": {"1": {"cost": 7670.0}}})
+    assert report.items_without_elements == {"1": 7670.0}
+    mob = {ci.Identification: ci for ci in _parents(model)}["1"]
+    assert not _children(mob)
+
+
+def test_an_items_entry_is_still_refused_when_the_code_has_an_element():
+    model = _pile_ifc(codes=("PILE-200W-FRN", "MOB"))
+    tmap = {"project_ref": "B9", "codes": {
+        **PILE_MAP["codes"], "MOB": {"measure": "Count", "unit": "LS",
+                                     "item_number": "1"}}}
+    with pytest.raises(ValueError, match="MOB"):
+        estimate5d.embed_estimate(model, tmap, {
+            **PILE_COSTS, "items": {"1": {"cost": 7670.0}}})
+    assert not model.by_type("IfcCostSchedule")
+
+
+def test_the_snap_tolerance_is_relative_to_the_measured_part():
+    # $5,000 LS + ~$0.41 LF, cost $0.04 off: a real variance on the LF part
+    tmap, costs, want = _plural_ls()
+    costs["49-3020"]["unit_price"]["0055"] = 0.01
+    ext = 0.01 * 12.5 * M_TO_LF + 5000.0
+    costs["49-3020"]["cost"] = round(ext, 2) + 0.04
+    report = estimate5d.embed_estimate(_pile_ifc(codes=("49-3020",)),
+                                       tmap, costs)
+    assert report.snapped_to_cost == {}
+
+
+def test_a_credit_snaps_to_its_cost():
+    costs = {"PILE-200W-FRN": {**PILE_COSTS["PILE-200W-FRN"],
+                               "unit_price": -10.0, "cost": -615.16}}
+    model = _two_piles()
+    report = estimate5d.embed_estimate(model, PILE_MAP, costs)
+    assert "PILE-200W-FRN" in report.snapped_to_cost
+    assert report.by_code["PILE-200W-FRN"]["extended"] ==         pytest.approx(-615.16, abs=1e-9)

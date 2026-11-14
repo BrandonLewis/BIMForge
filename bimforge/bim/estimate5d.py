@@ -71,7 +71,6 @@ A file written by bimforge <= 0.1.110 carries this schedule as ESTIMATE,
 from __future__ import annotations
 
 import math
-import re
 from dataclasses import dataclass, field
 
 import ifcopenshell.api.control as ctl
@@ -82,7 +81,8 @@ import ifcopenshell.util.unit as unit_util
 from bimforge.bim.cost5d import (_classification, _code_reference,
                                  add_declared_cost_schedule,
                                  remove_declared_cost_schedule)
-from bimforge.bim.costload import ITEMS_KEY, code_costs, validate_costs
+from bimforge.bim.costload import (ITEMS_KEY, code_costs, pay_item_id,
+                                   validate_costs)
 from bimforge.bim.ifc_takeoff import (
     DEFAULT_UNIT, MEASURE_DIM, classifications_of, convert, count_quantity,
     QUANTITY_DIM, normalize_map, quantities_of, quantity_entities,
@@ -188,19 +188,6 @@ def _rate_for(code: str, entry: dict, costs: dict, *, plural: bool,
     return float(price)
 
 
-_ITEM_PREFIX = re.compile(r"^\s*item\b\s*(?:number|no(?![a-z])\.?|#)?\s*[#:.\-]?\s*",
-                          re.IGNORECASE)
-
-
-def pay_item_id(item_number, code) -> str:
-    """The pay item's Identification: the bare item number ("Item # 2" is
-    "2"), else the code. The TENDER (here) and ESTIMATE (estimate_model5d)
-    schedules both take it from this one rule, since ProjectCommand pairs
-    them by exact Identification."""
-    number = _ITEM_PREFIX.sub("", str(item_number or "")).strip()
-    return number or str(code)
-
-
 def _item_key(code: str, entry: dict) -> str:
     """The pay item an entry prices: pay_item_id of its item_number."""
     return pay_item_id(entry.get("item_number"), code)
@@ -302,7 +289,11 @@ def _remove_basis(model, basis) -> None:
         _remove_basis(model, factor)        # and its SI unit, if unused
     elif unit.is_a("IfcSIUnit") or (unit.is_a("IfcContextDependentUnit")
                                     and unit.Name == EACH):
+        # an SI unit's Dimensions is derived; EACH's is its own entity
+        dims = unit.Dimensions if unit.is_a("IfcContextDependentUnit") else None
         model.remove(unit)
+        if dims is not None and not model.get_inverse(dims):
+            model.remove(dims)
 
 
 def _remove_named(model, cost_name: str, legacy_name: str) -> None:
@@ -394,12 +385,23 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
     codes_cfg, _defaults, entries_by_code = normalize_map(tmap)
     lumps = costs.get(ITEMS_KEY) or {}
     costs = code_costs(costs)
+    # elements per code (dedupe: the same code twice on one element counts once)
+    elements_by_code: dict[str, list] = {}
+    for el in model.by_type("IfcElement"):
+        seen: set[str] = set()
+        for c in classifications_of(el):
+            if c["code"] and c["code"] not in seen:
+                seen.add(c["code"])
+                elements_by_code.setdefault(c["code"], []).append(el)
+
     if lumps:
         # before anything is written: an items entry is a bid item no
         # element carries, so no map entry may make the same pay item
         validate_costs({ITEMS_KEY: lumps})
         made: dict = {}                     # pay item -> map codes making it
         for code, cfg in codes_cfg.items():
+            if code not in elements_by_code:
+                continue                    # no element here: no parent made
             for entry in (entries_by_code.get(code) or [cfg or {}]):
                 made.setdefault(_item_key(code, entry), set()).add(code)
         for number in lumps:
@@ -413,15 +415,6 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
     _remove_named(model, cost_name, legacy_name=f"{name} estimate")
     scales = _unit_scales(model)
     basis_of = _UnitBasis(model)
-
-    # elements per code (dedupe: the same code twice on one element counts once)
-    elements_by_code: dict[str, list] = {}
-    for el in model.by_type("IfcElement"):
-        seen: set[str] = set()
-        for c in classifications_of(el):
-            if c["code"] and c["code"] not in seen:
-                seen.add(c["code"])
-                elements_by_code.setdefault(c["code"], []).append(el)
 
     cs = add_declared_cost_schedule(model, name=cost_name,
                                     predefined_type=schedule_type,
@@ -553,7 +546,7 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
             # measured entries take the residue
             fixed = sum(v for _, d, v in code_values if d == "count")
             scaled = code_extended - fixed
-            if bm and scaled > 0 and _is_residue(code_extended, bm):
+            if bm and scaled != 0 and _is_residue(scaled, bm - fixed):
                 k = (bm - fixed) / scaled
                 for cv, d, _ in code_values:
                     if d != "count":

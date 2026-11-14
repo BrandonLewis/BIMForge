@@ -11,6 +11,7 @@ estimate-side derivation (`derive_costs`, `tie_out`).
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -31,10 +32,20 @@ def code_costs(costs: dict) -> dict:
     return {k: v for k, v in costs.items() if k != ITEMS_KEY}
 
 
-def _validate_items(items) -> None:
-    # lazy: estimate5d imports this module
-    from bimforge.bim.estimate5d import pay_item_id
+_ITEM_PREFIX = re.compile(r"^\s*item\b\s*(?:number|no(?![a-z])\.?|#)?\s*[#:.\-]?\s*",
+                          re.IGNORECASE)
 
+
+def pay_item_id(item_number, code) -> str:
+    """The pay item's Identification: the bare item number ("Item # 2" is
+    "2"), else the code. The TENDER (here) and ESTIMATE (estimate_model5d)
+    schedules both take it from this one rule, since ProjectCommand pairs
+    them by exact Identification."""
+    number = _ITEM_PREFIX.sub("", str(item_number or "")).strip()
+    return number or str(code)
+
+
+def _validate_items(items) -> None:
     if not isinstance(items, dict):
         raise ValueError("costs['items'] must map item numbers to "
                          "{cost, description?}")
