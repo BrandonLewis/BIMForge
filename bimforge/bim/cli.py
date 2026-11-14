@@ -563,7 +563,7 @@ def _run_estimate5d(args) -> int:
     model.write(out)
     print(f"Embedded {report.schedule_type} '{report.schedule_name}': "
           f"{report.parents} pay item(s), {report.children} element "
-          f"child(ren), extended ${report.extended_total:,.0f}.")
+          f"child(ren), extended ${report.extended_total:,.2f}.")
     print(f"estimate IFC written to {out}")
     for code, v in sorted(report.by_code.items()):
         if v["variance_pct"] is None:
@@ -574,6 +574,13 @@ def _run_estimate5d(args) -> int:
                   f"${v['bm_cost']:,.0f} ({v['variance_pct']:+.1f}%)")
     for code, item in sorted(report.covered_by_item.items()):
         print(f"  {code}: no unit_price -- covered at $0 by pay item {item}")
+    for item, amount in sorted(report.items_without_elements.items()):
+        print(f"  item {item}: ${amount:,.2f}, no elements (costs.json items)")
+    for code, snap in sorted(report.snapped_to_cost.items()):
+        if abs(snap["drift"]) < 0.0005:     # float noise, not worth a line
+            continue
+        print(f"  {code}: rates scaled {snap['scale_pct']:+.4f}% so its "
+              f"children sum to its cost ${snap['cost']:,.2f}")
     for label, entries in (
             ("no unit_price — skipped", report.codes_without_rate),
             ("no explicit measure — skipped", report.codes_without_measure),
@@ -675,8 +682,10 @@ def _run_estimate_model(args) -> int:
         return 1
     print(json.dumps(summary, indent=2))
     print(f"Embedded '{summary['schedule_name']}': {summary['tasks']} task(s), "
-          f"{summary['cost_items']} item(s) / {summary['share_items']} share "
-          f"cost item(s) (${float(summary['allocated_total']):,.2f}), "
+          f"{summary['cost_items']} item(s) / {summary['code_items']} cost "
+          f"code(s) / {summary['indirect_items']} indirect(s) / "
+          f"{summary['share_items']} share cost item(s) "
+          f"(${float(summary['allocated_total']):,.2f}), "
           f"{summary['labor_resources']} crew(s); written to {args.out}",
           file=sys.stderr)
     if summary["unmatched_elements"]:
@@ -2558,7 +2567,9 @@ def main(argv=None) -> int:
     e5.add_argument("--map", required=True,
                     help="the takeoff map yaml est-bim takeoff reads")
     e5.add_argument("--costs", required=True,
-                    help="costs.json with unit_price (and optional unit) per code")
+                    help="costs.json with unit_price (and optional unit) per "
+                         "code, and optional \"items\" for bid items no "
+                         "element carries")
     e5.add_argument("--name", default=None,
                     help="schedule base name (default: the map's project_ref)")
     e5.add_argument("--stage", choices=("tender", "awarded"), default="tender",

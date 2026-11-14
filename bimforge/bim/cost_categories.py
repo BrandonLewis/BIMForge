@@ -87,40 +87,71 @@ def split_amount(total, split, *, scale_from=None) -> dict[str, Decimal]:
 SPLIT_TOL = Decimal("0.005")
 
 
-def write_cost_values(model, cost_item, total, by_category: dict | None):
+def write_cost_values(model, cost_item, total, by_category: dict | None, *,
+                      composed: bool = False):
     """One IfcCostValue per category of `by_category` ({Category: amount},
     `split_amount`'s result) on `cost_item`, else one value of `total`.
 
     Categorising a cost never changes it: the kinds may add up to less than
     `total`, and the balance is then written as one more value with no
     Category (it reads back in `cost`, not in `categories`); kinds that add
-    up to more than `total` are refused. Returns the values written."""
+    up to more than `total` are refused.
+
+    `composed` writes ONE value on the item instead, ArithmeticOperator ADD
+    with no AppliedValue of its own, whose Components are those values (an
+    uncategorised cost is one `Unallocated` component): the shape
+    ProjectCommand reads on an ESTIMATE leaf. Returns the values written on
+    the item."""
     from ifcopenshell.api import cost
-    values = []
     parts = {c: Decimal(str(a)) for c, a in (by_category or {}).items() if a}
     total = Decimal(str(total))
-    if not parts:
+    if not parts and not composed:
         cv = cost.add_cost_value(model, parent=cost_item)
         cost.edit_cost_value(model, cv, attributes={"AppliedValue": float(total)})
         return [cv]
     allotted = sum(parts.values(), Decimal(0))
     if allotted > total + SPLIT_TOL:
         raise ValueError(f"cost split {allotted} exceeds the cost {total}")
+    holder = cost_item
+    if composed:
+        holder = cost.add_cost_value(model, parent=cost_item)
+        cost.edit_cost_value(model, holder,
+                             attributes={"ArithmeticOperator": "ADD"})
+    values = []
     for cat in CATEGORIES:
         if cat not in parts:
             continue
-        cv = cost.add_cost_value(model, parent=cost_item)
+        cv = cost.add_cost_value(model, parent=holder)
         cost.edit_cost_value(model, cv, attributes={
             "AppliedValue": float(parts[cat]), "Category": cat,
             "Name": cat})
         values.append(cv)
     balance = total - allotted
-    if balance > SPLIT_TOL:
-        cv = cost.add_cost_value(model, parent=cost_item)
+    if balance > SPLIT_TOL or (composed and not values):
+        cv = cost.add_cost_value(model, parent=holder)
         cost.edit_cost_value(model, cv, attributes={
             "AppliedValue": float(balance), "Name": "Unallocated"})
         values.append(cv)
-    return values
+    return [holder] if composed else values
+
+
+def remove_cost_values(model, cost_item) -> None:
+    """Remove every value on `cost_item`, a composite's components too
+    (ifcopenshell's remove_cost_value leaves them behind as orphans)."""
+    from ifcopenshell.api import cost
+
+    def tree(cv):                      # parents before their components
+        out = [cv]
+        for c in getattr(cv, "Components", None) or ():
+            out.extend(tree(c))
+        return out
+
+    for cv in list(cost_item.CostValues or []):
+        parts = tree(cv)[1:]
+        cost.remove_cost_value(model, cost_item, cv)
+        for part in parts:
+            if not model.get_inverse(part):
+                model.remove(part)
 
 
 def check_split(record: dict, where: str = "") -> None:
@@ -136,26 +167,47 @@ def check_split(record: dict, where: str = "") -> None:
                          f"more than the cost {cost}")
 
 
-def _applied(cv) -> float:
+def value_of(cv) -> float:
+    """A cost value's amount: its AppliedValue, else, for an ADD composite
+    (ArithmeticOperator ADD over Components, how estimate_model5d writes a
+    leaf), the sum of its components. Another operator is not guessed at."""
     v = getattr(cv, "AppliedValue", None)
-    if v is None:
-        return 0.0
-    return float(getattr(v, "wrappedValue", v))
+    if v is not None:
+        v = getattr(v, "wrappedValue", v)
+        # a measure-with-unit or text value is not an amount (read as 0, as
+        # before this evaluator)
+        return float(v) if isinstance(v, (int, float)) else 0.0
+    if getattr(cv, "ArithmeticOperator", None) == "ADD":
+        return sum(value_of(c) for c in getattr(cv, "Components", None) or ())
+    return 0.0
+
+
+def _parts(cv):
+    """The values that carry money: an ADD composite's components (down
+    through nested composites), else the value itself."""
+    if getattr(cv, "AppliedValue", None) is None \
+            and getattr(cv, "ArithmeticOperator", None) == "ADD":
+        for c in getattr(cv, "Components", None) or ():
+            yield from _parts(c)
+    else:
+        yield cv
 
 
 def categories_of(cost_item) -> dict[str, float]:
-    """{Category: amount} of a cost item's categorised values (a value
-    with no Category is left out; `total_of` has everything)."""
+    """{Category: amount} of a cost item's categorised values, a
+    composite's components included (a value with no Category is left
+    out; `total_of` has everything)."""
     out: dict[str, float] = {}
     for cv in cost_item.CostValues or []:
-        cat = getattr(cv, "Category", None)
-        if cat:
-            out[cat] = out.get(cat, 0.0) + _applied(cv)
+        for part in _parts(cv):
+            cat = getattr(part, "Category", None)
+            if cat:
+                out[cat] = out.get(cat, 0.0) + value_of(part)
     return out
 
 
 def total_of(cost_item) -> float:
-    return sum(_applied(cv) for cv in cost_item.CostValues or [])
+    return sum(value_of(cv) for cv in cost_item.CostValues or [])
 
 
 def add_categories(into: dict[str, float], cats: dict[str, float]) -> None:
