@@ -293,6 +293,8 @@ def test_estimate_shares_name_the_element_item_and_price(tmp_path):
     assert by_el[ftg.GlobalId]["task"] == "a1"
     assert by_el[ftg.GlobalId]["cost"] == pytest.approx(10.0, abs=0.01)
     assert by_el[ftg.GlobalId]["labor_hours"] == pytest.approx(20.0)
+    assert by_el[ftg.GlobalId]["code"] == "51-CONC"          # dashboard join
+    assert by_el[ftg.GlobalId]["cost_code"] == "10.03-300"
     # the row for the code the item carries gets the IFC's unit price
     rows = {r["cost_code"]: r for r in b["takeoff"]["rows"]}
     # (the fixture's elements carry no quantities, so no row sums; the

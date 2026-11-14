@@ -225,15 +225,17 @@ def _schedule(model, name: str | None):
 def _shares(model, schedule_name: str) -> list[dict]:
     """Every priced cost item of the 5D schedule "<name> cost": the task it
     is spent in, the element it builds (null when the item controls no
-    element), the bid item (parent's BidSheet_EstimateItem ItemNumber) and
-    the code it is classified under, its cost and labour hours."""
+    element), the bid item (the top-level item's BidSheet_EstimateItem
+    ItemNumber) and the code it is classified under (the bid item's), the
+    `cost_code` node it sits under (estimate-model), its cost and labour
+    hours."""
     import ifcopenshell.util.element as ue
-    from bimforge.bim.cost_categories import categories_of
-    from bimforge.bim.schedule_read import (_COST_ITEM_PSETS,
+    from bimforge.bim.cost_categories import categories_of, total_of
+    from bimforge.bim.schedule_read import (_COST_ITEM_PSETS, _cost_code,
                                             _leaf_cost_items, _number,
-                                            _pset, task_id)
-    css = [c for c in model.by_type("IfcCostSchedule")
-           if c.Name == f"{schedule_name} cost"]
+                                            _pset, _top_item,
+                                            cost_schedules_for, task_id)
+    css = cost_schedules_for(model, schedule_name)
     if not css:
         return []
     out = []
@@ -247,8 +249,8 @@ def _shares(model, schedule_name: str) -> list[dict]:
                     element = o
         if task is None:
             continue
-        parent = next((rel.RelatingObject for rel in ci.Nests or []
-                       if rel.RelatingObject.is_a("IfcCostItem")), None)
+        top = _top_item(ci)                # the bid item, above any code node
+        parent = top if top is not ci else None
         item = (ue.get_psets(parent).get("BidSheet_EstimateItem")
                 if parent is not None else None) or {}
         code = None
@@ -262,19 +264,22 @@ def _shares(model, schedule_name: str) -> list[dict]:
                     code = getattr(rel.RelatingClassification,
                                    "Identification", None) or code
         ps = _pset(ci, *_COST_ITEM_PSETS) or {}
-        out.append({
+        share = {
             "task": task_id(task),
             "element": element.GlobalId if element is not None else None,
             "item_number": (str(item["ItemNumber"])
                             if item.get("ItemNumber") not in (None, "")
                             else None),
             "code": code or ci.Identification or ci.Name,
-            "cost": round(sum(_number(cv.AppliedValue) or 0.0
-                              for cv in ci.CostValues or []), 2),
+            "cost": round(total_of(ci), 2),
             "labor_hours": _number(ps.get("LaborHours")),
             "categories": {c: round(a, 2)
                            for c, a in sorted(categories_of(ci).items())},
-        })
+        }
+        cost_code = _cost_code(ci)
+        if cost_code:
+            share["cost_code"] = cost_code
+        out.append(share)
     return out
 
 
