@@ -170,6 +170,9 @@ def test_tasks_link_elements_by_global_id_and_spread_links_none():
     assert [l["global_id"] for l in links["a1"]] == [ftg.GlobalId]  # noqa: E741
     assert [l["global_id"] for l in links["a2"]] == [wall.GlobalId]  # noqa: E741
     assert links["a3"] == []             # spread: no elements, even listed
+    # #60: the elements are the tasks' outputs, never inputs
+    assert {l["direction"] for ls in links.values() for l in ls} ==         {"output"}  # noqa: E741
+    assert not f.by_type("IfcRelAssignsToProcess")
     assert summary["task_element_links"] == 2
     assert summary["unmatched_links"] == [{"activity": "a1",
                                            "element_id": 103}]
@@ -261,7 +264,7 @@ def test_rerun_replaces_by_name(tmp_path):
     counts = lambda: {c: len(f.by_type(c)) for c in (  # noqa: E731
         "IfcTask", "IfcCostItem", "IfcCostValue", "IfcLaborResource",
         "IfcRelAssociatesClassification", "IfcRelAssignsToControl",
-        "IfcRelAssignsToProcess", "IfcRelAssignsToResource",
+        "IfcRelAssignsToProduct", "IfcRelAssignsToResource",
         "IfcPropertySet", "IfcClassificationReference")}
     before = counts()
     embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
