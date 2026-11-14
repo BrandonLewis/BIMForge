@@ -4,6 +4,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.114 — 2026-11-13
+
+### Fixed
+
+- **A merged face no longer opens the shell where two pieces touch edge-on** (#47).
+  A body fused from separate closed pieces (formwork: a kicker flush against a stud)
+  can put two pieces' faces in one plane group as two parts. The T-junction closure
+  put every vertex of the group on every part's boundary, so one piece's corners split
+  the other's edge where its neighbouring face did not: 3 open edges and 1 non-manifold
+  edge, and the post-emit gate deleted the outputs. Each part now keeps only the
+  vertices of its own triangles. As a backstop, a body whose merge would leave more
+  open or non-manifold edges than its triangles had is written as its triangles.
+
 ## 0.1.113 — 2026-11-12
 
 ### Fixed

@@ -217,3 +217,52 @@ def test_a_hole_touching_the_outer_bound_is_written_as_its_triangles():
                    - (o[2][0] - o[0][0]) * (o[1][1] - o[0][1])) / 2
                for o, _ in out)
     assert area == pytest.approx(16 - 3)      # the 3 m^2 hole stays open
+
+
+def _box(x0, x1, y0, y1, z0, z1):
+    """A closed, outward-wound box: 12 triangles."""
+    v = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+         (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+    return _tris(v, _F)
+
+
+def _faults(faces):
+    """Edges used by one face (open) or by three or more (non-manifold)."""
+    uses = {}
+    for outer, holes in faces:
+        for ring in [outer, *holes]:
+            for p, q in zip(ring, ring[1:] + ring[:1]):
+                k = frozenset((p, q))
+                uses[k] = uses.get(k, 0) + 1
+    return sum(1 for n in uses.values() if n != 2)
+
+
+def test_a_piece_touching_edge_on_keeps_its_vertices_off_its_neighbour():
+    """Two closed boxes in one body, the small one's end flush (to 50 nm)
+    against the big one's side: their front faces fall in one plane group
+    but stay two parts. The small box's corners lie on the big front's edge;
+    putting them there splits an edge the big box's side does not, and the
+    shell opens (#47, a formwork kicker against a stud). Each part keeps
+    only the vertices of its own triangles."""
+    tris = (_box(0, 1, 0, 1, 0, 1)
+            + _box(1 + 5e-8, 2, 0, 1, 0.4, 0.6))
+    assert _faults([(list(t), []) for t in tris]) == 0
+    out = merge_coplanar_facets(tris)
+    assert _faults(out) == 0
+    assert len(out) == 12                     # both boxes still merge
+    assert _signed_volume(out) == pytest.approx(1 + (1 - 5e-8) * 0.2)
+    front = [o for o, _ in out if all(p[1] == 0 for p in o)
+             and all(p[0] <= 1 for p in o)]
+    assert len(front) == 1 and len(front[0]) == 4
+
+
+def test_a_merge_that_would_open_the_shell_is_written_as_its_triangles():
+    """The same two boxes exactly flush: the union joins their fronts (and
+    backs) into one face whose boundary splits the big box's side edges,
+    which nothing can close without an edge shared by four faces. The body
+    is written as its triangles, which are as closed as they came."""
+    tris = _box(0, 1, 0, 1, 0, 1) + _box(1, 2, 0, 1, 0.4, 0.6)
+    out = merge_coplanar_facets(tris)
+    assert _faults(out) == 0
+    assert len(out) == len(tris)
+    assert _signed_volume(out) == pytest.approx(1.2)
