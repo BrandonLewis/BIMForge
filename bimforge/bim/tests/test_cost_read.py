@@ -278,6 +278,8 @@ def test_a_renamed_estimate_schedule_is_found_through_its_marker():
     assert cost_schedules_for(f, sched.name) == []
     ps = pset.add_pset(f, product=cs, name="BidSheet_EstimateModel")
     pset.edit_pset(f, pset=ps, properties={"WorkSchedule": sched.name})
+    assert cost_schedules_for(f, sched.name) == []    # a BUDGET: not ours
+    cs.PredefinedType = "ESTIMATE"
     assert cost_schedules_for(f, sched.name) == [cs]
     assert read_costs(f, sched.name)["costs"]["A"]["cost"] == \
         pytest.approx(10000.0)

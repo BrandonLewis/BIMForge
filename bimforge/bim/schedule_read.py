@@ -575,7 +575,8 @@ def cost_schedules_for(model, sname: str) -> list:
     if named:
         return named
     return [c for c in model.by_type("IfcCostSchedule")
-            if (_pset(c, "BidSheet_EstimateModel") or {}).get("WorkSchedule")
+            if c.PredefinedType == "ESTIMATE"
+            and (_pset(c, "BidSheet_EstimateModel") or {}).get("WorkSchedule")
             == sname]
 
 

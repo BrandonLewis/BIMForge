@@ -173,7 +173,10 @@ def value_of(cv) -> float:
     leaf), the sum of its components. Another operator is not guessed at."""
     v = getattr(cv, "AppliedValue", None)
     if v is not None:
-        return float(getattr(v, "wrappedValue", v))
+        v = getattr(v, "wrappedValue", v)
+        # a measure-with-unit or text value is not an amount (read as 0, as
+        # before this evaluator)
+        return float(v) if isinstance(v, (int, float)) else 0.0
     if getattr(cv, "ArithmeticOperator", None) == "ADD":
         return sum(value_of(c) for c in getattr(cv, "Components", None) or ())
     return 0.0
