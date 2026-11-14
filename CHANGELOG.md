@@ -4,6 +4,24 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **A georeferenced IFC states the unit of its map coordinates** (#58). Neither
+  `emit_ifc` nor `dxf2bim` set `IfcProjectedCRS.MapUnit`, and a CRS without one takes
+  the project's length unit, the metre, so a reader that follows the schema took a
+  US-survey-feet CRS's eastings and northings as metres. Both now write the CRS's
+  unit from the EPSG registry, through one helper (`bim.georef.write_map_unit`): an
+  `IfcConversionBasedUnit` ('US survey foot', 'foot') or the SI metre. A
+  MapConversion Scale that disagrees with that unit is refused.
+- **`dxf2bim` converts a drawing in another unit than its CRS through metres.** A mm
+  DXF on a metre CRS passed its mm base through as metre eastings and wrote Scale
+  1000, putting the model 1000x off; a drawing in the CRS's own unit (a ft DXF on a
+  ftUS CRS) is unchanged.
+- **`dxf2bim` names the CRS and its geodetic datum** from the EPSG registry unless the
+  layer map's `georeference` block gives `crs_desc` / `geodetic_datum` /
+  `vertical_datum`; `emit_ifc` falls back to the registry datum when the project spec
+  gives none.
+
 ### Changed
 
 - **Tasks link to the elements they build or take away as outputs, not inputs**

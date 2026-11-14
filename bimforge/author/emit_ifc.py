@@ -1584,17 +1584,21 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                combined)
 
     if ctx.epsg is not None:
+        from bimforge.bim.georef import crs_datum, write_map_unit
         run("georeference.add_georeferencing", f)
         run("georeference.edit_georeferencing", f,
             projected_crs={"Name": ctx.crs_name,
                            "Description": ctx.crs_desc or None,
-                           "GeodeticDatum": ctx.geodetic_datum,
+                           "GeodeticDatum": (ctx.geodetic_datum
+                                             or crs_datum(ctx.epsg)),
                            "VerticalDatum": ctx.vertical_datum},
             coordinate_operation={
                 "Eastings": ctx.base_e, "Northings": ctx.base_n,
                 "OrthogonalHeight": ctx.base_h,
                 "Scale": 1.0 / ctx.ft_to_m,
             })
+        # #58: without MapUnit the CRS would take the project's metre
+        write_map_unit(f, ctx.epsg, 1.0 / ctx.ft_to_m)
 
         # Grid north != true north by the grid convergence angle. Model axes
         # ARE the grid axes, so the declaration belongs on the context's
