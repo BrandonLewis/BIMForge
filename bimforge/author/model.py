@@ -48,6 +48,10 @@ class Element:
     #: Pay codes ([] = reference geometry, never a pay quantity).
     classifications: list[str] = field(default_factory=list)
     material: str | None = None
+    #: The IfcMaterial.Category the material is written with (#65), one of
+    #: ifc_styles.MATERIAL_CATEGORIES. None: from the material's name, else
+    #: from the element's surface (ifc_styles.material_category).
+    material_category: str | None = None
     density_pcf: float | None = None
     #: Placement: model-frame feet. Emitters place the element here.
     x_ft: float = 0.0

@@ -1728,3 +1728,68 @@ def test_one_named_type_has_one_predefined_type(tmp_path):
     with pytest.raises(ValueError, match="more than one predefined type"):
         emit_ifc(m, str(tmp_path / "x.ifc"))
     assert not (tmp_path / "x.ifc").exists()
+
+
+def _slab(name, **kw):
+    p = Prism(name, [(-2, -2), (2, -2), (2, 2), (-2, 2)], z_bot=0.0, z_top=1.0)
+    return Element.from_geometry(name, p, ifc_class="IfcSlab", **kw)
+
+
+def test_each_material_states_its_ifc_category(tmp_path):
+    # #65: a reader styles by IfcMaterial.Category, never by the free Name
+    import ifcopenshell
+    m = _fixture_model()
+    m.add(_slab("facing", material="Structural shotcrete", x_ft=200.0))
+    m.add(_slab("pad", material="Joint seal, Type A", x_ft=300.0))
+    m.add(_slab("stone", material="Concrete", material_category="stone",
+                x_ft=400.0))
+    out = tmp_path / "cat.ifc"
+    with pytest.warns(UserWarning, match="Concrete.*stone"):
+        emit_ifc(m, str(out), PC)
+    cats = {mat.Name: mat.Category
+            for mat in ifcopenshell.open(str(out)).by_type("IfcMaterial")}
+    assert cats["Structural shotcrete"] == "concrete"
+    # no keyword and a slab with no surface entry: left unset, not guessed
+    assert cats["Joint seal, Type A"] is None
+    # one material, one Category: the first element that uses it decides
+    # (the footings' Concrete), and the clash is warned
+    assert cats["Concrete"] == "concrete"
+
+
+def _rendering_of(f, material_name):
+    """The IfcSurfaceStyleRendering on `material_name`'s IfcMaterial."""
+    mat = next(m for m in f.by_type("IfcMaterial") if m.Name == material_name)
+    styled = mat.HasRepresentation[0].Representations[0].Items[0]
+    return next(s for st in styled.Styles for s in st.Styles
+                if s.is_a("IfcSurfaceStyleRendering"))
+
+
+def test_a_palette_styles_materials_by_category(tmp_path):
+    # #65: a job's palette restyles every steel material, keyed by category,
+    # without touching model code; glass reads as glass out of the box
+    import ifcopenshell
+    from bimforge.cad.stylepack import StylePack
+    m = _fixture_model()
+    m.add(_slab("rail", material="Galvanized pipe", x_ft=200.0))
+    m.add(_slab("pane", material="Laminated glass", x_ft=300.0))
+    palette = StylePack(styles={"ifc": {"surfaces": {"category:steel": {
+        "rgb": [0.9, 0.9, 0.9], "specular": 0.1,
+        "specular_colour": [1.0, 1.0, 1.0], "diffuse": 0.7}}}})
+    out = tmp_path / "palette.ifc"
+    emit_ifc(m, str(out), PC, stylepack=palette)
+    f = ifcopenshell.open(str(out))
+    steel = _rendering_of(f, "Galvanized pipe")
+    assert steel.ReflectanceMethod == "METAL"
+    assert steel.SpecularHighlight.wrappedValue == pytest.approx(0.1)
+    assert (steel.SurfaceColour.Red, steel.SurfaceColour.Green) == \
+        pytest.approx((0.9, 0.9))
+    assert steel.SpecularColour.Red == pytest.approx(1.0)
+    assert steel.DiffuseColour.wrappedValue == pytest.approx(0.7)
+    glass = _rendering_of(f, "Laminated glass")
+    assert glass.ReflectanceMethod == "GLASS" and glass.Transparency > 0.5
+    # presentation only: the takeoff is untouched
+    from bimforge.bim.ifc_takeoff import build_takeoff
+    plain = tmp_path / "plain.ifc"
+    emit_ifc(m, str(plain), PC)
+    tmap = PC.takeoff_map(m.codes_used())
+    assert build_takeoff(str(out), tmap)[0] == build_takeoff(str(plain), tmap)[0]
