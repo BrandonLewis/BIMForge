@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.114 — 2026-11-13
+
 ### Fixed
 
 - **A merged face no longer opens the shell where two pieces touch edge-on** (#47).
