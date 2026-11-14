@@ -20,8 +20,9 @@ from bimforge.bim.cost_categories import add_categories, categories_of
 def element_start_dates(model) -> dict[int, str]:
     """Map each scheduled element's entity id → earliest task ScheduleStart.
 
-    Walks `IfcRelAssignsToProcess` (task → products, authored by slice 2)
-    and `IfcRelAssignsToProduct` (product ← task, the output form), reads
+    Walks `IfcRelAssignsToProduct` (product ← task, the output form
+    embed_schedule writes, #60) and `IfcRelAssignsToProcess` (task → products,
+    the input form it wrote before), reads
     the task's `IfcTaskTime.ScheduleStart`, and keeps the earliest
     date (`YYYY-MM-DD`) per element when several tasks touch it. Elements no
     task schedules simply don't appear — the caller leaves them untimed
@@ -399,9 +400,9 @@ def read_schedule(model, name: str | None = None):
 def task_elements(model, name: str | None = None) -> dict[str, list[dict]]:
     """Map task id -> the elements it is linked to (issue #335).
 
-    Reads both directions a 4D model uses: inputs (`IfcRelAssignsToProcess`,
-    what embed_schedule writes) and outputs (`IfcRelAssignsToProduct`, what
-    Bonsai playback wants and post-processors convert to). Each link is
+    Reads both directions a 4D model uses: outputs (`IfcRelAssignsToProduct`,
+    what embed_schedule writes since #60 and Bonsai playback wants) and inputs
+    (`IfcRelAssignsToProcess`, what it wrote before). Each link is
     `{"global_id", "name", "direction": "input" | "output"}`, in file order,
     with the same element+direction listed once. `name` limits the map to
     one IfcWorkSchedule's tasks (as read_schedule picks it); None reads
