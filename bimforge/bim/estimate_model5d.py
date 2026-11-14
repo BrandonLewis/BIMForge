@@ -66,14 +66,13 @@ import ifcopenshell.api.cost as cost
 import ifcopenshell.api.pset as pset_api
 import ifcopenshell.api.resource as res
 import ifcopenshell.api.root as root
-import ifcopenshell.api.sequence as sq
 import ifcopenshell.api.spatial as spatial
 
 from bimforge.bim.cost5d import (COST_ITEM_PSET, _classification, _code_reference,
                                  add_declared_cost_schedule,
                                  remove_declared_cost_schedule)
 from bimforge.bim.estimate5d import _walk_items
-from bimforge.bim.schedule4d import embed_schedule
+from bimforge.bim.schedule4d import embed_schedule, link_outputs
 from bimforge.bim.schedule_model import CanonicalSchedule, ScheduleTask
 from bimforge.bim.schedule_read import _pset, _schedule_tasks, task_id
 
@@ -368,6 +367,7 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
 
     acts = {}
     links, dangling = 0, []
+    outputs: list = []               # (element, task), in link order
     for act in activities:
         key = act.get("key") or f"a{act.get('id')}"
         if key in acts:
@@ -387,9 +387,9 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             if target is None:
                 dangling.append({"activity": key, "element_id": eid})
                 continue
-            sq.assign_product(model, relating_product=target,
-                              related_object=ent)
+            outputs.append((target, ent))
             links += 1
+    link_outputs(model, outputs)
     act_by_id = {a.get("id"): k for k, a in acts.items()}
 
     # -- cost schedule: parent per item, child per share -------------------

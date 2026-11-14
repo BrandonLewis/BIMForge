@@ -471,3 +471,34 @@ def test_cli_says_where_the_schedule_start_came_from(sample_ifc, tmp_path, capsy
     assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
                  "--out", str(out)]) == 0
     assert "starts 2027-03-01 (its earliest task" in capsys.readouterr().out
+
+
+def test_two_schedules_share_an_elements_output_relationship(sample_ifc):
+    # one IfcRelAssignsToProduct per element holds every schedule's tasks;
+    # re-embedding one schedule must leave the other's link where it was
+    def sched(name):
+        return CanonicalSchedule(name=name, tasks=[
+            ScheduleTask(id=name.lower(), name=f"{name} deck", wbs="1",
+                         start="2026-07-10", finish="2026-07-12",
+                         match_name_re=r"A-SLAB")])
+    model = ifcopenshell.open(sample_ifc)
+    embed_schedule(model, sched("A"))
+    embed_schedule(model, sched("B"))
+    rels = model.by_type("IfcRelAssignsToProduct")
+    assert [sorted(t.Name for t in r.RelatedObjects) for r in rels] \
+        == [["A deck", "B deck"]]
+    embed_schedule(model, sched("A"))                    # A again, by name
+    assert _outputs(model) == {"A deck": ["IfcSlab"], "B deck": ["IfcSlab"]}
+    assert len(model.by_type("IfcRelAssignsToProduct")) == 1
+
+
+def test_link_outputs_adds_a_task_once(sample_ifc):
+    from bimforge.bim.schedule4d import link_outputs
+    model = ifcopenshell.open(sample_ifc)
+    embed_schedule(model, _schedule())
+    before = _outputs(model)
+    pairs = [(r.RelatingProduct, t)
+             for r in model.by_type("IfcRelAssignsToProduct")
+             for t in r.RelatedObjects]
+    link_outputs(model, pairs + pairs)                   # all held already
+    assert _outputs(model) == before

@@ -16,6 +16,14 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   models load as before, and re-embedding a schedule replaces its old input links.
   `schedule-read`'s link `direction` is now `"output"` for these links.
 
+### Fixed
+
+- **Linking a task to many elements is fast again** (follow-up to #60). The output
+  links are written once per element by `schedule4d.link_outputs`, not once per
+  task-element pair through `sequence.assign_product`, which looked through the
+  task's assignments on every call. One task on 4,000 elements took 33 s after #60
+  (3.4 s before it) and now takes 0.2 s. The relationships written are the same.
+
 ## 0.1.114 — 2026-11-13
 
 ### Fixed
