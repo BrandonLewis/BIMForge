@@ -39,7 +39,7 @@
 
 - [ ] **Step 1: Confirm the worktree and a green baseline**
 
-Run: `git -C C:/Users/brand/PycharmProjects/BIMForge/.claude/worktrees/feat-estimate5d-internal-schedule status -sb`
+Run: `git -C <worktree> status -sb`
 Expected: `## feat/estimate5d-internal-schedule...`, clean.
 
 Run: `PYTHONPATH=. C:/Python314/python.exe -m pytest -q -p no:cacheprovider bimforge/bim/tests/test_estimate_model5d.py bimforge/bim/tests/test_cost_read.py bimforge/bim/tests/test_estimate5d.py bimforge/bim/tests/test_cost5d.py bimforge/web/tests/test_contract.py`
@@ -1623,7 +1623,7 @@ git commit -m "feat(estimate5d): bid items no element carries are total leaves; 
 
 - [ ] **Step 1: Write a validation script to the scratchpad**
 
-Create `C:/Users/brand/AppData/Local/Temp/claude/C--Users-brand-PycharmProjects-BIMForge/142cb442-5e01-493e-aa8d-bba5db785a25/scratchpad/validate_estimate.py`:
+Create `<scratchpad>/validate_estimate.py` (a temporary directory outside the repo):
 
 ```python
 import sys
