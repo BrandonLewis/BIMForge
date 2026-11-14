@@ -24,7 +24,7 @@ and writes it into an IFC as:
   else the code; made unique by schedule label, else item id, when items
   share it, with a warning), its Name the description; unit, quantity,
   prices and CostKey (read_costs' key: the code-based Identification
-  before 0.1.117) in BidSheet_EstimateItem, classified under cost5d's
+  before 0.1.118) in BidSheet_EstimateItem, classified under cost5d's
   cost-code system.
   Beneath it a valueless "<item>.<cost code>" item per activity cost code
   (the activity key when it has none), and beneath that a leaf per share
@@ -304,7 +304,7 @@ def _unique(items: list[dict], key) -> dict:
 
 def item_identifications(items: list[dict]) -> dict:
     """{item id: read_costs key}: the item's code, made unique (the
-    Identification before 0.1.117, kept as BidSheet_EstimateItem.CostKey)."""
+    Identification before 0.1.118, kept as BidSheet_EstimateItem.CostKey)."""
     return _unique(items, _item_code)
 
 

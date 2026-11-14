@@ -13,9 +13,9 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   single ADD-composed IfcCostValue (its components are the money by kind) and
   no CostQuantities. `read_costs` keys and the dashboard's share `code` are
   unchanged; the old key rides on the bid item as `BidSheet_EstimateItem.CostKey`.
-  A reader older than 0.1.117 reads the composed leaves as $0, and re-running an
+  A reader older than 0.1.118 reads the composed leaves as $0, and re-running an
   older `estimate-model` over a new file leaves orphan cost values: adopt
-  0.1.117 everywhere at once.
+  0.1.118 everywhere at once.
 - **Pay item ids are the bare item number** in both schedules
   (`estimate5d.pay_item_id`): "Item # 2" is written "2".
 - **A TENDER rate over an undeclared unit is per one raw unit** (`estimate5d`):
@@ -50,6 +50,17 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   float residue of its `cost` (0.001%, at least $0.01) has its non-count rates
   scaled so its children sum to the cost exactly, and `estimate5d` refuses to
   write a schedule that does not read back at its priced total to $0.01.
+
+## 0.1.117 — 2026-11-14
+
+### Fixed
+
+- **The unhosted-excavation warning names the terrain** (#59). It took the first
+  IfcGeographicElement as the ground, so a model with rock slope protection listed first
+  was told to void the RSP. It now considers only a TERRAIN IfcGeographicElement, and
+  warns only when the model has one.
+- **More material names have a Category** (#65): redwood and cedar are wood, baserock is
+  stone.
 
 ## 0.1.116 — 2026-11-14
 

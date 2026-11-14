@@ -549,7 +549,7 @@ def _top_item(ci):
 
 def _cost_key(ci) -> str:
     """read_costs' key for a leaf: its bid item's CostKey (estimate_model5d
-    keeps the pre-0.1.117 key there, since the item's Identification is now
+    keeps the pre-0.1.118 key there, since the item's Identification is now
     the pay item id), else the top-level item's Identification (a cost5d
     item is its own top; an older estimate-model parent carried the key)."""
     top = _top_item(ci)
@@ -619,7 +619,7 @@ def read_costs(model, name: str | None = None) -> dict:
     (`estimate_model5d` nests share items under each bid item), so an
     item's children are never counted twice.
 
-    An estimate-model leaf (0.1.117+) is keyed by its bid item's CostKey,
+    An estimate-model leaf (0.1.118+) is keyed by its bid item's CostKey,
     the key earlier versions used, and its record also carries
     `cost_code`, the "<item>.<code>" node it sits under. The cost schedule
     is "<name> cost", else the ESTIMATE schedule whose

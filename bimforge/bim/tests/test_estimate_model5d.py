@@ -214,7 +214,7 @@ def test_cost_items_per_item_and_share_sum_to_item_total():
     related = [o for rel in ftg_kid.Controls for o in rel.RelatedObjects]
     assert {o.is_a() for o in related} == {"IfcTask", "IfcFooting"}
     assert ftg in related
-    # the pre-0.1.117 key read_costs still uses
+    # the pre-0.1.118 key read_costs still uses
     assert _psets(conc)["BidSheet_EstimateItem"]["CostKey"] == "51-CONC"
     assert _psets(parents["20"])["BidSheet_EstimateItem"]["CostKey"] == "20"
 
