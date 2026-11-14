@@ -6,6 +6,25 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ### Changed
 
+- **`est-bim estimate-model` writes ProjectCommand's ESTIMATE shape.** Each bid
+  item's Identification is now its pay item id, the one the TENDER schedule
+  (`est-bim estimate5d`) writes, so the two pair by Identification. Beneath it,
+  one `"<item>.<cost code>"` item per cost code, and one leaf per share with a
+  single ADD-composed IfcCostValue (its components are the money by kind) and
+  no CostQuantities. `read_costs` keys and the dashboard's share `code` are
+  unchanged; the old key rides on the bid item as `BidSheet_EstimateItem.CostKey`.
+  A reader older than 0.1.112 reads the composed leaves as $0, and re-running an
+  older `estimate-model` over a new file leaves orphan cost values: adopt
+  0.1.112 everywhere at once.
+- **Pay item ids are the bare item number** in both schedules
+  (`estimate5d.pay_item_id`): "Item # 2" is written "2".
+- **A TENDER rate over an undeclared unit is per one raw unit** (`estimate5d`):
+  where the project declares no unit for the dimension, the UnitBasis is 1 of a
+  unit the size of the raw quantity (a prefixed IfcSIUnit such as MILLI
+  SQUARE_METRE, else an IfcConversionBasedUnit), not the SI base unit valued at
+  that size, so a reader that divides by the basis value without converting
+  units (ProjectCommand's) reads the right money.
+
 - **An IFC2X3 model is refused by name.** `est-bim takeoff`, the takeoff workbook and
   the web bundle now stop with "IFC2X3 is not supported: the takeoff reads IFC4X3, or
   IFC4 as a fallback" (`ifc_takeoff.require_supported_schema`). A classified IFC2X3
@@ -13,6 +32,29 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ### Added
 
+- **Top-level indirects:** an estimate share naming no bid item is filed under
+  a top-level cost item keyed by its cost code (`"<code> [indirect]"` when the
+  code is also a bid item's id or key). Before, it was dropped with a warning.
+- **Composite cost values are read everywhere** (`cost_categories.value_of`):
+  `read_costs`, the categories and the web contract sum an ADD value's
+  components.
+- **`cost_code`** in `read_costs` per-task records and contract shares of
+  estimate-model files.
+- **The file's currency:** every cost schedule BIMForge writes declares an
+  IfcMonetaryUnit (USD) in the project's units when it has none.
+- An ESTIMATE schedule renamed in another tool is still found and replaced (its
+  `BidSheet_EstimateModel.WorkSchedule`). `estimate-model` warns about a second
+  ESTIMATE schedule in the file, bid items that share a pay item id, and any
+  repeated Identification.
+- **costs.json `"items"`** for bid items no element carries (mobilization):
+  `est-bim estimate5d` writes each as a top-level total in the TENDER schedule (#49).
+
+### Fixed
+
+- **The TENDER schedule totals the bid** (#49): a code whose extension is within
+  float residue of its `cost` (0.001%, at least $0.01) has its non-count rates
+  scaled so its children sum to the cost exactly, and `estimate5d` refuses to
+  write a schedule that does not read back at its priced total to $0.01.
 - **The takeoff contract as IDS.** `bimforge/bim/contract/takeoff.ids` states what
   `est-bim takeoff` needs from any IFC (ours, Revit's, Tekla's) as a buildingSMART
   IDS 1.0 document: a classified element carries a quantity to measure, each named

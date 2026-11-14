@@ -34,3 +34,18 @@ Known limits of X.1, by design of IDS: quantity sets are selected by name
 (`Qto_*` or `*BaseQuantities`), where the reader takes any quantity set; and
 measure selection, the takeoff map, unit scaling and unmatched map codes are
 not expressible.
+
+## 5D and IFC compliance
+
+Goal: every schedule BIMForge writes reads correctly in any IFC tool and pairs
+in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-compliance-audit.md`.
+
+| ID | Item | State |
+|---|---|---|
+| C.1 | TENDER schedule from the takeoff (`est-bim estimate5d`). | Done in #39 (0.1.111) |
+| C.1a | TENDER totals the bid: no-element items, children sum to the cost, a $0.01 read-back gate, a value-1 UnitBasis over undeclared units (#49). | This PR |
+| C.2 | ESTIMATE schedule keyed by pay item, cost codes nested, ADD-composed leaves, one cost evaluator, currency. Spec `docs/superpowers/specs/2026-11-09-estimate-schedule-by-bid-item-design.md`. | This PR |
+| C.3 | Audit Phase 0: the remaining bugs (0.2 to 0.10). | Next |
+| C.4 | Audit Phase 1: additive units, types and statuses (#37). | Next |
+| C.5 | Audit Phase 2: relationship semantics (task outputs as IfcRelAssignsToProduct, resources via assign_process). | Next, coordinated with ProjectCommand |
+| C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
