@@ -34,3 +34,43 @@ Known limits of X.1, by design of IDS: quantity sets are selected by name
 (`Qto_*` or `*BaseQuantities`), where the reader takes any quantity set; and
 measure selection, the takeoff map, unit scaling and unmatched map codes are
 not expressible.
+
+## Geometry: checks and outputs
+
+From a review on 2026-11-14 of how bodies are created and checked, against
+how open-source CAD kernels work. The ten shipped examples were rebuilt and
+measured: every body is a closed solid, 139 of 158 are exact parametric
+solids (extrusions and revolutions), and each matches its stated volume
+within the gate's 0.5% tolerance. These rows are not yet listed in the
+platform roadmap's Phase 4.
+
+| ID | Item | State |
+|---|---|---|
+| G.1 | The QTO and bar-schedule workbooks are not byte-identical between rebuilds. `openpyxl` overwrites the modified time on save, so pinning it in `emit_qto.py` and `emit_bbs.py` has no effect; the created time is pinned correctly. `takeoff_workbook._save_deterministic` rewrites the modified time after saving: reuse it, and test it. | Next (bug) |
+| G.2 | An overlap gate. No check finds two elements occupying the same space, which is how a headwall's double-counted concrete passed (10.134 against 9.967 cy, #24). Bounding boxes first, then the common volume, with an opt-out for catalog examples that place alternatives together. | Next |
+| G.3 | Two outputs disagree with the IFC. STEP writes a post as a true cylinder where the IFC writes the equal-area polygon: +0.64% on the posts alone and about +0.25% on their element, inside the 0.5% tolerance today and outside it at fewer segments. The DXF plan of a tube is drawn at the origin, ignoring its position and axis. | Next |
+| G.4 | Orientation checked face by face. Edges are compared undirected and volumes taken absolute, so one flipped face lowers the stated and the emitted volume together. A directed-edge check in `mesh_topology`. | Next |
+| G.5 | Owner's call. When a spec asks for cuts and the terrain carve cannot run (the mesh libraries are missing, or the cut fails), the build goes on with the open surface. It is not silent: `carve` returns `closed` as false, and the caller records that in the provenance and leaves "(excavation carved)" off the element's name, beside a log line. Whether that build should fail is not ruled. | Not ruled |
+| G.6 | The post-gate tessellates the written IFC twice, at different settings on purpose: `_ifc_mesh_check` finely (an angular deflection of 0.1) to measure the solid the file states, and `_ifc_solid_body_check` at the defaults to test the mesh as a viewer draws it. One pass cannot serve both unchanged. Worth doing: skip the topology of surface bodies, which is computed and then set aside. | Later |
+| G.7 | Owner's call. Whenever build123d is installed, every build imports it and runs `true_volume_check`, which rebuilds each solid in OpenCascade, with or without STEP output. On the bridge example that is 4.6 s against 1.7 s without it: about 1.3 s is the import and about 0.8 s the check, so both have to be skipped to get the time back. Limiting them to STEP builds or a gate flag is faster, and gives up a second kernel's opinion on every solid. | Not ruled |
+| G.8 | Owner's call. Formwork contact area counts side faces that lie against another element. Measured on the examples and not yet verified: 6 to 22% of side area on the D90 headwall, 40 to 46% on the retaining wall's footings. Whether a contact is a joint that needs a bulkhead is an estimator's judgment, so a deduction would need a flag per element from the family. | Not ruled |
+
+Considered and not taken up:
+
+- One OpenCascade solid as the source of every output. A B-rep cannot
+  give back the parametric solids the IFC states, and Revit and Tekla
+  import a circle-profile extrusion as a native pipe or rod only because
+  the file says it is a circle. It would also replace "quantities from the
+  emitted faces".
+- `WarpedStem` stating its analytic volume, 0.3% off the facets it emits.
+  That is the documented rule for warped and curved primitives: the closed
+  form is the pay quantity, and the faceted volume is held to it within
+  tolerance.
+- Stable names for faces. Faces are classified by direction on every read
+  and no face identity is stored anywhere, so there is nothing to keep
+  stable.
+- Exact-arithmetic or all-manifold booleans. The degenerate-geometry bugs
+  on record came from export precision and from readers' kernels, and each
+  was fixed more cheaply.
+- A cache of built geometry. A build takes 2 to 5 s and the geometry under
+  10 ms of it.
