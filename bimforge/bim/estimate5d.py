@@ -5,8 +5,9 @@ TENDER, Status PLANNED; with `stage="awarded"` PRICEDBILLOFQUANTITIES /
 APPROVED) named "<name> bid" and declared to the IfcProject, with one parent
 IfcCostItem per BID ITEM and one nested child per contributing element.
 
-The parent's Identification is the map entry's `item_number` (the code when
-an entry has none), so every code a bid item takes off lands under ONE pay
+The parent's Identification is the bare item number of the map entry's
+`item_number` (`pay_item_id`: "Item # 2" is "2"; the code when an entry has
+none), so every code a bid item takes off lands under ONE pay
 item, and an internal ESTIMATE schedule can pair its parents with these by
 Identification alone. Each child's CostQuantities references the element's
 OWN Qto quantity entity — `ifcopenshell.api.cost.assign_cost_item_quantity`
@@ -142,7 +143,7 @@ def _rate_for(code: str, entry: dict, costs: dict, *, plural: bool,
     return float(price)
 
 
-_ITEM_PREFIX = re.compile(r"^\s*item\b\s*(?:no\.?|number|#)?\s*[#:]?\s*",
+_ITEM_PREFIX = re.compile(r"^\s*item\b\s*(?:number|no(?![a-z])\.?|#)?\s*[#:.\-]?\s*",
                           re.IGNORECASE)
 
 

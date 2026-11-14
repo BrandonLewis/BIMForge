@@ -665,7 +665,8 @@ def test_a_pre_0_1_111_estimate_schedule_is_replaced_on_rerun():
 @pytest.mark.parametrize("number,code,want", [
     ("31", "X", "31"), ("Item # 2", "X", "2"), ("item no. 7", "X", "7"),
     ("ITEM 12A", "X", "12A"), ("0055", "X", "0055"), ("", "MOB", "MOB"),
-    (None, "MOB", "MOB"), ("Itemized 3", "X", "Itemized 3")])
+    (None, "MOB", "MOB"), ("Itemized 3", "X", "Itemized 3"),
+    ("Item note 3", "X", "note 3"), ("Item No7", "X", "7"), ("Item-5", "X", "5")])
 def test_pay_item_id_is_the_bare_item_number_else_the_code(number, code, want):
     from bimforge.bim.estimate5d import pay_item_id
     assert pay_item_id(number, code) == want
