@@ -25,6 +25,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   stone, masonry, wood and earth MATT), so a material whose layer the table does not
   know now reads as what it is rather than as its IFC class's default.
 
+## 0.1.115 — 2026-11-14
+
 ### Fixed
 
 - **A georeferenced IFC states the unit of its map coordinates** (#58). Neither
