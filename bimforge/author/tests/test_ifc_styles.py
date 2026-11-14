@@ -169,6 +169,9 @@ def test_pack_can_clear_a_builtin_finish():
     ("HDPE pipe", "plastic"),
     ("Aluminum handrail", "aluminium"),
     ("Rock slope protection", "stone"),
+    ("Construction Heart redwood, full dimension, resawn", "wood"),
+    ("Western red cedar lagging", "wood"),
+    ("3/4 in Baserock", "stone"),
 ])
 def test_material_category_from_its_name(name, category):
     assert material_category(name) == category

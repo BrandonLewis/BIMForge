@@ -177,3 +177,26 @@ def test_an_unhosted_excavation_next_to_ground_is_warned(tmp_path):
     m = _abutment(voids=None)
     with pytest.warns(UserWarning, match="voids"):
         emit_ifc(m, str(tmp_path / "unhosted.ifc"))
+
+
+def test_the_warning_names_the_terrain_not_another_geographic_element(tmp_path):
+    # rock slope protection is an IfcGeographicElement too, but not the
+    # ground a pit is dug from: voiding it would be wrong
+    m = _abutment(voids=None)
+    m.elements.insert(0, Element("RSP repair - north bank",
+                                 ifc_class="IfcGeographicElement",
+                                 geometry=_prism(0, 5, 0, 5, -2, 0)))
+    with pytest.warns(UserWarning, match="voids='existing ground'"):
+        emit_ifc(m, str(tmp_path / "rsp.ifc"))
+
+
+def test_no_terrain_no_warning(tmp_path):
+    import warnings
+    m = _abutment(voids=None)
+    m.element("existing ground").predefined_type = None
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        try:
+            emit_ifc(m, str(tmp_path / "noterrain.ifc"))
+        except UserWarning as w:
+            assert "voids" not in str(w), w

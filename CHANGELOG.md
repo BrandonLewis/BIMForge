@@ -4,6 +4,15 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **The unhosted-excavation warning names the terrain** (#59). It took the first
+  IfcGeographicElement as the ground, so a model with rock slope protection listed first
+  was told to void the RSP. It now considers only a TERRAIN IfcGeographicElement, and
+  warns only when the model has one.
+- **More material names have a Category** (#65): redwood and cedar are wood, baserock is
+  stone.
+
 ## 0.1.116 — 2026-11-14
 
 ### Added
