@@ -4,6 +4,20 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **A georeference base in the wrong unit for its CRS is refused.** #58 checks
+  `IfcMapConversion.Scale` against the CRS unit, but metre Eastings/Northings
+  under a US-survey-feet zone keep Scale right and still put the model ~1,480 km
+  off the coast. `emit_ifc` and `dxf2bim` now refuse a base that falls outside
+  the CRS's area of use but inside it in another unit, and say which unit the
+  numbers fit (`cad.geo.check_base_in_crs`). A base outside the zone in every
+  unit, such as a local test base, only warns; (0, 0) is skipped.
+- **`federate` refuses a source on another georeference.** The federated file
+  takes its map conversion from the ctx alone, so a source written on another
+  CRS, base, Scale or rotation was placed wrong with no error. Pass
+  `georef_check=False` when that is deliberate.
+
 ## 0.1.124 — 2026-11-15
 
 ### Fixed

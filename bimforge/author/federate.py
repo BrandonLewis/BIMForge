@@ -556,7 +556,32 @@ def _assert_products_unique(f) -> None:
                 f"{first.Name!r} and {p.is_a()} {p.Name!r}")
 
 
-def _open_sources(sources, ctx, unit_check: bool):
+def _georef_mismatch(src, ctx) -> str | None:
+    """Why a source's own georeference disagrees with the federation ctx, or
+    None. The federated file takes its IfcMapConversion from ctx alone, so a
+    source written on another base, CRS or scale would be placed wrong with
+    no error. A source with no georeference is not a mismatch."""
+    convs, crss = src.by_type("IfcMapConversion"), src.by_type("IfcProjectedCRS")
+    if ctx.epsg is None or not convs or not crss:
+        return None
+    c = convs[0]
+    out = []
+    if crss[0].Name != ctx.crs_name:
+        out.append(f"CRS {crss[0].Name} vs {ctx.crs_name}")
+    for attr, want, default in (("Eastings", ctx.base_e, 0.0),
+                                ("Northings", ctx.base_n, 0.0),
+                                ("Scale", 1.0 / ctx.ft_to_m, 1.0)):
+        got = getattr(c, attr)
+        got = default if got is None else float(got)
+        if abs(got - want) > 1e-6 * max(1.0, abs(want)):
+            out.append(f"{attr} {got!r} vs {want!r}")
+    xa, xo = c.XAxisAbscissa, c.XAxisOrdinate
+    if (xa is not None or xo is not None) and (abs(float(xo or 0.0)) > 1e-9):
+        out.append(f"map conversion rotated (XAxis {xa}, {xo})")
+    return "; ".join(out) or None
+
+
+def _open_sources(sources, ctx, unit_check: bool, georef_check: bool = True):
     """Open every source BEFORE anything is written, and refuse a federation
     whose sources (or target ctx) disagree on the schema."""
     import ifcopenshell
@@ -567,6 +592,14 @@ def _open_sources(sources, ctx, unit_check: bool):
             raise ValueError(
                 f"{src_path}: length unit is not SI metre — a federation cannot "
                 "silently rescale geometry")
+        if georef_check:
+            why = _georef_mismatch(src, ctx)
+            if why:
+                raise ValueError(
+                    f"{src_path}: georeference does not match the federation "
+                    f"ctx ({why}). federate does not reproject; re-emit the "
+                    "source on the shared base point, or pass "
+                    "georef_check=False if that is deliberate.")
         opened.append((Path(src_path), name, src))
     schemas = {_schema_of(src) for _p, _n, src in opened}
     if len(schemas) > 1:
@@ -661,7 +694,8 @@ def _merge_same_facilities(tgt, site) -> int:
 
 
 def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
-             merge_facilities: bool = False) -> FederationResult:
+             merge_facilities: bool = False,
+             georef_check: bool = True) -> FederationResult:
     """Merge co-registered source IFCs into one federated file at `out_path`.
 
     `sources` is a list of ``(ifc_path, storey_name)``; each source's products
@@ -681,7 +715,7 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
     from bimforge.author.emit_ifc import _pin_relationship_order, emit_ifc
     from bimforge.author.model import StructureModel
 
-    opened = _open_sources(sources, ctx, unit_check)
+    opened = _open_sources(sources, ctx, unit_check, georef_check)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     # the target opens as a plain Site > Building > Storey file: a ctx facility

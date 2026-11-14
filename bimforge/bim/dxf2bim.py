@@ -320,6 +320,9 @@ def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
         else:
             east, north = base_x_m / crs_m, base_y_m / crs_m
             scale = 1.0 / crs_m
+        # a base in the wrong unit for the CRS lands outside it
+        from bimforge.cad.geo import check_base_in_crs
+        check_base_in_crs(epsg, east, north, what="dxf2bim base point")
         run("georeference.add_georeferencing", model)
         # the CRS's name, datum and unit (#58) come from the EPSG registry
         # unless the layer map states them
