@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.118 — 2026-11-14
+
 ### Changed
 
 - **`est-bim estimate-model` writes ProjectCommand's ESTIMATE shape.** Each bid
