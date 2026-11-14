@@ -472,3 +472,42 @@ def test_item_numbers_equal_after_the_prefix_is_stripped_stay_distinct():
     keys = {_psets(ci)["BidSheet_EstimateItem"]["CostKey"]
             for ci in parents.values()}
     assert keys == {"51-CONC", "Item # 10"}
+
+
+def test_estimate_and_tender_pair_by_identification():
+    """The same bid through estimate5d (TENDER) and estimate-model
+    (ESTIMATE): their top-level Identifications are equal, though the
+    takeoff map spells the number "Item # 7" and BidSheet.ai "7"."""
+    from bimforge.bim import estimate5d
+    from bimforge.bim.tests.test_estimate5d import _pile_ifc
+    f = _pile_ifc(schema="IFC4X3_ADD2")
+    (pile,) = f.by_type("IfcPile")
+    estimate5d.embed_estimate(
+        f, {"codes": {"PILE-200W-FRN": {"measure": "Length", "unit": "LF",
+                                        "item_number": "Item # 7"}}},
+        {"PILE-200W-FRN": {"cost": 0, "unit_price": 10.0, "unit": "LF"}})
+    embed_estimate_model(f, {
+        "estimate": {"id": 9},
+        "items": [{"id": 1, "item_number": "7", "item_code": "PILE-200W-FRN",
+                   "description": "Piles", "unit": "LF", "quantity": "41",
+                   "unit_price": "10", "total": "410"}],
+        "elements": [{"id": 11, "global_id": pile.GlobalId,
+                      "global_id_assigned": True, "name": "P-1"}],
+        "activities": [{"id": 1, "key": "a1", "name": "Drive piles",
+                        "home_item_id": 1, "cost_code": "31-620",
+                        "cost": "410",
+                        "cost_split": {"labor": "300", "equipment": "110"},
+                        "start_date": "2026-08-10",
+                        "finish_date": "2026-08-14",
+                        "element_ids": [11], "spread": {}}],
+        "shares": [{"activity_id": 1, "activity_key": "a1", "item_id": 1,
+                    "element_id": 11, "fraction": "1", "cost": "410",
+                    "manhours": "16"}]})
+
+    def tops(kind):
+        (cs,) = [c for c in f.by_type("IfcCostSchedule")
+                 if c.PredefinedType == kind]
+        return {ci.Identification for rel in cs.Controls or []
+                for ci in rel.RelatedObjects if ci.is_a("IfcCostItem")}
+
+    assert tops("TENDER") == tops("ESTIMATE") == {"7"}
