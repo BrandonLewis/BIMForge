@@ -56,3 +56,38 @@ def test_a_non_add_composite_is_not_guessed_at():
     top = _composite(f, ci, [("Labor", 7.0)])
     top.ArithmeticOperator = "MULTIPLY"
     assert value_of(top) == 0.0
+
+
+from bimforge.bim.cost_categories import (  # noqa: E402
+    remove_cost_values, write_cost_values,
+)
+
+
+def test_composed_writes_one_add_value_with_a_component_per_kind():
+    f, ci = _item()
+    (top,) = write_cost_values(f, ci, 10.0, {"Labor": 6.0, "Material": 3.0},
+                               composed=True)
+    assert list(ci.CostValues) == [top]
+    assert top.ArithmeticOperator == "ADD" and top.AppliedValue is None
+    parts = {(c.Category, c.Name): c.AppliedValue.wrappedValue
+             for c in top.Components}
+    assert parts == {("Labor", "Labor"): 6.0, ("Material", "Material"): 3.0,
+                     (None, "Unallocated"): 1.0}
+    assert total_of(ci) == pytest.approx(10.0)
+
+
+def test_composed_without_a_split_is_one_unallocated_component():
+    f, ci = _item()
+    (top,) = write_cost_values(f, ci, 4.25, None, composed=True)
+    (only,) = top.Components
+    assert only.Category is None and only.Name == "Unallocated"
+    assert only.AppliedValue.wrappedValue == 4.25
+
+
+def test_remove_cost_values_leaves_no_orphan_components():
+    f, ci = _item()
+    write_cost_values(f, ci, 10.0, {"Labor": 6.0}, composed=True)
+    assert len(f.by_type("IfcCostValue")) == 3
+    remove_cost_values(f, ci)
+    assert not f.by_type("IfcCostValue")
+    assert not (ci.CostValues or ())
