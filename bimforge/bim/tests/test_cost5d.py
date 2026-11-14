@@ -146,3 +146,25 @@ def test_every_schedule_is_declared_by_the_project_and_reruns_leave_one_rel():
         for s in model.by_type(cls):
             assert declared.count(s) == 1, (cls, s.Name)
     assert all(rel.RelatedDefinitions for rel in model.by_type("IfcRelDeclares"))
+
+
+def test_a_declared_cost_schedule_gives_the_file_one_currency():
+    import ifcopenshell.api.unit as unit
+    from bimforge.bim.cost5d import add_declared_cost_schedule
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    project = ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject",
+                                                  name="p")
+    unit.assign_unit(f)
+    add_declared_cost_schedule(f, name="a", predefined_type="TENDER")
+    add_declared_cost_schedule(f, name="b", predefined_type="ESTIMATE")
+    money = [u for u in project.UnitsInContext.Units
+             if u.is_a("IfcMonetaryUnit")]
+    assert [m.Currency for m in money] == ["USD"]
+
+
+def test_a_file_without_units_is_left_alone():
+    from bimforge.bim.cost5d import add_declared_cost_schedule
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    add_declared_cost_schedule(f, name="a", predefined_type="TENDER")
+    assert not f.by_type("IfcUnitAssignment")

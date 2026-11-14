@@ -118,6 +118,23 @@ def _remove_named(model, cost_name: str, crew_prefix: str) -> None:
             res.remove_resource(model, r)
 
 
+def ensure_currency(model, currency: str = "USD"):
+    """The project's IfcMonetaryUnit, added to its IfcUnitAssignment when it
+    has none, so cost values carry a currency. A project with no unit
+    assignment is left alone (it declares no units at all)."""
+    import ifcopenshell.api.unit as unit
+    projects = model.by_type("IfcProject")
+    units = projects[0].UnitsInContext if projects else None
+    if units is None:
+        return None
+    for u in units.Units or ():
+        if u.is_a("IfcMonetaryUnit"):
+            return u
+    money = unit.add_monetary_unit(model, currency=currency)
+    unit.assign_unit(model, units=[money])
+    return money
+
+
 def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
                                status: str | None = None):
     """An IfcCostSchedule declared to the IfcProject (IfcRelDeclares).
@@ -125,7 +142,9 @@ def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
     A control that sits outside the project's decomposition and declarations
     is not part of the project: viewers and ProjectCommand only find a cost
     schedule through the project, so every schedule bimforge writes is
-    declared. `status` is the schedule's Status (PLANNED, APPROVED, ...)."""
+    declared. `status` is the schedule's Status (PLANNED, APPROVED, ...).
+    The file's currency is declared on the way (`ensure_currency`)."""
+    ensure_currency(model)
     cs = cost.add_cost_schedule(model, name=name,
                                 predefined_type=predefined_type)
     if status:
