@@ -3,11 +3,14 @@
 Authors one `IfcWorkSchedule` (idempotent by name), an `IfcTask` tree from
 the WBS (`IfcRelNests`), `IfcTaskTime` schedule dates, an `IfcWorkCalendar`
 from the canonical work-week + holidays, `IfcRelSequence` from dependencies
-(with lag), and `IfcRelAssignsToProcess` linking each task to the elements
+(with lag), and `IfcRelAssignsToProduct` linking each task to the elements
 whose classification code is in the task's `bid_item_codes` — the same
 classification-code spine `ifc_takeoff` reads (docs/ifc-takeoff-contract.md),
-pointed the other way. Construction semantics only: elements appear at task
-start and persist; the KML/KMZ TimeSpan writer (slice 3) reads these dates.
+pointed the other way. The elements are the task's OUTPUTS (#60): what a
+construction task puts in place, or what a DEMOLITION / DISMANTLE / REMOVAL
+task takes away (its PredefinedType says which; `schedule_state`). Never an
+input (IfcRelAssignsToProcess), which IFC, Bonsai and other 4D readers take
+as material the task consumes. The KML/KMZ TimeSpan writer reads these dates.
 
 Issue #335 adds what a re-planning consumer needs back out: each task's
 `Bimforge_Task` (canonical TaskId + Wbs, since Identification carries the
@@ -70,7 +73,7 @@ class EmbedReport:
     tasks: int = 0
     tasks_timed: int = 0
     sequences: int = 0
-    assignments: int = 0                 # task->element assign_process calls
+    assignments: int = 0                 # task->element output links
     calendars: int = 0                   # named task calendars authored
     bid_item_links: int = 0              # task->owner bid item references
     assigned_elements: int = 0           # distinct elements assigned
@@ -480,8 +483,9 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
             if el.id() in seen:
                 continue
             seen.add(el.id())
-            sq.assign_process(model, relating_process=task_by_id[t.id],
-                              related_object=el)
+            # the element is the task's output (#60), not an input
+            sq.assign_product(model, relating_product=el,
+                              related_object=task_by_id[t.id])
             report.assignments += 1
             assigned.add(el.id())
     report.assigned_elements = len(assigned)

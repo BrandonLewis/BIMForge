@@ -4,6 +4,18 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Changed
+
+- **Tasks link to the elements they build or take away as outputs, not inputs**
+  (#60). `est-bim schedule` and `est-bim estimate-model` wrote every task-to-element
+  link as `IfcRelAssignsToProcess`, which IFC, Bonsai and other 4D readers take as
+  material the task consumes, so a construction task showed nothing built. They now
+  write `IfcRelAssignsToProduct` (the element relating, the task related) for both
+  construction tasks and DEMOLITION / DISMANTLE / REMOVAL tasks; the task's
+  PredefinedType still says which. bimforge's readers read both forms, so older
+  models load as before, and re-embedding a schedule replaces its old input links.
+  `schedule-read`'s link `direction` is now `"output"` for these links.
+
 ## 0.1.114 — 2026-11-13
 
 ### Fixed

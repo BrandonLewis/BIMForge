@@ -14,6 +14,7 @@ from importlib.resources import files  # noqa: E402
 from bimforge.bim.dxf2bim import UNIT_TO_M, build_ifc, extract_features  # noqa: E402
 from bimforge.bim.sample import write_sample_dxf  # noqa: E402
 from bimforge.bim.schedule4d import embed_schedule  # noqa: E402
+from bimforge.bim.schedule_state import element_spans  # noqa: E402
 from bimforge.bim.schedule_model import (  # noqa: E402
     CanonicalSchedule, Dependency, ScheduleTask,
 )
@@ -33,6 +34,15 @@ def sample_ifc(tmp_path_factory):
     ifc = str(tmp / "m.ifc")
     build_ifc(feats, lm, ifc)
     return ifc
+
+
+def _outputs(g, key=lambda o: o.is_a()):
+    """{task name: sorted keys of the elements the task outputs} (#60)."""
+    links = {}
+    for rel in g.by_type("IfcRelAssignsToProduct"):
+        for task in rel.RelatedObjects:
+            links.setdefault(task.Name, []).append(key(rel.RelatingProduct))
+    return {k: sorted(v) for k, v in links.items()}
 
 
 def _schedule():
@@ -103,13 +113,51 @@ def test_embed_sequences_with_type_and_lag(sample_ifc):
 
 def test_embed_assigns_elements_by_code(sample_ifc):
     g, report = _embed(sample_ifc, _schedule())
-    links = {}
-    for rel in g.by_type("IfcRelAssignsToProcess"):
-        links[rel.RelatingProcess.Name] = sorted(o.is_a() for o in rel.RelatedObjects)
+    links = _outputs(g)
     assert links["Place deck"] == ["IfcSlab"]
     assert links["Build walls"] == ["IfcWall"]
     assert links["Set columns"] == ["IfcColumn", "IfcColumn", "IfcColumn", "IfcColumn"]
     assert report.assigned_elements == 6          # 1 slab + 1 wall + 4 cols
+
+
+def test_embed_links_elements_as_task_outputs(sample_ifc):
+    # #60: what a task builds or takes away is its output, the task assigned
+    # to the product (IfcRelAssignsToProduct) -- not an input it consumes
+    # (IfcRelAssignsToProcess), which Bonsai plays as material used up
+    g, report = _embed(sample_ifc, _schedule())
+    assert not g.by_type("IfcRelAssignsToProcess")
+    rels = g.by_type("IfcRelAssignsToProduct")
+    assert sum(len(r.RelatedObjects) for r in rels) == report.assignments
+    assert all(r.RelatingProduct.is_a("IfcElement") for r in rels)
+    assert all(t.is_a("IfcTask") for r in rels for t in r.RelatedObjects)
+
+
+def test_a_removal_task_outputs_what_it_takes_away(sample_ifc):
+    sched = CanonicalSchedule(name="Rm", tasks=[
+        ScheduleTask(id="rm", name="Remove deck", wbs="1",
+                     start="2026-07-10", finish="2026-07-12",
+                     task_type="REMOVAL", match_name_re=r"A-SLAB")])
+    model = ifcopenshell.open(sample_ifc)
+    embed_schedule(model, sched)
+    assert _outputs(model) == {"Remove deck": ["IfcSlab"]}
+    assert [(sp.appear, sp.vanish) for sp in element_spans(model).values()]         == [(None, "2026-07-10")]
+
+
+def test_reembed_drops_links_written_as_inputs(sample_ifc):
+    # a model embedded before #60 carries input links; re-embedding the
+    # schedule by name leaves outputs only
+    import ifcopenshell.api.sequence as sq
+    model = ifcopenshell.open(sample_ifc)
+    embed_schedule(model, _schedule())
+    for rel in list(model.by_type("IfcRelAssignsToProduct")):
+        for task in rel.RelatedObjects:
+            sq.assign_process(model, relating_process=task,
+                              related_object=rel.RelatingProduct)
+        model.remove(rel)
+    assert model.by_type("IfcRelAssignsToProcess")
+    embed_schedule(model, _schedule())
+    assert not model.by_type("IfcRelAssignsToProcess")
+    assert _outputs(model)["Place deck"] == ["IfcSlab"]
 
 
 def test_embed_reports_unmapped_both_ways(sample_ifc):
@@ -120,9 +168,8 @@ def test_embed_reports_unmapped_both_ways(sample_ifc):
     assert report.unscheduled_element_count == 2   # C-CURB + A-HATCH
     assert all(isinstance(n, str) and n for n in report.unscheduled_elements)
     # the reported names are exactly the un-assigned classified elements
-    assigned = set()
-    for rel in g.by_type("IfcRelAssignsToProcess"):
-        assigned |= {o.Name or o.is_a() for o in rel.RelatedObjects}
+    assigned = {r.RelatingProduct.Name or r.RelatingProduct.is_a()
+                for r in g.by_type("IfcRelAssignsToProduct")}
     assert not (set(report.unscheduled_elements) & assigned)
 
 
@@ -169,9 +216,7 @@ def test_embed_assigns_by_ifc_class_and_name_regex(sample_ifc):
                      match_ifc_class="IfcPile"),   # no piles in the sample
     ])
     g, report = _embed(sample_ifc, sched, out_name="sel.ifc")
-    links = {}
-    for rel in g.by_type("IfcRelAssignsToProcess"):
-        links[rel.RelatingProcess.Name] = sorted(o.is_a() for o in rel.RelatedObjects)
+    links = _outputs(g)
     assert links["Set columns"] == ["IfcColumn"] * 4
     assert links["Place deck"] == ["IfcSlab"]        # A-SLAB element name
     assert report.assigned_elements == 5
@@ -191,9 +236,7 @@ def test_embed_ifc_class_selector_matches_subtypes(sample_ifc):
                      start="2026-07-10", finish="2026-07-12",
                      match_ifc_class="IfcWall")])
     report = embed_schedule(model, sched)
-    links = {}
-    for rel in model.by_type("IfcRelAssignsToProcess"):
-        links[rel.RelatingProcess.Name] = sorted(o.is_a() for o in rel.RelatedObjects)
+    links = _outputs(model)
     # both the plain IfcWall and the IfcWallStandardCase subtype are assigned
     assert links["Build walls"] == ["IfcWall", "IfcWallStandardCase"]
     assert report.assigned_elements == 2
@@ -249,8 +292,7 @@ def test_cli_schedule_end_to_end(sample_ifc, tmp_path, capsys):
     assert "1 tasks" in printed and "1 elements assigned" in printed
     g = ifcopenshell.open(str(out))
     assert [w.Name for w in g.by_type("IfcWorkSchedule")] == ["CLI BL"]
-    links = {r.RelatingProcess.Name: [o.is_a() for o in r.RelatedObjects]
-             for r in g.by_type("IfcRelAssignsToProcess")}
+    links = _outputs(g)
     assert links["SLAB.0010 Place deck"] == ["IfcSlab"]
 
 
@@ -318,17 +360,13 @@ def test_multi_classified_element_links_to_every_codes_task(tmp_path):
                      start="2026-07-13", finish="2026-07-15",
                      bid_item_codes=["PILE-200W-DRV"])])
     report = embed_schedule(f, sched)
-    links = {rel.RelatingProcess.Name: [o.Name for o in rel.RelatedObjects]
-             for rel in f.by_type("IfcRelAssignsToProcess")}
+    links = _outputs(f, lambda o: o.Name)
     assert links == {"Furnish piles": ["P-1"], "Drive piles": ["P-1"]}
     assert report.codes_without_elements == []
 
 
 def _links(g):
-    links = {}
-    for rel in g.by_type("IfcRelAssignsToProcess"):
-        links[rel.RelatingProcess.Name] = sorted(o.Name for o in rel.RelatedObjects)
-    return links
+    return _outputs(g, lambda o: o.Name)
 
 
 def test_embed_filters_narrow_the_code_join(sample_ifc):

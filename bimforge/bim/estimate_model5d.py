@@ -13,10 +13,10 @@ and writes it into an IFC as:
   duration — a model without `finish_date` falls back to the working day
   before `end_date` on a Mon-Fri week, with a warning); ScheduleDuration is
   the Mon-Fri working days of that span, so the three agree on the
-  calendar the schedule carries. Each task is assigned
-  (IfcRelAssignsToProcess) to the activity's linked elements found in the
-  IFC by GlobalId; a spread activity (it pays across items, not for
-  elements) is assigned none.
+  calendar the schedule carries. The activity's linked elements, found in
+  the IFC by GlobalId, are each task's outputs (IfcRelAssignsToProduct,
+  #60); a spread activity (it pays across items, not for elements) has
+  none.
 - **one IfcCostSchedule** (PredefinedType ESTIMATE, "<schedule> cost"): a
   valueless parent IfcCostItem per estimate item that carries allocation
   shares (Name = the description; unit, quantity and prices in
@@ -387,8 +387,8 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             if target is None:
                 dangling.append({"activity": key, "element_id": eid})
                 continue
-            sq.assign_process(model, relating_process=ent,
-                              related_object=target)
+            sq.assign_product(model, relating_product=target,
+                              related_object=ent)
             links += 1
     act_by_id = {a.get("id"): k for k, a in acts.items()}
 
