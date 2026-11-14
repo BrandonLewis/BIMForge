@@ -1706,8 +1706,11 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                  f"IFC4X3 (the schema is {ctx.schema})")
             voiding[el.name] = host
         hosts |= set(voiding.values())
+        # the ground a pit is dug from is TERRAIN; another geographic element
+        # (rock slope protection, say) is not what an excavation voids
         ground = [e.name for e in m.elements
-                  if e.ifc_class == "IfcGeographicElement"]
+                  if e.ifc_class == "IfcGeographicElement"
+                  and (e.predefined_type or "").upper() == "TERRAIN"]
         for el in m.elements:
             # an IfcEarthworksCut voids a host only when it names one
             # (Element.voids); unhosted, it is rewritten (#364)
