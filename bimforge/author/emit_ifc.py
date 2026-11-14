@@ -1227,6 +1227,8 @@ def _assert_guid_uniqueness(model, *, scope: str = "", spatial_keys=()) -> None:
         note(op.guid_key, f"opening {op.name}")
     for asm_name in model.assemblies:
         note(f"assembly/{asm_name}", f"assembly {asm_name}")
+    for grp_name in getattr(model, "groups", None) or {}:
+        note(f"group/{grp_name}", f"group {grp_name}")
     # one named type is ONE IfcTypeObject: its GlobalId is keyed by class
     # and name, so two predefined types under one name would be two type
     # objects with one GlobalId. Refused here, before any write.
@@ -1704,6 +1706,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                  f"IFC4X3 (the schema is {ctx.schema})")
             voiding[el.name] = host
         hosts |= set(voiding.values())
+        ground = [e.name for e in m.elements
+                  if e.ifc_class == "IfcGeographicElement"]
         for el in m.elements:
             # an IfcEarthworksCut voids a host only when it names one
             # (Element.voids); unhosted, it is rewritten (#364)
@@ -1712,6 +1716,14 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             else:
                 wanted, object_type = _unhosted_cut_class(ctx.schema, el.ifc_class,
                                                           el.name)
+                if el.ifc_class == "IfcEarthworksCut" and ground:
+                    # #59: the hosted cut is the standard form; a 4D viewer
+                    # opens the ground over a pit as it is dug
+                    warnings.warn(
+                        f"{el.name!r}: an excavation written unhosted while "
+                        f"{ground[0]!r} is in the model - set voids="
+                        f"{ground[0]!r} to write it as an IfcEarthworksCut "
+                        f"voiding the ground", UserWarning, stacklevel=2)
             ifc_class = _class_for_schema(ctx.schema, wanted, el.name)
             product = run("root.create_entity", f, ifc_class=ifc_class,
                           predefined_type=el.predefined_type, name=el.name)
@@ -1919,6 +1931,20 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 run("aggregate.assign_object", f, products=[by_name[n]],
                     relating_object=asm)
 
+        # #59: an IfcGroup ties a pit to its backfill. It is an assignment,
+        # not a parent, so a hosted cut (whose parent is its ground) can join
+        for grp_name, members in (getattr(m, "groups", None) or {}).items():
+            missing = [n for n in members if n not in by_name]
+            if missing:
+                raise ValueError(f"{m.name}: group {grp_name!r} names "
+                                 f"{', '.join(map(repr, missing))}, not an "
+                                 f"element of the model")
+            grp = run("root.create_entity", f, ifc_class="IfcGroup",
+                      name=grp_name)
+            grp.GlobalId = ctx.guid(_gk(scope, f"group/{grp_name}"))
+            run("group.assign_group", f,
+                products=[by_name[n] for n in members], group=grp)
+
     # annotations (issue #195): instanced IfcAnnotation, only when a model
     # carries a plan — so every family that emits none is byte-identical to
     # before (no annotation context, no IfcAnnotation created). The Plan/
@@ -1967,6 +1993,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                      for _host, op in m.openings}
         assigned |= {ctx.guid(_gk(scope, f"assembly/{name}"))
                      for name in m.assemblies}
+        assigned |= {ctx.guid(_gk(scope, f"group/{name}"))
+                     for name in (getattr(m, "groups", None) or {})}
         assigned |= {ctx.guid(_annotation_guid_key(scope, i, plan))
                      for i, plan in enumerate(getattr(m, "annotations", None)
                                               or [])}

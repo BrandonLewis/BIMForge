@@ -6,6 +6,21 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ### Added
 
+- **A backfill derived from its pit** (#59). `author.backfill.derive_backfill(model,
+  pit, name, top=...)` adds one IfcEarthworksFill (BACKFILL) whose solid is the pit
+  clipped at the backfill's top (a level or a surface) less every element body
+  standing in it, cut with manifold3d when the model is built: a stem rising above the
+  backfill takes away only its buried part. Its `volume_cf` is the solid's volume, held
+  by a stated-quantity assertion. Ground and other earthwork bodies are never taken
+  away; `exclude=` names more. A body that is not a closed solid, nothing left to
+  backfill, or a backfill in another number of pieces than `pieces=` (default 1) is
+  refused. A 4D viewer animates the one solid by volume, so no lifts are needed;
+  `author.lifts` is no longer the way for 4D.
+- **Groups** (#59). `StructureModel.groups` ({name: [element names]}) is written as one
+  named IfcGroup each, with IfcRelAssignsToGroup; `derive_backfill(group=...)` ties a
+  pit and its backfill together ("Abut 1 earthwork"). A group is an assignment, not a
+  parent, so a hosted cut (whose parent is the ground it voids) can join one where it
+  cannot join an IfcElementAssembly. A group naming a missing element is refused.
 - **Every IfcMaterial states its IFC Category** (#65): `concrete`, `steel`, `aluminium`,
   `block`, `brick`, `stone`, `wood`, `glass`, `gypsum`, `plastic` or `earth`, so a
   viewer can give each kind of material its own surface without parsing the free-text
@@ -24,6 +39,13 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   built-in look (steel and aluminium METAL, glass GLASS and see-through, concrete,
   stone, masonry, wood and earth MATT), so a material whose layer the table does not
   know now reads as what it is rather than as its IFC class's default.
+
+### Changed
+
+- **An excavation written unhosted while existing ground is in the model is warned**
+  (#59). The hosted IfcEarthworksCut (`Element.voids` naming the ground) is the
+  standard form a 4D viewer opens the ground with; the unhosted rewrite to
+  IfcEarthworksElement / EXCAVATION (#364) is unchanged.
 
 ## 0.1.115 — 2026-11-14
 
