@@ -19,7 +19,9 @@
 | File | Change |
 |---|---|
 | `bimforge/bim/cost_categories.py` | `value_of`, composite-aware `categories_of` / `total_of`, `write_cost_values(..., composed=True)`, `remove_cost_values` |
-| `bimforge/bim/estimate5d.py` | `pay_item_id` (with "Item #" normalisation); `_item_key` calls it |
+| `bimforge/bim/estimate5d.py` | `pay_item_id` (with "Item #" normalisation); `_item_key` calls it; residue trimmed to the cost, no-element items as totals, the read-back gate (#49) |
+| `bimforge/bim/costload.py` | costs.json reserved `items` key: validated, skipped by the loaders |
+| `bimforge/bim/cli.py` | estimate5d prints no-element items and trimmed codes |
 | `bimforge/bim/cost5d.py` | `ensure_currency`, called from `add_declared_cost_schedule` |
 | `bimforge/bim/schedule_read.py` | nest helpers, `cost_schedules_for`; `read_costs` uses them and `total_of` |
 | `bimforge/web/contract.py` | `_shares` walks to the top-level item, uses `total_of`, adds `cost_code` |
@@ -1198,7 +1200,426 @@ git commit -m "test(estimate): TENDER and ESTIMATE pair by Identification"
 
 ---
 
-### Task 9: Validate the IFC and run everything
+### Tasks 9–11: the TENDER total is the bid (#49)
+
+Issue #49 lists two ways `est-bim estimate5d`'s TENDER schedule fails to total the bid:
+1. A lump-sum item that no element carries, such as mobilization, never appears in the schedule.
+2. An item's children drift from its `cost` by float residue (4 items came out $0.23 over on $115,140.31).
+
+Decisions:
+- **Items with no elements** come from a reserved `"items"` key in costs.json: `{"items": {"<item_number>": {"cost": 7670.0, "description": "Mobilization"}}}`.
+  - Each becomes a top-level leaf, with Identification `pay_item_id(number, number)` and one IfcCostValue (AppliedValue = cost, Name "Total", no Category, so ProjectCommand doesn't see a "TOTAL" category) and no CostQuantities.
+  - Codes are never named "items", and the cost5d/costload readers skip the key.
+- **Children sum to the cost** only when the drift is residue: |extended − cost| ≤ max($0.01, 0.01% of cost).
+  - The code's rates are then scaled by cost/extended, which is the same as rate = cost / Σ(q/basis).
+  - A real variance (the model quantity isn't the bid quantity) is not hidden. It is reported as today.
+- **The gate** reads the schedule back the way a consumer does (AppliedValue × q / UnitBasis, a total where there are no CostQuantities). That figure must equal the report's `extended_total` (which includes the no-element items) to $0.01, or `embed_estimate` raises and the CLI writes nothing.
+- The "Item #" prefix note in #49 is handled by Task 3's `pay_item_id`.
+
+### Task 9: costs.json `items`, validated and ignored by the cost loaders
+
+**Files:**
+- Modify: `bimforge/bim/costload.py` (`validate_costs`, `distribute_to_tasks`, `distribute_to_task_codes`)
+- Test: `bimforge/bim/tests/test_costload.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `bimforge/bim/tests/test_costload.py` (add `import pytest` at the top if it is missing):
+
+```python
+LUMPS = {"1": {"cost": 7670.0, "description": "Mobilization"}}
+
+
+def test_costs_items_are_validated():
+    ok = {"A": {"cost": 1.0, "labor_hours": None}, "items": LUMPS}
+    costload.validate_costs(ok)
+    assert costload.code_costs(ok) == {"A": ok["A"]}
+    for bad in ({"items": []}, {"items": {"1": {"description": "x"}}},
+                {"items": {"1": {"cost": "7670"}}},
+                {"items": {"1": {"cost": 1.0, "description": 3}}}):
+        with pytest.raises(ValueError, match="items"):
+            costload.validate_costs(bad)
+
+
+def test_the_distribution_ignores_costs_items():
+    sched = _sched(tasks=[
+        ScheduleTask(id="t1", name="x", start="2026-08-10",
+                     finish="2026-08-10", bid_item_codes=["A"])])
+    costs = {"A": {"cost": 1000.0, "labor_hours": None}}
+    want = costload.distribute_to_tasks(sched, costs)
+    assert costload.distribute_to_tasks(sched, {**costs, "items": LUMPS}) \
+        == want
+    assert costload.distribute_to_task_codes(
+        sched, {**costs, "items": LUMPS}) == \
+        costload.distribute_to_task_codes(sched, costs)
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `PYTHONPATH=. C:/Python314/python.exe -m pytest -q -p no:cacheprovider bimforge/bim/tests/test_costload.py -k items`
+Expected: FAIL. `costs['items'] must be an object with a 'cost'`, and `AttributeError: code_costs`.
+
+- [ ] **Step 3: Implement**
+
+In `bimforge/bim/costload.py`, add above `validate_costs`:
+
+```python
+#: costs.json's reserved key for bid items no element carries (estimate5d
+#: writes each as a total): {"items": {"<item_number>": {cost, description?}}}
+ITEMS_KEY = "items"
+
+
+def code_costs(costs: dict) -> dict:
+    """costs.json's per-code records, without the reserved `items` key."""
+    return {k: v for k, v in costs.items() if k != ITEMS_KEY}
+
+
+def _validate_items(items) -> None:
+    if not isinstance(items, dict):
+        raise ValueError("costs['items'] must map item numbers to "
+                         "{cost, description?}")
+    for number, rec in items.items():
+        c = rec.get("cost") if isinstance(rec, dict) else None
+        if not isinstance(c, (int, float)) or isinstance(c, bool):
+            raise ValueError(f"costs['items']['{number}'] must be an object "
+                             f"with a numeric 'cost'")
+        desc = rec.get("description")
+        if desc is not None and not isinstance(desc, str):
+            raise ValueError(f"costs['items']['{number}']['description'] "
+                             f"must be a string")
+```
+
+In `validate_costs`:
+- Add this line to the docstring after the shape: "plus an optional reserved `"items"` key (`ITEMS_KEY`) for bid items no element carries."
+- Replace `for code, rec in costs.items():` with:
+
+```python
+    if ITEMS_KEY in costs:
+        _validate_items(costs[ITEMS_KEY])
+    for code, rec in code_costs(costs).items():
+```
+
+In both `distribute_to_tasks` and `distribute_to_task_codes`, make the first line of the body (after the docstring) `costs = code_costs(costs)`.
+
+- [ ] **Step 4: Run the cost suites**
+
+Run: `PYTHONPATH=. C:/Python314/python.exe -m pytest -q -p no:cacheprovider bimforge/bim/tests/test_costload.py bimforge/bim/tests/test_cost5d.py bimforge/bim/tests/test_cli_5d_guard.py`
+Expected: all pass.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add bimforge/bim/costload.py bimforge/bim/tests/test_costload.py
+git commit -m "feat(costload): costs.json 'items' for bid items no element carries (validated; the loaders skip it)"
+```
+
+---
+
+### Task 10: The children sum to the item's cost
+
+**Files:**
+- Modify: `bimforge/bim/estimate5d.py` (`EstimateEmbedReport`, the per-code loop in `embed_estimate`)
+- Test: `bimforge/bim/tests/test_estimate5d.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `bimforge/bim/tests/test_estimate5d.py`:
+
+```python
+def _two_piles():
+    model = _pile_ifc()
+    p2 = ifcopenshell.api.root.create_entity(model, ifc_class="IfcPile",
+                                             name="P-2")
+    qto = ifcopenshell.api.pset.add_qto(model, product=p2,
+                                        name="Qto_PileBaseQuantities")
+    ifcopenshell.api.pset.edit_qto(model, qto=qto,
+                                   properties={"Length": 6_250.0})
+    ifcopenshell.api.classification.add_reference(
+        model, products=[p2], identification="PILE-200W-FRN", name="",
+        classification=model.by_type("IfcClassification")[0])
+    return model
+
+
+def _money(child):
+    cv = child.CostValues[0]
+    q = child.CostQuantities[0]
+    return (cv.AppliedValue.wrappedValue * q[3]
+            / cv.UnitBasis.ValueComponent.wrappedValue)
+
+
+def test_residue_is_trimmed_so_the_children_sum_to_the_cost():
+    # $10/LF x 18.75 m = $615.1575; the bid's cost is the rounded $615.16
+    model = _two_piles()
+    costs = {"PILE-200W-FRN": {**PILE_COSTS["PILE-200W-FRN"], "cost": 615.16}}
+    report = estimate5d.embed_estimate(model, PILE_MAP, costs)
+    kids = _children(_parents(model)[0])
+    assert sum(_money(k) for k in kids) == pytest.approx(615.16, abs=1e-9)
+    assert report.by_code["PILE-200W-FRN"]["extended"] == \
+        pytest.approx(615.16, abs=1e-9)
+    assert report.extended_total == pytest.approx(615.16, abs=1e-9)
+    assert report.snapped_to_cost["PILE-200W-FRN"] == \
+        pytest.approx(10.0 * 18.75 * M_TO_LF - 615.16, abs=1e-9)
+
+
+def test_a_real_variance_is_reported_not_trimmed():
+    model = _pile_ifc()
+    report = estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)  # 500
+    (child,) = _children(_parents(model)[0])
+    assert _money(child) == pytest.approx(10.0 * 12.5 * M_TO_LF, rel=1e-9)
+    assert report.snapped_to_cost == {}
+```
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `PYTHONPATH=. C:/Python314/python.exe -m pytest -q -p no:cacheprovider bimforge/bim/tests/test_estimate5d.py -k "residue or real_variance"`
+Expected: FAIL. `615.1575 != 615.16`, and `AttributeError: snapped_to_cost`.
+
+- [ ] **Step 3: Implement**
+
+In `estimate5d.py`, add below `EACH = "EACH"`:
+
+```python
+#: a code's extension within this of its cost is float / unit-conversion
+#: residue, trimmed so its children sum to the cost exactly (#49); a larger
+#: gap is a real variance (model quantity is not the bid quantity), reported
+RESIDUE_REL = 1e-4
+
+
+def _is_residue(extended: float, cost: float) -> bool:
+    return abs(extended - cost) <= max(0.01, RESIDUE_REL * abs(cost))
+```
+
+In `EstimateEmbedReport`, after `zero_count_lump_sums`, add:
+
+```python
+    # {code: extended - cost}: residue trimmed off the code's rates so its
+    # children sum to its cost exactly
+    snapped_to_cost: dict = field(default_factory=dict)
+```
+
+In `embed_estimate`'s per-code loop:
+- Add `code_values = []` beside `code_extended = 0.0`.
+- In the `for cv, rate, raw_qty, _ in priced:` loop, append `code_values.append(cv)` after the `edit_cost_value` call.
+- Replace the `if code_authored:` block with:
+
+```python
+        if code_authored:
+            bm = (costs.get(code) or {}).get("cost")
+            if bm and code_extended and _is_residue(code_extended, bm):
+                k = bm / code_extended      # rate = cost / sum(q / basis)
+                for cv in code_values:
+                    cost.edit_cost_value(model, cv, attributes={
+                        "AppliedValue": cv.AppliedValue.wrappedValue * k})
+                report.snapped_to_cost[code] = code_extended - bm
+                code_extended = float(bm)
+            report.by_code[code] = {
+                "extended": code_extended,
+                "bm_cost": bm,
+                "variance_pct": ((code_extended - bm) / bm * 100.0
+                                 if bm else None)}
+            report.extended_total += code_extended
+```
+
+In the module docstring, add this paragraph after the "Money semantics" paragraph (before "THE GOVERNING CODE"):
+
+```
+When a code's extension is within float / unit-conversion residue of its
+costs.json `cost` (`RESIDUE_REL`, at least $0.01), its rates are scaled by
+cost / extension, so its children sum to the cost exactly (#49; reported in
+`snapped_to_cost`). A larger gap is a real variance and stays in `by_code`.
+```
+
+- [ ] **Step 4: Run the estimate5d suites**
+
+Run: `PYTHONPATH=. C:/Python314/python.exe -m pytest -q -p no:cacheprovider bimforge/bim/tests/test_estimate5d.py bimforge/bim/tests/test_cli_estimate5d.py`
+Expected: all pass. Tests with `cost: 0.0` aren't trimmed (`bm` is falsy).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add bimforge/bim/estimate5d.py bimforge/bim/tests/test_estimate5d.py
+git commit -m "fix(estimate5d): trim float residue so an item's children sum to its cost (#49)"
+```
+
+---
+
+### Task 11: No-element items as totals, and the $0.01 gate
+
+**Files:**
+- Modify: `bimforge/bim/estimate5d.py` (`EstimateEmbedReport`, the end of `embed_estimate`, the module docstring), `bimforge/bim/cli.py` (`_run_estimate5d` output)
+- Test: `bimforge/bim/tests/test_estimate5d.py`, `bimforge/bim/tests/test_cli_estimate5d.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `bimforge/bim/tests/test_estimate5d.py`:
+
+```python
+def test_an_item_with_no_elements_is_a_total_leaf():
+    model = _pile_ifc()
+    costs = {**PILE_COSTS,
+             "items": {"Item # 1": {"cost": 7670.0,
+                                    "description": "Mobilization"}}}
+    report = estimate5d.embed_estimate(model, PILE_MAP, costs)
+    tops = {ci.Identification: ci for ci in _parents(model)}
+    assert set(tops) == {"0055", "1"}
+    mob = tops["1"]
+    assert mob.Name == "Mobilization"
+    assert not _children(mob) and not (mob.CostQuantities or ())
+    (cv,) = mob.CostValues
+    assert cv.AppliedValue.wrappedValue == 7670.0 and cv.Category is None
+    assert report.items_without_elements == {"1": 7670.0}
+    assert report.extended_total == pytest.approx(
+        7670.0 + 10.0 * 12.5 * M_TO_LF, rel=1e-9)
+    assert report.parents == 2
+
+
+def test_an_items_entry_that_elements_already_price_is_refused():
+    model = _pile_ifc()
+    with pytest.raises(ValueError, match="0055"):
+        estimate5d.embed_estimate(model, PILE_MAP, {
+            **PILE_COSTS, "items": {"0055": {"cost": 1.0}}})
+
+
+def test_the_schedule_must_read_back_at_the_priced_total(monkeypatch):
+    model = _pile_ifc()
+    real = estimate5d._leaf_money
+    monkeypatch.setattr(estimate5d, "_leaf_money",
+                        lambda ci: real(ci) + 0.02)
+    with pytest.raises(ValueError, match="not written"):
+        estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
+
+
+def test_a_rerun_with_items_leaves_one_of_each():
+    model = _pile_ifc()
+    costs = {**PILE_COSTS, "items": {"1": {"cost": 7670.0}}}
+    for _ in range(2):
+        estimate5d.embed_estimate(model, PILE_MAP, costs)
+    assert sorted(ci.Identification for ci in _parents(model)) == \
+        ["0055", "1"]
+    assert len(model.by_type("IfcCostSchedule")) == 1
+```
+
+In `bimforge/bim/tests/test_cli_estimate5d.py`, add a test that copies the file's first passing CLI test, with `"items": {"1": {"cost": 7670.0, "description": "Mobilization"}}` added to the costs.json it writes. It should assert that the exit code is 0 and that stdout contains `item 1: $7,670.00, no elements`. Read the file's first test for its fixture and invocation pattern (`capsys` and `main([...])` or a subprocess, whichever it uses).
+
+- [ ] **Step 2: Run them to see them fail**
+
+Run: `PYTHONPATH=. C:/Python314/python.exe -m pytest -q -p no:cacheprovider bimforge/bim/tests/test_estimate5d.py bimforge/bim/tests/test_cli_estimate5d.py -k "no_elements or already_price or read_back or rerun_with_items or items"`
+Expected: FAIL. The `"items"` key is read as a code without a unit_price (skipped), there is no `items_without_elements`, and there is no `_leaf_money`.
+
+- [ ] **Step 3: Implement**
+
+In `estimate5d.py`, extend the `bimforge.bim.costload` usage with an import below the existing imports:
+
+```python
+from bimforge.bim.costload import ITEMS_KEY, code_costs
+```
+
+In `EstimateEmbedReport`, after `snapped_to_cost`, add:
+
+```python
+    # {pay item: cost}: costs.json "items" no element carries (mobilization),
+    # each written as a top-level total with no CostQuantities
+    items_without_elements: dict = field(default_factory=dict)
+```
+
+Add above `embed_estimate`:
+
+```python
+def _leaf_money(ci) -> float:
+    """What a consumer reads off a leaf: AppliedValue x quantity / UnitBasis
+    per value, or the AppliedValue itself when there are no CostQuantities."""
+    qty = sum(float(q[3]) for q in ci.CostQuantities or ())
+    total = 0.0
+    for cv in ci.CostValues or ():
+        v = float(cv.AppliedValue.wrappedValue) if cv.AppliedValue else 0.0
+        if ci.CostQuantities:
+            basis = cv.UnitBasis.ValueComponent.wrappedValue \
+                if cv.UnitBasis is not None else 1.0
+            v = v * qty / basis
+        total += v
+    return total
+```
+
+At the top of `embed_estimate`, after `codes_cfg, _defaults, entries_by_code = normalize_map(tmap)`, add:
+
+```python
+    lumps = costs.get(ITEMS_KEY) or {}
+    costs = code_costs(costs)
+```
+
+Replace the final `report.parents = len(parents)` / `return report` with:
+
+```python
+    # bid items no element carries (mobilization): a top-level total each,
+    # so the schedule totals the bid (#49)
+    for number, rec in lumps.items():
+        item = pay_item_id(number, number)
+        if item in parents:
+            raise ValueError(f"costs.json items: {item} is a pay item the "
+                             f"map's elements already price")
+        amount = float(rec["cost"])
+        lump = cost.add_cost_item(model, cost_schedule=cs)
+        cost.edit_cost_item(model, lump, attributes={
+            "Name": rec.get("description") or item, "Identification": item})
+        cv = cost.add_cost_value(model, parent=lump)
+        cost.edit_cost_value(model, cv, attributes={"AppliedValue": amount,
+                                                    "Name": "Total"})
+        parents[item] = lump
+        report.items_without_elements[item] = amount
+        report.extended_total += amount
+    report.parents = len(parents)
+
+    # the gate: the schedule reads back, as a consumer sums it, at what it
+    # prices, to the cent, or it is not written
+    written = sum(_leaf_money(ci) for ci in _walk_items(cs)
+                  if not any(rel.RelatedObjects
+                             for rel in (ci.IsNestedBy or [])))
+    if abs(written - report.extended_total) > 0.01:
+        raise ValueError(f"the {schedule_type} schedule reads "
+                         f"${written:,.2f} but prices "
+                         f"${report.extended_total:,.2f}: not written")
+    return report
+```
+
+(`pay_item_id` is Task 3's helper, in this module.) A covered parent has no children of its own, but the governing-code loop only adds control links and classification to existing priced parents. Every top-level item is therefore either a parent with children or a lump leaf, and the leaf filter is exact.
+
+In the module docstring, add after the paragraph Task 10 added:
+
+```
+A bid item no element carries (mobilization) is listed in costs.json under
+"items" ({"<item_number>": {"cost", "description"?}}) and written as a
+top-level leaf with one total IfcCostValue and no CostQuantities. Before
+returning, the schedule is read back the way a consumer sums it; if that
+differs from the priced total by more than $0.01, embed_estimate raises.
+```
+
+In `bimforge/bim/cli.py` `_run_estimate5d`, after the `covered_by_item` print loop, add:
+
+```python
+    for item, amount in sorted(report.items_without_elements.items()):
+        print(f"  item {item}: ${amount:,.2f}, no elements (costs.json items)")
+    for code, drift in sorted(report.snapped_to_cost.items()):
+        print(f"  {code}: rates trimmed by ${drift:+,.4f} so its children "
+              f"sum to its cost")
+```
+
+In the `estimate5d` subparser, change the `--costs` help to: `"costs.json with unit_price (and optional unit) per code, and optional \"items\" for bid items no element carries"`.
+
+- [ ] **Step 4: Run the 5D suites**
+
+Run: `PYTHONPATH=. C:/Python314/python.exe -m pytest -q -p no:cacheprovider bimforge/bim/tests/test_estimate5d.py bimforge/bim/tests/test_cli_estimate5d.py bimforge/bim/tests/test_estimate_model5d.py bimforge/bim/tests/test_costload.py`
+Expected: all pass. If an existing test trips the gate, don't loosen the gate. Report the test and the two totals: that is a real mismatch between the file and the report.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add bimforge/bim/estimate5d.py bimforge/bim/cli.py bimforge/bim/tests/test_estimate5d.py bimforge/bim/tests/test_cli_estimate5d.py
+git commit -m "feat(estimate5d): bid items no element carries are total leaves; the schedule must read back at its priced total (#49)"
+```
+
+---
+
+### Task 12: Validate the IFC and run everything
 
 - [ ] **Step 1: Write a validation script to the scratchpad**
 
@@ -1238,7 +1659,7 @@ Expected: all pass (on main the count was 2137 passed, 9 skipped, plus this plan
 
 ---
 
-### Task 10: CHANGELOG and ROADMAP
+### Task 13: CHANGELOG and ROADMAP
 
 **Files:**
 - Modify: `CHANGELOG.md` (the `## Unreleased` section)
@@ -1275,6 +1696,17 @@ Under `### Added`, add:
 - An ESTIMATE schedule renamed in another tool is still found (its
   `BidSheet_EstimateModel.WorkSchedule`), and a second ESTIMATE schedule in the
   file is warned about.
+- **costs.json `"items"`** for bid items no element carries (mobilization):
+  `est-bim estimate5d` writes each as a top-level total in the TENDER schedule (#49).
+```
+
+Add a `### Fixed` subsection under `## Unreleased` (create it if absent):
+
+```markdown
+- **The TENDER schedule totals the bid** (#49): a code whose extension is within
+  float residue of its `cost` has its rates trimmed so its children sum to the
+  cost exactly, and `estimate5d` refuses to write a schedule that does not read
+  back at its priced total to $0.01.
 ```
 
 - [ ] **Step 2: ROADMAP**
@@ -1290,6 +1722,7 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | ID | Item | State |
 |---|---|---|
 | C.1 | TENDER schedule from the takeoff (`est-bim estimate5d`). | Done in #39 (0.1.111) |
+| C.1a | TENDER totals the bid: no-element items, children sum to the cost, $0.01 gate (#49). | This PR |
 | C.2 | ESTIMATE schedule keyed by pay item, cost codes nested, ADD-composed leaves, one cost evaluator, currency. Spec `docs/superpowers/specs/2026-11-09-estimate-schedule-by-bid-item-design.md`. | This PR |
 | C.3 | Audit Phase 0: the remaining bugs (0.2 to 0.10). | Next |
 | C.4 | Audit Phase 1: additive units, types and statuses (#37). | Next |
@@ -1306,7 +1739,7 @@ git commit -m "docs: changelog and roadmap for the ESTIMATE re-key"
 
 ---
 
-### Task 11: Push and open the PR
+### Task 14: Push and open the PR
 
 - [ ] **Step 1:** `git push`
-- [ ] **Step 2:** Open the PR against `main` titled "estimate-model: ESTIMATE schedule keyed by pay item (ProjectCommand pairing)". The body has a summary, the spec link, a test plan (the full suite count from Task 9, and the validation result), and a note that the estimating plugin needs no shim: `read_costs` keys are unchanged, and a 0.1.108 reader of the new file would read composite leaves as $0, so the plugin floor moves to 0.1.112 when it adopts this. End the body with the attribution line.
+- [ ] **Step 2:** Open the PR against `main` titled "estimate-model: ESTIMATE schedule keyed by pay item (ProjectCommand pairing)". The body has a summary, the spec link, a test plan (the full suite count from Task 12, and the validation result), and a note that the estimating plugin needs no shim: `read_costs` keys are unchanged, and a 0.1.108 reader of the new file would read composite leaves as $0, so the plugin floor moves to 0.1.112 when it adopts this. It says `Closes #49`. End the body with the attribution line.
