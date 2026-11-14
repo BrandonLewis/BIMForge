@@ -218,6 +218,24 @@ def test_the_distribution_ignores_costs_items():
                      finish="2026-08-10", bid_item_codes=["A"])])
     costs = {"A": {"cost": 1000.0, "labor_hours": None}}
     want = costload.distribute_to_tasks(sched, costs)
-    assert costload.distribute_to_tasks(sched, {**costs, "items": LUMPS})         == want
-    assert costload.distribute_to_task_codes(
-        sched, {**costs, "items": LUMPS}) ==         costload.distribute_to_task_codes(sched, costs)
+    with_items = {**costs, "items": LUMPS}
+    assert costload.distribute_to_tasks(sched, with_items) == want
+    assert (costload.distribute_to_task_codes(sched, with_items)
+            == costload.distribute_to_task_codes(sched, costs))
+
+
+@pytest.mark.parametrize("items,why", [
+    ({"1": {"cost": float("nan")}}, "finite"),
+    ({"1": {"cost": float("inf")}}, "finite"),
+    ({"": {"cost": 1.0}}, "item number"),
+    ({"  ": {"cost": 1.0}}, "item number"),
+    ({"Item #": {"cost": 1.0}}, "item number"),
+    ({"1": {"cost": 1.0}, "Item # 1": {"cost": 2.0}}, "same pay item")])
+def test_costs_items_need_a_finite_cost_and_a_bare_item_number(items, why):
+    with pytest.raises(ValueError, match=why):
+        costload.validate_costs({"items": items})
+
+
+def test_costs_items_may_carry_an_item_prefix():
+    costload.validate_costs({"items": {"Item # 1": {"cost": 1.0},
+                                       "2": {"cost": 0}}})

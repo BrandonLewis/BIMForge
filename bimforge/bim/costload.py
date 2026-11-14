@@ -10,6 +10,7 @@ estimate-side derivation (`derive_costs`, `tie_out`).
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
@@ -31,18 +32,33 @@ def code_costs(costs: dict) -> dict:
 
 
 def _validate_items(items) -> None:
+    # lazy: estimate5d imports this module
+    from bimforge.bim.estimate5d import pay_item_id
+
     if not isinstance(items, dict):
         raise ValueError("costs['items'] must map item numbers to "
                          "{cost, description?}")
+    seen: dict = {}
     for number, rec in items.items():
         c = rec.get("cost") if isinstance(rec, dict) else None
         if not isinstance(c, (int, float)) or isinstance(c, bool):
             raise ValueError(f"costs['items']['{number}'] must be an object "
                              f"with a numeric 'cost'")
+        if not math.isfinite(c):
+            raise ValueError(f"costs['items']['{number}']['cost'] must be "
+                             f"finite, got {c}")
         desc = rec.get("description")
         if desc is not None and not isinstance(desc, str):
             raise ValueError(f"costs['items']['{number}']['description'] "
                              f"must be a string")
+        item = pay_item_id(number, number) if str(number).strip() else ""
+        if not item or item.lower().startswith("item"):
+            raise ValueError(f"costs['items'] key '{number}' is not an item "
+                             f"number (e.g. \"1\" or \"Item # 1\")")
+        if item in seen:
+            raise ValueError(f"costs['items'] keys '{seen[item]}' and "
+                             f"'{number}' are the same pay item {item}")
+        seen[item] = number
 
 
 def validate_costs(costs) -> None:

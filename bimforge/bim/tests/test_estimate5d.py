@@ -558,7 +558,8 @@ def test_a_count_basis_is_one_each_and_rerun_leaves_no_orphans(schema):
                 if u.Name == "EACH"]) == 1
 
 
-def test_an_undeclared_unit_basis_is_the_si_base_unit():
+def test_an_undeclared_unit_basis_is_one_unit_of_the_raw_size():
+    # undeclared mass is kg, so the unit of the raw size is SI's KILO GRAM
     f = ifcopenshell.file(schema="IFC4")
     ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
     beam = ifcopenshell.api.root.create_entity(f, ifc_class="IfcBeam",
@@ -714,7 +715,7 @@ def test_residue_is_trimmed_so_the_children_sum_to_the_cost():
     assert report.by_code["PILE-200W-FRN"]["extended"] == \
         pytest.approx(615.16, abs=1e-9)
     assert report.extended_total == pytest.approx(615.16, abs=1e-9)
-    assert report.snapped_to_cost["PILE-200W-FRN"] == \
+    assert report.snapped_to_cost["PILE-200W-FRN"]["drift"] == \
         pytest.approx(10.0 * 18.75 * M_TO_LF - 615.16, abs=1e-9)
 
 
@@ -756,7 +757,7 @@ def test_the_schedule_must_read_back_at_the_priced_total(monkeypatch):
     model = _pile_ifc()
     real = estimate5d._leaf_money
     monkeypatch.setattr(estimate5d, "_leaf_money",
-                        lambda ci: real(ci) + 0.02)
+                        lambda ci, scales: real(ci, scales) + 0.02)
     with pytest.raises(ValueError, match="not written"):
         estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
 
@@ -769,3 +770,197 @@ def test_a_rerun_with_items_leaves_one_of_each():
     assert sorted(ci.Identification for ci in _parents(model)) == \
         ["0055", "1"]
     assert len(model.by_type("IfcCostSchedule")) == 1
+
+
+def _raw_unit_ifc(length_unit, measure, value):
+    """A slab whose `measure` (NetArea / NetVolume) is `value` raw units in
+    a file that declares ONLY a length unit ("mm" or "foot"): the area and
+    volume units are undeclared, so the raw value is length^2 / length^3."""
+    f = ifcopenshell.file(schema="IFC4")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    if length_unit == "mm":
+        lu = ifcopenshell.api.unit.add_si_unit(f, unit_type="LENGTHUNIT",
+                                               prefix="MILLI")
+    else:
+        lu = ifcopenshell.api.unit.add_conversion_based_unit(f, name="foot")
+    ifcopenshell.api.unit.assign_unit(f, units=[lu])
+    slab = ifcopenshell.api.root.create_entity(f, ifc_class="IfcSlab",
+                                               name="S")
+    qto = ifcopenshell.api.pset.add_qto(f, product=slab,
+                                        name="Qto_SlabBaseQuantities")
+    ifcopenshell.api.pset.edit_qto(f, qto=qto, properties={measure: value})
+    system = ifcopenshell.api.classification.add_classification(
+        f, classification="BidSchedule")
+    ifcopenshell.api.classification.add_reference(
+        f, products=[slab], identification="SLAB", name="Slab",
+        classification=system)
+    return f
+
+
+FT = 0.3048
+RAW_UNIT_CASES = [
+    # (length unit, measure, raw value, pay unit, $/unit, priced total,
+    #  the basis unit: (SI prefix, SI name), or a conversion factor in SI)
+    ("mm", "NetArea", 1e7, "M2", 50.0, 500.0, ("MILLI", "SQUARE_METRE")),
+    ("mm", "NetVolume", 1e9, "M3", 100.0, 100.0, ("MILLI", "CUBIC_METRE")),
+    ("foot", "NetArea", 100.0, "M2", 50.0, 50.0 * 100 * FT ** 2, FT ** 2),
+    ("foot", "NetVolume", 100.0, "M3", 100.0, 100.0 * 100 * FT ** 3,
+     FT ** 3),
+]
+
+
+@pytest.mark.parametrize("lu,measure,raw,unit,price,want,basis_unit",
+                         RAW_UNIT_CASES)
+def test_an_undeclared_area_or_volume_reads_back_at_its_priced_total(
+        lu, measure, raw, unit, price, want, basis_unit):
+    model = _raw_unit_ifc(lu, measure, raw)
+    tmap = {"project_ref": "B9", "codes": {
+        "SLAB": {"measure": measure, "unit": unit}}}
+    costs = {"SLAB": {"cost": 0.0, "labor_hours": None,
+                      "unit_price": price}}
+    for _ in range(3):                        # re-runs leave no orphans
+        report = estimate5d.embed_estimate(model, tmap, costs)
+    assert report.extended_total == pytest.approx(want, rel=1e-9)
+    (child,) = _children(_parents(model)[0])
+    cv = child.CostValues[0]
+    # one raw unit, in a unit of the raw quantity's own size
+    assert cv.UnitBasis.ValueComponent.wrappedValue == 1.0
+    u = cv.UnitBasis.UnitComponent
+    if isinstance(basis_unit, tuple):
+        assert u.is_a("IfcSIUnit") and (u.Prefix, u.Name) == basis_unit
+    else:
+        assert u.is_a("IfcConversionBasedUnit")
+        assert u.ConversionFactor.ValueComponent.wrappedValue == \
+            pytest.approx(basis_unit, rel=1e-12)
+        assert ifcopenshell.util.unit.get_unit_scale(u) == \
+            pytest.approx(basis_unit, rel=1e-12)
+    # ProjectCommand's NAIVE reading, AppliedValue x q / ValueComponent,
+    # is the priced total, and so is the gate's unit-aware one
+    assert _money(child) == pytest.approx(want, rel=1e-9)
+    assert estimate5d._leaf_money(
+        child, estimate5d._unit_scales(model)) == pytest.approx(want,
+                                                                rel=1e-9)
+    foot = 1 if lu == "foot" else 0           # the project's own unit
+    made = 0 if isinstance(basis_unit, tuple) else 1
+    assert len(model.by_type("IfcConversionBasedUnit")) == foot + made
+    assert all(model.get_inverse(m)
+               for m in model.by_type("IfcMeasureWithUnit"))
+    # dropping the code removes the basis and every unit made for it
+    estimate5d.embed_estimate(model, {"project_ref": "B9", "codes": {}}, {})
+    assert len(model.by_type("IfcConversionBasedUnit")) == foot
+    for kind in ("IfcMeasureWithUnit", "IfcSIUnit",
+                 "IfcDimensionalExponents"):
+        assert all(model.get_inverse(e) for e in model.by_type(kind)), kind
+
+
+def test_the_unit_aware_reading_honours_an_si_base_basis():
+    # a basis in the SI base unit valued at the raw unit's size (1e-6 m2
+    # for a raw mm2): the gate takes both sides to SI, so this reads $500
+    model = _raw_unit_ifc("mm", "NetArea", 1e7)
+    estimate5d.embed_estimate(model, {"project_ref": "B9", "codes": {
+        "SLAB": {"measure": "NetArea", "unit": "M2"}}},
+        {"SLAB": {"cost": 0.0, "labor_hours": None, "unit_price": 50.0}})
+    (child,) = _children(_parents(model)[0])
+    child.CostValues[0].UnitBasis = model.create_entity(
+        "IfcMeasureWithUnit",
+        ValueComponent=model.create_entity("IfcAreaMeasure", 1e-6),
+        UnitComponent=ifcopenshell.api.unit.add_si_unit(
+            model, unit_type="AREAUNIT"))
+    scales = estimate5d._unit_scales(model)
+    assert estimate5d._leaf_money(child, scales) == \
+        pytest.approx(500.0, rel=1e-9)
+
+
+def _plural_ls():
+    """PLURAL_MAP with its Count entry a $5,000 lump sum, and the code's
+    cost the extension rounded to the cent."""
+    lf, ea = PLURAL_MAP["codes"]["49-3020"]["measures"]
+    tmap = {"project_ref": "B9", "codes": {"49-3020": {"measures": [
+        dict(lf), {**ea, "unit": "LS"}]}}}
+    want = 12.5 * 12.5 * M_TO_LF + 5000.0
+    costs = {"49-3020": {"cost": round(want, 2), "labor_hours": None,
+                         "unit_price": {"0055": 12.5, "0056": 5000.0},
+                         "unit": {"0055": "LF", "0056": "LS"}}}
+    return tmap, costs, want
+
+
+def test_a_snap_never_moves_a_count_entry():
+    tmap, costs, want = _plural_ls()
+    bm = costs["49-3020"]["cost"]
+    model = _pile_ifc(codes=("49-3020",))
+    report = estimate5d.embed_estimate(model, tmap, costs)
+    by_item = {p.Identification: _children(p) for p in _parents(model)}
+    (ls,) = by_item["0056"]
+    assert _money(ls) == 5000.0               # exact: the lump sum's price
+    lf = sum(_money(k) for k in by_item["0055"])
+    assert lf + _money(ls) == pytest.approx(bm, abs=1e-9)
+    assert report.by_code["49-3020"]["extended"] == pytest.approx(bm,
+                                                                  abs=1e-9)
+    snap = report.snapped_to_cost["49-3020"]
+    assert snap["drift"] == pytest.approx(want - bm, abs=1e-9)
+    assert snap["cost"] == bm
+    assert snap["scale_pct"] == pytest.approx(
+        ((bm - 5000.0) / (want - 5000.0) - 1) * 100, rel=1e-9)
+
+
+def test_an_all_count_code_is_never_snapped():
+    tmap = {"project_ref": "B9", "codes": {"PILE-200W-FRN": {
+        "measure": "Count", "unit": "LS", "item_number": "9"}}}
+    model = _pile_ifc()
+    report = estimate5d.embed_estimate(model, tmap, {"PILE-200W-FRN": {
+        "cost": 5000.01, "labor_hours": None, "unit_price": 5000.0}})
+    assert report.snapped_to_cost == {}
+    (child,) = _children(_parents(model)[0])
+    assert _money(child) == 5000.0
+
+
+@pytest.mark.parametrize("extended,cost,want", [
+    (100.01, 100.0, True), (100.0, 100.01, True),     # $0.01, both ways
+    (100.02, 100.0, False), (100.0, 100.02, False),
+    (0.02, 0.01, True)])
+def test_the_residue_floor_is_a_cent_both_ways(extended, cost, want):
+    assert estimate5d._is_residue(extended, cost) is want
+
+
+def test_a_gap_past_the_residue_tolerance_is_not_snapped():
+    # $1e5/LF x 18.75 m: a gap of 0.001% of the cost plus $1 is a variance
+    assert estimate5d.RESIDUE_REL == 1e-5
+    pile = {**PILE_COSTS["PILE-200W-FRN"], "unit_price": 1e5}
+    ext = 1e5 * 18.75 * M_TO_LF
+    for gap, snapped in ((estimate5d.RESIDUE_REL * ext + 1.0, False),
+                         (estimate5d.RESIDUE_REL * ext * 0.9, True)):
+        report = estimate5d.embed_estimate(_two_piles(), PILE_MAP, {
+            "PILE-200W-FRN": {**pile, "cost": ext - gap}})
+        assert bool(report.snapped_to_cost) is snapped
+
+
+def _cap_map(cap_item):
+    """A priced pile (item 0055) and an unrated CAP code on `cap_item`."""
+    cap = {"measure": "Count", "unit": "EA"}
+    if cap_item is not None:
+        cap["item_number"] = cap_item
+    return {"project_ref": "B9", "codes": {**PILE_MAP["codes"], "CAP": cap}}
+
+
+@pytest.mark.parametrize("cap_item,item,code", [
+    (None, "0055", "PILE-200W-FRN"),   # a priced code's pay item
+    ("Item # 7", "7", "CAP"),          # an unrated code's (no priced parent)
+    ("0055", "Item # 0055", "CAP"),    # a code covered by the priced one
+    (None, "CAP", "CAP")])             # a bare code is its own pay item
+def test_an_items_entry_a_map_entry_makes_is_refused_before_writing(
+        cap_item, item, code):
+    model = _pile_ifc(codes=("PILE-200W-FRN", "CAP"))
+    with pytest.raises(ValueError, match=code):
+        estimate5d.embed_estimate(model, _cap_map(cap_item), {
+            **PILE_COSTS, "items": {item: {"cost": 1.0}}})
+    assert not model.by_type("IfcCostSchedule")       # nothing mutated
+    assert not model.by_type("IfcCostItem")
+
+
+def test_items_normalising_to_one_pay_item_are_refused():
+    model = _pile_ifc()
+    with pytest.raises(ValueError, match="items"):
+        estimate5d.embed_estimate(model, PILE_MAP, {
+            **PILE_COSTS,
+            "items": {"1": {"cost": 1.0}, "Item # 1": {"cost": 2.0}}})
+    assert not model.by_type("IfcCostItem")

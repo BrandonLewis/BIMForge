@@ -563,7 +563,7 @@ def _run_estimate5d(args) -> int:
     model.write(out)
     print(f"Embedded {report.schedule_type} '{report.schedule_name}': "
           f"{report.parents} pay item(s), {report.children} element "
-          f"child(ren), extended ${report.extended_total:,.0f}.")
+          f"child(ren), extended ${report.extended_total:,.2f}.")
     print(f"estimate IFC written to {out}")
     for code, v in sorted(report.by_code.items()):
         if v["variance_pct"] is None:
@@ -576,9 +576,9 @@ def _run_estimate5d(args) -> int:
         print(f"  {code}: no unit_price -- covered at $0 by pay item {item}")
     for item, amount in sorted(report.items_without_elements.items()):
         print(f"  item {item}: ${amount:,.2f}, no elements (costs.json items)")
-    for code, drift in sorted(report.snapped_to_cost.items()):
-        print(f"  {code}: rates trimmed by ${drift:+,.4f} so its children "
-              f"sum to its cost")
+    for code, snap in sorted(report.snapped_to_cost.items()):
+        print(f"  {code}: rates scaled {snap['scale_pct']:+.4f}% so its "
+              f"children sum to its cost ${snap['cost']:,.2f}")
     for label, entries in (
             ("no unit_price — skipped", report.codes_without_rate),
             ("no explicit measure — skipped", report.codes_without_measure),
