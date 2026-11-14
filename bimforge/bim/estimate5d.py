@@ -50,6 +50,7 @@ A file written by bimforge <= 0.1.110 carries this schedule as ESTIMATE,
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import ifcopenshell.api.control as ctl
@@ -141,9 +142,22 @@ def _rate_for(code: str, entry: dict, costs: dict, *, plural: bool,
     return float(price)
 
 
+_ITEM_PREFIX = re.compile(r"^\s*item\b\s*(?:no\.?|number|#)?\s*[#:]?\s*",
+                          re.IGNORECASE)
+
+
+def pay_item_id(item_number, code) -> str:
+    """The pay item's Identification: the bare item number ("Item # 2" is
+    "2"), else the code. The TENDER (here) and ESTIMATE (estimate_model5d)
+    schedules both take it from this one rule, since ProjectCommand pairs
+    them by exact Identification."""
+    number = _ITEM_PREFIX.sub("", str(item_number or "")).strip()
+    return number or str(code)
+
+
 def _item_key(code: str, entry: dict) -> str:
-    """The pay item an entry prices: its item_number, else its code."""
-    return str(entry.get("item_number", "") or "") or code
+    """The pay item an entry prices: pay_item_id of its item_number."""
+    return pay_item_id(entry.get("item_number"), code)
 
 
 class _UnitBasis:

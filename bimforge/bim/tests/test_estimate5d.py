@@ -660,3 +660,23 @@ def test_a_pre_0_1_111_estimate_schedule_is_replaced_on_rerun():
                            predefined_type="ESTIMATE")
     estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
     assert [cs.Name for cs in model.by_type("IfcCostSchedule")] == ["B9 bid"]
+
+
+@pytest.mark.parametrize("number,code,want", [
+    ("31", "X", "31"), ("Item # 2", "X", "2"), ("item no. 7", "X", "7"),
+    ("ITEM 12A", "X", "12A"), ("0055", "X", "0055"), ("", "MOB", "MOB"),
+    (None, "MOB", "MOB"), ("Itemized 3", "X", "Itemized 3")])
+def test_pay_item_id_is_the_bare_item_number_else_the_code(number, code, want):
+    from bimforge.bim.estimate5d import pay_item_id
+    assert pay_item_id(number, code) == want
+
+
+def test_the_tender_pay_item_is_the_bare_number():
+    f = _pile_ifc()
+    tmap = {"codes": {"PILE-200W-FRN": {**PILE_MAP["codes"]["PILE-200W-FRN"],
+                                        "item_number": "Item # 55"}}}
+    estimate5d.embed_estimate(f, tmap, PILE_COSTS)
+    (cs,) = [c for c in f.by_type("IfcCostSchedule")]
+    tops = {ci.Identification for rel in cs.Controls or []
+            for ci in rel.RelatedObjects if ci.is_a("IfcCostItem")}
+    assert tops == {"55"}
