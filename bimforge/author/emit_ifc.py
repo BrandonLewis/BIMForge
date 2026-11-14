@@ -27,7 +27,8 @@ import warnings
 import numpy as np
 
 from bimforge.author.alignment import poly_area
-from bimforge.author.ifc_styles import resolve_surface, sanitize_pack
+from bimforge.author.ifc_styles import (material_category, resolve_surface,
+                                        sanitize_pack)
 from bimforge.author.primitives import (
     ARC_SEGMENTS, equal_area_polygon_radius, exact_of,
     taper_prism_triangles)
@@ -137,6 +138,14 @@ def _style_name(appear: dict, key: str | None) -> str:
     return appear.get("material") or key or "Surface"
 
 
+def _colour_or_factor_attr(v):
+    """A palette's factor-or-rgb (ifc_styles._colour_or_factor) as the
+    IfcColourOrFactor attribute style.add_surface_style takes."""
+    if isinstance(v, list):
+        return {"Name": None, "Red": v[0], "Green": v[1], "Blue": v[2]}
+    return float(v)
+
+
 def _surface_style(run, f, cache: dict, appear: dict, key: str | None):
     """The cached IfcSurfaceStyle for one resolved appearance.
 
@@ -147,8 +156,11 @@ def _surface_style(run, f, cache: dict, appear: dict, key: str | None):
     not collapse onto one style.
     """
     name = _style_name(appear, key)
+    diffuse, spec_colour = appear.get("diffuse"), appear.get("specular_colour")
     skey = (name, tuple(appear["rgb"]), appear["transparency"],
-            appear.get("reflectance"), appear.get("specular"))
+            appear.get("reflectance"), appear.get("specular"),
+            tuple(diffuse) if isinstance(diffuse, list) else diffuse,
+            tuple(spec_colour) if isinstance(spec_colour, list) else spec_colour)
     style = cache.get(skey)
     if style is not None:
         return style
@@ -160,10 +172,15 @@ def _surface_style(run, f, cache: dict, appear: dict, key: str | None):
     # independently optional, so a specular set without a reflectance method
     # must not be silently dropped. ReflectanceMethod is mandatory on the
     # entity, and NOTDEFINED is what the enum provides for exactly this.
-    if appear.get("reflectance") or appear.get("specular") is not None:
+    if (appear.get("reflectance") or appear.get("specular") is not None
+            or diffuse is not None or spec_colour is not None):
         ifc_class = "IfcSurfaceStyleRendering"
         attrs["ReflectanceMethod"] = appear.get("reflectance") or "NOTDEFINED"
-        attrs["DiffuseColour"] = 1.0 - float(appear["transparency"])
+        attrs["DiffuseColour"] = (_colour_or_factor_attr(diffuse)
+                                  if diffuse is not None
+                                  else 1.0 - float(appear["transparency"]))
+        if spec_colour is not None:
+            attrs["SpecularColour"] = _colour_or_factor_attr(spec_colour)
         if appear.get("specular") is not None:
             attrs["SpecularHighlight"] = {
                 "IfcSpecularRoughness": float(appear["specular"])}
@@ -172,6 +189,22 @@ def _surface_style(run, f, cache: dict, appear: dict, key: str | None):
         ifc_class=ifc_class, attributes=attrs)
     cache[skey] = style
     return style
+
+
+def _note_category(seen: dict, appear: dict, el) -> None:
+    """Record the IfcMaterial.Category of `el`'s material (#65), the first
+    element that uses a material deciding; a later element that would give
+    it another category is warned about, not obeyed."""
+    name = appear["material"]
+    cat = material_category(name, el.material_category, appear.get("category"))
+    if name not in seen:
+        seen[name] = (cat, el.name)
+    elif cat != seen[name][0]:
+        warnings.warn(
+            f"material {name!r}: {el.name!r} gives category {cat!r}, but "
+            f"{seen[name][1]!r} already gave {seen[name][0]!r} - one material "
+            f"has one IfcMaterial.Category; keeping {seen[name][0]!r}",
+            UserWarning, stacklevel=2)
 
 
 def _warn_if_width_is_a_thickness(el, area_ft2: float, length: float,
@@ -1639,6 +1672,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         _check_parts(m)
     by_material: dict = {}     # material name -> [products]
     mat_appear: dict = {}      # material name -> the appearance it resolved on
+    mat_category: dict = {}    # material name -> (IfcMaterial.Category, element)
     cls_cache: dict = {}
     by_code: dict[str, list] = {}
     by_name_by_model: dict[int, dict] = {}
@@ -1703,10 +1737,15 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             if el.name not in voiding:        # a feature hangs off its host
                 run("spatial.assign_container", f, products=[product],
                     relating_structure=home.container_for(el))
-            appear = resolve_surface(el.layer, el.ifc_class, pack_ifc, el.material)
+            # the material's own category keys its look (#65), after its
+            # name and layer, before its class
+            appear = resolve_surface(
+                el.layer, el.ifc_class, pack_ifc, el.material,
+                category=material_category(el.material, el.material_category))
             if appear["material"]:
                 by_material.setdefault(appear["material"], []).append(product)
                 mat_appear.setdefault(appear["material"], appear)
+                _note_category(mat_category, appear, el)
             # an opening host keeps its sweeps as meshes: ifcopenshell draws
             # an IfcSectionedSolidHorizontal as an open shell (#9820), and a
             # boolean against an open shell is silently dropped — the
@@ -1902,6 +1941,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
 
     for name in sorted(by_material):
         mat = run("material.add_material", f, name=name)
+        # #65: what kind of material this is, in IFC's own keywords; a reader
+        # styles by it, never by the free-text Name
+        mat.Category = (mat_category.get(name) or (None,))[0]
         run("material.assign_material", f, products=by_material[name], material=mat)
         # Give the MATERIAL an appearance too, not just the shapes. Viewers
         # that colour by material (and Revit's IFC link) read

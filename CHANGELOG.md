@@ -4,6 +4,27 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **Every IfcMaterial states its IFC Category** (#65): `concrete`, `steel`, `aluminium`,
+  `block`, `brick`, `stone`, `wood`, `glass`, `gypsum`, `plastic` or `earth`, so a
+  viewer can give each kind of material its own surface without parsing the free-text
+  Name. It comes from `Element.material_category`, else the first keyword in the
+  material's name (shotcrete, mortar and concrete are concrete; pipe, rod, bar and cable
+  are steel; ground, backfill, fill and excavation are earth; timber and plyform are
+  wood; ...), else the element's surface; no match leaves it unset. One material has
+  one Category: a clash is warned and the first element decides.
+- **Palettes** (#65). A style pack's `ifc.surfaces` can be keyed by
+  `material:<name>` and `category:<category>` as well as by layer and IFC class, in
+  that order (name, layer, category, class), each key merging field by field over the
+  built-in entry. Entries take `diffuse` and `specular_colour` (a factor or an rgb)
+  alongside colour, transparency, reflectance and roughness; `texture` is reserved and
+  ignored with a warning. A build spec's `style_pack:` (or `est-bim build
+  --style-pack`) picks the palette for one job, over the org pack. Every category has a
+  built-in look (steel and aluminium METAL, glass GLASS and see-through, concrete,
+  stone, masonry, wood and earth MATT), so a material whose layer the table does not
+  know now reads as what it is rather than as its IFC class's default.
+
 ### Fixed
 
 - **A georeferenced IFC states the unit of its map coordinates** (#58). Neither

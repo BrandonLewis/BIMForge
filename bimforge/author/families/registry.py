@@ -21,8 +21,12 @@ The spec file:
     gate: {solid_bodies: warn,   # optional: warn (default) | error | off
            unread_params: warn, # optional: off (default) | warn | error -
            ignore: [notes]}     #  params the family never reads (params_tracking)
-    ifc_surfaces:           # optional: {layer or IfcClass: {rgb, transparency,
-      IfcCovering: {rgb: [0.5, 0.5, 0.5]}  # ...}} merged over the style pack's
+    style_pack: ./palette   # optional: this job's palette (a pack directory,
+                            #  relative to the spec, or a package), in place of
+                            #  the org pack (#65)
+    ifc_surfaces:           # optional: {layer, IfcClass, category:<c> or
+      IfcCovering: {rgb: [0.5, 0.5, 0.5]}  # material:<name>: {rgb, ...}}
+                            #  merged over the style pack's
     bodies:                 # optional: element-name regex -> body kind
       - {match: "^existing-grade", body: surface}
     placement:              # optional: put a local-frame family on a line
@@ -195,6 +199,13 @@ def load_spec(path: Path | str) -> dict:
         proj["alignments"] = str(ap)
     if spec.get("placement") is not None and not proj.get("alignments"):
         raise ValueError(f"{path.name}: placement: needs project.alignments")
+    pack = spec.get("style_pack")
+    if pack is not None:
+        if not isinstance(pack, str) or not pack:
+            raise ValueError(f"{path.name}: style_pack: must be a pack "
+                             f"directory or package name, not {pack!r}")
+        if (base / pack).is_dir():
+            spec["style_pack"] = str((base / pack).resolve())
     surfaces = spec.get("ifc_surfaces")
     if surfaces is not None and not isinstance(surfaces, dict):
         raise ValueError(f"{path.name}: ifc_surfaces: must be a mapping "
@@ -262,16 +273,23 @@ def station_ifc(model, ifc_path, log=None) -> dict | None:
     return rep
 
 
-def spec_stylepack(spec: dict):
-    """The active style pack with the spec's `ifc_surfaces` merged OVER its
+def spec_stylepack(spec: dict, style_pack: str | None = None):
+    """The job's style pack with the spec's `ifc_surfaces` merged OVER its
     `ifc.surfaces`: a model's own presentation colours (stone tones for rock
-    slope protection, say) without touching the pack. None when the spec has
-    none, so emit_ifc resolves the pack exactly as before."""
+    slope protection, say) without touching the pack.
+
+    The pack is `style_pack` (the CLI's --style-pack), else the spec's
+    `style_pack` (#65: a palette per job), else the org pack. None when the
+    spec names neither a pack nor surfaces, so emit_ifc resolves the pack
+    exactly as before."""
+    explicit = style_pack or spec.get("style_pack")
     extra = spec.get("ifc_surfaces")
-    if not extra:
+    if not extra and not explicit:
         return None
     from bimforge.cad.stylepack import StylePack, resolve_style_pack
-    base = resolve_style_pack()
+    base = resolve_style_pack(explicit)
+    if not extra:
+        return base
     styles = dict(base.styles)
     ifc = dict(styles.get("ifc") or {})
     ifc["surfaces"] = {**(ifc.get("surfaces") or {}), **extra}
@@ -280,8 +298,11 @@ def spec_stylepack(spec: dict):
 
 
 def build_from_spec(spec_path: Path | str, check_only: bool = False,
-                    family_paths=(), unread_params: str = "off") -> int:
+                    family_paths=(), unread_params: str = "off",
+                    style_pack: str | None = None) -> int:
     """The est-bim build pipeline. Returns a process exit code.
+
+    `style_pack`: the palette to style the IFC with, over the spec's own.
 
     `family_paths`: directories of extra family modules (`load_family_dirs`).
     `unread_params`: the default for the spec's `gate.unread_params`.
@@ -343,7 +364,7 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
             from bimforge.author.emit_ifc import emit_ifc
             print(emit_ifc(model, outs["ifc"], pc,
                            allow_local=bool(outs.get("ifc_allow_local")),
-                           stylepack=spec_stylepack(spec),
+                           stylepack=spec_stylepack(spec, style_pack),
                            sweeps=outs.get("ifc_sweeps")),   # None: the model's
                   file=sys.stderr)
             written["ifc"] = outs["ifc"]

@@ -3016,6 +3016,9 @@ def main(argv=None) -> int:
     b.add_argument("--family-path", action="append", default=[], dest="family_paths",
                    metavar="DIR", help="also resolve the spec's family from the modules "
                    "in DIR that export FAMILIES = {name: build}; repeatable")
+    b.add_argument("--style-pack", dest="style_pack", metavar="PACK",
+                   help="style the IFC with this palette (a pack directory or "
+                        "package), over the spec's style_pack and the org pack")
 
     stn = sub.add_parser("stations", help="write every element's station / offset "
                                           "along its IfcAlignment into the IFC")
@@ -3120,7 +3123,8 @@ def main(argv=None) -> int:
             from bimforge.author.families.registry import build_from_spec
             try:
                 return build_from_spec(args.spec, check_only=args.check_only,
-                                       family_paths=args.family_paths)
+                                       family_paths=args.family_paths,
+                                       style_pack=args.style_pack)
             except (OSError, ValueError, KeyError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1
