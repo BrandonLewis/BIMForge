@@ -20,12 +20,39 @@ def _d(iso: str) -> date:
     return date.fromisoformat(iso[:10])
 
 
+#: costs.json's reserved key for bid items no element carries (estimate5d
+#: writes each as a total): {"items": {"<item_number>": {cost, description?}}}
+ITEMS_KEY = "items"
+
+
+def code_costs(costs: dict) -> dict:
+    """costs.json's per-code records, without the reserved `items` key."""
+    return {k: v for k, v in costs.items() if k != ITEMS_KEY}
+
+
+def _validate_items(items) -> None:
+    if not isinstance(items, dict):
+        raise ValueError("costs['items'] must map item numbers to "
+                         "{cost, description?}")
+    for number, rec in items.items():
+        c = rec.get("cost") if isinstance(rec, dict) else None
+        if not isinstance(c, (int, float)) or isinstance(c, bool):
+            raise ValueError(f"costs['items']['{number}'] must be an object "
+                             f"with a numeric 'cost'")
+        desc = rec.get("description")
+        if desc is not None and not isinstance(desc, str):
+            raise ValueError(f"costs['items']['{number}']['description'] "
+                             f"must be a string")
+
+
 def validate_costs(costs) -> None:
     """Raise ValueError if `costs` is not shaped
     `{code: {"cost": number, "labor_hours": number | null,
     "unit_price"?: number | {item#: number}, "unit"?: string | {item#: string},
     "labor"? | "material"? | "equipment"? | "subcontract"? | "other"?: number}}`
-    (the optional kinds split `cost`; cost5d writes one IfcCostValue per kind).
+    (the optional kinds split `cost`; cost5d writes one IfcCostValue per kind),
+    plus an optional reserved `"items"` key (`ITEMS_KEY`) for bid items no
+    element carries.
 
     The CLIs call this at the file boundary so a malformed cost record produces
     a clean one-line error instead of a KeyError/TypeError traceback out of the
@@ -38,7 +65,9 @@ def validate_costs(costs) -> None:
     def _num(x):
         return isinstance(x, (int, float)) and not isinstance(x, bool)
 
-    for code, rec in costs.items():
+    if ITEMS_KEY in costs:
+        _validate_items(costs[ITEMS_KEY])
+    for code, rec in code_costs(costs).items():
         if not isinstance(rec, dict) or "cost" not in rec:
             raise ValueError(f"costs['{code}'] must be an object with a 'cost'")
         if not isinstance(rec["cost"], (int, float)) or isinstance(rec["cost"], bool):
@@ -116,6 +145,7 @@ def distribute_to_tasks(sched: CanonicalSchedule, costs: dict[str, dict]):
     several codes sums each code's share. labor_hours contributes 0 when the
     code's hours are None (still counted as cost). See spec decision 2/5.
     """
+    costs = code_costs(costs)
     wd = {t.id: _workdays(sched, t) for t in sched.tasks}
     loads = {t.id: {"cost": 0.0, "labor_hours": 0.0} for t in sched.tasks}
     cov = Coverage()
@@ -156,6 +186,7 @@ def distribute_to_task_codes(sched: CanonicalSchedule, costs: dict[str, dict]):
     Codes mapped to no live task (zero total work-days) are omitted — they are
     the `unloaded_cost` `distribute_to_tasks` already reports.
     """
+    costs = code_costs(costs)
     wd = {t.id: _workdays(sched, t) for t in sched.tasks}
     out: dict[tuple[str, str], dict] = {}
     for code, rec in costs.items():

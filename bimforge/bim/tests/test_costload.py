@@ -1,4 +1,7 @@
 from datetime import date
+
+import pytest
+
 from bimforge.bim.schedule_model import CanonicalSchedule, ScheduleTask
 from bimforge.bim import costload
 
@@ -193,3 +196,28 @@ def test_validate_costs_rejects_bad_unit():
         costload.validate_costs({"A": {"cost": 1.0, "unit": 7}})
     with pytest.raises(ValueError, match=r"'unit'"):
         costload.validate_costs({"A": {"cost": 1.0, "unit": {"0055": 7}}})
+
+
+LUMPS = {"1": {"cost": 7670.0, "description": "Mobilization"}}
+
+
+def test_costs_items_are_validated():
+    ok = {"A": {"cost": 1.0, "labor_hours": None}, "items": LUMPS}
+    costload.validate_costs(ok)
+    assert costload.code_costs(ok) == {"A": ok["A"]}
+    for bad in ({"items": []}, {"items": {"1": {"description": "x"}}},
+                {"items": {"1": {"cost": "7670"}}},
+                {"items": {"1": {"cost": 1.0, "description": 3}}}):
+        with pytest.raises(ValueError, match="items"):
+            costload.validate_costs(bad)
+
+
+def test_the_distribution_ignores_costs_items():
+    sched = _sched(tasks=[
+        ScheduleTask(id="t1", name="x", start="2026-08-10",
+                     finish="2026-08-10", bid_item_codes=["A"])])
+    costs = {"A": {"cost": 1000.0, "labor_hours": None}}
+    want = costload.distribute_to_tasks(sched, costs)
+    assert costload.distribute_to_tasks(sched, {**costs, "items": LUMPS})         == want
+    assert costload.distribute_to_task_codes(
+        sched, {**costs, "items": LUMPS}) ==         costload.distribute_to_task_codes(sched, costs)
