@@ -17,22 +17,27 @@ and writes it into an IFC as:
   (IfcRelAssignsToProcess) to the activity's linked elements found in the
   IFC by GlobalId; a spread activity (it pays across items, not for
   elements) is assigned none.
-- **one IfcCostSchedule** (PredefinedType ESTIMATE, "<schedule> cost"): a
-  valueless parent IfcCostItem per estimate item that carries allocation
-  shares (Name = the description; unit, quantity and prices in
-  BidSheet_EstimateItem), classified under cost5d's cost-code system, and a
-  child per share. The parent's Identification is the item code (else its
-  number), made unique — "<code> [<schedule>]", else "<code> [item <id>]" —
-  when several items share it, so `read_costs` never merges two items; the
-  raw code stays in the pset and the classification. Shares carry EXACT
-  amounts; the children's cents are the running sum rounded half-up,
+- **one IfcCostSchedule** (PredefinedType ESTIMATE, "<schedule> cost"),
+  ProjectCommand's shape: a valueless top-level IfcCostItem per estimate
+  item that carries allocation shares, its Identification the pay item id
+  the TENDER schedule uses (`estimate5d.pay_item_id`: the bare item number,
+  else the code; made unique by schedule label, else item id, when items
+  share it), its Name the description, unit, quantity, prices and CostKey
+  (read_costs' key: the code-based Identification before 0.1.112) in
+  BidSheet_EstimateItem, classified under cost5d's cost-code system.
+  Beneath it a valueless "<item>.<cost code>" item per activity cost code
+  (the activity key when it has none), and beneath that a leaf per share
+  with no Identification and ONE ADD IfcCostValue whose components are
+  the share's money by kind. A share that names no item is filed under a
+  top-level item keyed by its cost code alone (an indirect). Shares carry
+  EXACT amounts; the leaves' cents are the running sum rounded half-up,
   differenced, so they sum to the item's allocated total (the exact sum,
   rounded once) — two $10.004 shares write $10.00 + $10.01 = $20.01. Each
-  child is control-linked to its activity's IfcTask and to its element, and
-  carries Bimforge_CostItem (TaskId, LaborHours), so
-  `schedule_read.read_costs` reads it back per task and item. Items with no
-  shares get no cost item (a valueless leaf would read as an unlinked
-  cost); they are listed in the summary.
+  leaf is control-linked to its activity's IfcTask and to its element
+  (never CostQuantities: the values are totals, not rates), and carries
+  Bimforge_CostItem (TaskId, LaborHours), so `schedule_read.read_costs`
+  reads it back per task and item. Items with no shares get no cost item;
+  they are listed in the summary.
 - **one IfcLaborResource per distinct crew** ("<schedule>: crew <name>"),
   its headcount and members in BidSheet_Crew, assigned to every task the
   crew works. Hours stay on the cost items (a crew shared by several tasks
@@ -57,8 +62,8 @@ from collections import Counter, defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from bimforge.bim.cost_categories import (normalize_split, split_amount,
-                                          write_cost_values)
+from bimforge.bim.cost_categories import (normalize_split, remove_cost_values,
+                                          split_amount, write_cost_values)
 
 import ifcopenshell
 import ifcopenshell.api.control as ctl
@@ -72,7 +77,7 @@ import ifcopenshell.api.spatial as spatial
 from bimforge.bim.cost5d import (COST_ITEM_PSET, _classification, _code_reference,
                                  add_declared_cost_schedule,
                                  remove_declared_cost_schedule)
-from bimforge.bim.estimate5d import _walk_items
+from bimforge.bim.estimate5d import _walk_items, pay_item_id
 from bimforge.bim.schedule4d import embed_schedule
 from bimforge.bim.schedule_model import CanonicalSchedule, ScheduleTask
 from bimforge.bim.schedule_read import _pset, _schedule_tasks, task_id
@@ -188,8 +193,7 @@ def _remove_prior(model, name: str) -> None:
                 model.remove(assoc)
                 if ref and not model.get_inverse(ref):
                     model.remove(ref)
-            for cv in list(ci.CostValues or []):
-                cost.remove_cost_value(model, ci, cv)
+            remove_cost_values(model, ci)
             _remove_psets(model, ci)
         _remove_psets(model, cs)
         remove_declared_cost_schedule(model, cs)
@@ -263,24 +267,41 @@ def _item_code(it: dict) -> str:
     return str(it.get("item_code") or it.get("item_number") or it["id"])
 
 
-def item_identifications(items: list[dict]) -> dict:
-    """{item id: unique cost-item Identification}: the item's code, made
-    unique by its schedule label, else its id, when items share it."""
-    codes = Counter(_item_code(it) for it in items)
-    qualified = Counter(f"{_item_code(it)} [{it.get('schedule')}]"
+def _pay_id(it: dict) -> str:
+    return pay_item_id(it.get("item_number"), _item_code(it))
+
+
+def _unique(items: list[dict], key) -> dict:
+    """{item id: key(item)}, made unique by the item's schedule label, else
+    its id, when items share a key."""
+    keys = Counter(key(it) for it in items)
+    qualified = Counter(f"{key(it)} [{it.get('schedule')}]"
                         for it in items if it.get("schedule"))
     out = {}
     for it in items:
-        code = _item_code(it)
-        if codes[code] == 1:
-            out[it["id"]] = code
+        k = key(it)
+        if keys[k] == 1:
+            out[it["id"]] = k
             continue
-        by_schedule = f"{code} [{it.get('schedule')}]"
+        by_schedule = f"{k} [{it.get('schedule')}]"
         if it.get("schedule") and qualified[by_schedule] == 1:
             out[it["id"]] = by_schedule
         else:
-            out[it["id"]] = f"{code} [item {it['id']}]"
+            out[it["id"]] = f"{k} [item {it['id']}]"
     return out
+
+
+def item_identifications(items: list[dict]) -> dict:
+    """{item id: read_costs key}: the item's code, made unique (the
+    Identification before 0.1.112, kept as BidSheet_EstimateItem.CostKey)."""
+    return _unique(items, _item_code)
+
+
+def pay_identifications(items: list[dict]) -> dict:
+    """{item id: the bid item's Identification}: pay_item_id, the rule the
+    TENDER schedule uses, made unique the same way (a duplicate is a data
+    error ProjectCommand reports)."""
+    return _unique(items, _pay_id)
 
 
 def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
@@ -392,40 +413,97 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             links += 1
     act_by_id = {a.get("id"): k for k, a in acts.items()}
 
-    # -- cost schedule: parent per item, child per share -------------------
+    # -- cost schedule: bid item > "<item>.<code>" > leaf per share --------
     cs = add_declared_cost_schedule(model, name=f"{name} cost",
                                     predefined_type="ESTIMATE")
     _set_pset(model, cs, MARKER_PSET, {"EstimateId": est_id,
-                                       "Writer": "est-bim estimate-model"})
+                                       "Writer": "est-bim estimate-model",
+                                       "WorkSchedule": name})
+    others = sorted(c.Name or "(unnamed)" for c in model.by_type("IfcCostSchedule")
+                    if c != cs and c.PredefinedType == "ESTIMATE")
+    if others:
+        warnings.append(f"the IFC has another ESTIMATE schedule "
+                        f"({', '.join(others)}): ProjectCommand reads only "
+                        f"one per file")
     classif = _classification(model)
     by_item = defaultdict(list)
     for share in shares:
         by_item[share.get("item_id")].append(share)
-    unknown_items = sorted(str(i) for i in by_item if i not in item_by_id)
+    unknown_items = sorted(str(i) for i in by_item
+                           if i is not None and i not in item_by_id)
     if unknown_items:
         warnings.append(f"shares name item(s) {', '.join(unknown_items)} "
                         f"the model's items do not list — left out")
-    idents = item_identifications(items)
+    keys = item_identifications(items)
+    pay_ids = pay_identifications(items)
     elem_by_id = {e.get("id"): e for e in elements}
-    parents = children = 0
+    parents = children = code_items = indirect_items = 0
     grand = Decimal(0)
     no_shares = []
+
+    def activity_of(share):
+        return share.get("activity_key") or act_by_id.get(
+            share.get("activity_id")) or f"a{share.get('activity_id')}"
+
+    def leaf(parent, share, cents):
+        nonlocal children
+        akey = activity_of(share)
+        act = acts.get(akey) or {}
+        el = elem_by_id.get(share.get("element_id"))
+        label = act.get("name") or akey
+        if el is not None:
+            label = f"{label}: {el.get('name') or el.get('global_id')}"
+        child = cost.add_cost_item(model, cost_item=parent)
+        cost.edit_cost_item(model, child, attributes={"Name": label})
+        # the share's money by kind, in the activity's own proportions
+        # (labour / material / equipment / subcontract / other): one ADD
+        # value whose components are the kinds. No CostQuantities: these
+        # are extended totals, and IFC reads a value over quantities as a
+        # rate
+        split = normalize_split(act.get("cost_split"))
+        write_cost_values(model, child, cents, split_amount(
+            cents, split, scale_from=sum(split.values(), Decimal(0))),
+            composed=True)
+        related = [t for t in (task_ent.get(akey),) if t is not None]
+        target = by_element.get(share.get("element_id"))
+        if target is not None:
+            related.append(target)
+        if related:
+            ctl.assign_control(model, relating_control=child,
+                               related_objects=related)
+        _set_pset(model, child, COST_ITEM_PSET, {
+            "TaskId": akey if akey in task_ent else None,
+            "LaborHours": float(_dec(share.get("manhours"))),
+            "ActivityId": share.get("activity_id"),
+            "ItemId": share.get("item_id"),
+            "ElementId": share.get("element_id"),
+            "ElementGlobalId": el.get("global_id") if el else None,
+            "Fraction": share.get("fraction"),
+            "ExactCost": share.get("cost"),
+            "Reason": share.get("reason")})
+        children += 1
+
+    def code_of(share):
+        return (acts.get(activity_of(share)) or {}).get("cost_code") \
+            or activity_of(share)
+
     for it in items:
         item_shares = by_item.get(it.get("id"), [])
         if not item_shares:
             no_shares.append(it.get("id"))
             continue
         code = _item_code(it)
-        ident = idents[it["id"]]
+        pay = pay_ids[it["id"]]
         exact = [_dec(s.get("cost")) for s in item_shares]
         allocated = _cents(sum(exact, Decimal(0)))
         parent = cost.add_cost_item(model, cost_schedule=cs)
         cost.edit_cost_item(model, parent, attributes={
-            "Name": it.get("description") or code, "Identification": ident})
+            "Name": it.get("description") or code, "Identification": pay})
         _code_reference(model, parent, code, classif)
         _set_pset(model, parent, ITEM_PSET, {
             "ItemId": it.get("id"), "ItemNumber": it.get("item_number"),
             "ItemCode": it.get("item_code"), "Schedule": it.get("schedule"),
+            "CostKey": keys[it["id"]],
             "Unit": it.get("unit"),
             "Quantity": _float(it.get("quantity")),
             "UnitPrice": _float(it.get("unit_price")),
@@ -434,41 +512,40 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             "PricingSource": it.get("pricing_source")})
         parents += 1
         grand += allocated
+        nodes: dict = {}
         for share, cents in zip(item_shares, apportion_cents(exact)):
-            akey = share.get("activity_key") or act_by_id.get(
-                share.get("activity_id")) or f"a{share.get('activity_id')}"
-            act = acts.get(akey) or {}
-            el = elem_by_id.get(share.get("element_id"))
-            label = act.get("name") or akey
-            if el is not None:
-                label = f"{label}: {el.get('name') or el.get('global_id')}"
-            child = cost.add_cost_item(model, cost_item=parent)
-            cost.edit_cost_item(model, child, attributes={
-                "Name": label, "Identification": ident})
-            # the share's money by kind, in the activity's own proportions
-            # (labour / material / equipment / subcontract / other): one
-            # IfcCostValue per kind, its Category naming the kind
-            split = normalize_split(act.get("cost_split"))
-            write_cost_values(model, child, cents, split_amount(
-                cents, split, scale_from=sum(split.values(), Decimal(0))))
-            related = [t for t in (task_ent.get(akey),) if t is not None]
-            target = by_element.get(share.get("element_id"))
-            if target is not None:
-                related.append(target)
-            if related:
-                ctl.assign_control(model, relating_control=child,
-                                   related_objects=related)
-            _set_pset(model, child, COST_ITEM_PSET, {
-                "TaskId": akey if akey in task_ent else None,
-                "LaborHours": float(_dec(share.get("manhours"))),
-                "ActivityId": share.get("activity_id"),
-                "ItemId": share.get("item_id"),
-                "ElementId": share.get("element_id"),
-                "ElementGlobalId": el.get("global_id") if el else None,
-                "Fraction": share.get("fraction"),
-                "ExactCost": share.get("cost"),
-                "Reason": share.get("reason")})
-            children += 1
+            ccode = code_of(share)
+            node = nodes.get(ccode)
+            if node is None:
+                node = nodes[ccode] = cost.add_cost_item(model,
+                                                         cost_item=parent)
+                cost.edit_cost_item(model, node, attributes={
+                    "Name": ccode, "Identification": f"{pay}.{ccode}"})
+                code_items += 1
+            leaf(node, share, cents)
+
+    # shares that name no bid item: a top-level item per cost code, which
+    # ProjectCommand shows as "not in bid" (mobilization the contract
+    # does not pay as an item)
+    indirect = defaultdict(list)
+    for share in by_item.get(None, []):
+        indirect[code_of(share)].append(share)
+    taken = set(pay_ids.values())
+    for ccode, group in indirect.items():
+        if ccode in taken:
+            warnings.append(f"indirect cost code {ccode!r} is also a pay "
+                            f"item id — ProjectCommand will pair it with "
+                            f"that item")
+        act = acts.get(activity_of(group[0])) or {}
+        exact = [_dec(s.get("cost")) for s in group]
+        top = cost.add_cost_item(model, cost_schedule=cs)
+        cost.edit_cost_item(model, top, attributes={
+            "Name": act.get("name") or ccode, "Identification": ccode})
+        _code_reference(model, top, ccode, classif)
+        grand += _cents(sum(exact, Decimal(0)))
+        for share, cents in zip(group, apportion_cents(exact)):
+            leaf(top, share, cents)
+        indirect_items += 1
 
     # -- crews: one labor resource per distinct crew -----------------------
     crews: dict = {}
@@ -505,6 +582,8 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
         "task_element_links": links,
         "cost_items": parents,
         "share_items": children,
+        "code_items": code_items,
+        "indirect_items": indirect_items,
         "items_without_shares": no_shares,
         "labor_resources": len(crews),
         "allocated_total": str(grand),

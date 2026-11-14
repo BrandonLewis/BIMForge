@@ -11,6 +11,7 @@ import ifcopenshell.api.root  # noqa: E402
 import ifcopenshell.guid  # noqa: E402
 
 from bimforge.bim import cli  # noqa: E402
+from bimforge.bim.cost_categories import total_of  # noqa: E402
 from bimforge.bim.estimate_model5d import (  # noqa: E402
     apportion_cents, embed_estimate_model,
 )
@@ -127,7 +128,17 @@ def _kids(ci):
 
 
 def _value(ci):
-    return sum(cv.AppliedValue.wrappedValue for cv in ci.CostValues or [])
+    return total_of(ci)
+
+
+def _leaves(ci):
+    kids = _kids(ci)
+    return [leaf for k in kids for leaf in (_leaves(k) if _kids(k) else [k])]
+
+
+def _psets(obj):
+    import ifcopenshell.util.element as ue
+    return ue.get_psets(obj)
 
 
 def test_apportion_cents_sums_to_the_rounded_exact_total():
@@ -179,25 +190,30 @@ def test_cost_items_per_item_and_share_sum_to_item_total():
     f, summary, ftg, wall = _embed()
     cs, parents = _parents(f)
     assert cs.PredefinedType == "ESTIMATE" and cs.Name == f"{NAME} cost"
-    assert set(parents) == {"51-CONC", "20"}   # item code, else number
-    conc = parents["51-CONC"]
+    assert set(parents) == {"10", "20"}        # the pay item ids
+    conc = parents["10"]
     assert conc.Name == "Structural concrete"
-    assert not (conc.CostValues or [])         # valueless: sum the children
-    kids = _kids(conc)
-    values = sorted(round(_value(k), 2) for k in kids)
+    assert not (conc.CostValues or [])         # valueless: sum the leaves
+    (node,) = _kids(conc)                      # a1 and a2 share 03-300
+    assert node.Identification == "10.03-300"
+    assert not (node.CostValues or [])
+    leaves = _leaves(conc)
+    values = sorted(round(_value(k), 2) for k in leaves)
     assert values == [10.00, 10.01]
     assert round(sum(values), 2) == 20.01      # not 20.00
     assert summary["cost_items"] == 2 and summary["share_items"] == 3
-    # an item with no shares gets no (valueless, unlinked) cost item
+    assert summary["code_items"] == 2
     assert summary["items_without_shares"] == [3]
-    assert "99-UNUSED" not in parents
+    assert "30" not in parents
     assert Decimal(summary["allocated_total"]) == Decimal("520.01")
-    # each share's item links its task and its element
-    by_name = {k.Name: k for k in kids}
+    by_name = {k.Name: k for k in leaves}
     ftg_kid = by_name["Form & pour footing: F-1"]
     related = [o for rel in ftg_kid.Controls for o in rel.RelatedObjects]
     assert {o.is_a() for o in related} == {"IfcTask", "IfcFooting"}
     assert ftg in related
+    # the pre-0.1.112 key read_costs still uses
+    assert _psets(conc)["BidSheet_EstimateItem"]["CostKey"] == "51-CONC"
+    assert _psets(parents["20"])["BidSheet_EstimateItem"]["CostKey"] == "20"
 
 
 def test_one_labor_resource_per_crew_with_headcount():
@@ -254,6 +270,10 @@ def test_round_trip_through_read_costs():
     assert got["tasks"]["a3"]["labor_hours"] == pytest.approx(0.0)
     # the read-back task ids are read_schedule's
     assert set(got["tasks"]) <= {t.id for t in read_schedule(f, NAME).tasks}
+    assert got["tasks"]["a1"]["costs"]["51-CONC"]["cost_code"] == "10.03-300"
+    assert got["tasks"]["a3"]["costs"]["20"]["cost_code"] == "20.01-500"
+    assert got["tasks"]["a1"]["costs"]["51-CONC"]["categories"] == {
+        "Labor": pytest.approx(10.00)}
 
 
 def test_rerun_replaces_by_name(tmp_path):
@@ -294,10 +314,12 @@ def test_items_sharing_a_code_get_distinct_identifications():
     model["items"][1]["schedule"] = "B"
     embed_estimate_model(f, model)
     _, parents = _parents(f)
-    assert set(parents) == {"51-CONC [A]", "51-CONC [B]"}
-    import ifcopenshell.util.element as ue
-    for ident, ci in parents.items():
-        assert ue.get_psets(ci)["BidSheet_EstimateItem"]["ItemCode"] ==             "51-CONC"
+    assert set(parents) == {"10", "20"}             # pay ids stay distinct
+    keys = {_psets(ci)["BidSheet_EstimateItem"]["CostKey"]
+            for ci in parents.values()}
+    assert keys == {"51-CONC [A]", "51-CONC [B]"}
+    for ci in parents.values():
+        assert _psets(ci)["BidSheet_EstimateItem"]["ItemCode"] == "51-CONC"
     got = read_costs(f, NAME)
     assert got["costs"]["51-CONC [A]"]["cost"] == pytest.approx(20.01)
     assert got["costs"]["51-CONC [B]"]["cost"] == pytest.approx(500.0)
@@ -362,3 +384,91 @@ def test_an_unscheduled_estimate_says_its_start_is_not_real():
     assert any("no activity has a start_date" in w for w in summary["warnings"])
     _f, dated, _ftg, _wall = _embed()
     assert not any("no activity has a start_date" in w for w in dated["warnings"])
+
+
+def test_the_schedule_is_projectcommand_s_shape():
+    f, _, _, _ = _embed()
+    cs, parents = _parents(f)
+    every = [ci for ci in f.by_type("IfcCostItem")]
+    idents = [ci.Identification for ci in every if ci.Identification]
+    assert len(idents) == len(set(idents))          # unique
+    for top in parents.values():
+        assert not (top.CostValues or ())
+        for node in _kids(top):
+            assert not (node.CostValues or ())
+    for leaf in [l for top in parents.values() for l in _leaves(top)]:  # noqa: E741
+        assert leaf.Identification is None
+        (cv,) = leaf.CostValues                     # exactly one value
+        assert cv.ArithmeticOperator == "ADD" and cv.AppliedValue is None
+        assert not (leaf.CostQuantities or ())      # totals, not rates
+    marker = _psets(cs)["BidSheet_EstimateModel"]
+    assert marker["WorkSchedule"] == NAME
+
+
+def test_a_share_with_no_bid_item_is_a_top_level_indirect():
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["shares"][2]["item_id"] = None            # a3 Mobilize, 01-500
+    summary = embed_estimate_model(f, model)
+    _, parents = _parents(f)
+    assert set(parents) == {"10", "01-500"}
+    mob = parents["01-500"]
+    (leaf,) = _kids(mob)                            # no code node under it
+    assert _value(leaf) == pytest.approx(500.0)
+    assert summary["indirect_items"] == 1
+    assert not any("left out" in w for w in summary["warnings"])
+    got = read_costs(f, NAME)
+    assert got["tasks"]["a3"]["costs"]["01-500"]["cost"] ==         pytest.approx(500.0)
+    assert Decimal(summary["allocated_total"]) == Decimal("520.01")
+
+
+def test_a_share_naming_an_unknown_item_is_still_dropped():
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["shares"][2]["item_id"] = 999
+    summary = embed_estimate_model(f, model)
+    assert any("999" in w and "left out" in w for w in summary["warnings"])
+
+
+def test_another_estimate_schedule_in_the_file_is_warned_about():
+    import ifcopenshell.api.cost as cost
+    f, site, ftg, wall = _ifc()
+    cost.add_cost_schedule(f, name="Someone else's", predefined_type="ESTIMATE")
+    summary = embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    assert any("ESTIMATE" in w and "Someone else's" in w
+               for w in summary["warnings"])
+    _f, clean, _ftg, _wall = _embed()
+    assert not any("ESTIMATE schedule" in w for w in clean["warnings"])
+
+
+def test_the_file_declares_one_currency_after_a_rerun():
+    import ifcopenshell.api.unit as unit
+    f, site, ftg, wall = _ifc()
+    unit.assign_unit(f)
+    doc = _model_json(ftg.GlobalId, wall.GlobalId)
+    embed_estimate_model(f, doc)
+    embed_estimate_model(f, doc)
+    (project,) = f.by_type("IfcProject")
+    assert [u.Currency for u in project.UnitsInContext.Units
+            if u.is_a("IfcMonetaryUnit")] == ["USD"]
+    estimates = [c for c in f.by_type("IfcCostSchedule")
+                 if c.PredefinedType == "ESTIMATE"]
+    assert len(estimates) == 1
+    declares = [r for r in f.by_type("IfcRelDeclares")
+                if estimates[0] in r.RelatedDefinitions]
+    assert len(declares) == 1
+
+
+def test_item_numbers_equal_after_the_prefix_is_stripped_stay_distinct():
+    # "Item # 10" and "10" both pay_item_id to "10": a data error, but the
+    # uniqueness suffixes keep the two bid items (and their keys) apart
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["items"][1]["item_number"] = "Item # 10"
+    model["items"][1]["schedule"] = "B"
+    embed_estimate_model(f, model)
+    _, parents = _parents(f)
+    assert set(parents) == {"10 [A]", "10 [B]"}
+    keys = {_psets(ci)["BidSheet_EstimateItem"]["CostKey"]
+            for ci in parents.values()}
+    assert keys == {"51-CONC", "Item # 10"}
