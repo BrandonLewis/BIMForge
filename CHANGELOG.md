@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.115 — 2026-11-14
+
 ### Fixed
 
 - **A georeferenced IFC states the unit of its map coordinates** (#58). Neither
