@@ -136,26 +136,44 @@ def check_split(record: dict, where: str = "") -> None:
                          f"more than the cost {cost}")
 
 
-def _applied(cv) -> float:
+def value_of(cv) -> float:
+    """A cost value's amount: its AppliedValue, else, for an ADD composite
+    (ArithmeticOperator ADD over Components, how estimate_model5d writes a
+    leaf), the sum of its components. Another operator is not guessed at."""
     v = getattr(cv, "AppliedValue", None)
-    if v is None:
-        return 0.0
-    return float(getattr(v, "wrappedValue", v))
+    if v is not None:
+        return float(getattr(v, "wrappedValue", v))
+    if getattr(cv, "ArithmeticOperator", None) == "ADD":
+        return sum(value_of(c) for c in getattr(cv, "Components", None) or ())
+    return 0.0
+
+
+def _parts(cv):
+    """The values that carry money: an ADD composite's components (down
+    through nested composites), else the value itself."""
+    if getattr(cv, "AppliedValue", None) is None \
+            and getattr(cv, "ArithmeticOperator", None) == "ADD":
+        for c in getattr(cv, "Components", None) or ():
+            yield from _parts(c)
+    else:
+        yield cv
 
 
 def categories_of(cost_item) -> dict[str, float]:
-    """{Category: amount} of a cost item's categorised values (a value
-    with no Category is left out; `total_of` has everything)."""
+    """{Category: amount} of a cost item's categorised values, a
+    composite's components included (a value with no Category is left
+    out; `total_of` has everything)."""
     out: dict[str, float] = {}
     for cv in cost_item.CostValues or []:
-        cat = getattr(cv, "Category", None)
-        if cat:
-            out[cat] = out.get(cat, 0.0) + _applied(cv)
+        for part in _parts(cv):
+            cat = getattr(part, "Category", None)
+            if cat:
+                out[cat] = out.get(cat, 0.0) + value_of(part)
     return out
 
 
 def total_of(cost_item) -> float:
-    return sum(_applied(cv) for cv in cost_item.CostValues or [])
+    return sum(value_of(cv) for cv in cost_item.CostValues or [])
 
 
 def add_categories(into: dict[str, float], cats: dict[str, float]) -> None:
