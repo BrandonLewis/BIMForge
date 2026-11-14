@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.116 — 2026-11-14
+
 ### Added
 
 - **A backfill derived from its pit** (#59). `author.backfill.derive_backfill(model,
