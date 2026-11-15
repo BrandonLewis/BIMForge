@@ -49,6 +49,8 @@ is numbered `#1`, `#2` in the order of its related entities' ids.
 that touches a schedule, task, cost item, calendar or crew (cost5d keys its
 code system's association to the project itself); the embedders run it last,
 and a downstream writer that adds to an embedded file runs it before saving.
+A relationship or property set stamped by another application (an OwnerHistory
+whose OwningApplication is not bimforge) keeps its id: it is that tool's own.
 
 The embedders key under the file's IfcProject, so they need no input of their
 own, and one schedule embedded into two projects gets two sets of ids.

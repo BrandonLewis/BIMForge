@@ -167,6 +167,17 @@ def _pset_key(pset) -> str | None:
     return f"pset/{'+'.join(owners)}/{pset.Name}"
 
 
+def _foreign(ent) -> bool:
+    """Stamped by another application: a downstream tool's own entity,
+    whose id is its writer's to keep (bimforge stamps no OwnerHistory)."""
+    oh = getattr(ent, "OwnerHistory", None)
+    app = oh.OwningApplication if oh is not None else None
+    if app is None:
+        return False
+    name = f"{app.ApplicationIdentifier or ''} {app.ApplicationFullName or ''}"
+    return "bimforge" not in name.lower()
+
+
 def _rekey(model, keyed: list) -> int:
     """Give each (entity, key) its stable id, numbering repeated keys `#n`
     in the order of the third item, all at once: an id another
@@ -209,6 +220,9 @@ def key_relationships(model, entities=None) -> int:
 
     `entities` narrows the scope to those (an alignment and its parts,
     say); by default it is every IfcProcess, IfcControl and IfcResource.
+    A relationship or property set stamped by another application (its
+    OwnerHistory names one) keeps its id: a downstream tool's additions
+    are its own.
     One whose relating side has no id or label stays random. Writers that
     add tasks or assignments to an embedded file call it before saving."""
     if entities is None:
@@ -217,11 +231,11 @@ def key_relationships(model, entities=None) -> int:
     psets, rels = [], []
     for rel in model.by_type("IfcRelationship"):
         relating, related = _ends(rel)
-        if not any(e.id() in scope for e in relating + related):
+        if _foreign(rel) or not any(e.id() in scope for e in relating + related):
             continue
         if rel.is_a("IfcRelDefinesByProperties"):
             for p in relating:
-                if p.is_a("IfcPropertySetDefinition"):
+                if p.is_a("IfcPropertySetDefinition") and not _foreign(p):
                     psets.append(p)
         rels.append(rel)
     pset_keyed = []

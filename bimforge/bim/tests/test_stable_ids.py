@@ -387,3 +387,25 @@ def test_estimate_model_roots_all_repeat():
     assert {"IfcRelAssignsToProduct", "IfcRelAssignsToResource",
             "IfcPropertySet"} & set(_roots(a).values())
     assert _roots(a) == _roots(b)
+
+def test_a_downstream_tools_own_relationships_keep_their_ids():
+    """Entities another application stamped are its own: the sweep leaves
+    their ids, so a returned file's additions carry through a rebuild."""
+    import ifcopenshell.api.sequence as sq
+    f = _linked_file()
+    person = f.createIfcPerson(FamilyName="planner")
+    org = f.createIfcOrganization(Name="downstream")
+    app = f.createIfcApplication(org, "1.0", "ProjectCommand", "ProjectCommand")
+    oh = f.createIfcOwnerHistory(
+        f.createIfcPersonAndOrganization(person, org), app, None, "ADDED",
+        None, None, None, 0)
+    copy = root.create_entity(f, ifc_class="IfcTask", name="Deck (copy)")
+    deck = _one(f, "IfcTask", lambda e: e.Name == "Deck")
+    link = f.createIfcRelDefinesByObject(
+        "1PCdownstreamLinkId000", oh, None, None, [copy], deck)
+    wall = _one(f, "IfcWall", lambda e: e.Name == "wall 2")
+    rel = sq.assign_product(f, relating_product=wall, related_object=copy)
+    rel.OwnerHistory, rel.GlobalId = oh, "1PCdownstreamAssignId0"
+    stable_ids.key_relationships(f)
+    assert (link.GlobalId, rel.GlobalId) == (
+        "1PCdownstreamLinkId000", "1PCdownstreamAssignId0")
