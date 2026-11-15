@@ -68,6 +68,11 @@ BLACKOUT_PREFIX = "blackout "
 
 _MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)   # leap year
 
+# The working day a task's IfcTaskTime dates are written in (C.4): it
+# starts at the start of its first day and finishes at the end of its last.
+DAY_START = "08:00:00"
+DAY_FINISH = "17:00:00"
+
 
 @dataclass
 class EmbedReport:
@@ -441,6 +446,11 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     # which silently overwrites the source schedule's own computed dates once
     # any IfcRelSequence exists. The source (P6/gw/MSP) already resolved the
     # CPM; we embed those dates verbatim.
+    # The dates are whole working days: a task starts at the start of its
+    # first day and finishes at the end of its last (C.4), so a one-day
+    # task (start == finish) is a day long, not zero. A milestone on one
+    # date has no length, so it finishes when it starts. Readers take the
+    # date part ([:10]), so the dates read back unchanged.
     for t in sched.tasks:
         start, finish = _iso_date(t.start), _iso_date(t.finish)
         if not (start or finish or t.duration_days is not None):
@@ -448,9 +458,11 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
         ent = task_by_id[t.id]
         tt = ent.TaskTime or sq.add_task_time(model, ent)
         if start:
-            tt.ScheduleStart = f"{start.isoformat()}T00:00:00"
+            tt.ScheduleStart = f"{start.isoformat()}T{DAY_START}"
         if finish:
-            tt.ScheduleFinish = f"{finish.isoformat()}T00:00:00"
+            end = (DAY_START if t.is_milestone and finish == start
+                   else DAY_FINISH)
+            tt.ScheduleFinish = f"{finish.isoformat()}T{end}"
         if t.duration_days is not None:
             # work days, as the lag is (:g keeps P1.5D, drops P2.0D)
             tt.ScheduleDuration = f"P{t.duration_days:g}D"

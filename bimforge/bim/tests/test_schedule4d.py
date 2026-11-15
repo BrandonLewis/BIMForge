@@ -576,3 +576,43 @@ def test_project_calendar_link_has_a_stable_id_and_reembeds_once(sample_ifc):
     logger = ifcopenshell.validate.json_logger()
     ifcopenshell.validate.validate(model, logger, express_rules=True)
     assert not logger.statements, logger.statements[:5]
+
+
+# -- C.4: a working day runs 08:00 to 17:00 ----------------------------------
+
+def _times(g, name):
+    tt = next(t for t in g.by_type("IfcTask") if t.Name == name).TaskTime
+    return tt.ScheduleStart, tt.ScheduleFinish
+
+
+def test_task_starts_at_8_and_finishes_at_17(sample_ifc):
+    from bimforge.bim.schedule_read import element_start_dates, read_schedule
+    sched = _schedule()
+    sched.tasks.append(ScheduleTask(id="one", name="One day", wbs="1.5",
+                                    start="2026-07-31", finish="2026-07-31",
+                                    duration_days=1.0))
+    g, _ = _embed(sample_ifc, sched, out_name="times.ifc")
+    assert _times(g, "Place deck") == ("2026-07-10T08:00:00",
+                                       "2026-07-14T17:00:00")
+    # a one-day task is a working day long, not zero: same date, 08:00-17:00
+    assert _times(g, "One day") == ("2026-07-31T08:00:00",
+                                    "2026-07-31T17:00:00")
+    # the readers still see the dates and durations the source gave
+    got = {t.id: (t.start, t.finish, t.duration_days)
+           for t in read_schedule(g).tasks}
+    want = {t.id: (t.start, t.finish, t.duration_days) for t in sched.tasks}
+    assert got == want
+    assert set(element_start_dates(g).values()) == {
+        "2026-07-10", "2026-07-15", "2026-07-26"}
+    assert {s.appear for s in element_spans(g).values()} == {
+        "2026-07-10", "2026-07-15", "2026-07-26"}
+
+
+def test_a_one_date_milestone_has_no_length(sample_ifc):
+    sched = _schedule()
+    sched.tasks.append(ScheduleTask(id="ms", name="Open to traffic",
+                                    wbs="1.5", is_milestone=True,
+                                    start="2026-07-31", finish="2026-07-31"))
+    g, _ = _embed(sample_ifc, sched, out_name="ms.ifc")
+    assert _times(g, "Open to traffic") == ("2026-07-31T08:00:00",
+                                            "2026-07-31T08:00:00")
