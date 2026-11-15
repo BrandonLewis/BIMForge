@@ -18,15 +18,15 @@ Date: 2026-11-09. Base: main `d5abdfb` (0.1.111). Read-only audit; nothing chang
 | # | Defect | Where | Fix |
 |---|---|---|---|
 | 0.1 | **estimate5d crashes on IFC4X3** for any element with an IfcQuantityCount (`RuntimeError: Attribute not set`). This shipped in 0.1.111; reproduced. IfcCountMeasure is INTEGER in 4X3, and the code passes `1.0`. | `bim/estimate5d.py:76,177` | **Fixed in #44 (0.1.111).** Pass `int` for the count basis; add a 4X3 count test |
-| 0.2 | federate orphans every IfcBuildingStorey (WR41, 14 files). Dropping the placeholder storey removes the whole Building→storeys IfcRelAggregates. | `author/federate.py:736-737` | Unassign only the placeholder |
-| 0.3 | IfcSectionedSolidHorizontal `DirectrixIs3D` fails (12 files). With no vertical profile the directrix is the 2D horizontal curve. | `author/emit_alignment.py:156`, `emit_ifc.py:703` | Emit a flat IfcGradientCurve, or fall back to the faceted body |
-| 0.4 | IfcAnnotation has a Representation but no ObjectPlacement (`PlacementForShapeRepresentation`). | `author/emit_ifc.py:1115-1122` | Place it relative to its container |
-| 0.5 | A negative lag is written `P-1.5D`, which is not ISO 8601. The reader reads it back as **0**. | `bim/schedule4d.py:387`, `schedule_read.py:75-77` | Write `-P1.5D`; accept a leading `-` |
-| 0.6 | dxf2bim's georef Scale/Eastings assume the DXF unit equals the CRS unit. A mm DXF on a metric CRS is off by 1000. | `bim/dxf2bim.py:271-277` | Take the CRS unit from pyproj |
-| 0.7 | A fake georef at E=0, N=0 (3 example specs) puts the model at the zone's false origin, with TrueNorth off by 13°. | `author/emit_ifc.py:1514` | Refuse an EPSG with a zero base unless explicitly allowed |
-| 0.8 | KML shows elements on DEMOLITION/REMOVAL tasks *appearing* on their removal date. | `bim/kml.py:154` | Use `schedule_state.element_spans` |
-| 0.9 | dxf2bim IFC2X3 crashes in `create_owner_history`. | `bim/dxf2bim.py:226` | Drop 2X3 from the example, or create an owner |
-| 0.10 | A hole touching its outer bound is written into an IfcClosedShell (#42; reproduced). | `author/facets.py` `_merge_group` | Fall back to triangles |
+| 0.2 | federate orphans every IfcBuildingStorey (WR41, 14 files). Dropping the placeholder storey removes the whole Building→storeys IfcRelAggregates. | `author/federate.py:736-737` | **Fixed in C.3.** Unassign only the placeholder |
+| 0.3 | IfcSectionedSolidHorizontal `DirectrixIs3D` fails (12 files). With no vertical profile the directrix is the 2D horizontal curve. | `author/emit_alignment.py:156`, `emit_ifc.py:703` | **Fixed in C.3** (flat IfcGradientCurve). Emit a flat IfcGradientCurve, or fall back to the faceted body |
+| 0.4 | IfcAnnotation has a Representation but no ObjectPlacement (`PlacementForShapeRepresentation`). | `author/emit_ifc.py:1115-1122` | **Fixed in C.3.** Place it relative to its container |
+| 0.5 | A negative lag is written `P-1.5D`, which is not ISO 8601. The reader reads it back as **0**. | `bim/schedule4d.py:387`, `schedule_read.py:75-77` | **Fixed in C.3.** Write `-P1.5D`; accept a leading `-` |
+| 0.6 | dxf2bim's georef Scale/Eastings assume the DXF unit equals the CRS unit. A mm DXF on a metric CRS is off by 1000. | `bim/dxf2bim.py:271-277` | **Fixed in #58 (0.1.115).** Take the CRS unit from pyproj |
+| 0.7 | A fake georef at E=0, N=0 (3 example specs) puts the model at the zone's false origin, with TrueNorth off by 13°. | `author/emit_ifc.py:1514` | **Fixed in C.3** (`project.allow_zero_origin` opts in). Refuse an EPSG with a zero base unless explicitly allowed |
+| 0.8 | KML shows elements on DEMOLITION/REMOVAL tasks *appearing* on their removal date. | `bim/kml.py:154` | **Fixed in C.3.** Use `schedule_state.element_spans` |
+| 0.9 | dxf2bim IFC2X3 crashes in `create_owner_history`. | `bim/dxf2bim.py:226` | **Fixed in C.3** (refused by name). Drop 2X3 from the example, or create an owner |
+| 0.10 | A hole touching its outer bound is written into an IfcClosedShell (#42; reproduced). | `author/facets.py` `_merge_group` | **Fixed in #46 (0.1.112).** Fall back to triangles |
 
 ## Phase 1 — additive compliance (file contents change; nothing downstream reads them)
 
