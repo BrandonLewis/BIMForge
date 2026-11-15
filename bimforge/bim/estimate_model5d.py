@@ -610,6 +610,7 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             res.assign_resource(model, relating_resource=r,
                                 related_object=task_ent[key])
 
+    stable_ids.key_relationships(model)
     if out_path:
         model.write(out_path)
     return {

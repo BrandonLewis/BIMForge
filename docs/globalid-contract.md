@@ -26,12 +26,31 @@ Every stable id is `uuid5(namespace, key)`, compressed to the IFC form.
 | `estimate-model` | IfcLaborResource (crew) | the file's IfcProject GlobalId | `crew/<schedule>/<crew id, or its name>` |
 | `dxf2bim` | IfcProject, site, building, storey | `project.guid_ns` in the layer map | `project`, `site`, `building`, `storey/<name>` |
 | `dxf2bim` | element | `project.guid_ns` in the layer map | `element/<layer>-<DXF handle>` |
+| `add-alignments` | IfcAlignment | the file's IfcProject GlobalId | `alignment/<name>` |
+| `add-alignments` | horizontal, vertical layout | the file's IfcProject GlobalId | `alignment/<name>/horizontal`, `.../vertical` |
+| `add-alignments` | IfcAlignmentSegment | the file's IfcProject GlobalId | `alignment/<name>/<layout>/segment/<n>`, in layout order |
+| `add-alignments` | IfcReferent | the file's IfcProject GlobalId | `referent/<alignment>/<Pset_Stationing Station, metres, 4 places>` |
+| the embedders, `add-alignments` | property set | the file's IfcProject GlobalId | `pset/<owner ids>/<pset name>` |
+| the embedders, `add-alignments` | IfcRelSequence | the file's IfcProject GlobalId | `rel/IfcRelSequence/<predecessor id>/<successor id>` |
+| the embedders, `add-alignments` | other relationships | the file's IfcProject GlobalId | `rel/<type>/<relating entity's id>` |
 
 A cost item's `<path>` is the Identification (or, without one, the Name) of
 each item from the schedule down to it, joined by `/`: a pay item is
 `cost-item/<schedule>/<item>`, a share under it
 `cost-item/<schedule>/<item>/<share name>`. Siblings with one label are
 numbered `#1`, `#2` in file order.
+
+A relationship's key leaves its related set out, so a writer that adds a
+task or a product to an existing assignment keeps the relationship's id. A
+relating entity without a GlobalId (a classification reference, a system) is
+named by its class and label; a reference also by its system. A repeated key
+is numbered `#1`, `#2` in the order of its related entities' ids.
+`stable_ids.key_relationships(model)` keys every relationship and property set
+that touches a schedule, task, cost item, calendar or crew (cost5d keys its
+code system's association to the project itself); the embedders run it last,
+and a downstream writer that adds to an embedded file runs it before saving.
+A relationship or property set stamped by another application (an OwnerHistory
+whose OwningApplication is not bimforge) keeps its id: it is that tool's own.
 
 The embedders key under the file's IfcProject, so they need no input of their
 own, and one schedule embedded into two projects gets two sets of ids.
@@ -50,6 +69,11 @@ own, and one schedule embedded into two projects gets two sets of ids.
   does (or its name, for a crew without one).
 - A dxf2bim element's id changes when the DXF entity is redrawn (a new handle)
   or moved to another layer.
+- A relationship's id changes when its relating entity's id does, a
+  sequence's when either task's does, and a property set's when its owner's
+  id or its name does. An alignment's parts change when it is renamed, a
+  segment's when a segment is added or removed before it, a referent's when
+  its station moves.
 - Every id an embedder writes changes when the IfcProject's id does, so a
   file rebuilt without `guid_ns` takes new ones.
 
@@ -57,12 +81,15 @@ own, and one schedule embedded into two projects gets two sets of ids.
 
 Moving an element, changing its class, geometry, quantities or properties,
 reordering the spec or the schedule, editing a task's dates, re-embedding a
-schedule by the same name, and upgrading bimforge.
+schedule by the same name, a dependency's type or lag, adding members to a
+relationship, and upgrading bimforge.
 
 ## Not stable
 
-Relationships, property sets and other roots nobody keys are numbered by file
-order (`est-bim build`) or random (the embedders, dxf2bim). Attach nothing to
-them.
+Roots nobody keys are numbered by file order (`est-bim build`) or random
+(dxf2bim's relationships and property sets, and a relationship whose relating
+entity has neither an id nor a label). Attach nothing to relationships or
+property sets: they are stable so a file diffs cleanly run to run, not to
+carry records.
 
 `dxf2bim` without `project.guid_ns` writes random ids and warns.

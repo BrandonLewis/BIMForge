@@ -171,7 +171,12 @@ def _classification(model):
     for c in model.by_type("IfcClassification"):
         if c.Name == CLASSIFICATION_NAME:
             return c
-    return cl.add_classification(model, CLASSIFICATION_NAME)
+    c = cl.add_classification(model, CLASSIFICATION_NAME)
+    # its association to the project touches nothing key_relationships
+    # sweeps, so it is keyed here (#80)
+    for rel in c.ClassificationForObjects or ():
+        stable_ids.assign(model, rel, f"rel/{rel.is_a()}/IfcClassification:{c.Name}")
+    return c
 
 
 def _code_reference(model, item, code: str, classif) -> None:
@@ -288,4 +293,5 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
     report.tasks_without_entity = sorted(missing)
     report.total_cost = loaded.total_cost
     report.total_labor_hours = loaded.total_labor_hours
+    stable_ids.key_relationships(model)
     return report
