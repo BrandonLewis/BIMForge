@@ -92,7 +92,7 @@ def _add_joint_and_drainage(model, tag, s, sec, width, skew):
         area = float(sec.length_ft) * float(width)
         model.add(Element(
             f"{tag} approach drainage TPB", "IfcBuildingElementProxy",
-            quantities={"area_sf": area},
+            object_type="TREATED_PERMEABLE_BASE", quantities={"area_sf": area},
             layer="S-DRAIN", description="treated permeable base (B9-6)"))
         model.add(Element(
             f"{tag} approach drainage pipe", "IfcPipeSegment",

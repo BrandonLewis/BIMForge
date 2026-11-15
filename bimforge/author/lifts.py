@@ -361,6 +361,7 @@ def split_into_lifts(model, name: str, lift_ft: float, *,
             classifications=list(parent.classifications),
             material=parent.material, density_pcf=parent.density_pcf,
             layer=parent.layer, predefined_type=parent.predefined_type,
+            object_type=parent.object_type,
             description=(f"lift {lf.index} of {len(lifts)}, "
                          f"{lf.thickness_ft:.2f} ft compacted, El "
                          f"{lf.z_bot + base_h:.2f}-{lf.z_top + base_h:.2f}"),

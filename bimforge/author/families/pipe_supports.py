@@ -339,6 +339,7 @@ def build(params: dict, ctx) -> StructureModel:
         bp = m["saddle"]["base_plate"]
         model.add(Element(
             f"{sid} grout pad", "IfcBuildingElementProxy",
+            object_type="GROUT_PAD",
             geometry={"kind": "box", "units": "in", "boxes": [
                 (0.0, 0.0, g["thickness_in"] / 2.0,
                  bp["width_in"], bp["length_in"], g["thickness_in"])]},

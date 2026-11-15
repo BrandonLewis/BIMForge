@@ -185,7 +185,7 @@
       "Code": "b11-51-post-pocket-mortar",
       "Name": "B11-51 post pocket mortar",
       "ClassType": "Class",
-      "Definition": "The mortar filling the pocket a post is set in. Its ObjectType is \"Post pocket mortar\".",
+      "Definition": "The mortar filling the pocket a post is set in. Its type is USERDEFINED with ElementType \"Post pocket mortar\".",
       "RelatedIfcEntityNamesList": [
         "IfcBuildingElementProxy"
       ],

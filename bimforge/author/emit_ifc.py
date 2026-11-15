@@ -1009,25 +1009,93 @@ def _type_guid_key(type_class: str, type_name: str) -> str:
     return f"type/{type_class}/{type_name}"
 
 
-def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str):
+USERDEFINED = "USERDEFINED"
+
+
+def _predefined_enum(schema: str, ifc_class: str) -> tuple | None:
+    """The PredefinedType enumeration `ifc_class` has in `schema`, or None
+    when the class carries no PredefinedType (IfcEarthworksElement, and
+    IfcVirtualElement in IFC4)."""
+    import ifcopenshell.ifcopenshell_wrapper as wrapper
+    decl = wrapper.schema_by_name(schema).declaration_by_name(ifc_class)
+    for attr in decl.all_attributes():
+        if attr.name() == "PredefinedType":
+            return attr.type_of_attribute().declared_type().enumeration_items()
+    return None
+
+
+def _check_typing(model) -> None:
+    """IFC carries a custom type in ObjectType only beside PredefinedType
+    USERDEFINED (the "Object Predefined Type" concept; the CorrectPredefinedType
+    where rule), so an element that gives both an object_type and another
+    predefined type contradicts itself: one of the two is wrong. And a
+    USERDEFINED with nothing to name it is the where rule's failure."""
+    for el in model.elements:
+        pdt = (el.predefined_type or "").upper()
+        if el.object_type and pdt and pdt != USERDEFINED:
+            raise ValueError(
+                f"{el.name}: object_type {el.object_type!r} with predefined "
+                f"type {el.predefined_type!r} - an ObjectType is written only "
+                "with PredefinedType USERDEFINED; drop one of the two")
+        if pdt == USERDEFINED and not el.object_type:
+            raise ValueError(f"{el.name}: predefined type USERDEFINED needs "
+                             "an object_type to name it")
+
+
+def _object_typing(schema: str, ifc_class: str, wanted: str,
+                   object_type: str | None, el) -> tuple[str | None, str | None]:
+    """(PredefinedType, custom type) an element is written with (#77).
+
+    The custom type rides with USERDEFINED: it is the element's object_type,
+    the class it wanted when the schema lacks it (the IFC4 downgrade), or a
+    predefined type the schema's enumeration lacks (IFC4 has no PIERCAP).
+    A class with no PredefinedType carries the custom type alone."""
+    enum = _predefined_enum(schema, ifc_class)
+    if ifc_class != wanted:
+        custom, pdt = wanted, None
+    else:
+        custom, pdt = object_type or el.object_type, el.predefined_type
+    if enum is None:
+        return None, custom or pdt
+    if custom:
+        return USERDEFINED, custom
+    if pdt and pdt.upper() not in enum:
+        return USERDEFINED, pdt
+    return (pdt.upper() if pdt else None), None
+
+
+def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str,
+                 typing: tuple = (None, None)):
     """Relate `product` to the IfcTypeObject of its (class, Element.type_name):
-    one per distinct (type class, name, predefined type) in the file, made on
-    first use, named `type_name`, carrying the element's predefined type.
+    one per distinct (type class, name, typing) in the file, made on first
+    use, named `type_name`, carrying the element's `typing` ((PredefinedType,
+    custom type), see _object_typing).
 
     The type class is the occurrence class + "Type" (IfcWall -> IfcWallType).
     A class the schema has no type for (none among the shipped families)
-    leaves the occurrence untyped, with a note."""
+    leaves the occurrence untyped, with a note, and returns None."""
     type_class = f"{ifc_class}Type"
     if not _schema_has(ctx.schema, type_class):
         print(f"{el.name}: {ctx.schema} has no {type_class}; the type "
               f"{el.type_name!r} is not written", file=sys.stderr)
         return None
-    key = (type_class, el.type_name, el.predefined_type)
+    pdt, custom = typing
+    key = (type_class, el.type_name, pdt, custom)
     t = cache.get(key)
     if t is None:
         t = run("root.create_entity", f, ifc_class=type_class,
-                predefined_type=el.predefined_type, name=el.type_name)
+                name=el.type_name)
         t.GlobalId = ctx.guid(_type_guid_key(type_class, el.type_name))
+        enum = _predefined_enum(ctx.schema, type_class)
+        if pdt and enum is not None:
+            # a custom type on a type object is its ElementType ("Element
+            # Type Predefined Type"); a value the type's enumeration lacks
+            # is one too
+            if pdt != USERDEFINED and pdt in enum:
+                t.PredefinedType = pdt
+            else:
+                t.PredefinedType = USERDEFINED
+                t.ElementType = custom or pdt
         cache[key] = t
     # the api clears the occurrence's PredefinedType and ObjectType when the
     # type carries a predefined type: IFC's rule ("PredefinedType shall only
@@ -1035,6 +1103,8 @@ def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str):
     # double-typing check. A reader resolves it through the type
     # (ifcopenshell.util.element.get_predefined_type).
     run("type.assign_type", f, related_objects=[product], relating_type=t)
+    if pdt and hasattr(product, "PredefinedType"):
+        product.PredefinedType = "NOTDEFINED"        # the type says what it is
     return t
 
 
@@ -1235,8 +1305,10 @@ def _assert_guid_uniqueness(model, *, scope: str = "", spatial_keys=()) -> None:
     pdts: dict = {}
     for el in model.elements:
         if el.type_name:
+            typing = (f"USERDEFINED {el.object_type}" if el.object_type
+                      else el.predefined_type)
             pdts.setdefault((el.ifc_class, el.type_name), {}).setdefault(
-                el.predefined_type, []).append(el.name)
+                typing, []).append(el.name)
     for (cls, name), by_pdt in sorted(pdts.items()):
         if len(by_pdt) > 1:
             detail = "; ".join(f"{p or 'none'}: {', '.join(sorted(n)[:3])}"
@@ -1686,6 +1758,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
+        _check_typing(m)
     by_material: dict = {}     # material name -> [products]
     mat_appear: dict = {}      # material name -> the appearance it resolved on
     mat_category: dict = {}    # material name -> (IfcMaterial.Category, element)
@@ -1743,16 +1816,17 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                         f"voiding the ground", UserWarning, stacklevel=2)
             ifc_class = _class_for_schema(ctx.schema, wanted, el.name)
             product = run("root.create_entity", f, ifc_class=ifc_class,
-                          predefined_type=el.predefined_type, name=el.name)
+                          name=el.name)
             product.GlobalId = ctx.guid(_gk(scope, el.guid_key))
-            if ifc_class != wanted:
-                product.ObjectType = wanted
-            elif object_type:
-                product.ObjectType = object_type
-            elif el.object_type:
-                product.ObjectType = el.object_type
-            if el.type_name:
-                _assign_type(run, f, ctx, type_cache, product, el, ifc_class)
+            typing = _object_typing(ctx.schema, ifc_class, wanted, object_type,
+                                    el)
+            typed = el.type_name and _assign_type(
+                run, f, ctx, type_cache, product, el, ifc_class, typing)
+            pdt, custom = typing
+            if not typed or pdt is None:          # else the type carries it
+                if pdt:
+                    product.PredefinedType = pdt
+                product.ObjectType = custom
             for pset_name, props in (el.psets or {}).items():
                 if props:
                     pset = run("pset.add_pset", f, product=product,
