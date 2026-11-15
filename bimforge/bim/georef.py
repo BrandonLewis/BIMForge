@@ -130,6 +130,17 @@ def crs_datum(epsg: int) -> str | None:
     return datum.name if datum is not None else None
 
 
+def crs_vertical_datum(epsg: int) -> str | None:
+    """The height datum of a compound CRS, e.g. "North American Vertical
+    Datum 1988" for EPSG:8700 (… + NAVD88 height (ft)). A plain projected
+    CRS states none: None, and the caller's own vertical_datum (or nothing)
+    stands."""
+    for sub in _crs(epsg).sub_crs_list or ():
+        if sub.is_vertical and sub.datum is not None:
+            return sub.datum.name
+    return None
+
+
 def _si_metre(f):
     """The project's unprefixed SI metre if it has one, else a new one."""
     for u in f.by_type("IfcSIUnit"):

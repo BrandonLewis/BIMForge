@@ -200,6 +200,25 @@ def test_a_scale_that_disagrees_with_the_crs_unit_is_refused(tmp_path):
         write_map_unit(model, 2227, 1.0)
 
 
+def test_the_vertical_datum_comes_from_a_compound_crs():
+    # C.4: a compound CRS names its height datum; a plain projected CRS has
+    # none to give (the spec's vertical_datum then says it, or nothing does)
+    from bimforge.bim.georef import crs_vertical_datum
+    assert crs_vertical_datum(8700) == "North American Vertical Datum 1988"
+    assert crs_vertical_datum(2227) is None
+
+
+def test_dxf2bim_writes_the_compound_crs_vertical_datum(tmp_path):
+    # EPSG:8700, NAD83 / Arizona East (ft) + NAVD88 height (ft)
+    model = _build(tmp_path, epsg=8700, unit_to_m=0.3048, units="ft")
+    crs = model.by_type("IfcProjectedCRS")[0]
+    assert crs.GeodeticDatum == "North American Datum 1983"
+    assert crs.VerticalDatum == "North American Vertical Datum 1988"
+    # the MapConversion still carries its Scale for the current readers
+    assert float(model.by_type("IfcMapConversion")[0].Scale) == \
+        pytest.approx(1 / 0.3048)
+
+
 def test_dxf2bim_declares_kilograms_and_radians(tmp_path):
     # C.4: mass in kg and angles in radians, so a reader never falls back
     # to IFC's gram; one unit of each type

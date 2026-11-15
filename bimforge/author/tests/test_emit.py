@@ -1834,6 +1834,23 @@ def test_an_element_keyed_like_the_project_is_refused(tmp_path):
         emit_ifc(m, str(tmp_path / "dup.ifc"))
 
 
+def test_emit_ifc_names_both_datums_of_a_compound_crs(tmp_path):
+    # C.4: pyproj gives the geodetic datum of any CRS and the height datum
+    # of a compound one; the MapConversion keeps its Scale
+    import dataclasses
+    import ifcopenshell
+    m = _fixture_model()
+    m.ctx = dataclasses.replace(m.ctx, epsg=8700, ft_to_m=0.3048)
+    out = tmp_path / "compound.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    crs = f.by_type("IfcProjectedCRS")[0]
+    assert crs.GeodeticDatum == "North American Datum 1983"
+    assert crs.VerticalDatum == "North American Vertical Datum 1988"
+    assert float(f.by_type("IfcMapConversion")[0].Scale) == \
+        pytest.approx(1 / 0.3048)
+
+
 def test_emit_ifc_declares_kilograms_and_radians(tmp_path):
     # C.4: rebar and fastener weights are written in kg, which a reader of a
     # file with no MASSUNIT takes in IFC's SI default, the gram; alignment

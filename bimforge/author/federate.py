@@ -556,9 +556,67 @@ def _assert_products_unique(f) -> None:
                 f"{first.Name!r} and {p.is_a()} {p.Name!r}")
 
 
+def _georef_of(src):
+    """(CRS name, MapConversion eastings, northings, height, x-axis abscissa
+    and ordinate, scale) of a source, rounded for comparison; None for a
+    file that is not georeferenced."""
+    mc = next(iter(src.by_type("IfcMapConversion")), None)
+    if mc is None:
+        return None
+    crs = mc.TargetCRS
+    num = (lambda v, d: round(float(d if v is None else v), 6))
+    return (getattr(crs, "Name", None), num(mc.Eastings, 0.0),
+            num(mc.Northings, 0.0), num(mc.OrthogonalHeight, 0.0),
+            num(mc.XAxisAbscissa, 1.0), num(mc.XAxisOrdinate, 0.0),
+            num(mc.Scale, 1.0))
+
+
+def _ctx_georef(ctx):
+    """What emit_ifc writes for `ctx` (_georef_of's shape)."""
+    if ctx.epsg is None:
+        return None
+    return (ctx.crs_name, round(float(ctx.base_e), 6),
+            round(float(ctx.base_n), 6), round(float(ctx.base_h), 6),
+            1.0, 0.0, round(1.0 / ctx.ft_to_m, 6))
+
+
+def _show_georef(g) -> str:
+    if g is None:
+        return "not georeferenced"
+    name, e, n, h, xa, xo, scale = g
+    return (f"{name}, E {e:g} N {n:g} H {h:g}, x-axis ({xa:g}, {xo:g}), "
+            f"scale {scale:g}")
+
+
+def _check_georef(opened, ctx) -> None:
+    """Refuse sources whose IfcMapConversion or CRS differ from each other or
+    from the target ctx (C.4). The federated file has one georeference and
+    federation does not reproject, so a source on another one would land in
+    the wrong place with nothing to say so. IFC2X3 has no IfcMapConversion
+    (it georeferences by property set) and is not compared."""
+    if not opened or _schema_of(opened[0][2]) == "IFC2X3":
+        return
+    (p0, _n0, s0), g0 = opened[0], _georef_of(opened[0][2])
+    for p, _n, src in opened[1:]:
+        g = _georef_of(src)
+        if g != g0:
+            raise ValueError(
+                f"federate: the sources are georeferenced differently — "
+                f"{p0.name}: {_show_georef(g0)}; {p.name}: {_show_georef(g)}. "
+                "Federation does not reproject: re-emit them on one CRS and "
+                "base point.")
+    want = _ctx_georef(ctx)
+    if want != g0:
+        raise ValueError(
+            f"federate: the target ctx is georeferenced as {_show_georef(want)}"
+            f" but the sources ({p0.name}, ...) are {_show_georef(g0)}; give "
+            "the target ctx the sources' CRS and base point.")
+
+
 def _open_sources(sources, ctx, unit_check: bool):
     """Open every source BEFORE anything is written, and refuse a federation
-    whose sources (or target ctx) disagree on the schema."""
+    whose sources (or target ctx) disagree on the schema or the
+    georeference."""
     import ifcopenshell
     opened = []
     for src_path, name in sources:
@@ -582,6 +640,7 @@ def _open_sources(sources, ctx, unit_check: bool):
             f"federate: the sources are {schemas.pop()} but the federation "
             f"ctx.schema is {ctx.schema}; give the target ctx the sources' "
             "schema.")
+    _check_georef(opened, ctx)
     return opened
 
 

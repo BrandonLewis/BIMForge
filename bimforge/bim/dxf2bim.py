@@ -46,7 +46,8 @@ from ifcopenshell.api import run
 
 from bimforge.author.paycodes import classification_source
 from bimforge.bim.georef import (SCALE_TOL, crs_datum, crs_name, crs_unit,
-                                 resolve_epsg, write_map_unit)
+                                 crs_vertical_datum, resolve_epsg,
+                                 write_map_unit)
 from bimforge.bim.ifc_takeoff import require_supported_schema
 
 # ----------------------------------------------------------------------------
@@ -338,7 +339,8 @@ def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
                 "Name": f"EPSG:{epsg}",
                 "Description": geo.get("crs_desc") or crs_name(epsg),
                 "GeodeticDatum": geo.get("geodetic_datum") or crs_datum(epsg),
-                "VerticalDatum": geo.get("vertical_datum")},
+                "VerticalDatum": (geo.get("vertical_datum")
+                                  or crs_vertical_datum(epsg))},
             coordinate_operation={
                 "Eastings": east, "Northings": north,
                 "OrthogonalHeight": float(geo.get("base_height", 0.0)),

@@ -1630,14 +1630,17 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                combined)
 
     if ctx.epsg is not None:
-        from bimforge.bim.georef import crs_datum, write_map_unit
+        from bimforge.bim.georef import (crs_datum, crs_vertical_datum,
+                                         write_map_unit)
         run("georeference.add_georeferencing", f)
         run("georeference.edit_georeferencing", f,
             projected_crs={"Name": ctx.crs_name,
                            "Description": ctx.crs_desc or None,
                            "GeodeticDatum": (ctx.geodetic_datum
                                              or crs_datum(ctx.epsg)),
-                           "VerticalDatum": ctx.vertical_datum},
+                           # a compound CRS names its height datum (C.4)
+                           "VerticalDatum": (ctx.vertical_datum
+                                             or crs_vertical_datum(ctx.epsg))},
             coordinate_operation={
                 "Eastings": ctx.base_e, "Northings": ctx.base_n,
                 "OrthogonalHeight": ctx.base_h,

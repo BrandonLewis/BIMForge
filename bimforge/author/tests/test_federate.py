@@ -129,6 +129,43 @@ def test_federate_refuses_non_metre_source(tmp_path):
         federate([(bad, "Wall 1")], str(tmp_path / "fed.ifc"), _ctx())
 
 
+def _wall_on(path, ctx):
+    m = StructureModel("wall", ctx)
+    p = Prism("footing", [(-2, -2), (2, -2), (2, 2), (-2, 2)],
+              z_bot=0.0, z_top=2.0, ifc="IfcFooting")
+    m.add(Element.from_geometry(p.name, p, ifc_class="IfcFooting"))
+    emit_ifc(m, str(path), allow_local=ctx.epsg is None)
+
+
+@pytest.mark.parametrize("change", [
+    {"base_e": 6_594_100.0},           # another base point: MapConversion
+    {"epsg": 2227},                    # another CRS
+    {"epsg": None},                    # no georeference at all
+])
+def test_federate_refuses_sources_on_different_georeferences(tmp_path, change):
+    # C.4: the federated file has ONE MapConversion and CRS; sources on
+    # different ones would be silently placed in the first's frame
+    import dataclasses
+    a, b = tmp_path / "w1.ifc", tmp_path / "w2.ifc"
+    _wall_on(a, _ctx())
+    _wall_on(b, dataclasses.replace(_ctx(), **change))
+    out = tmp_path / "fed.ifc"
+    with pytest.raises(ValueError, match="georeferenc") as exc:
+        federate([(a, "Wall 1"), (b, "Wall 2")], str(out), _ctx())
+    assert "w1.ifc" in str(exc.value) and "w2.ifc" in str(exc.value)
+    assert not out.exists()
+
+
+def test_federate_refuses_a_target_on_another_georeference(tmp_path):
+    import dataclasses
+    a, b = tmp_path / "w1.ifc", tmp_path / "w2.ifc"
+    _wall_on(a, _ctx())
+    _wall_on(b, _ctx())
+    with pytest.raises(ValueError, match="georeferenc.*ctx|ctx.*georeferenc"):
+        federate([(a, "Wall 1"), (b, "Wall 2")], str(tmp_path / "fed.ifc"),
+                 dataclasses.replace(_ctx(), base_n=1_943_050.0))
+
+
 def test_federate_keeps_storeys_decomposed_from_building(tmp_path):
     # audit 0.2: dropping the placeholder storey removed the whole
     # Building->storeys IfcRelAggregates, orphaning every real storey (WR41)
