@@ -180,3 +180,21 @@ def test_an_unknown_schedule_type_is_refused():
     sched.schedule_type = "LATEST"
     with pytest.raises(ValueError, match="schedule_type"):
         embed_schedule(_wall_file(), sched)
+
+def test_a_sweep_after_the_carry_moves_no_id():
+    """The downstream copy shares our task pset through its own rel; our
+    pset's key must not count that owner, or the next sweep re-keys it."""
+    from bimforge.bim import stable_ids
+    returned = _returned()
+    oh = returned.by_guid("1PCtaskDeck00000000000").OwnerHistory
+    copy = returned.by_guid("1PCtaskDeck00000000000")
+    deck = returned.by_guid("1PCdefines000000000000").RelatingObject
+    (pset,) = [r.RelatingPropertyDefinition for r in deck.IsDefinedBy]
+    returned.createIfcRelDefinesByProperties("1PCsharesPset000000000", oh, None,
+                                             None, [copy], pset)
+    rebuilt = _rebuilt()
+    carry_forward(returned, rebuilt)
+    before = {e.GlobalId for e in rebuilt.by_type("IfcRoot")}
+    stable_ids.key_relationships(rebuilt)
+    assert {e.GlobalId for e in rebuilt.by_type("IfcRoot")} == before
+    assert rebuilt.by_guid(pset.GlobalId).Name == pset.Name

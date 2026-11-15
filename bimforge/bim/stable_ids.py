@@ -159,8 +159,10 @@ def _rel_key(rel) -> str | None:
 
 
 def _pset_key(pset) -> str | None:
+    # a downstream tool may share our pset with its own copies through its
+    # own (stamped) rel: those owners are not ours, so they stay out (#83)
     owners = sorted(_ref(o) or "" for rel in (pset.DefinesOccurrence or ())
-                    for o in rel.RelatedObjects)
+                    if not foreign(rel) for o in rel.RelatedObjects)
     owners += sorted(_ref(t) or "" for t in (getattr(pset, "DefinesType", None) or ()))
     if not owners or "" in owners:
         return None
