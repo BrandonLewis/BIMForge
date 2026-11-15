@@ -18,7 +18,8 @@ wbs-or-id that cost5d and Bonsai key on), PredefinedType (task_type),
 Description (notes), a ScheduleDuration, owner bid items as classification
 references under `BID_ITEM_CLASSIFICATION`, and one IfcWorkCalendar per named
 task calendar — its blackouts as yearly ExceptionTimes — assigned to its tasks
-with IfcRelAssignsToControl. `schedule_read.read_schedule` is the inverse.
+with IfcRelAssignsToControl. The project calendar controls the root tasks
+the same way (C.4). `schedule_read.read_schedule` is the inverse.
 
 Deterministic authoring via `ifcopenshell.api.sequence`; no MCP, no network.
 """
@@ -326,7 +327,7 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     ws = sq.add_work_schedule(model, name=name, predefined_type=ws_type,
                               start_time=start_time)
     stable_ids.assign(model, ws, f"work-schedule/{name}")
-    _add_calendar(model, sched, f"{name} calendar")
+    project_cal = _add_calendar(model, sched, f"{name} calendar")
 
     # classification-code -> elements (code join), plus the full element set
     # for the name-regex / IFC-class matchers (slice 5)
@@ -364,6 +365,7 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
 
     task_by_id: dict[str, object] = {}
     task_by_wbs: dict[str, object] = {}
+    roots: list = []                     # on the project calendar
     for t in sorted(sched.tasks, key=depth):
         parent = None
         if t.wbs and "." in t.wbs:
@@ -394,10 +396,18 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
         task_by_id[t.id] = ent
         if t.wbs:
             task_by_wbs[t.wbs] = ent
+        if parent is None and t.calendar is None:
+            roots.append(ent)
         report.tasks += 1
         if t.is_milestone:
             sq.edit_task(model, ent, attributes={"IsMilestone": True})
 
+    # the project calendar controls the root tasks, which their subtasks
+    # inherit (IFC: a task without a calendar works to its parent's). A
+    # root on a named calendar has that one instead: one calendar a task.
+    if roots:
+        ctl.assign_control(model, relating_control=project_cal,
+                           related_objects=roots)
     # named task calendars, each assigned to the tasks that work to it
     for key, cal_spec in sched.calendars.items():
         cal = _add_calendar(model, cal_spec, f"{name} calendar{CALENDAR_SEP}{key}")

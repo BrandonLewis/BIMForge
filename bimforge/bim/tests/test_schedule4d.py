@@ -11,6 +11,8 @@ yaml = pytest.importorskip("yaml")
 
 from importlib.resources import files  # noqa: E402
 
+import ifcopenshell.validate  # noqa: E402
+
 from bimforge.bim.dxf2bim import UNIT_TO_M, build_ifc, extract_features  # noqa: E402
 from bimforge.bim.sample import write_sample_dxf  # noqa: E402
 from bimforge.bim.schedule4d import embed_schedule  # noqa: E402
@@ -525,3 +527,52 @@ def test_cli_schedule_type_from_the_source_and_overridden(sample_ifc, tmp_path):
     assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
                  "--schedule-type", "ACTUAL", "--out", str(out)]) == 0
     assert _ws_type(ifcopenshell.open(str(out)), "Typed") == "ACTUAL"
+
+
+# -- C.4: the project calendar controls the root tasks ----------------------
+
+def _two_roots():
+    from bimforge.bim.schedule_model import Calendar
+    return CanonicalSchedule(
+        name="Roots", start_date="2026-07-10",
+        calendars={"night": Calendar(work_weekdays=[0, 1, 2, 3])},
+        tasks=[
+            ScheduleTask(id="s", name="Structure", wbs="1"),
+            ScheduleTask(id="c", name="Deck", wbs="1.1", start="2026-07-10",
+                         finish="2026-07-14"),
+            ScheduleTask(id="n", name="Night work", wbs="2", calendar="night",
+                         start="2026-07-15", finish="2026-07-16"),
+            ScheduleTask(id="m", name="Unfiled", start="2026-07-17",
+                         finish="2026-07-17")])
+
+
+def _controlled(g, cal_name):
+    cal = next(c for c in g.by_type("IfcWorkCalendar") if c.Name == cal_name)
+    return sorted(o.Name for rel in cal.Controls or []
+                  for o in rel.RelatedObjects), cal.Controls
+
+
+def test_project_calendar_controls_the_root_tasks(sample_ifc):
+    from bimforge.bim.schedule_read import read_schedule
+    g, _ = _embed(sample_ifc, _two_roots(), out_name="roots.ifc")
+    # roots on the project calendar; a root on its own calendar keeps only
+    # that one, and a child inherits its root's
+    names, rels = _controlled(g, "Roots calendar")
+    assert names == ["Structure", "Unfiled"] and len(rels) == 1
+    assert _controlled(g, "Roots calendar: night")[0] == ["Night work"]
+    got = {t.id: t.calendar for t in read_schedule(g).tasks}
+    assert got == {"s": None, "c": None, "n": "night", "m": None}
+
+
+def test_project_calendar_link_has_a_stable_id_and_reembeds_once(sample_ifc):
+    g1, _ = _embed(sample_ifc, _two_roots(), out_name="roots1.ifc")
+    model = ifcopenshell.open(sample_ifc)
+    embed_schedule(model, _two_roots())
+    embed_schedule(model, _two_roots())          # re-run replaces by name
+    _, rels1 = _controlled(g1, "Roots calendar")
+    names, rels2 = _controlled(model, "Roots calendar")
+    assert names == ["Structure", "Unfiled"] and len(rels2) == 1
+    assert rels1[0].GlobalId == rels2[0].GlobalId
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(model, logger, express_rules=True)
+    assert not logger.statements, logger.statements[:5]
