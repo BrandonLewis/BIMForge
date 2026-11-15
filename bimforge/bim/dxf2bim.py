@@ -44,6 +44,7 @@ import ifcopenshell
 import ifcopenshell.guid
 from ifcopenshell.api import run
 
+from bimforge.author.paycodes import classification_source
 from bimforge.bim.georef import (SCALE_TOL, crs_datum, crs_name, crs_unit,
                                  resolve_epsg, write_map_unit)
 from bimforge.bim.ifc_takeoff import require_supported_schema
@@ -214,7 +215,12 @@ def _add_classification(model, element, cache: dict, cls: dict):
     """Attach a classification/cost-code reference (Uniclass, MasterFormat, own codes)."""
     system = cls.get("system", "Custom")
     if system not in cache:
-        cache[system] = run("classification.add_classification", model, classification=system)
+        cache[system] = c = run("classification.add_classification", model,
+                                classification=system)
+        # audit C.4: the rule's `source`/`edition`, else the known publisher
+        c.Source = classification_source(system, cls.get("source") or "")
+        if cls.get("edition"):
+            c.Edition = str(cls["edition"])
     run("classification.add_reference", model, products=[element],
         identification=str(cls.get("code", "")), name=cls.get("name", ""),
         classification=cache[system])

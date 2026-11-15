@@ -47,6 +47,7 @@ def test_emit_ifc_classifies_under_paycodes_identity(tmp_path):
     assert len(cls) == 1
     assert cls[0].Name == "MasterFormat"
     assert cls[0].Edition == "2020"
+    assert cls[0].Source == "CSI/CSC"      # the system's publisher
     # per-code references still emit under that classification
     refs = f.by_type("IfcClassificationReference")
     assert refs and all(r.ReferencedSource == cls[0] for r in refs)
@@ -81,6 +82,19 @@ def test_emit_ifc_defaults_to_bidschedule_without_identity(tmp_path):
     assert len(cls) == 1
     assert cls[0].Name == "BidSchedule"
     assert not cls[0].Edition  # unchanged from historical output
+    assert cls[0].Source == "Project pay codes"
+
+
+def test_emit_ifc_writes_an_explicit_classification_source(tmp_path):
+    import dataclasses
+
+    import ifcopenshell
+
+    out = tmp_path / "src.ifc"
+    emit_ifc(_fixture_model(), str(out),
+             dataclasses.replace(PC, source="Caltrans", edition="2024"))
+    (cls,) = ifcopenshell.open(str(out)).by_type("IfcClassification")
+    assert (cls.Name, cls.Source, cls.Edition) == ("BidSchedule", "Caltrans", "2024")
 
 
 def _fixture_model():

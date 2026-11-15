@@ -29,6 +29,7 @@ import numpy as np
 from bimforge.author.alignment import poly_area
 from bimforge.author.ifc_styles import (material_category, resolve_surface,
                                         sanitize_pack)
+from bimforge.author.paycodes import classification_source
 from bimforge.author.primitives import (
     ARC_SEGMENTS, equal_area_polygon_radius, exact_of,
     taper_prism_triangles)
@@ -1898,6 +1899,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         cls = run("classification.add_classification", f, classification=system)
         if edition:
             cls.Edition = edition
+        # audit C.4: who publishes it -- paycodes `source:`, else the known
+        # publisher (CSI/CSC, NBS, ...; "Project pay codes" for BidSchedule)
+        cls.Source = classification_source(system, paycodes.source if paycodes else "")
         cls_cache[system] = cls
     for code in sorted(by_code):
         desc = ""
