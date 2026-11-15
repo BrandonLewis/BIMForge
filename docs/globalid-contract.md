@@ -84,6 +84,58 @@ reordering the spec or the schedule, editing a task's dates, re-embedding a
 schedule by the same name, a dependency's type or lag, adding members to a
 relationship, and upgrading bimforge.
 
+## Returned files
+
+A downstream tool may return a file bimforge wrote with its own work added
+(#83). It adds and never modifies, and stamps everything it adds, relationships
+and property sets included, with an IfcOwnerHistory naming its application:
+
+- its own IfcWorkSchedule, a full copy of ours whose tasks are tied to ours by
+  IfcRelDefinesByObject (our task the RelatingObject), carrying its replanning
+  and progress;
+- IfcApproval with IfcRelAssociatesApproval on our GlobalIds.
+
+A change to bimforge's own plan comes as a BCF topic against our GlobalIds and
+is made in the source.
+
+Which schedule a reader plays:
+
+1. Schedules whose tasks are tied by IfcRelDefinesByObject form a group.
+2. A schedule supersedes the one its tasks are tied to (the superseded
+   schedule's task is the RelatingObject, the copy the RelatedObjects), unless
+   the copying schedule is BASELINE. That is how a baseline is tied to the live
+   plan (IfcOpenShell's `create_baseline`), and it must not take its place.
+3. The current schedule is a non-BASELINE one that nothing supersedes.
+4. Where more than one is left (two downstream updates both tied to ours), the
+   latest CreationDate wins, then the last in the file. A reader that cannot
+   follow the links takes Purpose `Contractor update` as the tie-break.
+
+So bimforge's CreationDate never decides which schedule is current. The ties
+do, which is why the carry-forward reports a tie whose task of ours is gone
+and keeps the rest: one surviving tie holds the group together.
+
+`est-bim schedule --returned <file>` rebuilds the schedule from the source, then
+copies every stamped addition onto the rebuilt file (`carry_forward`):
+
+- its GlobalIds are kept exactly;
+- what it points at of ours is re-pointed by GlobalId;
+- what it holds that has no GlobalId (an IfcApproval and its organizations, a
+  task's IfcTaskTime) comes with it.
+
+The report (`<out>.carry.json`) lists what no longer lines up:
+
+- an addition dropped because nothing is left to relate;
+- one that lost some of its targets;
+- our tasks no downstream task is tied to, and elements our tasks build that
+  no downstream task does (only when the returned file has a schedule of its
+  own);
+- our entities the returned file changed. They are rebuilt from the source,
+  so that change is lost, but named.
+
+A returned file from another project is refused. bimforge writes its schedule
+as PLANNED (or the source's `schedule_type`), with CreationDate taken from the
+schedule's start, not the clock, so a rebuild does not move it.
+
 ## Not stable
 
 Roots nobody keys are numbered by file order (`est-bim build`) or random

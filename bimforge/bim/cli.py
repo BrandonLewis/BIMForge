@@ -365,6 +365,32 @@ def _run_sfca(args) -> int:
     return 0
 
 
+def _report_carry(carried, out: str, path: str | None) -> None:
+    """Print a carry-forward's counts and gaps; write its JSON report."""
+    import json as _json
+    from pathlib import Path
+
+    path = path or str(Path(out).with_suffix(".carry.json"))
+    Path(path).write_text(_json.dumps(carried.to_dict(), indent=2) + "\n",
+                          encoding="utf-8")
+    apps = ", ".join(carried.applications) or "no other application"
+    print(f"Carried {carried.carried} addition(s) from {apps} "
+          f"({carried.already_present} already present); report {path}")
+    for label, rows in (
+            ("addition(s) dropped: nothing left to relate", carried.dropped),
+            ("addition(s) lost a target", carried.vanished),
+            ("of our entities were changed in the returned file and are "
+             "rebuilt from the source", carried.modified),
+            ("of our tasks no downstream task is tied to", carried.uncovered_tasks),
+            ("element(s) our tasks build that no downstream task does",
+             carried.uncovered_elements)):
+        if rows:
+            print(f"\nReview: {len(rows)} {label}:", file=sys.stderr)
+            for r in rows[:20]:
+                print(f"  ! {r['class']} {r.get('name') or ''} {r['global_id']}",
+                      file=sys.stderr)
+
+
 def _run_schedule(args) -> int:
     import json as _json
     from pathlib import Path
@@ -377,6 +403,8 @@ def _run_schedule(args) -> int:
 
     try:
         sched = load_schedule(args.schedule)
+        if args.schedule_type:
+            sched.schedule_type = args.schedule_type
         task_map = {}
         if args.task_map:
             task_map = _json.loads(Path(args.task_map).read_text(encoding="utf-8"))
@@ -388,12 +416,18 @@ def _run_schedule(args) -> int:
         model = ifcopenshell.open(args.ifc)
         report = embed_schedule(model, sched,
                                 schedule_name=args.schedule_name)
+        carried = None
+        if args.returned:
+            from bimforge.bim.carry_forward import carry_forward
+            carried = carry_forward(ifcopenshell.open(args.returned), model)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     out = args.out or str(Path(args.ifc).with_suffix(".4d.ifc"))
     model.write(out)
+    if carried is not None:
+        _report_carry(carried, out, args.carry_report)
     print(f"Embedded schedule '{report.schedule_name}': {report.tasks} tasks "
           f"({report.tasks_timed} dated), {report.sequences} dependencies, "
           f"{report.assigned_elements} elements assigned across "
@@ -2525,8 +2559,19 @@ def main(argv=None) -> int:
                          "item codes from each task name")
     sc.add_argument("--name", dest="schedule_name",
                     help="IfcWorkSchedule name (default: the schedule's own name)")
+    sc.add_argument("--schedule-type", dest="schedule_type",
+                    choices=["BASELINE", "PLANNED", "ACTUAL"],
+                    help="IfcWorkSchedule PredefinedType (default: the "
+                         "schedule's own schedule_type, else PLANNED)")
     sc.add_argument("--out", help="output IFC path (default: alongside the input, "
                                   "<stem>.4d.ifc)")
+    sc.add_argument("--returned", help="a returned copy of this 4D IFC: what "
+                    "another application added to it (its own schedule, "
+                    "approvals, progress, stamped by its OwnerHistory) is "
+                    "carried onto the rebuilt file with its GlobalIds (#83)")
+    sc.add_argument("--carry-report", dest="carry_report",
+                    help="carry-forward report JSON path (default: alongside "
+                         "--out, <stem>.carry.json; needs --returned)")
 
     sr = sub.add_parser("schedule-read",
                         help="read a 4D IFC's IfcWorkSchedule back into "

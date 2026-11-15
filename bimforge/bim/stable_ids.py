@@ -159,15 +159,17 @@ def _rel_key(rel) -> str | None:
 
 
 def _pset_key(pset) -> str | None:
+    # a downstream tool may share our pset with its own copies through its
+    # own (stamped) rel: those owners are not ours, so they stay out (#83)
     owners = sorted(_ref(o) or "" for rel in (pset.DefinesOccurrence or ())
-                    for o in rel.RelatedObjects)
+                    if not foreign(rel) for o in rel.RelatedObjects)
     owners += sorted(_ref(t) or "" for t in (getattr(pset, "DefinesType", None) or ()))
     if not owners or "" in owners:
         return None
     return f"pset/{'+'.join(owners)}/{pset.Name}"
 
 
-def _foreign(ent) -> bool:
+def foreign(ent) -> bool:
     """Stamped by another application: a downstream tool's own entity,
     whose id is its writer's to keep (bimforge stamps no OwnerHistory)."""
     oh = getattr(ent, "OwnerHistory", None)
@@ -231,11 +233,11 @@ def key_relationships(model, entities=None) -> int:
     psets, rels = [], []
     for rel in model.by_type("IfcRelationship"):
         relating, related = _ends(rel)
-        if _foreign(rel) or not any(e.id() in scope for e in relating + related):
+        if foreign(rel) or not any(e.id() in scope for e in relating + related):
             continue
         if rel.is_a("IfcRelDefinesByProperties"):
             for p in relating:
-                if p.is_a("IfcPropertySetDefinition") and not _foreign(p):
+                if p.is_a("IfcPropertySetDefinition") and not foreign(p):
                     psets.append(p)
         rels.append(rel)
     pset_keyed = []
