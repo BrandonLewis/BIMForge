@@ -1,8 +1,8 @@
 # Caltrans box-culvert section catalog (example fixture -- real D80 rows).
 # Thicknesses are earth-cover dependent, so they live on each cover row with the
 # a/b/e bar marks, the tabulated concrete CF/LF, and reinforcement LB/LF. The
-# full production catalog is transcribed off the git-ignored D80/D81 DXFs into
-# data/caltrans-2025/tables/caltrans-d80-box-culvert.yaml (never packaged).
+# full catalog, transcribed off the D80/D81 sheets, ships in bimforge.caltrans:
+# tables_pack caltrans/2025/d80-box-culvert.
 single:
   "4x2":                                # D80 single 4' x 2'
     covers:

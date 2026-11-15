@@ -12,6 +12,7 @@ the same PR that finishes or adds an item.
 | 2026-11-11 | **IFC4X3 is the target schema, IFC4 the fallback.** IFC2X3 is not supported and is refused by name. Revit does not open IFC4X3, so Revit exchanges on IFC4. |
 | 2026-11-11 | **The takeoff's input contract is an IDS document**, generated from the reader's own tables, so any IDS checker can test a Revit, Tekla or bimforge model before takeoff. |
 | 2026-11-11 | **The family vocabulary lives in one dictionary file in bSDD's import format.** It is a local file. Publishing to the bSDD service, calling its API, and stamping bSDD URIs on classifications are deferred until an owner requires it or third-party models arrive already classified against bSDD. |
+| 2026-11-15 | **Agency content lives in a pack: a subpackage of the wheel, `bimforge.caltrans` first.** The core keeps the kernel and the families no agency owns. A pack holds an agency's standard-plan tables, its families and its part of the dictionary, and nothing the core needs to build without it, so it can become a distribution of its own later (an extra cannot carry code or data). Only what public plans, standard plans and specifications state goes in: no prices, no bid data, no job identifiers. |
 
 ## Model exchange: contract and dictionary
 
@@ -49,3 +50,21 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.4 | Audit Phase 1: additive units, types and statuses (#37). | Next |
 | C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. | In progress, coordinated with ProjectCommand |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
+
+## Agency packs: Caltrans
+
+Goal: an agency engineer or a bidder models a Caltrans job from the standard
+plans without transcribing a table, and the public repository carries a whole
+road-and-bridge project built that way.
+
+| ID | Item | State |
+|---|---|---|
+| P.1 | The pack and its tables. `bimforge.caltrans` ships the 2025 Standard Plans tables (B3, D80, D84, D89, D90) as package data, moved from `data/caltrans-2025/tables/`. A spec names them with `params.tables_pack` (one or a list, `caltrans/2025/d89-pipe-headwall`), and its own `tables_file` merges over them: a D90 headwall takes D90 and B3 from the pack and its field-varied schedule from the project. | This PR |
+| P.2 | Example fixtures. The B3 and D84 example table files hold illustrative rows that differ from the standard plans; the D80 and D89 ones are true subsets. Point the example specs at the pack and delete the fixtures. Changes the example outputs, so it is its own PR. | Next |
+| P.3 | The Caltrans part of the dictionary moves into the pack. All eleven classes in the draft dictionary are Caltrans types; the thirteen linear-reference properties are not. Split it: properties stay in the core dictionary, classes go to a Caltrans dictionary that references them. Do it with X.4, which already rewrites how families read their names. | Next, with X.4 |
+| P.4 | The Caltrans family modules move into the pack: Type 842 and 732SW barrier, B11-51 handrail, B3 walls, B9 approach slab, D80 culvert, D84 wingwall, D89 and D90 headwalls. Family names in specs do not change. The old import paths stay as shims until the estimating plugin and private family folders import from the pack. | After P.3 |
+| P.5 | Girder bridge family: spans, girders, deck, abutments and bents on an alignment, barrier from the pack. The geometry exists in a private job model; its line and mirror helpers become public kernel first. | After P.4 |
+| P.6 | Road corridor family: alignment, typical section, pavement layers and earthwork between daylight lines, generalised from a private trail family. | After P.4 |
+| P.7 | Demo project in the repository: an imaginary road with a bridge, a culvert and a wall, built in CI from specs alone, pay items keyed by Caltrans standard item codes, with a 4D schedule and a TENDER cost schedule, opening in ProjectCommand. The item codes to use are the owner's call. | After P.5 and P.6 |
+| P.8 | Agency-neutral families from private folders, into the core: lofted retaining wall, soldier pile wall, soldier pile and sheet pile cofferdams, with their steel shape tables as catalogs keyed by dictionary class; seven geometric gate checks; culvert options (channel transition, skewed section, headwall set to an elevation). A family moves once it emits its types from the dictionary. | Later |
+| P.9 | Split the pack into its own distribution, registering through the `bimforge.families` entry points and a table-pack entry point. Do it when a second agency pack exists or the pack needs its own release cadence, not before. | Later |

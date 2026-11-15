@@ -12,9 +12,8 @@ Tests live next to the code (`bimforge/<subpackage>/tests/`). The suite must
 pass **without** `estimating_tools` installed — CI asserts it is absent. If a
 test needs the estimating layer, it belongs in that repository, not here.
 
-The production-catalog tests read the Caltrans tables in
-`data/caltrans-2025/tables/` (see the README there); they skip when the
-directory is missing.
+The production-catalog tests read the Caltrans tables shipped in
+`bimforge/caltrans/tables/` (provenance: `data/caltrans-2025/README.md`).
 
 ## Rules the CI gate enforces
 
