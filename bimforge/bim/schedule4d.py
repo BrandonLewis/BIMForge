@@ -317,7 +317,11 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     name = schedule_name or sched.name or "Schedule"
     start_time, start_from = _schedule_start(sched)
     _remove_schedule_named(model, name)
-    ws = sq.add_work_schedule(model, name=name, start_time=start_time)
+    ws = sq.add_work_schedule(model, name=name, start_time=start_time,
+                              predefined_type=sched.schedule_type or "PLANNED")
+    # CreationDate from the source, not the clock (ifcopenshell stamps now()),
+    # so a rebuild writes the same schedule (#83)
+    ws.CreationDate = f"{start_time.isoformat()}T00:00:00"
     stable_ids.assign(model, ws, f"work-schedule/{name}")
     _add_calendar(model, sched, f"{name} calendar")
 

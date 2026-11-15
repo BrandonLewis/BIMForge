@@ -100,6 +100,7 @@ def test_round_trip_every_new_field(sample_ifc):
     got = read_schedule(ifcopenshell.open(path))
 
     want = src.to_dict()
+    want["schedule_type"] = "PLANNED"   # unset embeds as PLANNED (#37)
     have = got.to_dict()
     # GlobalId is always filled on read; the embed-time joins are not read
     for t in have["tasks"]:

@@ -322,7 +322,7 @@ def read_schedule(model, name: str | None = None):
     read back from Bimforge_Task (#365).
     """
     from bimforge.bim.schedule_model import (
-        Calendar, CanonicalSchedule, Dependency, ScheduleTask)
+        SCHEDULE_TYPES, Calendar, CanonicalSchedule, Dependency, ScheduleTask)
 
     ws = _work_schedule(model, name)
     sname = ws.Name or ""
@@ -394,7 +394,9 @@ def read_schedule(model, name: str | None = None):
         name=sname, start_date=_day(ws.StartTime),
         work_weekdays=project["work_weekdays"],
         holidays=project["holidays"], tasks=tasks,
-        calendars=dict(sorted(calendars.items())))
+        calendars=dict(sorted(calendars.items())),
+        schedule_type=(ws.PredefinedType
+                       if ws.PredefinedType in SCHEDULE_TYPES else None))
 
 
 def task_elements(model, name: str | None = None) -> dict[str, list[dict]]:

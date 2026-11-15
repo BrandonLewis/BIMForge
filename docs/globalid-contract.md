@@ -84,6 +84,42 @@ reordering the spec or the schedule, editing a task's dates, re-embedding a
 schedule by the same name, a dependency's type or lag, adding members to a
 relationship, and upgrading bimforge.
 
+## Returned files
+
+A downstream tool may return a file bimforge wrote with its own work added
+(#83). It adds and never modifies, and stamps everything it adds, relationships
+and property sets included, with an IfcOwnerHistory naming its application:
+
+- its own IfcWorkSchedule, a full copy of ours whose tasks are tied to ours by
+  IfcRelDefinesByObject (our task the RelatingObject), carrying its replanning
+  and progress;
+- IfcApproval with IfcRelAssociatesApproval on our GlobalIds.
+
+A change to bimforge's own plan comes as a BCF topic against our GlobalIds and
+is made in the source.
+
+`est-bim schedule --returned <file>` rebuilds the schedule from the source, then
+copies every stamped addition onto the rebuilt file (`carry_forward`):
+
+- its GlobalIds are kept exactly;
+- what it points at of ours is re-pointed by GlobalId;
+- what it holds that has no GlobalId (an IfcApproval and its organizations, a
+  task's IfcTaskTime) comes with it.
+
+The report (`<out>.carry.json`) lists what no longer lines up:
+
+- an addition dropped because nothing is left to relate;
+- one that lost some of its targets;
+- our tasks no downstream task is tied to, and elements our tasks build that
+  no downstream task does (only when the returned file has a schedule of its
+  own);
+- our entities the returned file changed. They are rebuilt from the source,
+  so that change is lost, but named.
+
+A returned file from another project is refused. bimforge writes its schedule
+as PLANNED (or the source's `schedule_type`), with CreationDate taken from the
+schedule's start, not the clock, so a rebuild does not move it.
+
 ## Not stable
 
 Roots nobody keys are numbered by file order (`est-bim build`) or random

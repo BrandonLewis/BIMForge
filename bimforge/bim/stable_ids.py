@@ -167,7 +167,7 @@ def _pset_key(pset) -> str | None:
     return f"pset/{'+'.join(owners)}/{pset.Name}"
 
 
-def _foreign(ent) -> bool:
+def foreign(ent) -> bool:
     """Stamped by another application: a downstream tool's own entity,
     whose id is its writer's to keep (bimforge stamps no OwnerHistory)."""
     oh = getattr(ent, "OwnerHistory", None)
@@ -231,11 +231,11 @@ def key_relationships(model, entities=None) -> int:
     psets, rels = [], []
     for rel in model.by_type("IfcRelationship"):
         relating, related = _ends(rel)
-        if _foreign(rel) or not any(e.id() in scope for e in relating + related):
+        if foreign(rel) or not any(e.id() in scope for e in relating + related):
             continue
         if rel.is_a("IfcRelDefinesByProperties"):
             for p in relating:
-                if p.is_a("IfcPropertySetDefinition") and not _foreign(p):
+                if p.is_a("IfcPropertySetDefinition") and not foreign(p):
                     psets.append(p)
         rels.append(rel)
     pset_keyed = []

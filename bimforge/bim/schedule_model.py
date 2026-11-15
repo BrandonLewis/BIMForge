@@ -107,6 +107,10 @@ class ScheduleTask:
                                      # None = the project calendar
 
 
+#: the IfcWorkScheduleTypeEnum values a source can name (#37)
+SCHEDULE_TYPES = ("BASELINE", "PLANNED", "ACTUAL")
+
+
 @dataclass
 class CanonicalSchedule:
     name: str
@@ -115,6 +119,9 @@ class CanonicalSchedule:
     holidays: list[str] = field(default_factory=list)
     tasks: list[ScheduleTask] = field(default_factory=list)
     calendars: dict[str, Calendar] = field(default_factory=dict)
+    # IfcWorkScheduleTypeEnum: BASELINE, PLANNED or ACTUAL (#37); unset
+    # embeds as PLANNED
+    schedule_type: str | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -128,6 +135,8 @@ class CanonicalSchedule:
                     del t[key]
         if not d["calendars"]:
             del d["calendars"]
+        if not d["schedule_type"]:
+            del d["schedule_type"]
         return d
 
     def to_json(self, indent: int = 2) -> str:
@@ -160,6 +169,7 @@ class CanonicalSchedule:
             holidays=list(data.get("holidays", [])),
             tasks=tasks,
             calendars=calendars,
+            schedule_type=data.get("schedule_type"),
         )
 
     @classmethod
@@ -194,6 +204,9 @@ class CanonicalSchedule:
         nonsensical IfcRelSequence graph), unknown task calendars, and
         malformed blackouts.
         """
+        if self.schedule_type not in (None, *SCHEDULE_TYPES):
+            raise ValueError(f"schedule_type {self.schedule_type!r} is not one "
+                             f"of {', '.join(SCHEDULE_TYPES)}")
         for cname, cal in self.calendars.items():
             for b in cal.blackouts:
                 if not isinstance(b, dict) or set(b) != {"from", "to"}:
