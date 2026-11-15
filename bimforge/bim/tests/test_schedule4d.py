@@ -431,6 +431,14 @@ def test_the_schedule_start_is_the_sources_start_date(sample_ifc):
     assert report.start_from == "start_date"
 
 
+def test_the_creation_date_is_the_schedule_start_not_the_write_time(sample_ifc):
+    # ifcopenshell stamps CreationDate with now(); the same input must write
+    # the same file on every run
+    g, _ = _embed(sample_ifc, _schedule(), out_name="created.ifc")
+    (ws,) = [w for w in g.by_type("IfcWorkSchedule") if w.Name == "Sample BL V.01"]
+    assert ws.CreationDate == ws.StartTime
+
+
 def test_without_a_start_date_the_schedule_starts_at_its_earliest_task(sample_ifc):
     # #36: never the moment the file was written
     sched = CanonicalSchedule(name="NoStart", tasks=[

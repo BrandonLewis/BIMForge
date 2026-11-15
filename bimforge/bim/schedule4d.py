@@ -331,6 +331,9 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     _remove_schedule_named(model, name)
     ws = sq.add_work_schedule(model, name=name, predefined_type=ws_type,
                               start_time=start_time)
+    # CreationDate is mandatory and ifcopenshell stamps it with now(); the
+    # schedule's own start keeps the file the same run to run
+    ws.CreationDate = ws.StartTime
     stable_ids.assign(model, ws, f"work-schedule/{name}")
     project_cal = _add_calendar(model, sched, f"{name} calendar")
 
