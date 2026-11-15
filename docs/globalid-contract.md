@@ -15,6 +15,7 @@ Every stable id is `uuid5(namespace, key)`, compressed to the IFC form.
 | `est-bim build` | element, opening | `project.guid_ns` | its `guid_key`, by default `element/<name>` (prefixed `<structure>/` in a combined file) |
 | `est-bim build` | assembly, group | `project.guid_ns` | `assembly/<name>`, `group/<name>` |
 | `est-bim build` | spatial containers, types | `project.guid_ns` | `spatial/...`, the type's class and name |
+| `est-bim build` | a bar type's IfcRelDefinesByType | `project.guid_ns` | `rel/IfcRelDefinesByType/<type id>` |
 | `author.federate` | aggregates, storeys | derived from the source ids | |
 | `est-bim schedule` | IfcWorkSchedule | the file's IfcProject GlobalId | `work-schedule/<name>` |
 | `est-bim schedule` | IfcWorkCalendar | the file's IfcProject GlobalId | `calendar/<calendar name>` |

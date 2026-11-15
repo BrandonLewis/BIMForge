@@ -219,6 +219,19 @@
           "Description": "The standard plan the element is built to."
         }
       ]
+    },
+    {
+      "Code": "reinforcing-bar",
+      "Name": "Reinforcing bar",
+      "ClassType": "Class",
+      "Definition": "A deformed reinforcing bar of one ASTM size, named by its bar number (\"Reinforcing bar #5\"). The type carries the size's NominalDiameter and CrossSectionArea and BarSurface TEXTURED; each bar says whether it is a main bar or a ligature.",
+      "RelatedIfcEntityNamesList": [
+        "IfcReinforcingBar",
+        "IfcReinforcingBarMAIN",
+        "IfcReinforcingBarLIGATURE"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "ASTM A615 / A706"
     }
   ],
   "Properties": [

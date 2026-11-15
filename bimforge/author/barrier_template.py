@@ -55,7 +55,7 @@ def bar_elements(sname: str, label: str, bars: list) -> list:
                         "length_ft": sum(b.length for b in bs),
                         "weight_lb": sum(b.weight for b in bs)},
             layer="S-REBAR", description=f"#{size} {mark}",
-            predefined_type=bar_role(mark)))
+            predefined_type=bar_role(mark), bar_size=size))
     return out
 
 

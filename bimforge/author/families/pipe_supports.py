@@ -329,6 +329,7 @@ def build(params: dict, ctx) -> StructureModel:
                 model.add(Element(
                     f"{sid} footing rebar #{r['bar_size']} {mat} {direction}",
                     "IfcReinforcingBar", predefined_type="MAIN",
+                    bar_size=int(r["bar_size"]),
                     geometry={"kind": "rod", "units": "in", "axis": axis,
                               "radius": bar_r, "length": bar_len * 12.0,
                               "segments": segments, "centres": bars},

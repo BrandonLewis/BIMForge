@@ -60,7 +60,7 @@ def _emit_bars(model: StructureModel, hw: dict, bars: list) -> None:
                         "length_ft": sum(b.length for b in bs),
                         "weight_lb": sum(b.weight for b in bs)},
             layer="S-REBAR", description=f"#{size} {mark}",
-            predefined_type=bar_role(mark)))
+            predefined_type=bar_role(mark), bar_size=size))
 
 
 def _straight(model: StructureModel, hw: dict) -> float:

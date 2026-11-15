@@ -46,7 +46,7 @@ def _emit_bars(model, tag: str, label: str, bars: list) -> None:
                         "length_ft": sum(x.length for x in bs),
                         "weight_lb": sum(x.weight for x in bs)},
             layer="S-REBAR", description=f"#{size} {mark}",
-            predefined_type=bar_role(mark)))
+            predefined_type=bar_role(mark), bar_size=size))
 
 
 def _slab_corners(align, station: float, skew_deg: float, length_ft: float,
@@ -143,7 +143,8 @@ def build(params: dict, ctx) -> StructureModel:
                 quantities={"count": len(dowels),
                             "length_ft": sum(x.length for x in dowels),
                             "weight_lb": sum(x.weight for x in dowels)},
-                layer="S-REBAR", description=f"#{dowels[0].size} dowel"))
+                layer="S-REBAR", description=f"#{dowels[0].size} dowel",
+                bar_size=dowels[0].size))
         _add_joint_and_drainage(model, tag, s, sec, width, skew)
     model.checks.append(_check_length_vs_type_key(params))
     model.checks.append(_check_pay_isolation(params))

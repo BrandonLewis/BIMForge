@@ -1108,6 +1108,42 @@ def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str,
     return t
 
 
+#: one IfcReinforcingBarType per bar size: "Reinforcing bar #5"
+BAR_TYPE_NAME = "Reinforcing bar #{size}"
+
+
+def _bar_types(run, f, ctx, products: list) -> None:
+    """Type every sized bar (Element.bar_size) to one IfcReinforcingBarType
+    per size, with the size's NominalDiameter and CrossSectionArea (file
+    units: metres) and BarSurface TEXTURED (deformed bar). The type stays
+    NOTDEFINED: one size holds main bars and ligatures both, so each
+    occurrence keeps its own PredefinedType.
+
+    Written after the sweep numbers the file's other roots, so no existing
+    GlobalId moves: the type is keyed like any type (class and name), its
+    IfcRelDefinesByType by the type it relates."""
+    from bimforge.author.primitives import BAR_PROPS
+    by_size: dict = {}
+    for product, el in products:
+        if el.bar_size not in BAR_PROPS:
+            raise ValueError(f"{el.name}: bar_size {el.bar_size!r} is not an "
+                             f"ASTM bar number ({min(BAR_PROPS)}-{max(BAR_PROPS)})")
+        by_size.setdefault(el.bar_size, []).append(product)
+    in_m = 0.0254
+    for size in sorted(by_size):
+        name = BAR_TYPE_NAME.format(size=size)
+        t = run("root.create_entity", f, ifc_class="IfcReinforcingBarType",
+                name=name)
+        t.GlobalId = ctx.guid(_type_guid_key("IfcReinforcingBarType", name))
+        dia_in, area_in2, _plf = BAR_PROPS[size]
+        t.NominalDiameter = dia_in * in_m
+        t.CrossSectionArea = area_in2 * in_m * in_m
+        t.BarSurface = "TEXTURED"
+        rel = run("type.assign_type", f, related_objects=by_size[size],
+                  relating_type=t)
+        rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByType/{t.GlobalId}")
+
+
 def _check_parts(model) -> None:
     """Every Element.part_of names another element of the same model, and
     the whole/part links form a tree: no cycle, no part that is also a cut
@@ -1755,6 +1791,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     style_cache: dict = {}     # resolved appearance -> IfcSurfaceStyle
     layer_cache: dict = {}     # layer name -> IfcPresentationLayerAssignment
     type_cache: dict = {}      # (type class, name, predefined) -> IfcTypeObject
+    sized_bars: list = []      # (product, el): typed after the sweep
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
@@ -1822,6 +1859,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                     el)
             typed = el.type_name and _assign_type(
                 run, f, ctx, type_cache, product, el, ifc_class, typing)
+            if (el.bar_size is not None and not el.type_name
+                    and product.is_a("IfcReinforcingBar")):
+                sized_bars.append((product, el))
             pdt, custom = typing
             if not typed or pdt is None:          # else the type carries it
                 if pdt:
@@ -2098,6 +2138,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     for i, ent in enumerate(f.by_type("IfcRoot")):
         if ent.GlobalId not in assigned:
             ent.GlobalId = ctx.guid(f"root/{i}/{ent.is_a()}")
+    # roots added since the sweep was first written are keyed and come
+    # after it, so they renumber nothing (test_example_globalids)
+    _bar_types(run, f, ctx, sized_bars)
 
     # then pin every relationship's member order (see _pin_relationship_order:
     # ifcopenshell.api set-unions reorder members nondeterministically) — after

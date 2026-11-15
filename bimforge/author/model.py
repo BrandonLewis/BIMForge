@@ -84,6 +84,11 @@ class Element:
     #: type; FreeCAD and Bonsai: the type tree), so twenty posts read as one
     #: kind of post. None = untyped, as before.
     type_name: str | None = None
+    #: An IfcReinforcingBar's ASTM bar number (#4, #5 ...): emit_ifc types
+    #: every bar of one size to one IfcReinforcingBarType carrying its
+    #: NominalDiameter, CrossSectionArea and BarSurface. None = a bar total
+    #: with no single size (a weight per foot), left untyped.
+    bar_size: int | None = None
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
