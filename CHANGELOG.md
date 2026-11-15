@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.119 — 2026-11-15
+
 ### Added
 
 - **Stable GlobalIds for what the embedders write** (#74), so records a
