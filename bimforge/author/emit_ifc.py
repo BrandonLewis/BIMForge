@@ -1144,6 +1144,26 @@ def _bar_types(run, f, ctx, products: list) -> None:
         rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByType/{t.GlobalId}")
 
 
+def _declare_types(run, f, project) -> None:
+    """Declare every IfcTypeObject to the IfcProject (IfcRelDeclares, the
+    Project Declaration concept): a type nothing declares sits outside the
+    project. An untyped file declares nothing.
+
+    Keyed as the embedders key a relationship (stable_ids:
+    `rel/IfcRelDeclares/<project id>` under the project's GlobalId), so a
+    cost schedule cost5d declares later joins this one and its re-key
+    (key_relationships) leaves the id alone. Written after the sweep, so
+    no existing GlobalId moves."""
+    from bimforge.bim import stable_ids
+    types = f.by_type("IfcTypeObject")
+    if not types:
+        return
+    rel = run("project.assign_declaration", f, definitions=types,
+              relating_context=project)
+    rel.GlobalId = stable_ids.stable_id(
+        f, f"rel/IfcRelDeclares/{project.GlobalId}")
+
+
 def _check_parts(model) -> None:
     """Every Element.part_of names another element of the same model, and
     the whole/part links form a tree: no cycle, no part that is also a cut
@@ -2141,6 +2161,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     # roots added since the sweep was first written are keyed and come
     # after it, so they renumber nothing (test_example_globalids)
     _bar_types(run, f, ctx, sized_bars)
+    _declare_types(run, f, project)
 
     # then pin every relationship's member order (see _pin_relationship_order:
     # ifcopenshell.api set-unions reorder members nondeterministically) — after
