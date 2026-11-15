@@ -8,6 +8,7 @@ from bimforge.author.project import ProjectContext
 def _ctx():
     return ProjectContext.from_spec({
         "name": "t", "epsg": 2226, "base": [0.0, 0.0],
+        "allow_zero_origin": True,
         "guid_ns": "6f0e5a1a-0000-4000-8000-000000000042"})
 
 
@@ -262,6 +263,7 @@ def test_wall_and_trench_variants_build_clean(tmp_path):
         "  name: \"R31 842 wall+trench\"\n"
         "  epsg: 2226\n"
         "  base: [0.0, 0.0]\n"
+        "  allow_zero_origin: true\n"
         "  guid_ns: \"6f0e5a1a-0000-4000-8000-000000000842\"\n")
     rc = build_from_spec(str(spec))
     assert rc == 0
