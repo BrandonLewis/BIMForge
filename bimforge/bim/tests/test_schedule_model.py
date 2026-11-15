@@ -267,3 +267,53 @@ def test_filters_serialize_only_when_set_and_round_trip():
     assert again.tasks[1].filter_name_re == r"^RW\d"
     assert again.tasks[1].filter_ifc_class == "IfcWall"
     assert again.tasks[0].filter_name_re is None
+
+
+# -- #37: the schedule's type (IfcWorkScheduleTypeEnum) ----------------------
+
+def test_schedule_type_serializes_only_when_set_and_round_trips():
+    sched = _sched()
+    assert "schedule_type" not in sched.to_dict()   # earlier JSON unchanged
+    sched.schedule_type = "BASELINE"
+    again = CanonicalSchedule.from_json(sched.to_json())
+    assert again == sched and again.schedule_type == "BASELINE"
+
+
+@pytest.mark.parametrize("bad", ["NOTDEFINED", "USERDEFINED", "forecast"])
+def test_schedule_type_outside_the_enum_is_refused(bad):
+    sched = _sched()
+    sched.schedule_type = bad
+    with pytest.raises(ValueError, match="schedule type"):
+        sched.validate()
+
+
+def _xer(project: dict, task: dict | None = None) -> str:
+    """A one-activity XER: PROJECT and TASK tables, `project`/`task` extras
+    on top of the minimal fields."""
+    proj = {"proj_id": "1", "proj_short_name": "P",
+            "plan_start_date": "2027-03-01 08:00", **project}
+    row = {"task_id": "10", "task_code": "A100", "task_name": "Pour",
+           "wbs_id": "", "task_type": "TT_Task",
+           "target_start_date": "2027-03-01 08:00",
+           "target_end_date": "2027-03-05 17:00",
+           "target_drtn_hr_cnt": "40", **(task or {})}
+    lines = []
+    for table, r in (("PROJECT", proj), ("TASK", row)):
+        lines += [f"%T\t{table}", "%F\t" + "\t".join(r),
+                  "%R\t" + "\t".join(r.values())]
+    return "\n".join(lines + ["%E"]) + "\n"
+
+
+def test_xer_baseline_copy_reads_as_baseline():
+    from bimforge.bim.schedule_io import from_xer
+    # P6 writes the project a baseline was copied from into orig_proj_id
+    assert from_xer(_xer({"orig_proj_id": "7"})).schedule_type == "BASELINE"
+    assert from_xer(_xer({"orig_proj_id": ""})).schedule_type is None
+    assert from_xer(_xer({})).schedule_type is None
+
+
+def test_ganttwarrior_schedule_type_is_carried():
+    from bimforge.bim.schedule_io import from_ganttwarrior
+    doc = {"name": "G", "schedule_type": "baseline", "tasks": []}
+    assert from_ganttwarrior(doc).schedule_type == "BASELINE"
+    assert from_ganttwarrior({"name": "G", "tasks": []}).schedule_type is None

@@ -16,14 +16,15 @@ import json
 from pathlib import Path
 
 from bimforge.bim.schedule_model import (
-    CanonicalSchedule, Dependency, ScheduleTask,
+    CanonicalSchedule, Dependency, ScheduleTask, normalize_schedule_type,
 )
 
 
 def from_ganttwarrior(doc: dict) -> CanonicalSchedule:
     """A GanttWarrior export dict → validated CanonicalSchedule.
 
-    Field map: name/start_date verbatim; default_work_weekdays →
+    Field map: name/start_date verbatim; schedule_type (ACTUAL / BASELINE /
+    PLANNED, #37) when present; default_work_weekdays →
     work_weekdays; holidays verbatim; per task id/name/wbs verbatim,
     start_date→start, end_date→finish, duration_days, is_milestone,
     bid_item_codes (order preserved, duplicates removed), and
@@ -69,6 +70,7 @@ def from_ganttwarrior(doc: dict) -> CanonicalSchedule:
         work_weekdays=list(doc.get("default_work_weekdays", [0, 1, 2, 3, 4])),
         holidays=list(doc.get("holidays", [])),
         tasks=tasks,
+        schedule_type=normalize_schedule_type(doc.get("schedule_type")),
     )
     sched.validate()
     return sched
@@ -196,7 +198,10 @@ def from_xer(text: str) -> CanonicalSchedule:
     sched = CanonicalSchedule(
         name=proj.get("proj_short_name") or "P6 schedule",
         start_date=_xer_date(proj.get("plan_start_date")),
-        tasks=tasks)
+        tasks=tasks,
+        # a P6 baseline is a copy of a project, and keeps the id of the one
+        # it was copied from (#37); anything else is unsaid (embed: PLANNED)
+        schedule_type="BASELINE" if proj.get("orig_proj_id") else None)
     sched.validate()
     return sched
 

@@ -319,7 +319,8 @@ def read_schedule(model, name: str | None = None):
     Picks the schedule named `name`, or the only one in the file. Task ids
     and WBS come from the embed's Bimforge_Task (or 0.1.88-and-earlier Pset_BimforgeTask), or else from
     Identification and the nesting tree; dates, duration, milestone, type,
-    notes, calendar, owner bid items and GlobalId from the IfcTask;
+    notes, calendar, owner bid items and GlobalId from the IfcTask; the
+    schedule type from the IfcWorkSchedule's PredefinedType (#37);
     dependencies from IfcRelSequence (a predecessor outside the schedule
     becomes an external dependency). A model written before #335, or by
     another tool, reads with the newer fields empty — never an error.
@@ -329,7 +330,7 @@ def read_schedule(model, name: str | None = None):
     read back from Bimforge_Task (#365).
     """
     from bimforge.bim.schedule_model import (
-        Calendar, CanonicalSchedule, Dependency, ScheduleTask)
+        SCHEDULE_TYPES, Calendar, CanonicalSchedule, Dependency, ScheduleTask)
 
     ws = _work_schedule(model, name)
     sname = ws.Name or ""
@@ -397,11 +398,14 @@ def read_schedule(model, name: str | None = None):
     # with no work days stays empty (embed writes no weekly pattern for it)
     project = (_read_calendar(project_cal) if project_cal is not None
                else {"work_weekdays": [0, 1, 2, 3, 4], "holidays": []})
+    # PredefinedType (#37); NOTDEFINED (every file before it) says nothing
+    ws_type = str(ws.PredefinedType or "")
     return CanonicalSchedule(
         name=sname, start_date=_day(ws.StartTime),
         work_weekdays=project["work_weekdays"],
         holidays=project["holidays"], tasks=tasks,
-        calendars=dict(sorted(calendars.items())))
+        calendars=dict(sorted(calendars.items())),
+        schedule_type=ws_type if ws_type in SCHEDULE_TYPES else None)
 
 
 def task_elements(model, name: str | None = None) -> dict[str, list[dict]]:

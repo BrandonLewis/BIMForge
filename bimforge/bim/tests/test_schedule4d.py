@@ -471,3 +471,57 @@ def test_cli_says_where_the_schedule_start_came_from(sample_ifc, tmp_path, capsy
     assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
                  "--out", str(out)]) == 0
     assert "starts 2027-03-01 (its earliest task" in capsys.readouterr().out
+
+
+# -- #37: IfcWorkSchedule.PredefinedType ------------------------------------
+
+def _ws_type(g, name):
+    return next(w for w in g.by_type("IfcWorkSchedule")
+                if w.Name == name).PredefinedType
+
+
+def test_work_schedule_type_defaults_to_planned(sample_ifc):
+    g, report = _embed(sample_ifc, _schedule(), out_name="type_default.ifc")
+    assert _ws_type(g, "Sample BL V.01") == "PLANNED"     # not NOTDEFINED
+    assert report.schedule_type == "PLANNED"
+
+
+def test_work_schedule_type_comes_from_the_schedule(sample_ifc):
+    sched = _schedule()
+    sched.schedule_type = "baseline"
+    g, report = _embed(sample_ifc, sched, out_name="type_src.ifc")
+    assert _ws_type(g, "Sample BL V.01") == "BASELINE"
+    assert report.schedule_type == "BASELINE"
+
+
+def test_work_schedule_type_override_wins(sample_ifc):
+    sched = _schedule()
+    sched.schedule_type = "BASELINE"
+    g, _ = _embed(sample_ifc, sched, out_name="type_over.ifc",
+                  schedule_type="actual")
+    assert _ws_type(g, "Sample BL V.01") == "ACTUAL"
+
+
+def test_work_schedule_type_override_outside_the_enum_is_refused(sample_ifc):
+    with pytest.raises(ValueError, match="schedule type"):
+        embed_schedule(ifcopenshell.open(sample_ifc), _schedule(),
+                       schedule_type="NOTDEFINED")
+
+
+def test_cli_schedule_type_from_the_source_and_overridden(sample_ifc, tmp_path):
+    import json
+
+    from bimforge.bim.cli import main
+    src = tmp_path / "typed.gw.json"
+    src.write_text(json.dumps({"name": "Typed", "schedule_type": "BASELINE",
+                               "tasks": [{"id": "a", "name": "A", "wbs": "1",
+                                          "start_date": "2027-03-01",
+                                          "end_date": "2027-03-05"}]}),
+                   encoding="utf-8")
+    out = tmp_path / "typed.4d.ifc"
+    assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
+                 "--out", str(out)]) == 0
+    assert _ws_type(ifcopenshell.open(str(out)), "Typed") == "BASELINE"
+    assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
+                 "--schedule-type", "ACTUAL", "--out", str(out)]) == 0
+    assert _ws_type(ifcopenshell.open(str(out)), "Typed") == "ACTUAL"

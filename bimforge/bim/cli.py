@@ -387,7 +387,8 @@ def _run_schedule(args) -> int:
             sched, task_map=task_map, name_code_re=args.name_code_re)
         model = ifcopenshell.open(args.ifc)
         report = embed_schedule(model, sched,
-                                schedule_name=args.schedule_name)
+                                schedule_name=args.schedule_name,
+                                schedule_type=args.schedule_type)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -2525,6 +2526,10 @@ def main(argv=None) -> int:
                          "item codes from each task name")
     sc.add_argument("--name", dest="schedule_name",
                     help="IfcWorkSchedule name (default: the schedule's own name)")
+    sc.add_argument("--schedule-type", dest="schedule_type",
+                    type=str.upper, choices=("ACTUAL", "BASELINE", "PLANNED"),
+                    help="IfcWorkSchedule PredefinedType (default: what the "
+                         "schedule file says, e.g. a P6 baseline, else PLANNED)")
     sc.add_argument("--out", help="output IFC path (default: alongside the input, "
                                   "<stem>.4d.ifc)")
 

@@ -22,6 +22,10 @@ from datetime import date
 
 DEP_TYPES = ("FS", "SS", "FF", "SF")
 
+# IfcWorkScheduleTypeEnum's real values (#37); NOTDEFINED/USERDEFINED say
+# nothing, so a schedule says one of these or nothing (embed: PLANNED)
+SCHEDULE_TYPES = ("ACTUAL", "BASELINE", "PLANNED")
+
 _MONTH_DAY = re.compile(r"^(\d{2})-(\d{2})$")
 
 
@@ -115,6 +119,9 @@ class CanonicalSchedule:
     holidays: list[str] = field(default_factory=list)
     tasks: list[ScheduleTask] = field(default_factory=list)
     calendars: dict[str, Calendar] = field(default_factory=dict)
+    # #37 — ACTUAL / BASELINE / PLANNED (SCHEDULE_TYPES) where the source
+    # says (a P6 baseline copy); None = unsaid. Serialized only when set.
+    schedule_type: str | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -128,6 +135,8 @@ class CanonicalSchedule:
                     del t[key]
         if not d["calendars"]:
             del d["calendars"]
+        if not d["schedule_type"]:
+            del d["schedule_type"]
         return d
 
     def to_json(self, indent: int = 2) -> str:
@@ -160,6 +169,7 @@ class CanonicalSchedule:
             holidays=list(data.get("holidays", [])),
             tasks=tasks,
             calendars=calendars,
+            schedule_type=normalize_schedule_type(data.get("schedule_type")),
         )
 
     @classmethod
@@ -192,8 +202,10 @@ class CanonicalSchedule:
         Duplicate ids, finish-before-start, unknown/invalid dependencies,
         dependency cycles (the IFC embed would otherwise author a
         nonsensical IfcRelSequence graph), unknown task calendars, and
-        malformed blackouts.
+        malformed blackouts, and a schedule type IFC doesn't list.
         """
+        if self.schedule_type is not None:
+            check_schedule_type(self.schedule_type)
         for cname, cal in self.calendars.items():
             for b in cal.blackouts:
                 if not isinstance(b, dict) or set(b) != {"from", "to"}:
@@ -257,6 +269,22 @@ class CanonicalSchedule:
 
 def _d(iso: str) -> date:
     return date.fromisoformat(iso[:10])
+
+
+def normalize_schedule_type(value: str | None) -> str | None:
+    """A source's schedule type, upper-cased; ""/None -> None. Not checked
+    here (validate() does, so a bad one fails with the schedule's other
+    problems)."""
+    return (str(value).strip().upper() or None) if value else None
+
+
+def check_schedule_type(value: str) -> str:
+    """`value` as an IfcWorkScheduleTypeEnum member; ValueError otherwise."""
+    v = normalize_schedule_type(value)
+    if v not in SCHEDULE_TYPES:
+        raise ValueError(f"schedule type must be one of {SCHEDULE_TYPES}, "
+                         f"got {value!r}")
+    return v
 
 
 # ---------------------------------------------------------------------------

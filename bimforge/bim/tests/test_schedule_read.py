@@ -50,7 +50,7 @@ def sample_ifc(tmp_path_factory):
 def _full_schedule():
     """A schedule using every #335 field."""
     return CanonicalSchedule(
-        name="Bridge BL V.02", start_date="2026-06-01",
+        name="Bridge BL V.02", start_date="2026-06-01", schedule_type="BASELINE",
         work_weekdays=[0, 1, 2, 3], holidays=["2026-07-03", "2026-09-07"],
         calendars={
             "in-water": Calendar(work_weekdays=[0, 1, 2, 3, 4],
@@ -235,6 +235,15 @@ def test_model_from_before_335_reads_with_new_fields_empty(sample_ifc):
         assert t.task_type is None and t.bid_items == [] and t.notes == ""
         assert t.calendar is None and t.global_id
     assert got.work_weekdays == [0, 1, 2, 3, 4]
+
+
+def test_schedule_type_reads_back_and_notdefined_reads_as_unset(sample_ifc):
+    path, _ = _embed(sample_ifc, _full_schedule(), "typed.4d.ifc")
+    m = ifcopenshell.open(path)
+    assert read_schedule(m).schedule_type == "BASELINE"
+    # a file written before #37 says NOTDEFINED: the source never said
+    m.by_type("IfcWorkSchedule")[0].PredefinedType = "NOTDEFINED"
+    assert read_schedule(m).schedule_type is None
 
 
 def test_schedule_selection(sample_ifc):

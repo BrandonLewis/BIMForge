@@ -34,7 +34,7 @@ import ifcopenshell.api.sequence as sq
 import ifcopenshell.guid
 
 from bimforge.bim.ifc_takeoff import classifications_of
-from bimforge.bim.schedule_model import parse_month_day
+from bimforge.bim.schedule_model import check_schedule_type, parse_month_day
 from bimforge.bim import stable_ids
 
 from typing import TYPE_CHECKING
@@ -83,6 +83,7 @@ class EmbedReport:
     unscheduled_elements: list = field(default_factory=list)
     start_time: date | None = None       # the IfcWorkSchedule's StartTime
     start_from: str = ""                 # "start_date", "earliest task", "none"
+    schedule_type: str = ""              # its PredefinedType (#37)
 
     @property
     def unscheduled_element_count(self) -> int:
@@ -305,19 +306,25 @@ def _set_global_id(model, ent, gid: str, tid: str) -> None:
 
 
 def embed_schedule(model, sched: CanonicalSchedule, *,
-                   schedule_name: str | None = None) -> EmbedReport:
+                   schedule_name: str | None = None,
+                   schedule_type: str | None = None) -> EmbedReport:
     """Author `sched` into the open IFC `model` in place; return an EmbedReport.
 
     The model is mutated (caller writes it). Re-running with the same name
     replaces the prior schedule. Nothing is dropped silently: task codes
     that match no element, and elements no task claims, are both
-    reported.
+    reported. The IfcWorkSchedule's PredefinedType (#37) is
+    `schedule_type`, else the schedule's own, else PLANNED: a bid-time
+    schedule is a plan, and NOTDEFINED tells a consumer nothing.
     """
     sched.validate()
     name = schedule_name or sched.name or "Schedule"
+    ws_type = check_schedule_type(schedule_type or sched.schedule_type
+                                  or "PLANNED")
     start_time, start_from = _schedule_start(sched)
     _remove_schedule_named(model, name)
-    ws = sq.add_work_schedule(model, name=name, start_time=start_time)
+    ws = sq.add_work_schedule(model, name=name, predefined_type=ws_type,
+                              start_time=start_time)
     stable_ids.assign(model, ws, f"work-schedule/{name}")
     _add_calendar(model, sched, f"{name} calendar")
 
@@ -349,7 +356,7 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
                                      f"{pattern!r}: {exc}")
 
     report = EmbedReport(schedule_name=name, start_time=start_time,
-                         start_from=start_from)
+                         start_from=start_from, schedule_type=ws_type)
 
     # tasks, parents before children (shallower WBS first)
     def depth(t):
