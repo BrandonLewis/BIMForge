@@ -120,9 +120,11 @@ def ifc_to_kml(ifc_path, out_path=None, *, schedule: bool = False,
     (<= 0.1.10) broken georeference.
 
     With `schedule=True`, each element assigned to a scheduled task (a
-    slice-2 `est-bim schedule` embed) gets a KML `<TimeSpan>` beginning at
-    its earliest task's ScheduleStart, so Google Earth's time slider plays
-    the construction staging; unscheduled elements stay untimed (always
+    slice-2 `est-bim schedule` embed) gets a KML `<TimeSpan>` from its
+    `schedule_state.element_spans` span: `<begin>` at its earliest
+    constructive task's ScheduleStart, `<end>` at its earliest DEMOLITION /
+    REMOVAL / ... task's, so Google Earth's time slider plays the
+    construction staging; unscheduled elements stay untimed (always
     visible). `timed` counts the elements that got a TimeSpan.
 
     With `massing=True`, each element is drawn as its bounding-box block
@@ -149,10 +151,13 @@ def ifc_to_kml(ifc_path, out_path=None, *, schedule: bool = False,
     out = Path(out_path) if out_path else ifc_path.with_suffix(".kml")
 
     model = ifcopenshell.open(str(ifc_path))
-    starts = {}
+    spans = {}
     if schedule:
-        from bimforge.bim.schedule_read import element_start_dates
-        starts = element_start_dates(model)
+        # schedule_state owns the span semantics: a constructive task makes
+        # its elements appear, a DEMOLITION / REMOVAL / ... task makes them
+        # vanish (they stand until then)
+        from bimforge.bim.schedule_state import element_spans
+        spans = element_spans(model)
     georef = read_map_conversion(model)
     base_e, base_n, scale = georef.base_e, georef.base_n, georef.scale
     tfm = Transformer.from_crs(f"EPSG:{georef.epsg}", "EPSG:4326", always_xy=True)
@@ -259,11 +264,13 @@ def ifc_to_kml(ifc_path, out_path=None, *, schedule: bool = False,
         color = colors.get(cls, "ffaaaaaa")
         sid = style_ids.setdefault(color, f"c-{color}")
         name = prod.Name or f"{cls} {prod.GlobalId[:6]}"
-        begin = starts.get(prod.id())
-        if begin:
+        span = spans.get(prod.GlobalId)
+        timespan = (span.appear, span.vanish) if span else None
+        if timespan and any(timespan):
             timed += 1
-        groups[_group_of(prod)].append(
-            (name, sid, rings, ((begin, None) if begin else None)))
+        else:
+            timespan = None
+        groups[_group_of(prod)].append((name, sid, rings, timespan))
         counts += 1
 
     doc = KMLDocument(ifc_path.stem, xy_digits=xy_d, z_digits=z_d)

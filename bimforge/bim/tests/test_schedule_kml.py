@@ -126,3 +126,29 @@ def test_kml_massing_with_schedule_keeps_timespans(scheduled_ifc):
 def test_box_rings_empty_geometry_returns_no_rings():
     from bimforge.bim.kml import _box_rings
     assert _box_rings([], lambda x, y: (0.0, 0.0)) == []
+
+
+def test_kml_removal_task_ends_the_timespan(scheduled_ifc, tmp_path):
+    # audit 0.8: an element on a DEMOLITION / REMOVAL task stands BEFORE the
+    # task and vanishes at its start — a TimeSpan with only an <end>
+    tmp, _ = scheduled_ifc
+    sched = CanonicalSchedule(name="Rm", tasks=[
+        ScheduleTask(id="deck", name="Deck", wbs="1",
+                     start="2026-07-10", finish="2026-07-14",
+                     bid_item_codes=["03 30 00"]),          # -> IfcSlab
+        ScheduleTask(id="rm", name="Remove wall", wbs="2",
+                     start="2026-07-01", finish="2026-07-03",
+                     task_type="REMOVAL",
+                     bid_item_codes=["EF_25_10"]),          # -> IfcWall
+    ])
+    model = ifcopenshell.open(str(tmp / "m.ifc"))
+    embed_schedule(model, sched)
+    ifc = str(tmp_path / "rm.4d.ifc")
+    model.write(ifc)
+    out = tmp_path / "rm.kml"
+    info = ifc_to_kml(ifc, str(out), schedule=True)
+    assert info["timed"] == 2                      # slab + wall
+    text = out.read_text(encoding="utf-8")
+    assert "<TimeSpan><begin>2026-07-10</begin></TimeSpan>" in text
+    assert "<TimeSpan><end>2026-07-01</end></TimeSpan>" in text
+    assert "<begin>2026-07-01</begin>" not in text
