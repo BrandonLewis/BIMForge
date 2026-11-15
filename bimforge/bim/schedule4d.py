@@ -416,8 +416,10 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
             if dep.lag_days:
                 # ISO-8601 duration; :g keeps a fractional day (P1.5D) and
                 # drops the trailing .0 on whole days (P2D) — never truncate.
+                # A negative lag (a lead) carries its sign in front: -P1.5D.
+                sign = "-" if dep.lag_days < 0 else ""
                 sq.assign_lag_time(model, rel,
-                                   lag_value=f"P{dep.lag_days:g}D",
+                                   lag_value=f"{sign}P{abs(dep.lag_days):g}D",
                                    duration_type="WORKTIME")
 
     # task times: write ScheduleStart/Finish as raw IfcDateTime attributes,

@@ -78,12 +78,14 @@ def _run_sample(args) -> int:
 def _run_dxf2bim(args) -> int:
     import yaml
 
-    from bimforge.bim.dxf2bim import UNIT_TO_M, build_ifc, extract_features
+    from bimforge.bim.dxf2bim import (UNIT_TO_M, build_ifc, extract_features,
+                                      schema_of)
 
     try:
         with open(args.config, encoding="utf-8") as fh:
             config = yaml.safe_load(fh) or {}
-    except OSError as exc:
+        schema_of(config)   # IFC2X3 is refused by name, before any work
+    except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     unit = config.get("units", {}).get("dxf_length_unit", "mm")

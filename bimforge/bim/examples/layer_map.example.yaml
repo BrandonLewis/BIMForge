@@ -8,7 +8,7 @@
 
 project:
   name: "Sample Takeoff"
-  schema: "IFC4X3_ADD2"   # IFC4X3_ADD2 (default, civil) | IFC4 (non-4X3 viewers) | IFC2X3
+  schema: "IFC4X3_ADD2"   # IFC4X3_ADD2 (default, civil) | IFC4 (non-4X3 viewers); IFC2X3 is refused
   storey: "Level 0"
   guid_ns: "3f2b8c1e-7d4a-4e6b-9a15-0c8d2e7f4b91"  # uuid5 namespace: GlobalIds stable across rebuilds (one per project)
 

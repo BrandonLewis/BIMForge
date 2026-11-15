@@ -733,6 +733,15 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
                                 if c.is_a("IfcFacility") and not c.is_a("IfcBuilding"))
     # the placeholder storey emit_ifc opened the file with holds nothing
     placeholder_pl = placeholder.ObjectPlacement
+    # the Building->storeys aggregation it sits in is shared with every real
+    # storey _storey() assigned since: unassign only the placeholder, and
+    # drop the rel only once it is empty (audit 0.2: WR41 orphaned storeys).
+    for rel in list(placeholder.Decomposes or ()):
+        rest = [o for o in rel.RelatedObjects if o != placeholder]
+        if rest:
+            rel.RelatedObjects = rest
+        else:
+            f.remove(rel)
     for rel in list(f.get_inverse(placeholder)):
         f.remove(rel)
     f.remove(placeholder)

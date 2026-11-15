@@ -1153,6 +1153,15 @@ def _emit_annotation_plan(f, run, plan, anno_ctx, storey, ctx, guid_key,
         RepresentationType="MappedRepresentation", Items=items)
     ann.Representation = f.create_entity(
         "IfcProductDefinitionShape", Representations=[rep])
+    # audit 0.4 (PlacementForShapeRepresentation): a product with a shape
+    # needs a placement. An identity offset on the container's, so the
+    # stamps stay where their coordinates say
+    ann.ObjectPlacement = f.create_entity(
+        "IfcLocalPlacement", PlacementRelTo=storey.ObjectPlacement,
+        RelativePlacement=f.create_entity(
+            "IfcAxis2Placement3D",
+            Location=f.create_entity("IfcCartesianPoint",
+                                     Coordinates=(0.0, 0.0, 0.0))))
     run("spatial.assign_container", f, products=[ann], relating_structure=storey)
     if plan.layer:
         lyr = layer_cache.get(plan.layer)

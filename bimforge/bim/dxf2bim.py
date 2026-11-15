@@ -46,6 +46,7 @@ from ifcopenshell.api import run
 
 from bimforge.bim.georef import (SCALE_TOL, crs_datum, crs_name, crs_unit,
                                  resolve_epsg, write_map_unit)
+from bimforge.bim.ifc_takeoff import require_supported_schema
 
 # ----------------------------------------------------------------------------
 # Units
@@ -242,9 +243,18 @@ def _guid_keyer(proj_cfg: dict):
     return key
 
 
+def schema_of(config: dict) -> str:
+    """The layer map's IFC schema, refused by name unless the takeoff reads
+    it (IFC4X3, or IFC4 as a fallback). IFC2X3 used to crash deep in
+    create_owner_history; the CLI calls this before reading the DXF."""
+    schema = (config.get("project", {}) or {}).get("schema", "IFC4X3_ADD2")
+    require_supported_schema(ifcopenshell.file(schema=schema))
+    return schema
+
+
 def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
     proj_cfg = config.get("project", {})
-    schema = proj_cfg.get("schema", "IFC4X3_ADD2")   # #332; "IFC4" opts out
+    schema = schema_of(config)   # IFC4X3_ADD2 (#332); "IFC4" opts out
     geo = config.get("georeference", {}) or {}
     unit = (config.get("units", {}) or {}).get("dxf_length_unit", "mm")
     unit_to_m = UNIT_TO_M.get(unit)

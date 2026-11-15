@@ -59,6 +59,17 @@ def _stage_example(tmp_path) -> Path:
     return tmp_path / "demo-box.spec.yaml"
 
 
+@pytest.mark.parametrize("name", sorted(
+    p.name for p in EXAMPLES.glob("*.spec.yaml")))
+def test_every_example_spec_builds(tmp_path, name):
+    """Every shipped example still passes `est-bim build` (audit 0.7 moved
+    the three zero-base examples onto a real base point)."""
+    pytest.importorskip("ifcopenshell")
+    work = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, work)
+    assert registry.build_from_spec(work / name) == 0
+
+
 def test_check_only_writes_nothing(tmp_path):
     spec = _stage_example(tmp_path)
     rc = registry.build_from_spec(spec, check_only=True)
