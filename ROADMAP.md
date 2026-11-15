@@ -45,7 +45,7 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.1 | TENDER schedule from the takeoff (`est-bim estimate5d`). | Done in #39 (0.1.111) |
 | C.1a | TENDER totals the bid: no-element items, children sum to the cost, a $0.01 read-back gate, a value-1 UnitBasis over undeclared units (#49). | Done in #71 (0.1.118) |
 | C.2 | ESTIMATE schedule keyed by pay item, cost codes nested, ADD-composed leaves, one cost evaluator, currency. Spec `docs/superpowers/specs/2026-11-09-estimate-schedule-by-bid-item-design.md`. | Done in #71 (0.1.118) |
-| C.2a | Stable GlobalIds for schedules, tasks, cost items, crews and dxf2bim output (#74). Relationships and property sets still churn (#80). | Done in #75 (0.1.119); #80 next |
+| C.2a | Stable GlobalIds for schedules, tasks, cost items, crews and dxf2bim output (#74), then relationships, property sets and alignments (#80). | Done in #75 (0.1.119) and #81 |
 | C.3 | Audit Phase 0: the remaining bugs (0.2 to 0.10). 0.6 was fixed in #58 and 0.10 in #46. | This PR |
 | C.4 | Audit Phase 1: additive units, types and statuses (#37). | Next |
 | C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. | In progress, coordinated with ProjectCommand |

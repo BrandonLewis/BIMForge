@@ -4,6 +4,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **Stable GlobalIds for relationships, property sets and alignments**
+  (#80), so a 4D or 5D file is the same run to run, not only its tasks and
+  cost items. `stable_ids.key_relationships` keys each property set by its
+  owner and name, each IfcRelSequence by its two tasks, and every other
+  relationship by its type and relating entity, leaving the related set out
+  so adding a member keeps the id. `est-bim schedule`, `cost5d`, `estimate5d`
+  and `estimate-model` run it last; a writer that adds to an embedded file
+  calls it before saving. `est-bim add-alignments` keys its alignments,
+  layouts, segments and referents, and the nests and Pset_Stationing around
+  them. The contract is `docs/globalid-contract.md`.
+
 ### Changed
 
 - **A spec giving `project.epsg` with a zero base point is refused** (audit 0.7). E=0, N=0 georeferenced the model to the CRS's false origin with TrueNorth about 13° off. Set a real base, drop the EPSG for a local model, or set `project.allow_zero_origin: true` to keep it on purpose. The 732SW, 842 and tubular-handrail examples now use a real base point.

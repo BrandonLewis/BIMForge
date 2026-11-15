@@ -13,7 +13,7 @@ from bimforge.bim import cost5d, estimate5d, stable_ids  # noqa: E402
 from bimforge.bim.estimate_model5d import embed_estimate_model  # noqa: E402
 from bimforge.bim.schedule4d import embed_schedule  # noqa: E402
 from bimforge.bim.schedule_model import (  # noqa: E402
-    CanonicalSchedule, ScheduleTask,
+    CanonicalSchedule, Dependency, ScheduleTask,
 )
 from bimforge.bim.tests.test_estimate5d import (  # noqa: E402
     PILE_COSTS, PILE_MAP, _pile_ifc,
@@ -238,3 +238,174 @@ def test_dxf2bim_without_guid_ns_warns_and_ids_are_random(tmp_path, capsys):
     assert "guid_ns is not set" in capsys.readouterr().err
     b = _dxf_ids(tmp_path, "b", guid_ns=None)
     assert not set(a.values()) & set(b.values())
+
+# --- relationships and property sets (#80) ---
+
+def _roots(f):
+    """{GlobalId: class} for every IfcRoot in `f`."""
+    return {e.GlobalId: e.is_a() for e in f.by_type("IfcRoot")}
+
+
+def _wall_file(gid=PROJECT):
+    f = _file(gid)
+    for i in range(3):
+        w = root.create_entity(f, ifc_class="IfcWall", name=f"wall {i}")
+        w.GlobalId = ifcopenshell.guid.compress(uuid.UUID(int=100 + i).hex)
+    return f
+
+
+def _linked(lag=1.0, pred="a"):
+    sched = _sched()
+    sched.tasks[1].match_ifc_class = "IfcWall"
+    sched.tasks[2].match_name_re = "wall [01]"
+    sched.tasks[2].dependencies = [Dependency(predecessor=pred, lag_days=lag)]
+    return sched
+
+
+def _linked_file(**kw):
+    f = _wall_file()
+    embed_schedule(f, _linked(**kw))
+    return f
+
+
+def _one(f, cls, test=lambda e: True):
+    (e,) = [e for e in f.by_type(cls) if test(e)]
+    return e
+
+
+def test_every_schedule_root_repeats_rels_and_psets_included():
+    a, b = _linked_file(), _linked_file()
+    kinds = set(_roots(a).values())
+    assert {"IfcRelAssignsToProduct", "IfcRelSequence", "IfcPropertySet",
+            "IfcRelDefinesByProperties", "IfcRelNests",
+            "IfcRelAssignsToControl"} <= kinds
+    assert _roots(a) == _roots(b)
+    embed_schedule(a, _linked())            # replaced by name
+    assert _roots(a) == _roots(b)
+
+
+def test_the_sweep_is_idempotent():
+    f = _linked_file()
+    before = _roots(f)
+    stable_ids.key_relationships(f)
+    assert _roots(f) == before
+
+
+def test_a_later_assignment_keeps_the_relationship_id():
+    import ifcopenshell.api.sequence as sq
+    f = _linked_file()
+    wall = _one(f, "IfcWall", lambda e: e.Name == "wall 0")
+    (rel,) = wall.ReferencedBy
+    gid = rel.GlobalId
+    extra = root.create_entity(f, ifc_class="IfcTask", name="Extra")
+    stable_ids.assign(f, extra, "task/BL/extra")
+    sq.assign_product(f, relating_product=wall, related_object=extra)
+    stable_ids.key_relationships(f)
+    assert wall.ReferencedBy == (rel,) and len(rel.RelatedObjects) == 3
+    assert rel.GlobalId == gid
+
+
+def test_a_sequence_keeps_its_id_through_a_lag_change_not_a_new_predecessor():
+    seq = lambda f: _one(f, "IfcRelSequence").GlobalId  # noqa: E731
+    base = seq(_linked_file())
+    assert seq(_linked_file(lag=3.0)) == base
+    assert seq(_linked_file(pred="s")) != base
+
+
+def test_a_pset_keys_on_its_owner_and_name():
+    f = _linked_file()
+    deck = _one(f, "IfcTask", lambda e: e.Name == "Deck")
+    (pset,) = [r.RelatingPropertyDefinition for r in deck.IsDefinedBy]
+    assert pset.GlobalId == stable_ids.stable_id(
+        f, f"pset/{deck.GlobalId}/{pset.Name}")
+
+
+def test_two_relationships_of_one_type_on_one_entity_are_numbered():
+    def build():
+        f = _file()
+        cs = root.create_entity(f, ifc_class="IfcWorkSchedule", name="W")
+        stable_ids.assign(f, cs, "work-schedule/W")
+        tasks = []
+        for i in range(2):
+            t = root.create_entity(f, ifc_class="IfcTask", name=f"t{i}")
+            stable_ids.assign(f, t, f"task/W/{i}")
+            tasks.append(t)
+        for t in tasks:
+            # one rel per task, as a writer that never merges would
+            f.createIfcRelAssignsToControl(
+                ifcopenshell.guid.new(), None, None, None, [t], None, cs)
+        stable_ids.key_relationships(f)
+        return f
+    a, b = build(), build()
+    ids = sorted(r.GlobalId for r in a.by_type("IfcRelAssignsToControl"))
+    assert len(set(ids)) == 2
+    assert ids == sorted(r.GlobalId for r in b.by_type("IfcRelAssignsToControl"))
+
+
+def test_another_project_gets_other_relationship_ids():
+    a, b = _linked_file(), _wall_file(OTHER)
+    embed_schedule(b, _linked())
+    rels = lambda f: {g for g, c in _roots(f).items()  # noqa: E731
+                      if c.startswith("IfcRel")}
+    assert not rels(a) & rels(b)
+
+
+def test_cost5d_roots_all_repeat():
+    def build():
+        f = _wall_file()
+        embed_schedule(f, _linked())
+        cost5d.embed_cost_and_resources(
+            f, _linked(), {"A": {"cost": 1000.0, "labor_hours": 40.0},
+                           "B": {"cost": 500.0, "labor_hours": 10.0}},
+            work_hours_per_day=8.0)
+        return f
+    assert _roots(build()) == _roots(build())
+
+
+def _pin_all(f):
+    """Pin every authored IfcRoot, as an authored model's ids are: the
+    fixtures here make random ones."""
+    for i, e in enumerate(f.by_type("IfcRoot")):
+        e.GlobalId = ifcopenshell.guid.compress(uuid.UUID(int=1000 + i).hex)
+    return _pin(f)
+
+
+def test_estimate5d_roots_all_repeat():
+    a, b = _pin_all(_pile_ifc()), _pin_all(_pile_ifc())
+    for f in (a, b):
+        estimate5d.embed_estimate(f, PILE_MAP, PILE_COSTS)
+    assert _roots(a) == _roots(b)
+
+
+def test_estimate_model_roots_all_repeat():
+    def build():
+        f, _site, ftg, wall = _model_ifc()
+        _pin_all(f)
+        embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+        return f
+    a, b = build(), build()
+    assert {"IfcRelAssignsToProduct", "IfcRelAssignsToResource",
+            "IfcPropertySet"} & set(_roots(a).values())
+    assert _roots(a) == _roots(b)
+
+def test_a_downstream_tools_own_relationships_keep_their_ids():
+    """Entities another application stamped are its own: the sweep leaves
+    their ids, so a returned file's additions carry through a rebuild."""
+    import ifcopenshell.api.sequence as sq
+    f = _linked_file()
+    person = f.createIfcPerson(FamilyName="planner")
+    org = f.createIfcOrganization(Name="downstream")
+    app = f.createIfcApplication(org, "1.0", "ProjectCommand", "ProjectCommand")
+    oh = f.createIfcOwnerHistory(
+        f.createIfcPersonAndOrganization(person, org), app, None, "ADDED",
+        None, None, None, 0)
+    copy = root.create_entity(f, ifc_class="IfcTask", name="Deck (copy)")
+    deck = _one(f, "IfcTask", lambda e: e.Name == "Deck")
+    link = f.createIfcRelDefinesByObject(
+        "1PCdownstreamLinkId000", oh, None, None, [copy], deck)
+    wall = _one(f, "IfcWall", lambda e: e.Name == "wall 2")
+    rel = sq.assign_product(f, relating_product=wall, related_object=copy)
+    rel.OwnerHistory, rel.GlobalId = oh, "1PCdownstreamAssignId0"
+    stable_ids.key_relationships(f)
+    assert (link.GlobalId, rel.GlobalId) == (
+        "1PCdownstreamLinkId000", "1PCdownstreamAssignId0")

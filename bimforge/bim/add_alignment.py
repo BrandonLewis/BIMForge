@@ -44,6 +44,7 @@ import sys
 
 from bimforge.author.alignment import M_PER_FT
 from bimforge.author.emit_alignment import fix_terminator
+from bimforge.bim import stable_ids
 from bimforge.bim.alignment_station import format_station
 
 #: the pre-#51 name; callers outside bimforge (job wrappers) still import it
@@ -319,4 +320,35 @@ def add_alignments(f, alignments: list[dict], tol_ft: float = 0.01,
             failed[ifc_al.Name] = problems
     if failed:
         raise AlignmentGateError(f"gate failed: {failed}")
+    for ifc_al, *_ in made:
+        _key_alignment(f, ifc_al)
     return reports
+
+
+def _nested(ent) -> list:
+    return [o for rel in (getattr(ent, "IsNestedBy", None) or ())
+            for o in rel.RelatedObjects]
+
+
+def _key_alignment(f, ifc_al) -> None:
+    """Stable ids for an alignment, its layouts, their segments (in order)
+    and its referents (by station), then the nests and psets around them
+    (#80), so a rerun on the same file writes the same ids."""
+    import ifcopenshell.util.element as eu
+
+    key = f"alignment/{ifc_al.Name}"
+    stable_ids.assign(f, ifc_al, key)
+    parts = [ifc_al]
+    for child in _nested(ifc_al):
+        if child.is_a("IfcReferent"):
+            st = (eu.get_pset(child, "Pset_Stationing") or {}).get("Station")
+            label = f"{st:.4f}" if isinstance(st, (int, float)) else child.Name
+            stable_ids.assign(f, child, f"referent/{ifc_al.Name}/{label}")
+        elif child.is_a("IfcAlignmentHorizontal") or child.is_a("IfcAlignmentVertical")                 or child.is_a("IfcAlignmentCant"):
+            sub = f"{key}/{child.is_a()[len('IfcAlignment'):].lower()}"
+            stable_ids.assign(f, child, sub)
+            for i, seg in enumerate(_nested(child)):
+                stable_ids.assign(f, seg, f"{sub}/segment/{i}")
+                parts.append(seg)
+        parts.append(child)
+    stable_ids.key_relationships(f, parts)
