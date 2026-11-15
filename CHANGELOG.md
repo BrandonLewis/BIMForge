@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.120 — 2026-11-15
+
 ### Added
 
 - **Stable GlobalIds for relationships, property sets and alignments**
