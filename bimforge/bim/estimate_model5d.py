@@ -6,8 +6,9 @@ MCP tool returns — `estimate`, `items`, `elements`, `activities`, `shares` —
 and writes it into an IFC as:
 
 - **one IfcWorkSchedule** ("BidSheet.ai estimate <id>" unless named), authored
-  by `schedule4d.embed_schedule`: one IfcTask per activity, Identification
-  and TaskId `a<id>`, the home item's number as an owner bid item. Task
+  by `schedule4d.embed_schedule`: one IfcTask per activity, PredefinedType
+  CONSTRUCTION, Identification and TaskId `a<id>`, the home item's number
+  as an owner bid item. Task
   times: ScheduleStart is the activity's `start_date`; ScheduleFinish is its
   INCLUSIVE `finish_date` (BidSheet.ai's `end_date` is exclusive, start +
   duration — a model without `finish_date` falls back to the working day
@@ -377,7 +378,7 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             fallbacks.append(key)
         tasks.append(ScheduleTask(
             id=key, name=act.get("name") or key, start=start, finish=finish,
-            duration_days=duration,
+            duration_days=duration, task_type="CONSTRUCTION",
             bid_items=[str(home["item_number"])] if home.get("item_number")
             else []))
     if fallbacks:

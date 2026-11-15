@@ -175,6 +175,13 @@ def test_one_task_per_activity_with_dates():
     assert summary["tasks"] == 3 and summary["tasks_timed"] == 2
 
 
+def test_every_activity_task_is_construction():
+    # C.4: an estimate activity is construction work, not NOTDEFINED
+    f, _, _, _ = _embed()
+    assert {t.PredefinedType for t in f.by_type("IfcTask")} == {"CONSTRUCTION"}
+    assert {t.task_type for t in read_schedule(f).tasks} == {"CONSTRUCTION"}
+
+
 def test_tasks_link_elements_by_global_id_and_spread_links_none():
     f, summary, ftg, wall = _embed()
     links = task_elements(f, NAME)
