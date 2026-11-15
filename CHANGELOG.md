@@ -4,6 +4,26 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **Stable GlobalIds for what the embedders write** (#74), so records a
+  consumer attaches by GlobalId survive a rebuild or a re-embed. `est-bim
+  schedule`, `cost5d`, `estimate5d` and `estimate-model` key their work
+  schedules, calendars, tasks, cost schedules, cost items and crews as
+  `uuid5(<the file's IfcProject GlobalId>, <key>)`, the rule elements already
+  follow (`bimforge.bim.stable_ids`). A task's `global_id` from write-back
+  still wins. `dxf2bim` keys its project, spatial containers and elements
+  (`element/<layer>-<DXF handle>`) from a new layer-map `project.guid_ns`, and
+  warns without one. `est-bim build` keys the IfcProject explicitly, to the id
+  it already had. What changes an id, and what never does, is in
+  `docs/globalid-contract.md`.
+
+### Changed
+
+- **Re-running an embedder over a file it wrote before this release changes
+  that file's schedule and cost ids once**, from random to keyed. After that
+  they hold.
+
 ## 0.1.118 — 2026-11-14
 
 ### Changed

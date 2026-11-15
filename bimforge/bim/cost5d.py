@@ -38,6 +38,7 @@ from bimforge.bim.cost_categories import (normalize_split, split_amount,
                                           split_of, write_cost_values)
 from bimforge.bim.costload import distribute_to_task_codes, load_schedule_costs
 from bimforge.bim.schedule_read import _schedule_tasks, task_id
+from bimforge.bim import stable_ids
 
 from typing import TYPE_CHECKING
 
@@ -147,6 +148,7 @@ def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
     ensure_currency(model)
     cs = cost.add_cost_schedule(model, name=name,
                                 predefined_type=predefined_type)
+    stable_ids.assign(model, cs, f"cost-schedule/{name}")
     if status:
         cs.Status = status
     projects = model.by_type("IfcProject")
@@ -239,6 +241,8 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
         ci = cost.add_cost_item(model, cost_schedule=cs)
         cost.edit_cost_item(model, ci, attributes={
             "Name": f"{st.name if st else tid}: {code}", "Identification": code})
+        # one item per (task, code): two tasks may share a code
+        stable_ids.assign(model, ci, f"cost-item/{cost_name}/{tid}/{code}")
         # the code's split by kind (top-level kinds, or the reader's
         # `categories`), scaled to this task's part of the code; a balance
         # the kinds do not cover stays uncategorised, so the total holds
@@ -266,6 +270,7 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
             continue
         crew = res.add_resource(model, ifc_class="IfcLaborResource",
                                 name=f"{name}: {st.name if st else tid}")
+        stable_ids.assign(model, crew, f"crew/{name}/{tid}")
         rt = res.add_resource_time(model, resource=crew)
         res.edit_resource_time(model, rt, attributes={
             "ScheduleWork": _iso_hours(load["labor_hours"])})

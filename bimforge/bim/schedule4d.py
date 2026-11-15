@@ -35,6 +35,7 @@ import ifcopenshell.guid
 
 from bimforge.bim.ifc_takeoff import classifications_of
 from bimforge.bim.schedule_model import parse_month_day
+from bimforge.bim import stable_ids
 
 from typing import TYPE_CHECKING
 
@@ -207,6 +208,7 @@ def _add_calendar(model, cal_spec, name: str):
     of its named `Calendar`s — both carry work_weekdays and holidays.
     """
     cal = sq.add_work_calendar(model, name=name)
+    stable_ids.assign(model, cal, f"calendar/{name}")
     if cal_spec.work_weekdays:
         wt = sq.add_work_time(model, cal, time_type="WorkingTimes")
         rp = sq.assign_recurrence_pattern(model, wt, recurrence_type="WEEKLY")
@@ -316,6 +318,7 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     start_time, start_from = _schedule_start(sched)
     _remove_schedule_named(model, name)
     ws = sq.add_work_schedule(model, name=name, start_time=start_time)
+    stable_ids.assign(model, ws, f"work-schedule/{name}")
     _add_calendar(model, sched, f"{name} calendar")
 
     # classification-code -> elements (code join), plus the full element set
@@ -366,8 +369,11 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
                           predefined_type=predefined)
         if object_type:
             ent.ObjectType = object_type
+        # an id a consumer read back (write-back) wins over the key (#74)
         if t.global_id:
             _set_global_id(model, ent, t.global_id, t.id)
+        else:
+            stable_ids.assign(model, ent, f"task/{name}/{t.id}")
         ps = pset_api.add_pset(model, product=ent, name=TASK_PSET)
         # the task map's selectors and filters ride along (#365), so
         # schedule_read hands back the join rule, not only its result
