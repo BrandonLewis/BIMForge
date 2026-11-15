@@ -4,20 +4,7 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
-## 0.1.120 — 2026-11-15
-
-### Added
-
-- **Stable GlobalIds for relationships, property sets and alignments**
-  (#80), so a 4D or 5D file is the same run to run, not only its tasks and
-  cost items. `stable_ids.key_relationships` keys each property set by its
-  owner and name, each IfcRelSequence by its two tasks, and every other
-  relationship by its type and relating entity, leaving the related set out
-  so adding a member keeps the id. `est-bim schedule`, `cost5d`, `estimate5d`
-  and `estimate-model` run it last; a writer that adds to an embedded file
-  calls it before saving. `est-bim add-alignments` keys its alignments,
-  layouts, segments and referents, and the nests and Pset_Stationing around
-  them. The contract is `docs/globalid-contract.md`.
+## 0.1.121 — 2026-11-15
 
 ### Changed
 
@@ -32,6 +19,21 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 - Negative task-sequence lags are written as ISO 8601 `-P1.5D` (was `P-1.5D`, which read back as 0); files with the old form still read correctly (audit 0.5).
 - KML staging: elements on DEMOLITION/REMOVAL tasks stand until the removal date and disappear then (an end-only `<TimeSpan>` when nothing builds them), instead of appearing on it (audit 0.8).
 - `dxf2bim` refuses IFC2X3 by name before reading the DXF, instead of crashing in `create_owner_history`; the example layer map no longer offers it (audit 0.9).
+
+## 0.1.120 — 2026-11-15
+
+### Added
+
+- **Stable GlobalIds for relationships, property sets and alignments**
+  (#80), so a 4D or 5D file is the same run to run, not only its tasks and
+  cost items. `stable_ids.key_relationships` keys each property set by its
+  owner and name, each IfcRelSequence by its two tasks, and every other
+  relationship by its type and relating entity, leaving the related set out
+  so adding a member keeps the id. `est-bim schedule`, `cost5d`, `estimate5d`
+  and `estimate-model` run it last; a writer that adds to an embedded file
+  calls it before saving. `est-bim add-alignments` keys its alignments,
+  layouts, segments and referents, and the nests and Pset_Stationing around
+  them. The contract is `docs/globalid-contract.md`.
 
 ## 0.1.119 — 2026-11-15
 
