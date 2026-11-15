@@ -4,6 +4,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **Stable GlobalIds for relationships, property sets and alignments**
+  (#80), so a 4D or 5D file is the same run to run, not only its tasks and
+  cost items. `stable_ids.key_relationships` keys each property set by its
+  owner and name, each IfcRelSequence by its two tasks, and every other
+  relationship by its type and relating entity, leaving the related set out
+  so adding a member keeps the id. `est-bim schedule`, `cost5d`, `estimate5d`
+  and `estimate-model` run it last; a writer that adds to an embedded file
+  calls it before saving. `est-bim add-alignments` keys its alignments,
+  layouts, segments and referents, and the nests and Pset_Stationing around
+  them. The contract is `docs/globalid-contract.md`.
+
 ## 0.1.119 — 2026-11-15
 
 ### Added

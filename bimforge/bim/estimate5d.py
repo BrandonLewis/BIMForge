@@ -614,4 +614,5 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
                          f"${written:,.2f} but prices "
                          f"${report.extended_total:,.2f}: not written")
     stable_ids.key_cost_items(model, cs)
+    stable_ids.key_relationships(model)
     return report

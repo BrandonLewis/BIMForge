@@ -501,4 +501,5 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     # so "unscheduled" spans all elements, not only classified ones)
     report.unscheduled_elements = sorted(
         (el.Name or el.is_a()) for el in all_elements if el.id() not in assigned)
+    stable_ids.key_relationships(model)
     return report
