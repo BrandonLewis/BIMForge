@@ -157,10 +157,10 @@ def _placed(geoms, world, zs: float) -> list[dict]:
 
 
 def _add(m, name, geoms, world, zs, ifc, quantities, description=None,
-         object_type=None):
+         **kw):
     m.add(Element(name, ifc, geometry=_placed(geoms, world, zs),
                   quantities=quantities, layer="S-CONC-OTLN",
-                  description=description, object_type=object_type))
+                  description=description, **kw))
 
 
 # --------------------------------------------------------------- principal
@@ -373,7 +373,7 @@ def _build_auxiliary(m: StructureModel, A: dict, common: dict, ctx) -> None:
                  world, zs, "IfcFooting",
                  {"volume_cf": ftg.volume_cf + keyp.volume_cf},
                  f"{fw:g}' x {tf:g}' at top EL {base_el:.1f}, with a "
-                 f"{ct:g}' x {cd:g}' cutoff key")
+                 f"{ct:g}' x {cd:g}' cutoff key", predefined_type="STRIP_FOOTING")
 
 
 # -------------------------------------------------------------------- build

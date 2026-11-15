@@ -14,7 +14,7 @@ from typing import Callable, Optional
 
 from bimforge.author import curved_run as _curved
 from bimforge.author.model import Element, StructureModel
-from bimforge.author.primitives import SectionPrism
+from bimforge.author.primitives import SectionPrism, bar_role
 
 _END_VALUES = ("approach", "departure", "none")
 
@@ -54,7 +54,8 @@ def bar_elements(sname: str, label: str, bars: list) -> list:
             quantities={"count": len(bs),
                         "length_ft": sum(b.length for b in bs),
                         "weight_lb": sum(b.weight for b in bs)},
-            layer="S-REBAR", description=f"#{size} {mark}"))
+            layer="S-REBAR", description=f"#{size} {mark}",
+            predefined_type=bar_role(mark)))
     return out
 
 

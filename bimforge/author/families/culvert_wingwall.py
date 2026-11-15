@@ -12,13 +12,18 @@ from __future__ import annotations
 from collections import defaultdict
 
 from bimforge.author.model import Element, StructureModel
-from bimforge.author.primitives import Prism
+from bimforge.author.primitives import Prism, bar_role
 from bimforge.author.wingwall_rebar import wingwall_bars
 from bimforge.author.wingwall_section import (
     WarpedStem, stiffening_beam_prism, taper_footing_prism, taper_stem_prism)
 from bimforge.author.wingwall_steel import WingwallSteel
 
 REQUIRED = ("wingwalls",)
+
+
+#: a wingwall stem retains the fill; its footing (and toe cutoff) runs
+#: under it
+_PREDEFINED = {"IfcWall": "RETAININGWALL", "IfcFooting": "STRIP_FOOTING"}
 
 
 def _add_geom(model: StructureModel, prism, ifc: str, box: bool) -> None:
@@ -33,6 +38,7 @@ def _add_geom(model: StructureModel, prism, ifc: str, box: bool) -> None:
         q["height_ft"] = (prism.z_top - prism.z_bot)
     model.add(Element.from_geometry(prism.name, prism, ifc_class=ifc,
                                     layer=prism.layer,
+                                    predefined_type=_PREDEFINED.get(ifc),
                                     quantities=q))
 
 
@@ -53,7 +59,8 @@ def _emit_bars(model: StructureModel, hw: dict, bars: list) -> None:
             quantities={"count": len(bs),
                         "length_ft": sum(b.length for b in bs),
                         "weight_lb": sum(b.weight for b in bs)},
-            layer="S-REBAR", description=f"#{size} {mark}"))
+            layer="S-REBAR", description=f"#{size} {mark}",
+            predefined_type=bar_role(mark)))
 
 
 def _straight(model: StructureModel, hw: dict) -> float:

@@ -15,7 +15,7 @@ from bimforge.author.approach_slab_rebar import (
     approach_dowel_bars, approach_slab_bars)
 from bimforge.author.approach_slab_section import ApproachSlabSection
 from bimforge.author.model import Element, StructureModel
-from bimforge.author.primitives import Prism
+from bimforge.author.primitives import Prism, bar_role
 
 REQUIRED = ("alignment", "tables", "slabs")
 
@@ -45,7 +45,8 @@ def _emit_bars(model, tag: str, label: str, bars: list) -> None:
             quantities={"count": len(bs),
                         "length_ft": sum(x.length for x in bs),
                         "weight_lb": sum(x.weight for x in bs)},
-            layer="S-REBAR", description=f"#{size} {mark}"))
+            layer="S-REBAR", description=f"#{size} {mark}",
+            predefined_type=bar_role(mark)))
 
 
 def _slab_corners(align, station: float, skew_deg: float, length_ft: float,
@@ -129,6 +130,7 @@ def build(params: dict, ctx) -> StructureModel:
                   layer="S-CONC-OTLN")
         model.add(Element.from_geometry(
             p.name, p, ifc_class="IfcSlab", layer="S-CONC-OTLN",
+            predefined_type="APPROACH_SLAB",
             quantities={"length_ft": sec.length_ft, "width_ft": width,
                         "height_ft": sec.thickness_ft, "area_sf": p.area_sf,
                         "volume_cf": p.volume_cf}))
