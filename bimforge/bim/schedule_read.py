@@ -319,7 +319,8 @@ def read_schedule(model, name: str | None = None):
     Picks the schedule named `name`, or the only one in the file. Task ids
     and WBS come from the embed's Bimforge_Task (or 0.1.88-and-earlier Pset_BimforgeTask), or else from
     Identification and the nesting tree; dates, duration, milestone, type,
-    notes, calendar, owner bid items and GlobalId from the IfcTask; the
+    notes, calendar, owner bid items, actual dates and GlobalId from the
+    IfcTask; the
     schedule type from the IfcWorkSchedule's PredefinedType (#37);
     dependencies from IfcRelSequence (a predecessor outside the schedule
     becomes an external dependency). A model written before #335, or by
@@ -380,6 +381,9 @@ def read_schedule(model, name: str | None = None):
             filter_ifc_class=ps.get("FilterIfcClass") or None,
             start=_day(getattr(tt, "ScheduleStart", None)) if tt else None,
             finish=_day(getattr(tt, "ScheduleFinish", None)) if tt else None,
+            actual_start=_day(getattr(tt, "ActualStart", None)) if tt else None,
+            actual_finish=(_day(getattr(tt, "ActualFinish", None)) if tt
+                           else None),
             duration_days=duration,
             is_milestone=bool(task.IsMilestone),
             dependencies=deps, external_dependencies=external,

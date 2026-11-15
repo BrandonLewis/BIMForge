@@ -102,7 +102,11 @@ def from_xer(text: str) -> CanonicalSchedule:
     errored). Lag is ``lag_hr_cnt`` / 8 work-hours → days — approximate, but
     task Start/Finish dates (which drive the animation) are exact.
     P6 activity-code assignments (ACTVTYPE/ACTVCODE/TASKACTV) land on
-    ``task.activity_codes`` as ``"<type>: <name>"`` labels.
+    ``task.activity_codes`` as ``"<type>: <name>"`` labels. Start/finish
+    prefer the actual dates; ``act_start_date`` / ``act_end_date`` also land
+    on ``actual_start`` / ``actual_finish`` (IfcTaskTime ActualStart /
+    ActualFinish). A project copied from another (``orig_proj_id``) is a
+    baseline: ``schedule_type`` BASELINE.
     """
     tables = _parse_xer_tables(text)
     task_rows = tables.get("TASK")
@@ -193,7 +197,11 @@ def from_xer(text: str) -> CanonicalSchedule:
             id=t["task_code"], name=t.get("task_name", ""), wbs=wbs_num,
             start=start, finish=finish, duration_days=round(dur, 4) or None,
             is_milestone=is_ms, dependencies=preds.get(t["task_code"], []),
-            activity_codes=list(actv_of.get(t["task_code"], []))))
+            activity_codes=list(actv_of.get(t["task_code"], [])),
+            # the actuals ride separately too (C.4), so the IFC says which
+            # of start/finish really happened
+            actual_start=_xer_date(t.get("act_start_date")),
+            actual_finish=_xer_date(t.get("act_end_date"))))
 
     sched = CanonicalSchedule(
         name=proj.get("proj_short_name") or "P6 schedule",

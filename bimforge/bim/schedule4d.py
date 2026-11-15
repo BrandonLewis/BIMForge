@@ -453,7 +453,10 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     # date part ([:10]), so the dates read back unchanged.
     for t in sched.tasks:
         start, finish = _iso_date(t.start), _iso_date(t.finish)
-        if not (start or finish or t.duration_days is not None):
+        act_start, act_finish = (_iso_date(t.actual_start),
+                                 _iso_date(t.actual_finish))
+        if not (start or finish or act_start or act_finish
+                or t.duration_days is not None):
             continue
         ent = task_by_id[t.id]
         tt = ent.TaskTime or sq.add_task_time(model, ent)
@@ -463,6 +466,13 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
             end = (DAY_START if t.is_milestone and finish == start
                    else DAY_FINISH)
             tt.ScheduleFinish = f"{finish.isoformat()}T{end}"
+        # what really happened (C.4), on the same working day
+        if act_start:
+            tt.ActualStart = f"{act_start.isoformat()}T{DAY_START}"
+        if act_finish:
+            end = (DAY_START if t.is_milestone and act_finish == act_start
+                   else DAY_FINISH)
+            tt.ActualFinish = f"{act_finish.isoformat()}T{end}"
         if t.duration_days is not None:
             # work days, as the lag is (:g keeps P1.5D, drops P2.0D)
             tt.ScheduleDuration = f"P{t.duration_days:g}D"

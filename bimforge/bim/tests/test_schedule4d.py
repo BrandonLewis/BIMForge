@@ -616,3 +616,28 @@ def test_a_one_date_milestone_has_no_length(sample_ifc):
     g, _ = _embed(sample_ifc, sched, out_name="ms.ifc")
     assert _times(g, "Open to traffic") == ("2026-07-31T08:00:00",
                                             "2026-07-31T08:00:00")
+
+
+# -- C.4: actual dates (a P6 update's act_start / act_end) -------------------
+
+def test_actual_dates_go_to_actual_start_and_finish(sample_ifc):
+    from bimforge.bim.schedule_read import read_schedule
+    sched = _schedule()
+    deck, walls = sched.tasks[1], sched.tasks[2]
+    deck.actual_start, deck.actual_finish = "2026-07-11", "2026-07-15"
+    walls.actual_start = "2026-07-16"                   # under way
+    g, _ = _embed(sample_ifc, sched, out_name="actual.ifc")
+    tt = {t.Name: t.TaskTime for t in g.by_type("IfcTask")}
+    assert (tt["Place deck"].ActualStart, tt["Place deck"].ActualFinish) == (
+        "2026-07-11T08:00:00", "2026-07-15T17:00:00")
+    assert (tt["Build walls"].ActualStart,
+            tt["Build walls"].ActualFinish) == ("2026-07-16T08:00:00", None)
+    assert tt["Set columns"].ActualStart is None
+    got = {t.id: (t.actual_start, t.actual_finish)
+           for t in read_schedule(g).tasks}
+    assert got["deck"] == ("2026-07-11", "2026-07-15")
+    assert got["walls"] == ("2026-07-16", None)
+    assert got["cols"] == (None, None)
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(g, logger, express_rules=True)
+    assert not logger.statements, logger.statements[:5]

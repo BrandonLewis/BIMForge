@@ -109,6 +109,11 @@ class ScheduleTask:
     notes: str = ""                  # IfcTask.Description: duration basis etc.
     calendar: str | None = None      # a CanonicalSchedule.calendars key;
                                      # None = the project calendar
+    # C.4 — when the work really started / finished (a P6 update's
+    # act_start_date / act_end_date), ISO YYYY-MM-DD, for IfcTaskTime
+    # ActualStart / ActualFinish. Serialized only when set.
+    actual_start: str | None = None
+    actual_finish: str | None = None
 
 
 @dataclass
@@ -130,7 +135,8 @@ class CanonicalSchedule:
         for t in d["tasks"]:
             for key in ("resources", "activity_codes", "external_dependencies",
                         "global_id", "task_type", "bid_items", "notes",
-                        "calendar", "filter_name_re", "filter_ifc_class"):
+                        "calendar", "filter_name_re", "filter_ifc_class",
+                        "actual_start", "actual_finish"):
                 if not t[key]:
                     del t[key]
         if not d["calendars"]:

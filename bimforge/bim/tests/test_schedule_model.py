@@ -312,6 +312,29 @@ def test_xer_baseline_copy_reads_as_baseline():
     assert from_xer(_xer({})).schedule_type is None
 
 
+def test_xer_actual_dates_are_carried():
+    from bimforge.bim.schedule_io import from_xer
+    got = from_xer(_xer({}, {"act_start_date": "2027-03-02 08:00",
+                             "act_end_date": "2027-03-08 17:00"})).tasks[0]
+    assert (got.actual_start, got.actual_finish) == ("2027-03-02",
+                                                     "2027-03-08")
+    # an activity in progress has started, not finished
+    got = from_xer(_xer({}, {"act_start_date": "2027-03-02 08:00"})).tasks[0]
+    assert (got.actual_start, got.actual_finish) == ("2027-03-02", None)
+    got = from_xer(_xer({})).tasks[0]
+    assert (got.actual_start, got.actual_finish) == (None, None)
+
+
+def test_actual_dates_serialize_only_when_set_and_round_trip():
+    sched = _sched()
+    for t in sched.to_dict()["tasks"]:
+        assert "actual_start" not in t and "actual_finish" not in t
+    sched.tasks[1].actual_start = "2026-07-11"
+    sched.tasks[1].actual_finish = "2026-07-15"
+    again = CanonicalSchedule.from_json(sched.to_json())
+    assert again == sched
+
+
 def test_ganttwarrior_schedule_type_is_carried():
     from bimforge.bim.schedule_io import from_ganttwarrior
     doc = {"name": "G", "schedule_type": "baseline", "tasks": []}
