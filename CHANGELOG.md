@@ -19,6 +19,20 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   layouts, segments and referents, and the nests and Pset_Stationing around
   them. The contract is `docs/globalid-contract.md`.
 
+### Changed
+
+- **A spec giving `project.epsg` with a zero base point is refused** (audit 0.7). E=0, N=0 georeferenced the model to the CRS's false origin with TrueNorth about 13° off. Set a real base, drop the EPSG for a local model, or set `project.allow_zero_origin: true` to keep it on purpose. The 732SW, 842 and tubular-handrail examples now use a real base point.
+- **KML staging matches elements by GlobalId through `schedule_state.element_spans`** (audit 0.8). An element touched only by tasks of other types (OPERATION, LOGISTIC, …) no longer gets a TimeSpan.
+
+### Fixed
+
+- `federate` no longer orphans the real IfcBuildingStorey entities (WR41): it removes only the placeholder storey from the Building→storeys IfcRelAggregates instead of deleting the whole relationship (audit 0.2).
+- An alignment sweep with no vertical profile runs on a flat IfcGradientCurve over the horizontal curve, so IfcSectionedSolidHorizontal passes `DirectrixIs3D` and keeps its exact geometry (audit 0.3).
+- IfcAnnotation has an ObjectPlacement relative to its container, fixing `PlacementForShapeRepresentation` (audit 0.4).
+- Negative task-sequence lags are written as ISO 8601 `-P1.5D` (was `P-1.5D`, which read back as 0); files with the old form still read correctly (audit 0.5).
+- KML staging: elements on DEMOLITION/REMOVAL tasks stand until the removal date and disappear then (an end-only `<TimeSpan>` when nothing builds them), instead of appearing on it (audit 0.8).
+- `dxf2bim` refuses IFC2X3 by name before reading the DXF, instead of crashing in `create_owner_history`; the example layer map no longer offers it (audit 0.9).
+
 ## 0.1.119 — 2026-11-15
 
 ### Added

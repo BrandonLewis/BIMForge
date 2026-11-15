@@ -142,10 +142,43 @@ def _vertical(f, layout, al, prof, origin, k):
             **kw))
 
 
+def _flat_gradient_curve(f, plan, length_m):
+    """A level IfcGradientCurve at model z = 0 over the plan curve `plan`:
+    the directrix of a sweep with no vertical profile (audit 0.3).
+
+    IfcSectionedSolidHorizontal's DirectrixIs3D refuses the 2D composite
+    curve, and z = 0 is exactly where that curve put the sections (the
+    sweep lifts them by the datum shift itself), so the geometry is the
+    same. Not nested into the IfcAlignment as an IfcAlignmentVertical: the
+    alignment has no profile and must not claim one. One CONSTANTGRADIENT
+    segment, in ifcopenshell's own mapping of one.
+    """
+    seg = f.create_entity(
+        "IfcCurveSegment", Transition="DISCONTINUOUS",
+        Placement=f.create_entity(
+            "IfcAxis2Placement2D",
+            Location=f.create_entity("IfcCartesianPoint",
+                                     Coordinates=(0.0, 0.0)),
+            RefDirection=f.create_entity("IfcDirection",
+                                         DirectionRatios=(1.0, 0.0))),
+        SegmentStart=f.create_entity("IfcLengthMeasure", 0.0),
+        SegmentLength=f.create_entity("IfcLengthMeasure", float(length_m)),
+        ParentCurve=f.create_entity(
+            "IfcLine",
+            Pnt=f.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0)),
+            Dir=f.create_entity(
+                "IfcVector", Magnitude=1.0,
+                Orientation=f.create_entity("IfcDirection",
+                                            DirectionRatios=(1.0, 0.0)))))
+    return f.create_entity("IfcGradientCurve", Segments=[seg],
+                           SelfIntersect=False, BaseCurve=plan)
+
+
 def emit_alignments(run, f, models, ctx, site) -> dict:
     """Write each swept-along alignment; returns {(id(al), id(profile),
-    id(origin)): IfcCurve} — the gradient curve when there is a profile, the
-    horizontal composite curve when there is not — for the sweep emitter.
+    id(origin)): IfcGradientCurve} for the sweep emitter — the profile's
+    gradient curve, or with no profile a flat one over the horizontal
+    composite curve (_flat_gradient_curve).
 
     The alignment is aggregated to the IfcProject (IFC4.3 concept template
     4.1.4.1.1, which ifcopenshell.api does) and referenced into the site, so
@@ -176,5 +209,8 @@ def emit_alignments(run, f, models, ctx, site) -> dict:
             station=al.s_start * k)
         run("spatial.reference_structure", f, products=[ifc_al],
             relating_structure=site)
-        out[(id(al), id(prof), id(origin))] = api.get_curve(ifc_al)
+        curve = api.get_curve(ifc_al)
+        if prof is None:
+            curve = _flat_gradient_curve(f, curve, (al.s_end - al.s_start) * k)
+        out[(id(al), id(prof), id(origin))] = curve
     return out

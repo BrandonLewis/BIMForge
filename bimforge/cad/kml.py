@@ -30,7 +30,7 @@ whose small triangles can otherwise collapse below three unique printed points
 (Google Earth drops such rings).
 
 Placemarks accept ``timespan=("2026-07-10", None)`` for Google Earth's time
-slider (begin-only or begin+end), and ``Folder.multipolygon`` groups many
+slider (begin-only, end-only or begin+end), and ``Folder.multipolygon`` groups many
 polygon rings into one placemark (one IFC element's triangles, say).
 """
 from __future__ import annotations
@@ -122,9 +122,13 @@ class Folder:
         style_url = f"<styleUrl>#{style}</styleUrl>" if style else ""
         desc = f"<description>{escape(description)}</description>" if description else ""
         ts = ""
-        if timespan:
+        if timespan and any(timespan):
+            # either bound may be open: end-only is something there from
+            # the start of time until `end` (a structure being removed)
             begin, end = timespan
-            ts = f"<TimeSpan><begin>{escape(str(begin))}</begin>"
+            ts = "<TimeSpan>"
+            if begin:
+                ts += f"<begin>{escape(str(begin))}</begin>"
             if end:
                 ts += f"<end>{escape(str(end))}</end>"
             ts += "</TimeSpan>"

@@ -91,3 +91,29 @@ def test_emit_dxf_draws_annotation_polylines(tmp_path):
     lwpolys = list(doc.modelspace().query("LWPOLYLINE"))
     # one polyline drawn per resolved stroke of the plan
     assert len(lwpolys) >= len(plan.polylines())
+
+
+def test_emit_ifc_annotation_is_placed_in_its_container(tmp_path):
+    """IFC PlacementForShapeRepresentation (audit 0.4): a product with a
+    Representation needs an ObjectPlacement. The annotation's sits on its
+    container's, an identity offset, so nothing moves."""
+    ifcopenshell = pytest.importorskip("ifcopenshell")
+    import ifcopenshell.util.placement
+    import ifcopenshell.validate
+    import numpy as np
+    from bimforge.author.emit_ifc import emit_ifc
+
+    out = tmp_path / "anno.ifc"
+    emit_ifc(_model_with_annotation(), str(out), allow_local=True)
+    f = ifcopenshell.open(str(out))
+    (ann,) = f.by_type("IfcAnnotation")
+    (rel,) = ann.ContainedInStructure
+    assert ann.ObjectPlacement.is_a("IfcLocalPlacement")
+    assert (ann.ObjectPlacement.PlacementRelTo
+            == rel.RelatingStructure.ObjectPlacement)
+    assert np.allclose(
+        ifcopenshell.util.placement.get_local_placement(ann.ObjectPlacement),
+        np.eye(4))
+    lg = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, lg, express_rules=True)
+    assert lg.statements == []

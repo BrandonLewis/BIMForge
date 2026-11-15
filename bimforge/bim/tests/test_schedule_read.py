@@ -529,3 +529,29 @@ def test_lump_sum_and_count_as_rows_split_to_the_capped_quantity(
     assert row["unassigned"] == 0.0
     assert sum(row["tasks"].values()) + row["unassigned"] == \
         pytest.approx(row["quantity"])
+
+
+@pytest.mark.parametrize("lag,written", [(-1.5, "-P1.5D"), (0.0, None),
+                                         (2.0, "P2D")])
+def test_lag_round_trips_with_its_sign(sample_ifc, lag, written):
+    # audit 0.5: a negative lag was written "P-1.5D" (not ISO 8601) and read
+    # back as 0; the sign leads the duration
+    sched = CanonicalSchedule(name="Lag", tasks=[
+        ScheduleTask(id="a", name="A", start="2026-06-01", finish="2026-06-05"),
+        ScheduleTask(id="b", name="B", start="2026-06-04", finish="2026-06-10",
+                     dependencies=[Dependency("a", "FS", lag)]),
+    ])
+    path, _ = _embed(sample_ifc, sched, f"lag{lag:g}.4d.ifc")
+    model = ifcopenshell.open(path)
+    lags = [r.TimeLag.LagValue.wrappedValue
+            for r in model.by_type("IfcRelSequence") if r.TimeLag]
+    assert lags == ([written] if written else [])
+    got = read_schedule(model)
+    assert got.tasks[1].dependencies[0].lag_days == lag
+
+
+def test_inner_sign_lag_from_older_files_still_reads():
+    from bimforge.bim.schedule_read import _days
+    assert _days("-P1.5D") == -1.5
+    assert _days("P-1.5D") == -1.5             # written by 0.1.119 or earlier
+    assert _days("-PT4H") == -0.5

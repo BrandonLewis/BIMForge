@@ -127,3 +127,29 @@ def test_federate_refuses_non_metre_source(tmp_path):
     src.write(str(bad))
     with pytest.raises(ValueError, match="SI metre"):
         federate([(bad, "Wall 1")], str(tmp_path / "fed.ifc"), _ctx())
+
+
+def test_federate_keeps_storeys_decomposed_from_building(tmp_path):
+    # audit 0.2: dropping the placeholder storey removed the whole
+    # Building->storeys IfcRelAggregates, orphaning every real storey (WR41)
+    import ifcopenshell
+    import ifcopenshell.validate as V
+    a, b = tmp_path / "w1.ifc", tmp_path / "w2.ifc"
+    _wall_ifc(a, "footing A")
+    _wall_ifc(b, "footing B")
+    out = tmp_path / "fed.ifc"
+    federate([(a, "Wall 1"), (b, "Wall 2")], str(out), _ctx())
+    f = ifcopenshell.open(str(out))
+    building = f.by_type("IfcBuilding")[0]
+    storeys = f.by_type("IfcBuildingStorey")
+    assert sorted(s.Name for s in storeys) == ["Wall 1", "Wall 2"]
+    for s in storeys:
+        assert s.Decomposes, s.Name
+        assert s.Decomposes[0].RelatingObject == building
+    # no aggregation is left behind with an empty member list
+    assert all(r.RelatedObjects for r in f.by_type("IfcRelAggregates"))
+    log = V.json_logger()
+    V.validate(f, log, express_rules=True)
+    msgs = [str(s.get("message", s)) for s in log.statements]
+    assert not any("WR41" in m for m in msgs), msgs
+    assert msgs == []
