@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.122 — 2026-11-15
+
 ### Added
 
 - **Carry a returned IFC's additions through a rebuild** (#83). `est-bim
