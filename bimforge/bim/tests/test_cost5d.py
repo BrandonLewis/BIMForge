@@ -170,6 +170,16 @@ def test_a_file_without_units_is_left_alone():
     assert not f.by_type("IfcUnitAssignment")
 
 
+def test_the_budget_has_a_status_and_no_write_time():
+    # C.4: a BUDGET states its Status; UpdateDate is not the clock
+    model = _ifc_with_task("1")
+    cost5d.embed_cost_and_resources(
+        model, _sched(), {"A": {"cost": 1.0, "labor_hours": 1.0}})
+    (cs,) = model.by_type("IfcCostSchedule")
+    assert (cs.PredefinedType, cs.Status) == ("BUDGET", "PLANNED")
+    assert cs.UpdateDate is None
+
+
 def _hours_of(model, crew):
     """A crew's StandardWork in hours, read the way a schema-following reader
     does: the quantity's own Unit, else the project's TIMEUNIT, else seconds."""

@@ -82,7 +82,8 @@ import ifcopenshell.api.root as root
 import ifcopenshell.api.sequence as sq
 import ifcopenshell.api.spatial as spatial
 
-from bimforge.bim.cost5d import (COST_ITEM_PSET, _classification, _code_reference,
+from bimforge.bim.cost5d import (COST_ITEM_PSET, PLANNED, _classification,
+                                 _code_reference,
                                  add_declared_cost_schedule, check_currency,
                                  remove_declared_cost_schedule)
 from bimforge.bim.estimate5d import _walk_items, pay_item_id
@@ -432,7 +433,7 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
     # -- cost schedule: bid item > "<item>.<code>" > leaf per share --------
     cs = add_declared_cost_schedule(model, name=f"{name} cost",
                                     predefined_type="ESTIMATE",
-                                    currency=currency)
+                                    status=PLANNED, currency=currency)
     _set_pset(model, cs, MARKER_PSET, {"EstimateId": est_id,
                                        "Writer": "est-bim estimate-model",
                                        "WorkSchedule": name})

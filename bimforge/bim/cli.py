@@ -558,7 +558,8 @@ def _run_estimate5d(args) -> int:
         validate_costs(costs)
         model = ifcopenshell.open(args.ifc)
         report = embed_estimate(model, tmap, costs, schedule_name=args.name,
-                                stage=args.stage, currency=args.currency)
+                                stage=args.stage, currency=args.currency,
+                                submitted_on=args.submitted_on)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -2590,6 +2591,10 @@ def main(argv=None) -> int:
                     help="tender: TENDER / PLANNED (at bid, the default); "
                          "awarded: PRICEDBILLOFQUANTITIES / APPROVED")
     e5.add_argument("--currency", default=None, help=_CURRENCY_HELP)
+    e5.add_argument("--submitted-on", dest="submitted_on", default=None,
+                    metavar="YYYY-MM-DD",
+                    help="the bid's date, written as the schedule's "
+                         "SubmittedOn (default: left unset, never today)")
     e5.add_argument("--out", help="output IFC path (default: alongside the "
                                   "input, <stem>.est.ifc)")
 

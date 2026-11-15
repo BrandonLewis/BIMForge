@@ -194,20 +194,50 @@ def hours_unit(model):
     return _hour(model)
 
 
+#: the Status of a schedule bimforge writes before it is agreed: a BUDGET or
+#: ESTIMATE, and a TENDER at bid (IfcCostSchedule.Status is a label; IFC's
+#: own examples are PLANNED, APPROVED, AGREED, ISSUED, STARTED)
+PLANNED = "PLANNED"
+
+
+def ifc_datetime(value: str | None, what: str) -> str | None:
+    """An IfcDateTime for a 'YYYY-MM-DD' (or ISO date-time) `value`, at
+    midnight; None for None. A value that is not a date raises ValueError
+    naming `what`."""
+    from datetime import date
+    if value is None:
+        return None
+    try:
+        day = date.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise ValueError(f"{what} must be a date (YYYY-MM-DD), got "
+                         f"{value!r}") from None
+    return f"{day.isoformat()}T00:00:00"
+
+
 def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
                                status: str | None = None,
-                               currency: str | None = None):
+                               currency: str | None = None,
+                               submitted_on: str | None = None):
     """An IfcCostSchedule declared to the IfcProject (IfcRelDeclares).
 
     A control that sits outside the project's decomposition and declarations
     is not part of the project: viewers and ProjectCommand only find a cost
     schedule through the project, so every schedule bimforge writes is
     declared. `status` is the schedule's Status (PLANNED, APPROVED, ...).
-    The file's currency is declared on the way (`ensure_currency`)."""
+    The file's currency is declared on the way (`ensure_currency`).
+
+    `submitted_on` (an IfcDateTime) is the SubmittedOn and UpdateDate; with
+    none both stay unset. ifcopenshell stamps UpdateDate with the write
+    time, which a reader takes as the schedule's date and which changes the
+    file on every run (the rule #36 set for StartTime), so it is cleared."""
     ensure_currency(model, currency)
     cs = cost.add_cost_schedule(model, name=name,
                                 predefined_type=predefined_type)
     stable_ids.assign(model, cs, f"cost-schedule/{name}")
+    cs.UpdateDate = submitted_on
+    if submitted_on:
+        cs.SubmittedOn = submitted_on
     if status:
         cs.Status = status
     projects = model.by_type("IfcProject")
@@ -286,7 +316,7 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
     by_id = {t.id: t for t in sched.tasks}
 
     cs = add_declared_cost_schedule(model, name=cost_name,
-                                    predefined_type="BUDGET",
+                                    predefined_type="BUDGET", status=PLANNED,
                                     currency=currency)
     classif = _classification(model)
     report = CostEmbedReport(schedule_name=name)

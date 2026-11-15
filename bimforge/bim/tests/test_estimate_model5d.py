@@ -472,6 +472,15 @@ def test_the_file_declares_one_currency_after_a_rerun():
     assert len(declares) == 1
 
 
+def test_the_estimate_schedule_has_a_status_and_no_write_time():
+    f, site, ftg, wall = _ifc()
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    (cs,) = [c for c in f.by_type("IfcCostSchedule")
+             if c.PredefinedType == "ESTIMATE"]
+    assert cs.Status == "PLANNED"
+    assert cs.UpdateDate is None
+
+
 def test_the_estimate_currency_is_configurable():
     import ifcopenshell.api.unit as unit
     f, site, ftg, wall = _ifc()
