@@ -98,6 +98,22 @@ and property sets included, with an IfcOwnerHistory naming its application:
 A change to bimforge's own plan comes as a BCF topic against our GlobalIds and
 is made in the source.
 
+Which schedule a reader plays:
+
+1. Schedules whose tasks are tied by IfcRelDefinesByObject form a group.
+2. A schedule supersedes the one its tasks are tied to (the superseded
+   schedule's task is the RelatingObject, the copy the RelatedObjects), unless
+   the copying schedule is BASELINE. That is how a baseline is tied to the live
+   plan (IfcOpenShell's `create_baseline`), and it must not take its place.
+3. The current schedule is a non-BASELINE one that nothing supersedes.
+4. Where more than one is left (two downstream updates both tied to ours), the
+   latest CreationDate wins, then the last in the file. A reader that cannot
+   follow the links takes Purpose `Contractor update` as the tie-break.
+
+So bimforge's CreationDate never decides which schedule is current. The ties
+do, which is why the carry-forward reports a tie whose task of ours is gone
+and keeps the rest: one surviving tie holds the group together.
+
 `est-bim schedule --returned <file>` rebuilds the schedule from the source, then
 copies every stamped addition onto the rebuilt file (`carry_forward`):
 
