@@ -1832,3 +1832,21 @@ def test_an_element_keyed_like_the_project_is_refused(tmp_path):
     m.add(Element("odd", ifc_class="IfcFooting", guid_key=PROJECT_GUID_KEY))
     with pytest.raises(DuplicateGuidError, match="the project"):
         emit_ifc(m, str(tmp_path / "dup.ifc"))
+
+
+def test_emit_ifc_declares_kilograms_and_radians(tmp_path):
+    # C.4: rebar and fastener weights are written in kg, which a reader of a
+    # file with no MASSUNIT takes in IFC's SI default, the gram; alignment
+    # segments carry radians. Each unit type is declared exactly once.
+    import ifcopenshell
+    out = tmp_path / "units.ifc"
+    emit_ifc(_fixture_model(), str(out), PC)
+    f = ifcopenshell.open(str(out))
+    by_type: dict = {}
+    for u in f.by_type("IfcProject")[0].UnitsInContext.Units:
+        by_type.setdefault(u.UnitType, []).append(u)
+    assert all(len(v) == 1 for v in by_type.values())
+    (kg,) = by_type["MASSUNIT"]
+    assert (kg.Prefix, kg.Name) == ("KILO", "GRAM")
+    (rad,) = by_type["PLANEANGLEUNIT"]
+    assert (rad.Prefix, rad.Name) == (None, "RADIAN")

@@ -462,29 +462,15 @@ def _parametric_solid(f, d, k):
         Depth=float(depth * k))
 
 
-def _ensure_radians(f) -> None:
-    """Declare a radian PLANEANGLEUNIT on the project's unit assignment, once.
-
-    Only a file that writes a plane angle needs one, and a file that does
-    and declares none leaves its reader to guess; adding it only then keeps
-    every other file byte-identical (test_ifc4_golden)."""
-    for ua in f.by_type("IfcUnitAssignment"):
-        if any(getattr(u, "UnitType", None) == "PLANEANGLEUNIT"
-               for u in ua.Units):
-            continue
-        ua.Units = list(ua.Units) + [f.create_entity(
-            "IfcSIUnit", UnitType="PLANEANGLEUNIT", Name="RADIAN")]
-
-
 def _revolved_solid(f, d, k):
     """The exact IfcRevolvedAreaSolid a "revolution" dict names (#331).
 
     The profile plane becomes the Position as for an extrusion (RefDirection
     x, Axis x × y), and the turning axis — a line in that plane — is
     re-expressed in the Position's own frame, which is what IFC measures it
-    in. The angle is radians, and the file says so (_ensure_radians).
+    in. The angle is radians, and the file says so (every emitted file
+    declares a radian PLANEANGLEUNIT).
     """
-    _ensure_radians(f)
     pl, ax = d["plane"], d["axis"]
     x, y = pl["x"], pl["y"]
     z = _cross(x, y)
@@ -1580,10 +1566,15 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     # gave it as the file's first root, so files built before keep theirs
     project.GlobalId = ctx.guid(PROJECT_GUID_KEY)
     project.LongName = ctx.long_name or None
+    # C.4: kg because weights are written in kg (IFC's SI mass unit is the
+    # gram, which a file declaring none leaves its reader to assume), and
+    # radians because alignment segments and revolutions carry them
     run("unit.assign_unit", f, units=[
         run("unit.add_si_unit", f, unit_type="LENGTHUNIT"),
         run("unit.add_si_unit", f, unit_type="AREAUNIT"),
         run("unit.add_si_unit", f, unit_type="VOLUMEUNIT"),
+        run("unit.add_si_unit", f, unit_type="MASSUNIT", prefix="KILO"),
+        run("unit.add_si_unit", f, unit_type="PLANEANGLEUNIT"),
     ])
     mctx = run("context.add_context", f, context_type="Model")
     body = run("context.add_context", f, context_type="Model",

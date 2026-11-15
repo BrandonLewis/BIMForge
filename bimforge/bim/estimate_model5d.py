@@ -83,7 +83,7 @@ import ifcopenshell.api.sequence as sq
 import ifcopenshell.api.spatial as spatial
 
 from bimforge.bim.cost5d import (COST_ITEM_PSET, _classification, _code_reference,
-                                 add_declared_cost_schedule,
+                                 add_declared_cost_schedule, check_currency,
                                  remove_declared_cost_schedule)
 from bimforge.bim.estimate5d import _walk_items, pay_item_id
 from bimforge.bim.schedule4d import embed_schedule
@@ -319,11 +319,13 @@ def pay_identifications(items: list[dict]) -> dict:
 
 def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
                          schedule_name: str | None = None,
-                         placeholders: bool = False) -> dict:
+                         placeholders: bool = False,
+                         currency: str | None = None) -> dict:
     """Write `model_json` (a `get_estimate_model` document) into the IFC.
 
     `ifc` is a path or an open model (mutated in place); `out_path`, when
-    given, is where the result is written. Returns the summary dict.
+    given, is where the result is written. `currency` is the estimate's
+    (cost5d.ensure_currency: the file's, else USD). Returns the summary dict.
     Raises ValueError when a same-named schedule this tool did not write
     is in the way.
     """
@@ -337,6 +339,7 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
     est_id = (model_json.get("estimate") or {}).get("id")
 
     _check_names(model, name)
+    check_currency(model, currency)
     _remove_prior(model, name)
 
     # -- elements: match by GlobalId, optionally place the missing ---------
@@ -428,7 +431,8 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
 
     # -- cost schedule: bid item > "<item>.<code>" > leaf per share --------
     cs = add_declared_cost_schedule(model, name=f"{name} cost",
-                                    predefined_type="ESTIMATE")
+                                    predefined_type="ESTIMATE",
+                                    currency=currency)
     _set_pset(model, cs, MARKER_PSET, {"EstimateId": est_id,
                                        "Writer": "est-bim estimate-model",
                                        "WorkSchedule": name})

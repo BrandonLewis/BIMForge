@@ -80,7 +80,7 @@ import ifcopenshell.util.unit as unit_util
 
 from bimforge.bim import stable_ids
 from bimforge.bim.cost5d import (_classification, _code_reference,
-                                 add_declared_cost_schedule,
+                                 add_declared_cost_schedule, check_currency,
                                  remove_declared_cost_schedule)
 from bimforge.bim.costload import (ITEMS_KEY, code_costs, pay_item_id,
                                    validate_costs)
@@ -372,9 +372,11 @@ def _leaf_money(ci, scales: dict) -> float:
 
 def embed_estimate(model, tmap: dict, costs: dict, *,
                    schedule_name: str | None = None,
-                   stage: str = "tender") -> EstimateEmbedReport:
+                   stage: str = "tender",
+                   currency: str | None = None) -> EstimateEmbedReport:
     """Author the TENDER (bill of quantities) schedule onto the open IFC in
-    place. `stage` is "tender" (at bid) or "awarded".
+    place. `stage` is "tender" (at bid) or "awarded"; `currency` is the
+    rates' (cost5d.ensure_currency: the file's, else USD).
 
     A bad stage or costs.json items raise before the model is touched. On
     any later ValueError (a rate, or the read-back gate), the in-memory
@@ -383,6 +385,7 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
     if stage not in STAGES:
         raise ValueError(f"stage must be one of {sorted(STAGES)}, got {stage!r}")
     schedule_type, status = STAGES[stage]
+    check_currency(model, currency)
     codes_cfg, _defaults, entries_by_code = normalize_map(tmap)
     lumps = costs.get(ITEMS_KEY) or {}
     costs = code_costs(costs)
@@ -419,7 +422,7 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
 
     cs = add_declared_cost_schedule(model, name=cost_name,
                                     predefined_type=schedule_type,
-                                    status=status)
+                                    status=status, currency=currency)
     classif = _classification(model)
     report = EstimateEmbedReport(schedule_name=cost_name,
                                  schedule_type=schedule_type)

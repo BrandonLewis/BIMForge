@@ -119,25 +119,84 @@ def _remove_named(model, cost_name: str, crew_prefix: str) -> None:
             res.remove_resource(model, r)
 
 
-def ensure_currency(model, currency: str = "USD"):
+#: the currency a file that declares none is given
+DEFAULT_CURRENCY = "USD"
+
+
+def ensure_currency(model, currency: str | None = None):
     """The project's IfcMonetaryUnit, added to its IfcUnitAssignment when it
-    has none, so cost values carry a currency. A project with no unit
-    assignment is left alone (it declares no units at all)."""
+    has none, so cost values carry a currency: `currency`, else
+    DEFAULT_CURRENCY. A file that already declares one keeps it (one
+    monetary unit per file); asking for a different one raises ValueError,
+    since the values already written are in the file's. A project with no
+    unit assignment is left alone (it declares no units at all)."""
     import ifcopenshell.api.unit as unit
     projects = model.by_type("IfcProject")
     units = projects[0].UnitsInContext if projects else None
     if units is None:
         return None
-    for u in units.Units or ():
-        if u.is_a("IfcMonetaryUnit"):
-            return u
-    money = unit.add_monetary_unit(model, currency=currency)
-    unit.assign_unit(model, units=[money])
+    money = check_currency(model, currency)
+    if money is None:
+        money = unit.add_monetary_unit(model,
+                                       currency=currency or DEFAULT_CURRENCY)
+        unit.assign_unit(model, units=[money])
     return money
 
 
+def check_currency(model, currency: str | None):
+    """The file's declared IfcMonetaryUnit (None when it has none), after
+    refusing a `currency` that differs from it — so a writer can refuse
+    before it touches the model."""
+    projects = model.by_type("IfcProject")
+    units = projects[0].UnitsInContext if projects else None
+    for u in (units.Units if units else ()) or ():
+        if u.is_a("IfcMonetaryUnit"):
+            if currency and u.Currency != currency:
+                raise ValueError(
+                    f"the IFC's currency is {u.Currency}, not {currency}: "
+                    f"its cost values are in {u.Currency}, so write this one "
+                    f"in {u.Currency} too (or omit the currency)")
+            return u
+    return None
+
+
+def _hour(model):
+    """The file's 'hour' IfcConversionBasedUnit, made once."""
+    import ifcopenshell.api.unit as unit
+    for u in model.by_type("IfcConversionBasedUnit"):
+        if u.UnitType == "TIMEUNIT" and (u.Name or "").lower() == "hour":
+            return u
+    return unit.add_conversion_based_unit(model, name="hour")
+
+
+def hours_unit(model):
+    """The unit a StandardWork IfcQuantityTime written in hours must name,
+    or None when the project's TIMEUNIT already is the hour.
+
+    IFC's SI time unit is the second, so a TimeValue of 400 in a file with
+    no TIMEUNIT read as 400 s. A project whose unit assignment has no
+    TIMEUNIT is given the hour (once); one that declares another time unit
+    keeps it — an embed never re-declares a third-party file's units — and
+    so does a file with no unit assignment: both get the hour on the
+    quantity's own Unit instead, which overrides the project's."""
+    import ifcopenshell.api.unit as unit
+    import ifcopenshell.util.unit as uu
+    projects = model.by_type("IfcProject")
+    units = projects[0].UnitsInContext if projects else None
+    declared = [u for u in (units.Units if units else ())
+                if getattr(u, "UnitType", None) == "TIMEUNIT"]
+    if units is not None and not declared:
+        unit.assign_unit(model, units=[_hour(model)])
+        return None
+    if declared and abs(uu.calculate_unit_scale(model, "TIMEUNIT")
+                        - 3600.0) < 1e-9:
+        return None
+    return _hour(model)
+
+
 def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
-                               status: str | None = None):
+                               status: str | None = None,
+                               currency: str | None = None):
     """An IfcCostSchedule declared to the IfcProject (IfcRelDeclares).
 
     A control that sits outside the project's decomposition and declarations
@@ -145,7 +204,7 @@ def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
     schedule through the project, so every schedule bimforge writes is
     declared. `status` is the schedule's Status (PLANNED, APPROVED, ...).
     The file's currency is declared on the way (`ensure_currency`)."""
-    ensure_currency(model)
+    ensure_currency(model, currency)
     cs = cost.add_cost_schedule(model, name=name,
                                 predefined_type=predefined_type)
     stable_ids.assign(model, cs, f"cost-schedule/{name}")
@@ -199,13 +258,17 @@ def _code_reference(model, item, code: str, classif) -> None:
 
 def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
                              schedule_name: str | None = None,
-                             work_hours_per_day: float = 8.0) -> CostEmbedReport:
-    """Author cost + labor onto the open IFC in place; return a CostEmbedReport."""
+                             work_hours_per_day: float = 8.0,
+                             currency: str | None = None) -> CostEmbedReport:
+    """Author cost + labor onto the open IFC in place; return a CostEmbedReport.
+
+    `currency` is the cost values' (ensure_currency: the file's, else USD)."""
     name = schedule_name or sched.name or "Schedule"
     loaded = load_schedule_costs(sched, costs,
                                  work_hours_per_day=work_hours_per_day)
     task_codes = distribute_to_task_codes(sched, costs)
     cost_name, crew_prefix = f"{name} cost", f"{name}: "
+    check_currency(model, currency)
     _remove_named(model, cost_name, crew_prefix)
 
     # IfcTask inside the 4D schedule of the same name, by canonical id (the
@@ -223,7 +286,8 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
     by_id = {t.id: t for t in sched.tasks}
 
     cs = add_declared_cost_schedule(model, name=cost_name,
-                                    predefined_type="BUDGET")
+                                    predefined_type="BUDGET",
+                                    currency=currency)
     classif = _classification(model)
     report = CostEmbedReport(schedule_name=name)
     missing: set = set()
@@ -265,7 +329,11 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
             **({"LaborHours": float(e["labor_hours"])} if known else {})})
         report.cost_items += 1
 
-    # one labor crew per task (hours summed across the task's codes)
+    # one labor crew per task (hours summed across the task's codes); the
+    # StandardWork TimeValue is hours, and the file says so (hours_unit)
+    hour = None
+    if any(load["labor_hours"] > 0 for load in loaded.by_task.values()):
+        hour = hours_unit(model)
     for tid, load in loaded.by_task.items():
         if load["labor_hours"] <= 0:
             continue
@@ -287,6 +355,8 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
                                       ifc_class="IfcQuantityTime")
         res.edit_resource_quantity(model, q, attributes={
             "Name": "StandardWork", "TimeValue": float(load["labor_hours"])})
+        if hour is not None:
+            q.Unit = hour
         res.assign_resource(model, relating_resource=crew, related_object=ent)
         report.resources += 1
 

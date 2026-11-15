@@ -77,6 +77,16 @@ def test_embed_authors_estimate_schedule_with_shared_qto_entity():
     assert report.parents == 1 and report.children == 1
 
 
+def test_the_bid_currency_is_configurable():
+    # C.4: every cost writer states its currency, USD unless told otherwise
+    model = _pile_ifc()
+    estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS, currency="CAD")
+    units = model.by_type("IfcProject")[0].UnitsInContext.Units
+    assert [u.Currency for u in units if u.is_a("IfcMonetaryUnit")] == ["CAD"]
+    with pytest.raises(ValueError, match="CAD"):
+        estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS, currency="USD")
+
+
 def test_rate_is_converted_to_per_raw_model_unit():
     # $10/LF on a native-mm Length of 12_500 (12.5 m = 41.0105 LF):
     # AppliedValue x raw quantity must equal unit_price x pay quantity.

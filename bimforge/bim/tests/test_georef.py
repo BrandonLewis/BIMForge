@@ -198,3 +198,16 @@ def test_a_scale_that_disagrees_with_the_crs_unit_is_refused(tmp_path):
     model = _build(tmp_path)
     with pytest.raises(ValueError, match="US survey foot"):
         write_map_unit(model, 2227, 1.0)
+
+
+def test_dxf2bim_declares_kilograms_and_radians(tmp_path):
+    # C.4: mass in kg and angles in radians, so a reader never falls back
+    # to IFC's gram; one unit of each type
+    model = _build(tmp_path)
+    units = model.by_type("IfcProject")[0].UnitsInContext.Units
+    kinds = [u.UnitType for u in units]
+    assert kinds.count("MASSUNIT") == kinds.count("PLANEANGLEUNIT") == 1
+    kg = next(u for u in units if u.UnitType == "MASSUNIT")
+    assert (kg.Prefix, kg.Name) == ("KILO", "GRAM")
+    rad = next(u for u in units if u.UnitType == "PLANEANGLEUNIT")
+    assert rad.Name == "RADIAN"

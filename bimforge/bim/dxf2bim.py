@@ -274,11 +274,15 @@ def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
     key(project, "project")
     # SI metres, explicitly: assign_unit's no-arg default is MILLImetres, which
     # would scale stored geometry x1000 and silently mismatch the metre-valued
-    # Qto quantities and MapConversion Scale below.
+    # Qto quantities and MapConversion Scale below. Mass in kg and angles in
+    # radians (C.4), as emit_ifc declares them: IFC's SI mass unit is the
+    # gram, which a file declaring none leaves its reader to assume.
     run("unit.assign_unit", model, units=[
         run("unit.add_si_unit", model, unit_type="LENGTHUNIT"),
         run("unit.add_si_unit", model, unit_type="AREAUNIT"),
         run("unit.add_si_unit", model, unit_type="VOLUMEUNIT"),
+        run("unit.add_si_unit", model, unit_type="MASSUNIT", prefix="KILO"),
+        run("unit.add_si_unit", model, unit_type="PLANEANGLEUNIT"),
     ])
 
     ctx = run("context.add_context", model, context_type="Model")
