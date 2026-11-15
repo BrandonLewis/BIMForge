@@ -287,13 +287,11 @@ def add_alignments(f, alignments: list[dict], tol_ft: float = 0.01,
             vl = alapi.get_vertical_layout(ifc_al)
             if vl is not None:
                 vl.Description = prof["desc"][:255]
-        # spatial: aggregate under the site, not loose on the project
-        for rel in list(ifc_al.Decomposes or []):
-            if rel.RelatingObject.is_a("IfcProject"):
-                ifcopenshell.api.run("aggregate.unassign_object", f, products=[ifc_al])
-        if not ifc_al.Decomposes:
-            ifcopenshell.api.run("aggregate.assign_object", f, products=[ifc_al],
-                                 relating_object=site)
+        # spatial: aggregated to the project (alapi.create does it) and
+        # referenced into the site, IFC4.3 CT 4.1.4.1.1 - as emit_alignment
+        # and federate write it
+        ifcopenshell.api.run("spatial.reference_structure", f, products=[ifc_al],
+                             relating_structure=site)
         ifc_al.Description = al.get("desc")
         fix_terminator(alapi, ifc_al)
         existing = _rename_referents(f, ifc_al)
