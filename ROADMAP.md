@@ -51,11 +51,13 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. | In progress, coordinated with ProjectCommand |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
 
-## Agency packs: Caltrans
+## Agency packs
 
-Goal: an agency engineer or a bidder models a Caltrans job from the standard
+Goal: an agency engineer or a bidder models a job from the agency's standard
 plans without transcribing a table, and the public repository carries a whole
-road-and-bridge project built that way.
+road-and-bridge project built that way. One pack per agency: the state, then
+the cities and counties whose standards we build to. `docs/agency-packs.md`
+is the brief for building one.
 
 | ID | Item | State |
 |---|---|---|
@@ -68,3 +70,7 @@ road-and-bridge project built that way.
 | P.7 | Demo project in the repository: an imaginary road with a bridge, a culvert and a wall, built in CI from specs alone, pay items keyed by Caltrans standard item codes, with a 4D schedule and a TENDER cost schedule, opening in ProjectCommand. The item codes to use are the owner's call. | After P.5 and P.6 |
 | P.8 | Agency-neutral families from private folders, into the core: lofted retaining wall, soldier pile wall, soldier pile and sheet pile cofferdams, with their steel shape tables as catalogs keyed by dictionary class; seven geometric gate checks; culvert options (channel transition, skewed section, headwall set to an elevation). A family moves once it emits its types from the dictionary. | Later |
 | P.9 | Split the pack into its own distribution, registering through the `bimforge.families` entry points and a table-pack entry point. Do it when a second agency pack exists or the pack needs its own release cadence, not before. | Later |
+| P.10 | Caltrans survey: inventory every 2025 Standard Plan and Standard Specification section, then a dictionary class for every type, series by series, and a pay item dictionary from the standard item codes. Today the manifest covers the B series and D80 to D91 (91 sheets), five tables are transcribed and eleven classes exist. | Next: needs someone assigned |
+| P.11 | City of Sacramento pack: the same survey over the city's standard drawings and standard specifications. Starts from the inventory; the S-280 and S-290 pipe inlet and outlet structure tables already exist in a private family and move in with it. | Next: needs someone assigned |
+| P.12 | Pack mechanics for more than one agency: a conformance test every pack passes (declared tables ship, table names are class codes, manifest present), and `est-bim` listing the packs and their tables. | With P.11 |
+
