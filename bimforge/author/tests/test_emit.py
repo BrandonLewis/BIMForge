@@ -1793,3 +1793,28 @@ def test_a_palette_styles_materials_by_category(tmp_path):
     emit_ifc(m, str(plain), PC)
     tmap = PC.takeoff_map(m.codes_used())
     assert build_takeoff(str(out), tmap)[0] == build_takeoff(str(plain), tmap)[0]
+
+
+def test_the_project_is_keyed_not_numbered_by_file_order(tmp_path):
+    """#74: the IfcProject's id is what the embedders key under, so it holds
+    when the spec changes, and keeps the value it had before it was keyed."""
+    import ifcopenshell
+
+    from bimforge.author.emit_ifc import PROJECT_GUID_KEY
+
+    a, b = _fixture_model(), _fixture_model()
+    b.elements.insert(0, Element("PS-0 footing", ifc_class="IfcFooting"))
+    emit_ifc(a, str(tmp_path / "a.ifc"), PC)
+    emit_ifc(b, str(tmp_path / "b.ifc"), PC)
+    (pa,) = ifcopenshell.open(str(tmp_path / "a.ifc")).by_type("IfcProject")
+    (pb,) = ifcopenshell.open(str(tmp_path / "b.ifc")).by_type("IfcProject")
+    assert pa.GlobalId == pb.GlobalId == a.ctx.guid(PROJECT_GUID_KEY)
+
+
+def test_an_element_keyed_like_the_project_is_refused(tmp_path):
+    from bimforge.author.emit_ifc import PROJECT_GUID_KEY
+
+    m = _fixture_model()
+    m.add(Element("odd", ifc_class="IfcFooting", guid_key=PROJECT_GUID_KEY))
+    with pytest.raises(DuplicateGuidError, match="the project"):
+        emit_ifc(m, str(tmp_path / "dup.ifc"))

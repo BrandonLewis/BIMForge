@@ -1,0 +1,68 @@
+# GlobalId contract
+
+A consumer can attach its own records (documents, RFIs, submittals,
+correspondence) to the entities bimforge writes, by GlobalId, and expect them
+to hold through a rebuild. This page says which ids are stable and what
+changes one.
+
+Every stable id is `uuid5(namespace, key)`, compressed to the IFC form.
+
+## Stable ids
+
+| Writer | Entity | Namespace | Key |
+|---|---|---|---|
+| `est-bim build` | IfcProject | `project.guid_ns` | `root/0/IfcProject` |
+| `est-bim build` | element, opening | `project.guid_ns` | its `guid_key`, by default `element/<name>` (prefixed `<structure>/` in a combined file) |
+| `est-bim build` | assembly, group | `project.guid_ns` | `assembly/<name>`, `group/<name>` |
+| `est-bim build` | spatial containers, types | `project.guid_ns` | `spatial/...`, the type's class and name |
+| `author.federate` | aggregates, storeys | derived from the source ids | |
+| `est-bim schedule` | IfcWorkSchedule | the file's IfcProject GlobalId | `work-schedule/<name>` |
+| `est-bim schedule` | IfcWorkCalendar | the file's IfcProject GlobalId | `calendar/<calendar name>` |
+| `est-bim schedule` | IfcTask | the file's IfcProject GlobalId | `task/<schedule>/<task id>`, unless the task carries a `global_id` |
+| `cost5d`, `estimate5d`, `estimate-model` | IfcCostSchedule | the file's IfcProject GlobalId | `cost-schedule/<name>` |
+| `estimate5d`, `estimate-model` | IfcCostItem | the file's IfcProject GlobalId | `cost-item/<cost schedule>/<path>` |
+| `cost5d` | IfcCostItem | the file's IfcProject GlobalId | `cost-item/<cost schedule>/<task id>/<code>` |
+| `cost5d` | IfcLaborResource (crew) | the file's IfcProject GlobalId | `crew/<schedule>/<task id>` |
+| `estimate-model` | IfcLaborResource (crew) | the file's IfcProject GlobalId | `crew/<schedule>/<crew id, or its name>` |
+| `dxf2bim` | IfcProject, site, building, storey | `project.guid_ns` in the layer map | `project`, `site`, `building`, `storey/<name>` |
+| `dxf2bim` | element | `project.guid_ns` in the layer map | `element/<layer>-<DXF handle>` |
+
+A cost item's `<path>` is the Identification (or, without one, the Name) of
+each item from the schedule down to it, joined by `/`: a pay item is
+`cost-item/<schedule>/<item>`, a share under it
+`cost-item/<schedule>/<item>/<share name>`. Siblings with one label are
+numbered `#1`, `#2` in file order.
+
+The embedders key under the file's IfcProject, so they need no input of their
+own, and one schedule embedded into two projects gets two sets of ids.
+
+## What changes an id
+
+- An element's id changes when the element is renamed (unless its `guid_key`
+  is pinned), when its structure is renamed in a combined file, or when
+  `guid_ns` changes.
+- A task's id changes when its task id or its schedule's name changes.
+- A cost item's id changes when its schedule's name, its Identification, or a
+  parent's Identification changes, or when a sibling with the same label is
+  added before it.
+- A `cost5d` item's id changes when its task id or code changes; its crew's
+  when the task id does. An `estimate-model` crew's changes when its crew id
+  does (or its name, for a crew without one).
+- A dxf2bim element's id changes when the DXF entity is redrawn (a new handle)
+  or moved to another layer.
+- Every id an embedder writes changes when the IfcProject's id does, so a
+  file rebuilt without `guid_ns` takes new ones.
+
+## What never changes an id
+
+Moving an element, changing its class, geometry, quantities or properties,
+reordering the spec or the schedule, editing a task's dates, re-embedding a
+schedule by the same name, and upgrading bimforge.
+
+## Not stable
+
+Relationships, property sets and other roots nobody keys are numbered by file
+order (`est-bim build`) or random (the embedders, dxf2bim). Attach nothing to
+them.
+
+`dxf2bim` without `project.guid_ns` writes random ids and warns.
