@@ -125,7 +125,7 @@ class CanonicalSchedule:
     tasks: list[ScheduleTask] = field(default_factory=list)
     calendars: dict[str, Calendar] = field(default_factory=dict)
     # #37 — ACTUAL / BASELINE / PLANNED (SCHEDULE_TYPES) where the source
-    # says (a P6 baseline copy); None = unsaid. Serialized only when set.
+    # says (GanttWarrior / canonical JSON); None = unsaid. Serialized only when set.
     schedule_type: str | None = None
 
     def to_dict(self) -> dict:

@@ -304,10 +304,11 @@ def _xer(project: dict, task: dict | None = None) -> str:
     return "\n".join(lines + ["%E"]) + "\n"
 
 
-def test_xer_baseline_copy_reads_as_baseline():
+def test_xer_never_guesses_a_schedule_type():
     from bimforge.bim.schedule_io import from_xer
-    # P6 writes the project a baseline was copied from into orig_proj_id
-    assert from_xer(_xer({"orig_proj_id": "7"})).schedule_type == "BASELINE"
+    # a copied project (orig_proj_id) is not reliably a baseline, and a
+    # BASELINE plan is never copied into a contractor update: never guess
+    assert from_xer(_xer({"orig_proj_id": "7"})).schedule_type is None
     assert from_xer(_xer({"orig_proj_id": ""})).schedule_type is None
     assert from_xer(_xer({})).schedule_type is None
 

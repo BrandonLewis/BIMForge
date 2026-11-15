@@ -105,8 +105,10 @@ def from_xer(text: str) -> CanonicalSchedule:
     ``task.activity_codes`` as ``"<type>: <name>"`` labels. Start/finish
     prefer the actual dates; ``act_start_date`` / ``act_end_date`` also land
     on ``actual_start`` / ``actual_finish`` (IfcTaskTime ActualStart /
-    ActualFinish). A project copied from another (``orig_proj_id``) is a
-    baseline: ``schedule_type`` BASELINE.
+    ActualFinish). ``schedule_type`` is left unset (embed: PLANNED): a
+    copied project (``orig_proj_id``) is not reliably a baseline, and a
+    BASELINE plan is never copied into a contractor update, so the type is
+    only ever set on purpose (``est-bim schedule --schedule-type``).
     """
     tables = _parse_xer_tables(text)
     task_rows = tables.get("TASK")
@@ -206,10 +208,7 @@ def from_xer(text: str) -> CanonicalSchedule:
     sched = CanonicalSchedule(
         name=proj.get("proj_short_name") or "P6 schedule",
         start_date=_xer_date(proj.get("plan_start_date")),
-        tasks=tasks,
-        # a P6 baseline is a copy of a project, and keeps the id of the one
-        # it was copied from (#37); anything else is unsaid (embed: PLANNED)
-        schedule_type="BASELINE" if proj.get("orig_proj_id") else None)
+        tasks=tasks)
     sched.validate()
     return sched
 
