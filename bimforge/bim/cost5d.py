@@ -148,7 +148,9 @@ def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
     The file's currency is declared on the way (`ensure_currency`).
     `update_date` is the schedule's UpdateDate, an IfcDateTime from the
     source; without one it is left unset, never the clock, so the same
-    source writes the same file."""
+    source writes the same file. A reader places an undated value of an
+    actual-cost schedule on its UpdateDate, so a writer of actuals puts an
+    ApplicableDate on each value instead."""
     ensure_currency(model)
     cs = cost.add_cost_schedule(model, name=name,
                                 predefined_type=predefined_type)
