@@ -4,6 +4,33 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+IFC compliance audit Phase 1 (roadmap C.4): additive compliance.
+
+### Added
+
+- **Schedule type** (#37): `IfcWorkSchedule.PredefinedType` comes from the schedule's `schedule_type` (GanttWarrior / canonical JSON) or `est-bim schedule --schedule-type ACTUAL|BASELINE|PLANNED`, and defaults to PLANNED instead of NOTDEFINED. Nothing guesses BASELINE: ProjectCommand never copies a BASELINE plan into a contractor update. `schedule-read` round-trips it.
+- The project calendar ("<schedule> calendar") controls the root tasks through IfcRelAssignsToControl, with a stable GlobalId; a root on a named calendar keeps only that one.
+- P6 XER actual dates (`act_start_date` / `act_end_date`) are carried as `actual_start` / `actual_finish` and written to IfcTaskTime ActualStart / ActualFinish; `schedule-read` returns them.
+- **Units:** emitted and dxf2bim IFCs declare MASSUNIT kilogram and PLANEANGLEUNIT radian. cost5d's StandardWork hours are declared as hours (a project TIMEUNIT, or the quantity's own Unit in a file that keeps its own). The currency every cost writer declares is configurable (`--currency` on cost5d, estimate5d and estimate-model; default the file's, else USD), and a conflicting currency is refused.
+- IfcProjectedCRS.VerticalDatum comes from a compound EPSG CRS when the spec gives none.
+- `estimate5d --submitted-on YYYY-MM-DD` writes the TENDER's SubmittedOn. BUDGET and ESTIMATE cost schedules carry Status PLANNED, as TENDER already did.
+- **Element typing:** family elements carry IFC PredefinedTypes: PIERCAP and PIERSTEM bents, RETAININGWALL retaining walls and wingwalls, APPROACH_SLAB, STRIP_FOOTING and PAD_FOOTING footings, MAIN and LIGATURE bars by mark. Values IFC4 lacks are written USERDEFINED with the value as ObjectType.
+- Sized bars are typed to one IfcReinforcingBarType per size ("Reinforcing bar #5") with NominalDiameter, CrossSectionArea and BarSurface, and every IfcTypeObject is declared to the IfcProject. No existing GlobalId changes; `test_example_globalids` pins every example's ids.
+- IfcClassification carries Source: paycodes `source:` (new, optional) or a dxf2bim rule's `source`, else the known publisher (CSI/CSC, ASTM E1557, NBS; "Project pay codes" for the default BidSchedule). dxf2bim classification rules also accept `edition`.
+
+### Changed
+
+- **ObjectType only with USERDEFINED** (#77): an `object_type` with no predefined type is written PredefinedType USERDEFINED, and one beside any other predefined type is refused. A typed element's type carries USERDEFINED with the ElementType, and the occurrence is NOTDEFINED. The IFC4 downgrade writes USERDEFINED. Every family proxy names what it is (BOX_CULVERT_BARREL, GROUT_PAD, TREATED_PERMEABLE_BASE, APPURTENANCE).
+- Task ScheduleStart is written at 08:00 and ScheduleFinish at 17:00 instead of midnight, so a one-day task is a working day long; a single-date milestone has zero length. Dates and durations read back unchanged.
+- `est-bim estimate-model` writes its tasks with PredefinedType CONSTRUCTION instead of NOTDEFINED.
+- `federate` refuses sources whose MapConversion or CRS differ from each other or from the target, naming both, instead of silently writing one.
+- `add-alignments` aggregates the IfcAlignment to the IfcProject and references it into the IfcSite (IFC4.3 CT 4.1.4.1.1), as emit_ifc and federate do; it was aggregated under the site.
+- The IFC4 golden digests are re-recorded under ifcopenshell 0.9.0.post1, so they run in CI again instead of skipping.
+
+### Fixed
+
+- Cost schedules no longer carry ifcopenshell's write-time UpdateDate, and IfcWorkSchedule.CreationDate is the schedule's start instead of the write time, so the same input writes the same file on every run.
+
 ## 0.1.121 — 2026-11-15
 
 ### Changed

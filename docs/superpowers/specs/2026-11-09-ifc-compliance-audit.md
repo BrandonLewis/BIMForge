@@ -30,6 +30,18 @@ Date: 2026-11-09. Base: main `d5abdfb` (0.1.111). Read-only audit; nothing chang
 
 ## Phase 1 — additive compliance (file contents change; nothing downstream reads them)
 
+**Status (roadmap C.4):** done, except three items deferred.
+
+- **Already done before C.4:** GeodeticDatum and MapUnit (#58), and the USD monetary unit (0.1.118).
+- **Corrections to this audit:**
+  - `add_alignment` was the outlier: it aggregated the alignment under the site, while emit_alignment and federate already aggregated it to the project.
+  - No BIMForge writer adds a second ESTIMATE schedule. One from another tool still only warns, since refusing it would block embedding into that tool's files.
+  - PILE_CAP is unused, because no family writes a pile cap.
+- **Deferred:**
+  - The FootPrint subcontext, because nothing writes a FootPrint representation.
+  - Material layer and profile set usages, because no material sets are written. Usages would also change the material association readers see, which needs a coordinated reader change.
+  - Carrying IfcRelDeclares through `federate`.
+
 - **Units.** Always assign MASSUNIT kg: weights are written in kg today, which stock readers take as grams. Also always assign PLANEANGLEUNIT radian, since alignment segments carry radians. Assign a TIMEUNIT of hour, because cost5d's `StandardWork` hours currently default to seconds. Assign an IfcMonetaryUnit (USD, configurable) whenever a cost value is written; there is none anywhere today. Sources: `emit_ifc.py:1527-1531`, `dxf2bim.py:231-235`, `cost5d.add_declared_cost_schedule`.
 - **Georef.** Write IfcProjectedCRS.MapUnit (US survey foot) and the datums from pyproj, and keep `Scale` so the current readers still work (`emit_ifc.py:1586-1597`). Federation should refuse sources whose MapConversion or CRS differ (`federate.py:559-586`).
 - **4D.**
