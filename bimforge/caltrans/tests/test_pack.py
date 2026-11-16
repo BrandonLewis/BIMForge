@@ -95,6 +95,8 @@ def test_the_projects_file_merges_over_the_packaged_tables(tmp_path):
     assert tables["d90"]["pipe"] == {**d90["d90"]["pipe"], "mine": 1}
     assert tables["d90"]["wingwall_types"] == d90["d90"]["wingwall_types"]
     assert tables["type_1_case_1"] == b3["type_1_case_1"]
+    # the merge wrote into this spec's tables, not into the pack's
+    assert "mine" not in caltrans.load_table("d90-headwall")["d90"]["pipe"]
 
 
 def test_a_d90_headwall_builds_from_the_pack_and_its_own_schedule(tmp_path):

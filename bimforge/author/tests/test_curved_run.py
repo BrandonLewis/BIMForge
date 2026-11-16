@@ -216,6 +216,7 @@ from bimforge.author.project import ProjectContext
 def _ctx():
     return ProjectContext.from_spec({
         "name": "t", "epsg": 2226, "base": [0.0, 0.0],
+        "allow_zero_origin": True,
         "guid_ns": "6f0e5a1a-0000-4000-8000-000000000149"})
 
 

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import os
 import sys
+import uuid
 from dataclasses import dataclass
 from typing import Optional
 
@@ -40,10 +41,12 @@ from shapely.geometry import LineString, Polygon
 from shapely.geometry.polygon import orient
 
 import ifcopenshell
+import ifcopenshell.guid
 from ifcopenshell.api import run
 
 from bimforge.bim.georef import (SCALE_TOL, crs_datum, crs_name, crs_unit,
                                  resolve_epsg, write_map_unit)
+from bimforge.bim.ifc_takeoff import require_supported_schema
 
 # ----------------------------------------------------------------------------
 # Units
@@ -217,18 +220,52 @@ def _add_classification(model, element, cache: dict, cls: dict):
         classification=cache[system])
 
 
+def _guid_keyer(proj_cfg: dict):
+    """key(entity, key): give `entity` uuid5(project.guid_ns, key) (#74).
+
+    Without a `guid_ns` the ids stay random, as before, with a warning: a
+    rebuilt file would then lose every record attached by GlobalId."""
+    ns = proj_cfg.get("guid_ns")
+    if not ns:
+        print("warning: project.guid_ns is not set -- GlobalIds are random "
+              "per run, so records attached by GlobalId will not survive a "
+              "rebuild", file=sys.stderr)
+        return lambda ent, key: None
+    ns = uuid.UUID(str(ns))
+    used: dict[str, int] = {}
+
+    def key(ent, k: str) -> None:
+        # a repeated key (two features with one name) is numbered in order
+        used[k] = used.get(k, 0) + 1
+        if used[k] > 1:
+            k = f"{k}#{used[k]}"
+        ent.GlobalId = ifcopenshell.guid.compress(uuid.uuid5(ns, k).hex)
+    return key
+
+
+def schema_of(config: dict) -> str:
+    """The layer map's IFC schema, refused by name unless the takeoff reads
+    it (IFC4X3, or IFC4 as a fallback). IFC2X3 used to crash deep in
+    create_owner_history; the CLI calls this before reading the DXF."""
+    schema = (config.get("project", {}) or {}).get("schema", "IFC4X3_ADD2")
+    require_supported_schema(ifcopenshell.file(schema=schema))
+    return schema
+
+
 def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
     proj_cfg = config.get("project", {})
-    schema = proj_cfg.get("schema", "IFC4X3_ADD2")   # #332; "IFC4" opts out
+    schema = schema_of(config)   # IFC4X3_ADD2 (#332); "IFC4" opts out
     geo = config.get("georeference", {}) or {}
     unit = (config.get("units", {}) or {}).get("dxf_length_unit", "mm")
     unit_to_m = UNIT_TO_M.get(unit)
     if unit_to_m is None:
         raise ValueError(f"unknown dxf_length_unit '{unit}' (use one of {list(UNIT_TO_M)})")
+    key = _guid_keyer(proj_cfg)
 
     model = run("project.create_file", version=schema)
     project = run("root.create_entity", model, ifc_class="IfcProject",
                   name=proj_cfg.get("name", "DXF Takeoff"))
+    key(project, "project")
     # SI metres, explicitly: assign_unit's no-arg default is MILLImetres, which
     # would scale stored geometry x1000 and silently mismatch the metre-valued
     # Qto quantities and MapConversion Scale below.
@@ -246,6 +283,9 @@ def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
     building = run("root.create_entity", model, ifc_class="IfcBuilding", name="Building")
     storey = run("root.create_entity", model, ifc_class="IfcBuildingStorey",
                  name=proj_cfg.get("storey", "Level 0"))
+    key(site, "site")
+    key(building, "building")
+    key(storey, f"storey/{storey.Name}")
     run("aggregate.assign_object", model, products=[site], relating_object=project)
     run("aggregate.assign_object", model, products=[building], relating_object=site)
     run("aggregate.assign_object", model, products=[storey], relating_object=building)
@@ -311,6 +351,7 @@ def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
     for f in features:
         element = run("root.create_entity", model, ifc_class=f.ifc_class,
                       predefined_type=f.predefined_type, name=f.name)
+        key(element, f"element/{f.name}")   # <layer>-<DXF handle>
         run("spatial.assign_container", model, products=[element], relating_structure=storey)
 
         # geometry: profile (relative to the base point, metres) extruded by height

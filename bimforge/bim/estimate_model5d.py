@@ -88,6 +88,7 @@ from bimforge.bim.estimate5d import _walk_items, pay_item_id
 from bimforge.bim.schedule4d import embed_schedule
 from bimforge.bim.schedule_model import CanonicalSchedule, ScheduleTask
 from bimforge.bim.schedule_read import _pset, _schedule_tasks, task_id
+from bimforge.bim import stable_ids
 
 CENT = Decimal("0.01")
 MARKER_PSET = "BidSheet_EstimateModel"
@@ -580,6 +581,8 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
                         f"{', '.join(repr(k) for k in repeated)} — "
                         f"ProjectCommand will report a duplicate")
 
+    stable_ids.key_cost_items(model, cs)
+
     # -- crews: one labor resource per distinct crew -----------------------
     crews: dict = {}
     for key, act in acts.items():
@@ -592,6 +595,7 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             for m in crew.get("members") or [])
         r = res.add_resource(model, ifc_class="IfcLaborResource",
                              name=f"{name}: crew {crew.get('name') or crew.get('id')}")
+        stable_ids.assign(model, r, f"crew/{name}/{_crew_key(crew)}")
         if members:
             r.Description = members
         # always written: it is also what marks the crew as this tool's
@@ -606,6 +610,7 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
             res.assign_resource(model, relating_resource=r,
                                 related_object=task_ent[key])
 
+    stable_ids.key_relationships(model)
     if out_path:
         model.write(out_path)
     return {

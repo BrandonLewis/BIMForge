@@ -73,9 +73,12 @@ _BLACKOUT_PREFIX = "blackout "
 # quantities. DEMOLITION / DISMANTLE / REMOVAL / ... tasks never do.
 CONSTRUCTIVE_TYPES = frozenset({"CONSTRUCTION", "INSTALLATION", "NOTDEFINED"})
 
+# A leading "-" is the sign of a negative lag (-P1.5D, the ISO 8601 /
+# xs:duration form); a sign inside a part (P-1.5D) is what 0.1.119 and
+# earlier wrote, still read for those files.
 _ISO_DUR = re.compile(
-    r"^P(?:(?P<w>[\d.]+)W)?(?:(?P<d>[\d.]+)D)?"
-    r"(?:T(?:(?P<h>[\d.]+)H)?(?:(?P<m>[\d.]+)M)?(?:(?P<s>[\d.]+)S)?)?$")
+    r"^(?P<neg>-)?P(?:(?P<w>-?[\d.]+)W)?(?:(?P<d>-?[\d.]+)D)?"
+    r"(?:T(?:(?P<h>-?[\d.]+)H)?(?:(?P<m>-?[\d.]+)M)?(?:(?P<s>-?[\d.]+)S)?)?$")
 
 
 def _days(value, hours_per_day: float = 8.0) -> float | None:
@@ -85,11 +88,15 @@ def _days(value, hours_per_day: float = 8.0) -> float | None:
     embed writes work-time durations (DurationType WORKTIME).
     """
     m = _ISO_DUR.match(str(value or "").strip())
-    if not m or not any(m.groupdict().values()):
+    if not m:
         return None
-    g = {k: float(v) if v else 0.0 for k, v in m.groupdict().items()}
-    return (g["w"] * 5 + g["d"]
+    parts = {k: v for k, v in m.groupdict().items() if k != "neg"}
+    if not any(parts.values()):
+        return None
+    g = {k: float(v) if v else 0.0 for k, v in parts.items()}
+    days = (g["w"] * 5 + g["d"]
             + (g["h"] + g["m"] / 60 + g["s"] / 3600) / hours_per_day)
+    return -days if m.group("neg") else days
 
 
 def _pset(obj, *names: str) -> dict | None:
@@ -322,7 +329,7 @@ def read_schedule(model, name: str | None = None):
     read back from Bimforge_Task (#365).
     """
     from bimforge.bim.schedule_model import (
-        Calendar, CanonicalSchedule, Dependency, ScheduleTask)
+        SCHEDULE_TYPES, Calendar, CanonicalSchedule, Dependency, ScheduleTask)
 
     ws = _work_schedule(model, name)
     sname = ws.Name or ""
@@ -394,7 +401,9 @@ def read_schedule(model, name: str | None = None):
         name=sname, start_date=_day(ws.StartTime),
         work_weekdays=project["work_weekdays"],
         holidays=project["holidays"], tasks=tasks,
-        calendars=dict(sorted(calendars.items())))
+        calendars=dict(sorted(calendars.items())),
+        schedule_type=(ws.PredefinedType
+                       if ws.PredefinedType in SCHEDULE_TYPES else None))
 
 
 def task_elements(model, name: str | None = None) -> dict[str, list[dict]]:

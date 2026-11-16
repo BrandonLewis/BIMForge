@@ -114,7 +114,8 @@ class ProjectContext:
         geodetic_datum, vertical_datum, long_name, site_name, site_desc,
         unit ('us-survey-ft' default | 'ft'; 'm' is refused, see below),
         facility ({kind: bridge|road|railway|marine|facility|site, name?,
-        predefined_type?} — IFC4X3 only, see bimforge.author.spatial).
+        predefined_type?} — IFC4X3 only, see bimforge.author.spatial),
+        allow_zero_origin (false default; see below).
         """
         if not spec.get("name"):
             raise ValueError("project: 'name' is required")
@@ -123,6 +124,20 @@ class ProjectContext:
                 "project: 'guid_ns' (a uuid) is required — deterministic "
                 "GlobalIds are part of the output contract")
         base = list(spec.get("base") or [0.0, 0.0]) + [0.0]
+        if (spec.get("epsg") is not None and float(base[0]) == 0.0
+                and float(base[1]) == 0.0
+                and not spec.get("allow_zero_origin")):
+            # audit 0.7. E = N = 0 in a projected CRS is the zone's false
+            # origin, hundreds of miles from any site: the MapConversion puts
+            # the model there and the TrueNorth convergence is taken there
+            # (13 deg off for EPSG:2226). A missing base is the same zero.
+            raise ValueError(
+                f"project: epsg {spec['epsg']} with base E=0, N=0 georeferences "
+                "the model to the CRS's false origin, not the site. Give "
+                "project.base the real [easting, northing(, elevation)] in "
+                "CRS units, drop epsg for a local model (with "
+                "outputs.ifc_allow_local: true), or set "
+                "project.allow_zero_origin: true if the origin is meant.")
         unit = spec.get("unit", "us-survey-ft")
         if unit == "m":
             # #303. `unit` declares the unit the AUTHORED geometry and the base

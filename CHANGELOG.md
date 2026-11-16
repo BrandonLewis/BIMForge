@@ -19,6 +19,84 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `bimforge/caltrans/tables/2025/`. `data/caltrans-2025/` keeps the sheet
   manifest. The catalog tests no longer skip on an installed wheel.
 
+## 0.1.122 — 2026-11-15
+
+### Added
+
+- **Carry a returned IFC's additions through a rebuild** (#83). `est-bim
+  schedule --returned <file>` rebuilds the schedule from the source, then
+  copies what another application added to the returned file onto it, with
+  its GlobalIds: its own work schedule, its links to our tasks and elements,
+  approvals and progress. An addition is anything whose IfcOwnerHistory
+  names another application. Anything it points at of ours is re-pointed by
+  GlobalId (`bimforge.bim.carry_forward`). A JSON report lists, both ways,
+  what no longer lines up: additions whose target is gone, our tasks and
+  elements no downstream task covers, and our entities the returned file
+  changed, which are rebuilt from the source. A file from another project
+  is refused. The model is in `docs/globalid-contract.md`.
+- **A schedule type** (#37): the canonical schedule's `schedule_type`
+  (BASELINE, PLANNED or ACTUAL), or `est-bim schedule --schedule-type`, sets
+  IfcWorkSchedule.PredefinedType, and `schedule-read` reads it back.
+
+### Changed
+
+- `est-bim schedule` writes the IfcWorkSchedule as PLANNED, not NOTDEFINED,
+  when the source names no type. Its CreationDate is the schedule's start
+  date, not the time of the run, so a rebuild writes the same file.
+
+## 0.1.121 — 2026-11-15
+
+### Changed
+
+- **A spec giving `project.epsg` with a zero base point is refused** (audit 0.7). E=0, N=0 georeferenced the model to the CRS's false origin with TrueNorth about 13° off. Set a real base, drop the EPSG for a local model, or set `project.allow_zero_origin: true` to keep it on purpose. The 732SW, 842 and tubular-handrail examples now use a real base point.
+- **KML staging matches elements by GlobalId through `schedule_state.element_spans`** (audit 0.8). An element touched only by tasks of other types (OPERATION, LOGISTIC, …) no longer gets a TimeSpan.
+
+### Fixed
+
+- `federate` no longer orphans the real IfcBuildingStorey entities (WR41): it removes only the placeholder storey from the Building→storeys IfcRelAggregates instead of deleting the whole relationship (audit 0.2).
+- An alignment sweep with no vertical profile runs on a flat IfcGradientCurve over the horizontal curve, so IfcSectionedSolidHorizontal passes `DirectrixIs3D` and keeps its exact geometry (audit 0.3).
+- IfcAnnotation has an ObjectPlacement relative to its container, fixing `PlacementForShapeRepresentation` (audit 0.4).
+- Negative task-sequence lags are written as ISO 8601 `-P1.5D` (was `P-1.5D`, which read back as 0); files with the old form still read correctly (audit 0.5).
+- KML staging: elements on DEMOLITION/REMOVAL tasks stand until the removal date and disappear then (an end-only `<TimeSpan>` when nothing builds them), instead of appearing on it (audit 0.8).
+- `dxf2bim` refuses IFC2X3 by name before reading the DXF, instead of crashing in `create_owner_history`; the example layer map no longer offers it (audit 0.9).
+
+## 0.1.120 — 2026-11-15
+
+### Added
+
+- **Stable GlobalIds for relationships, property sets and alignments**
+  (#80), so a 4D or 5D file is the same run to run, not only its tasks and
+  cost items. `stable_ids.key_relationships` keys each property set by its
+  owner and name, each IfcRelSequence by its two tasks, and every other
+  relationship by its type and relating entity, leaving the related set out
+  so adding a member keeps the id. `est-bim schedule`, `cost5d`, `estimate5d`
+  and `estimate-model` run it last; a writer that adds to an embedded file
+  calls it before saving. `est-bim add-alignments` keys its alignments,
+  layouts, segments and referents, and the nests and Pset_Stationing around
+  them. The contract is `docs/globalid-contract.md`.
+
+## 0.1.119 — 2026-11-15
+
+### Added
+
+- **Stable GlobalIds for what the embedders write** (#74), so records a
+  consumer attaches by GlobalId survive a rebuild or a re-embed. `est-bim
+  schedule`, `cost5d`, `estimate5d` and `estimate-model` key their work
+  schedules, calendars, tasks, cost schedules, cost items and crews as
+  `uuid5(<the file's IfcProject GlobalId>, <key>)`, the rule elements already
+  follow (`bimforge.bim.stable_ids`). A task's `global_id` from write-back
+  still wins. `dxf2bim` keys its project, spatial containers and elements
+  (`element/<layer>-<DXF handle>`) from a new layer-map `project.guid_ns`, and
+  warns without one. `est-bim build` keys the IfcProject explicitly, to the id
+  it already had. What changes an id, and what never does, is in
+  `docs/globalid-contract.md`.
+
+### Changed
+
+- **Re-running an embedder over a file it wrote before this release changes
+  that file's schedule and cost ids once**, from random to keyed. After that
+  they hold.
+
 ## 0.1.118 — 2026-11-14
 
 ### Changed

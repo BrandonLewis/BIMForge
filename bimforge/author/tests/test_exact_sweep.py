@@ -397,6 +397,7 @@ def test_spec_ifc_block_sets_the_models_sweep_mode(tmp_path):
             "outputs": {"ifc": "out/x.ifc", "ifc_allow_local": True},
             "ifc": {"sweeps": "mesh"},
             "project": {"name": "x", "epsg": 2226, "base": [0.0, 0.0],
+                        "allow_zero_origin": True,
                         "guid_ns": "6f0e5a1a-0000-4000-8000-000000000099"}}
     (tmp_path / "s.yaml").write_text(yaml.safe_dump(spec), encoding="utf-8")
     assert reg.load_spec(tmp_path / "s.yaml")["ifc"] == {"sweeps": "mesh"}

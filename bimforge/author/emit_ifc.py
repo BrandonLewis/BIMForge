@@ -1153,6 +1153,15 @@ def _emit_annotation_plan(f, run, plan, anno_ctx, storey, ctx, guid_key,
         RepresentationType="MappedRepresentation", Items=items)
     ann.Representation = f.create_entity(
         "IfcProductDefinitionShape", Representations=[rep])
+    # audit 0.4 (PlacementForShapeRepresentation): a product with a shape
+    # needs a placement. An identity offset on the container's, so the
+    # stamps stay where their coordinates say
+    ann.ObjectPlacement = f.create_entity(
+        "IfcLocalPlacement", PlacementRelTo=storey.ObjectPlacement,
+        RelativePlacement=f.create_entity(
+            "IfcAxis2Placement3D",
+            Location=f.create_entity("IfcCartesianPoint",
+                                     Coordinates=(0.0, 0.0, 0.0))))
     run("spatial.assign_container", f, products=[ann], relating_structure=storey)
     if plan.layer:
         lyr = layer_cache.get(plan.layer)
@@ -1203,6 +1212,10 @@ def _pin_relationship_order(f) -> None:
 
 
 # ------------------------------------------------------------ GUID collision
+#: the IfcProject's GlobalId key (#74)
+PROJECT_GUID_KEY = "root/0/IfcProject"
+
+
 def _assert_guid_uniqueness(model, *, scope: str = "", spatial_keys=()) -> None:
     """Every authored item's resolved GlobalId must be unique.
 
@@ -1254,6 +1267,8 @@ def _assert_guid_uniqueness(model, *, scope: str = "", spatial_keys=()) -> None:
         note(f"annotation/{i}/{plan.name}", f"annotation {plan.name}")
     for key, label in spatial_keys:
         note(key, label)
+    by_guid.setdefault(model.ctx.guid(PROJECT_GUID_KEY), []).append(
+        "the project")                                          # unscoped
 
     collisions = {g: names for g, names in by_guid.items() if len(names) > 1}
     if not collisions:
@@ -1559,6 +1574,10 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
 
     f = run("project.create_file", version=ctx.schema)
     project = run("root.create_entity", f, ifc_class="IfcProject", name=ctx.name)
+    # keyed, not left to the sweep (#74): the embedders key their schedules
+    # and cost items under this id. PROJECT_GUID_KEY is the key the sweep
+    # gave it as the file's first root, so files built before keep theirs
+    project.GlobalId = ctx.guid(PROJECT_GUID_KEY)
     project.LongName = ctx.long_name or None
     run("unit.assign_unit", f, units=[
         run("unit.add_si_unit", f, unit_type="LENGTHUNIT"),
@@ -2003,6 +2022,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                               or [])}
     assigned |= {h.GlobalId for home in homes for h in home.keyed}
     assigned |= {t.GlobalId for t in type_cache.values()}
+    assigned.add(project.GlobalId)
     for i, ent in enumerate(f.by_type("IfcRoot")):
         if ent.GlobalId not in assigned:
             ent.GlobalId = ctx.guid(f"root/{i}/{ent.is_a()}")

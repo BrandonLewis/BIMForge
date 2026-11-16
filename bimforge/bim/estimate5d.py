@@ -78,6 +78,7 @@ import ifcopenshell.api.cost as cost
 import ifcopenshell.api.unit as unit_api
 import ifcopenshell.util.unit as unit_util
 
+from bimforge.bim import stable_ids
 from bimforge.bim.cost5d import (_classification, _code_reference,
                                  add_declared_cost_schedule,
                                  remove_declared_cost_schedule)
@@ -612,4 +613,6 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
         raise ValueError(f"the {schedule_type} schedule reads "
                          f"${written:,.2f} but prices "
                          f"${report.extended_total:,.2f}: not written")
+    stable_ids.key_cost_items(model, cs)
+    stable_ids.key_relationships(model)
     return report

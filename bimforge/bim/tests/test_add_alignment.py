@@ -202,3 +202,27 @@ def test_back_to_back_curves_are_written_as_the_traverse(kind):
         n, e, _az = A.point_az(seg["s1"])
         x, y = to_model(e, n, mc)
         assert math.dist(_seg_end(sp), (x, y)) / M_PER_FT < 0.001
+
+def test_a_rerun_on_the_same_file_writes_the_same_ids():
+    """#80: every IfcRoot add_alignments writes (alignment, layouts,
+    segments, referents, nests, Pset_Stationing) repeats."""
+    import uuid
+
+    import ifcopenshell.guid
+
+    def build():
+        f = _model()
+        for i, e in enumerate(f.by_type("IfcRoot")):   # an authored file's ids
+            e.GlobalId = ifcopenshell.guid.compress(uuid.UUID(int=1 + i).hex)
+        block = dict(ZIGZAG, profile={
+            "pvis": [{"station": 1000.0, "elevation": 90.0},
+                     {"station": 1200.0, "elevation": 92.0},
+                     {"station": 1450.0, "elevation": 91.0}],
+            "vc_length_ft": 0.0})
+        add_alignments(f, [block, CURVED | {"name": "C2"}],
+                       referents={"ZIGZAG": [1050.0]})
+        return {e.GlobalId: e.is_a() for e in f.by_type("IfcRoot")}
+    a = build()
+    assert {"IfcAlignmentSegment", "IfcReferent", "IfcRelNests",
+            "IfcAlignmentVertical", "IfcPropertySet"} <= set(a.values())
+    assert a == build()

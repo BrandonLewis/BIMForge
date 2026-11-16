@@ -100,9 +100,32 @@ def test_the_gradient_curve_lies_on_the_swept_alignment(tmp_path):
 def test_without_a_profile_the_plan_curve_is_written(tmp_path):
     m, al, _ = _model(profile=False)
     _out, f = _emit(tmp_path, m)
-    assert not f.by_type("IfcGradientCurve")
-    (curve,) = f.by_type("IfcCompositeCurve")
+    (ifc_al,) = f.by_type("IfcAlignment")
+    # the alignment claims no vertical it does not have
+    assert not f.by_type("IfcAlignmentVertical")
+    (curve,) = f.by_type("IfcCompositeCurve", include_subtypes=False)
     assert _worst_offset_m(f, m, al, None, curve) < 1e-3
+
+
+def test_without_a_profile_the_sweep_runs_on_a_flat_gradient_curve(tmp_path):
+    """IFC 4.3 DirectrixIs3D (audit 0.3): the sweep's directrix is a level
+    IfcGradientCurve at model z = 0 over the plan curve, so the section
+    heights the 2D curve implied are unchanged and the file validates."""
+    m, al, _ = _model(profile=False)
+    out, f = _emit(tmp_path, m)
+    (solid,) = f.by_type("IfcSectionedSolidHorizontal")
+    d = solid.Directrix
+    assert d.is_a("IfcGradientCurve") and d.Dim == 3
+    assert d.BaseCurve == f.by_type("IfcCompositeCurve", include_subtypes=False)[0]
+    (seg,) = d.Segments
+    assert seg.Placement.Location.Coordinates == (0.0, 0.0)
+    assert seg.SegmentLength.wrappedValue == pytest.approx(
+        (al.s_end - al.s_start) * m.ctx.ft_to_m)
+    lg = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, lg, express_rules=True)
+    assert [s for s in lg.statements
+            if "DirectrixIs3D" in str(s.get("message"))] == []
+    assert gate._ifc_representation_type_check(m, out) == []
 
 
 def test_alignment_passes_the_gate_and_validates(tmp_path):

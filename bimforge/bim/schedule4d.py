@@ -35,6 +35,7 @@ import ifcopenshell.guid
 
 from bimforge.bim.ifc_takeoff import classifications_of
 from bimforge.bim.schedule_model import parse_month_day
+from bimforge.bim import stable_ids
 
 from typing import TYPE_CHECKING
 
@@ -207,6 +208,7 @@ def _add_calendar(model, cal_spec, name: str):
     of its named `Calendar`s — both carry work_weekdays and holidays.
     """
     cal = sq.add_work_calendar(model, name=name)
+    stable_ids.assign(model, cal, f"calendar/{name}")
     if cal_spec.work_weekdays:
         wt = sq.add_work_time(model, cal, time_type="WorkingTimes")
         rp = sq.assign_recurrence_pattern(model, wt, recurrence_type="WEEKLY")
@@ -315,7 +317,12 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     name = schedule_name or sched.name or "Schedule"
     start_time, start_from = _schedule_start(sched)
     _remove_schedule_named(model, name)
-    ws = sq.add_work_schedule(model, name=name, start_time=start_time)
+    ws = sq.add_work_schedule(model, name=name, start_time=start_time,
+                              predefined_type=sched.schedule_type or "PLANNED")
+    # CreationDate from the source, not the clock (ifcopenshell stamps now()),
+    # so a rebuild writes the same schedule (#83)
+    ws.CreationDate = f"{start_time.isoformat()}T00:00:00"
+    stable_ids.assign(model, ws, f"work-schedule/{name}")
     _add_calendar(model, sched, f"{name} calendar")
 
     # classification-code -> elements (code join), plus the full element set
@@ -366,8 +373,11 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
                           predefined_type=predefined)
         if object_type:
             ent.ObjectType = object_type
+        # an id a consumer read back (write-back) wins over the key (#74)
         if t.global_id:
             _set_global_id(model, ent, t.global_id, t.id)
+        else:
+            stable_ids.assign(model, ent, f"task/{name}/{t.id}")
         ps = pset_api.add_pset(model, product=ent, name=TASK_PSET)
         # the task map's selectors and filters ride along (#365), so
         # schedule_read hands back the join rule, not only its result
@@ -406,8 +416,10 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
             if dep.lag_days:
                 # ISO-8601 duration; :g keeps a fractional day (P1.5D) and
                 # drops the trailing .0 on whole days (P2D) — never truncate.
+                # A negative lag (a lead) carries its sign in front: -P1.5D.
+                sign = "-" if dep.lag_days < 0 else ""
                 sq.assign_lag_time(model, rel,
-                                   lag_value=f"P{dep.lag_days:g}D",
+                                   lag_value=f"{sign}P{abs(dep.lag_days):g}D",
                                    duration_type="WORKTIME")
 
     # task times: write ScheduleStart/Finish as raw IfcDateTime attributes,
@@ -495,4 +507,5 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     # so "unscheduled" spans all elements, not only classified ones)
     report.unscheduled_elements = sorted(
         (el.Name or el.is_a()) for el in all_elements if el.id() not in assigned)
+    stable_ids.key_relationships(model)
     return report
