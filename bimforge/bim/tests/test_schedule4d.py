@@ -513,7 +513,7 @@ def test_work_schedule_type_override_wins(sample_ifc):
 
 
 def test_work_schedule_type_override_outside_the_enum_is_refused(sample_ifc):
-    with pytest.raises(ValueError, match="schedule type"):
+    with pytest.raises(ValueError, match="schedule_type"):
         embed_schedule(ifcopenshell.open(sample_ifc), _schedule(),
                        schedule_type="NOTDEFINED")
 

@@ -288,7 +288,7 @@ def check_schedule_type(value: str) -> str:
     """`value` as an IfcWorkScheduleTypeEnum member; ValueError otherwise."""
     v = normalize_schedule_type(value)
     if v not in SCHEDULE_TYPES:
-        raise ValueError(f"schedule type must be one of {SCHEDULE_TYPES}, "
+        raise ValueError(f"schedule_type must be one of {SCHEDULE_TYPES}, "
                          f"got {value!r}")
     return v
 

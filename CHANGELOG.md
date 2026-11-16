@@ -8,7 +8,6 @@ IFC compliance audit Phase 1 (roadmap C.4): additive compliance.
 
 ### Added
 
-- **Schedule type** (#37): `IfcWorkSchedule.PredefinedType` comes from the schedule's `schedule_type` (GanttWarrior / canonical JSON) or `est-bim schedule --schedule-type ACTUAL|BASELINE|PLANNED`, and defaults to PLANNED instead of NOTDEFINED. Nothing guesses BASELINE: ProjectCommand never copies a BASELINE plan into a contractor update. `schedule-read` round-trips it.
 - The project calendar ("<schedule> calendar") controls the root tasks through IfcRelAssignsToControl, with a stable GlobalId; a root on a named calendar keeps only that one.
 - P6 XER actual dates (`act_start_date` / `act_end_date`) are carried as `actual_start` / `actual_finish` and written to IfcTaskTime ActualStart / ActualFinish; `schedule-read` returns them.
 - **Units:** emitted and dxf2bim IFCs declare MASSUNIT kilogram and PLANEANGLEUNIT radian. cost5d's StandardWork hours are declared as hours (a project TIMEUNIT, or the quantity's own Unit in a file that keeps its own). The currency every cost writer declares is configurable (`--currency` on cost5d, estimate5d and estimate-model; default the file's, else USD), and a conflicting currency is refused.
@@ -29,7 +28,32 @@ IFC compliance audit Phase 1 (roadmap C.4): additive compliance.
 
 ### Fixed
 
-- Cost schedules no longer carry ifcopenshell's write-time UpdateDate, and IfcWorkSchedule.CreationDate is the schedule's start instead of the write time, so the same input writes the same file on every run.
+- Cost schedules no longer carry ifcopenshell's write-time UpdateDate, so the same input writes the same file on every run.
+
+## 0.1.122 — 2026-11-15
+
+### Added
+
+- **Carry a returned IFC's additions through a rebuild** (#83). `est-bim
+  schedule --returned <file>` rebuilds the schedule from the source, then
+  copies what another application added to the returned file onto it, with
+  its GlobalIds: its own work schedule, its links to our tasks and elements,
+  approvals and progress. An addition is anything whose IfcOwnerHistory
+  names another application. Anything it points at of ours is re-pointed by
+  GlobalId (`bimforge.bim.carry_forward`). A JSON report lists, both ways,
+  what no longer lines up: additions whose target is gone, our tasks and
+  elements no downstream task covers, and our entities the returned file
+  changed, which are rebuilt from the source. A file from another project
+  is refused. The model is in `docs/globalid-contract.md`.
+- **A schedule type** (#37): the canonical schedule's `schedule_type`
+  (BASELINE, PLANNED or ACTUAL), or `est-bim schedule --schedule-type`, sets
+  IfcWorkSchedule.PredefinedType, and `schedule-read` reads it back.
+
+### Changed
+
+- `est-bim schedule` writes the IfcWorkSchedule as PLANNED, not NOTDEFINED,
+  when the source names no type. Its CreationDate is the schedule's start
+  date, not the time of the run, so a rebuild writes the same file.
 
 ## 0.1.121 — 2026-11-15
 

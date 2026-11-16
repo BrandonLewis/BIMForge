@@ -283,7 +283,7 @@ def test_schedule_type_serializes_only_when_set_and_round_trips():
 def test_schedule_type_outside_the_enum_is_refused(bad):
     sched = _sched()
     sched.schedule_type = bad
-    with pytest.raises(ValueError, match="schedule type"):
+    with pytest.raises(ValueError, match="schedule_type"):
         sched.validate()
 
 
