@@ -1,4 +1,4 @@
-# Caltrans 2025 B3 retaining-wall section tables. COMMITTED: this transcription
+# Caltrans 2025 B3 retaining-wall section tables. This transcription
 # IS the source of truth, and the gated tests check against it. The DGN/DXF
 # sheets it came from stay git-ignored (79 MB, re-downloadable from dot.ca.gov
 # via data/caltrans-2025/manifest.json).

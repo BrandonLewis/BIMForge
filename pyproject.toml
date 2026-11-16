@@ -56,4 +56,5 @@ exclude = [
 "bimforge.bim.plansheet" = ["*.yaml"]
 "bimforge.cad" = ["templates/*.dxf"]
 "bimforge.author" = ["examples/*", "dictionary/*.json"]
+"bimforge.caltrans" = ["tables/*/*.yaml"]
 "bimforge.web" = ["static/*.html", "static/assets/*"]
