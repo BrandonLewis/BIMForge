@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.124 — 2026-11-15
+
 ### Fixed
 
 - A cost schedule's UpdateDate is no longer the clock. ifcopenshell stamps it
