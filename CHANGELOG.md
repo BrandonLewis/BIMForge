@@ -4,6 +4,14 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- A cost schedule's UpdateDate is no longer the clock. ifcopenshell stamps it
+  with the current time, so `est-bim cost5d`, `estimate5d` and `estimate-model`
+  wrote a different file on every run of the same source.
+  `add_declared_cost_schedule` takes an `update_date` from the caller and
+  otherwise leaves it unset, like the work schedule's CreationDate (#83).
+
 ## 0.1.123 — 2026-11-15
 
 ### Added

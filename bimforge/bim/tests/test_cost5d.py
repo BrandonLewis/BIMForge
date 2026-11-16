@@ -168,3 +168,16 @@ def test_a_file_without_units_is_left_alone():
     ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
     add_declared_cost_schedule(f, name="a", predefined_type="TENDER")
     assert not f.by_type("IfcUnitAssignment")
+
+
+def test_a_declared_cost_schedule_is_dated_by_its_caller_not_the_clock():
+    """ifcopenshell stamps UpdateDate with now(); two runs of the same
+    source must write the same file, so it is the caller's date or unset."""
+    from bimforge.bim.cost5d import add_declared_cost_schedule
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    a = add_declared_cost_schedule(f, name="a", predefined_type="TENDER")
+    b = add_declared_cost_schedule(f, name="b", predefined_type="ESTIMATE",
+                                   update_date="2026-12-03T00:00:00")
+    assert a.UpdateDate is None and a.SubmittedOn is None
+    assert b.UpdateDate == "2026-12-03T00:00:00"

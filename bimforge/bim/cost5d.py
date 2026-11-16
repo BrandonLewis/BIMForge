@@ -137,18 +137,23 @@ def ensure_currency(model, currency: str = "USD"):
 
 
 def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
-                               status: str | None = None):
+                               status: str | None = None,
+                               update_date: str | None = None):
     """An IfcCostSchedule declared to the IfcProject (IfcRelDeclares).
 
     A control that sits outside the project's decomposition and declarations
     is not part of the project: viewers and ProjectCommand only find a cost
     schedule through the project, so every schedule bimforge writes is
     declared. `status` is the schedule's Status (PLANNED, APPROVED, ...).
-    The file's currency is declared on the way (`ensure_currency`)."""
+    The file's currency is declared on the way (`ensure_currency`).
+    `update_date` is the schedule's UpdateDate, an IfcDateTime from the
+    source; without one it is left unset, never the clock, so the same
+    source writes the same file."""
     ensure_currency(model)
     cs = cost.add_cost_schedule(model, name=name,
                                 predefined_type=predefined_type)
     stable_ids.assign(model, cs, f"cost-schedule/{name}")
+    cs.UpdateDate = update_date     # ifcopenshell stamps now()
     if status:
         cs.Status = status
     projects = model.by_type("IfcProject")
