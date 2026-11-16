@@ -4,6 +4,21 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **`bimforge.caltrans`: the Caltrans Standard Plans tables ship in the wheel.**
+  The 2025 B3, D80, D84, D89 and D90 tables are package data
+  (`caltrans.load_table("d89-pipe-headwall")`), so a spec names them instead of
+  carrying a copy: `params.tables_pack: caltrans/2025/d89-pipe-headwall`, or a
+  list of them. A spec's own `tables_file` now merges over the packaged tables,
+  mapping by mapping, so it holds only the project's rows.
+
+### Changed
+
+- The tables moved from `data/caltrans-2025/tables/` to
+  `bimforge/caltrans/tables/2025/`. `data/caltrans-2025/` keeps the sheet
+  manifest. The catalog tests no longer skip on an installed wheel.
+
 ### Fixed
 
 - `est-bim schedule --returned` copies each typed value in a select as written

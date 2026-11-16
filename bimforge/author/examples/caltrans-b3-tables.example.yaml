@@ -1,6 +1,6 @@
 # Small CI fixture covering every supported B3 section type. NOT the production
-# catalog (that lives git-ignored in data/caltrans-2025/tables/, transcribed
-# from the B3 sheets). Values here are illustrative but schema-faithful.
+# catalog (that ships in bimforge.caltrans: tables_pack
+# caltrans/2025/b3-retaining-wall, transcribed from the B3 sheets). Values here are illustrative but schema-faithful.
 type_1_case_1:
   stem_top_thickness_ft: 1.0
   table:

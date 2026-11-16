@@ -187,12 +187,12 @@ def _production_catalog():
 def production_catalog():
     t = _production_catalog()
     if t is None:
-        pytest.skip("git-ignored box-culvert catalog not present")
+        pytest.skip("box-culvert catalog not present")
     return t
 
 
 def test_box_culvert_production_catalog_if_present():
-    """Validate the real git-ignored D80/D81 catalog when present locally.
+    """Validate the real D80/D81 catalog (bimforge.caltrans).
 
     Ground truth: the modeled concrete section area == the sheet's tabulated
     CONCRETE CF/LF for every span x height x cover. Plus the LB/LF schedule
@@ -200,7 +200,7 @@ def test_box_culvert_production_catalog_if_present():
     derived in `SCHEDULE_LB_TOL`."""
     t = _production_catalog()
     if t is None:
-        pytest.skip("git-ignored box-culvert catalog not present")
+        pytest.skip("box-culvert catalog not present")
     # single boxes are geometry-exact; double boxes carry a modeled minimum
     # interior wall so area reproduces the tabulated concrete to ~1.3 sf (the
     # residual = minor corner fillets / invert slope the section omits).
