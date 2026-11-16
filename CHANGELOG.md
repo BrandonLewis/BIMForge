@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.123 — 2026-11-15
+
 ### Added
 
 - **`bimforge.caltrans`: the Caltrans Standard Plans tables ship in the wheel.**
