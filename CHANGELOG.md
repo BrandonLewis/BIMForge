@@ -4,6 +4,14 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- `est-bim schedule --returned` copies each typed value in a select as written
+  (#83). An IfcDuration lag, or an IfcLabel or other measure a property holds, has
+  no instance id, and 0.1.122 cached its copies by that id, so every such value
+  became the first one copied: a returned file's lags all read alike. Rebuild any
+  file carried with 0.1.122.
+
 ## 0.1.122 — 2026-11-15
 
 ### Added

@@ -198,3 +198,35 @@ def test_a_sweep_after_the_carry_moves_no_id():
     stable_ids.key_relationships(rebuilt)
     assert {e.GlobalId for e in rebuilt.by_type("IfcRoot")} == before
     assert rebuilt.by_guid(pset.GlobalId).Name == pset.Name
+
+def test_typed_values_are_copied_each_as_written():
+    """Two lags and two pset values: each IfcDuration and IfcLabel keeps
+    its own value (typed values all have id 0, so a cache would merge them)."""
+    import ifcopenshell.api.pset as pset_api
+    returned = _returned()
+    oh = returned.by_guid("1PCtaskDeck00000000000").OwnerHistory
+    copy = returned.by_guid("1PCtaskDeck00000000000")
+    other = root.create_entity(returned, ifc_class="IfcTask", name="Extra")
+    other.GlobalId, other.OwnerHistory = "1PCtaskExtra0000000000", oh
+    for gid, days, succ in (("1PCseq1000000000000000", "P1D", other),
+                            ("1PCseq2000000000000000", "P7D", copy)):
+        lag = returned.createIfcLagTime(
+            None, None, None, returned.create_entity("IfcDuration", days),
+            "ELAPSEDTIME")
+        src = copy if succ is other else other
+        returned.createIfcRelSequence(gid, oh, None, None, src, succ, lag,
+                                      "FINISH_START", None)
+    ps = pset_api.add_pset(returned, product=other, name="PC_Note")
+    pset_api.edit_pset(returned, pset=ps, properties={"A": "first", "B": "second"})
+    ps.GlobalId, ps.OwnerHistory = "1PCpset000000000000000", oh
+    (rel,) = ps.DefinesOccurrence
+    rel.GlobalId, rel.OwnerHistory = "1PCdefinesPset00000000", oh
+    rebuilt = _rebuilt()
+    carry_forward(returned, rebuilt)
+    lags = {g: rebuilt.by_guid(g).TimeLag.LagValue.wrappedValue
+            for g in ("1PCseq1000000000000000", "1PCseq2000000000000000")}
+    assert lags == {"1PCseq1000000000000000": "P1D",
+                    "1PCseq2000000000000000": "P7D"}
+    values = {p.Name: p.NominalValue.wrappedValue
+              for p in rebuilt.by_guid("1PCpset000000000000000").HasProperties}
+    assert values == {"A": "first", "B": "second"}
