@@ -4,6 +4,8 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.125 — 2026-11-16
+
 IFC compliance audit Phase 1 (roadmap C.4): additive compliance.
 
 ### Added
