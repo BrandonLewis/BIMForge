@@ -14,7 +14,7 @@ IFC compliance audit Phase 1 (roadmap C.4): additive compliance.
 - IfcProjectedCRS.VerticalDatum comes from a compound EPSG CRS when the spec gives none.
 - `estimate5d --submitted-on YYYY-MM-DD` writes the TENDER's SubmittedOn. BUDGET and ESTIMATE cost schedules carry Status PLANNED, as TENDER already did.
 - **Element typing:** family elements carry IFC PredefinedTypes: PIERCAP and PIERSTEM bents, RETAININGWALL retaining walls and wingwalls, APPROACH_SLAB, STRIP_FOOTING and PAD_FOOTING footings, MAIN and LIGATURE bars by mark. Values IFC4 lacks are written USERDEFINED with the value as ObjectType.
-- Sized bars are typed to one IfcReinforcingBarType per size ("Reinforcing bar #5") with NominalDiameter, CrossSectionArea and BarSurface, and every IfcTypeObject is declared to the IfcProject. No existing GlobalId changes; `test_example_globalids` pins every example's ids.
+- Sized bars are typed to one IfcReinforcingBarType per size ("Reinforcing bar #5") with NominalDiameter, CrossSectionArea and BarSurface, and every IfcTypeObject is declared to the IfcProject, in a federated file too (`federate` declares the types it carries to its own project). No existing GlobalId changes; `test_example_globalids` pins every example's ids.
 - IfcClassification carries Source: paycodes `source:` (new, optional) or a dxf2bim rule's `source`, else the known publisher (CSI/CSC, ASTM E1557, NBS; "Project pay codes" for the default BidSchedule). dxf2bim classification rules also accept `edition`.
 
 ### Changed

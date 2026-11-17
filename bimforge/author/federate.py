@@ -196,6 +196,26 @@ def _place_alignments(tgt, alignments, site, ctx) -> None:
             ref.GlobalId = ctx.guid(f"federated/referenced/{site.GlobalId}")
 
 
+def _declare_types(tgt) -> None:
+    """Declare every carried IfcTypeObject to the target project (C.4). Each
+    source's IfcRelDeclares hangs off that source's IfcProject, which is not
+    carried, so its types arrive undeclared. Keyed as emit_ifc keys its own
+    (`rel/IfcRelDeclares/<project id>`), so a cost schedule cost5d declares
+    into the federated file later joins this rel."""
+    import ifcopenshell.api
+
+    from bimforge.bim import stable_ids
+    types = [t for t in tgt.by_type("IfcTypeObject")
+             if not getattr(t, "HasContext", None)]
+    if not types:
+        return
+    project = tgt.by_type("IfcProject")[0]
+    rel = ifcopenshell.api.run("project.assign_declaration", tgt,
+                               definitions=types, relating_context=project)
+    rel.GlobalId = stable_ids.stable_id(
+        tgt, f"rel/IfcRelDeclares/{project.GlobalId}")
+
+
 @dataclass
 class FederationResult:
     products: int = 0
@@ -870,6 +890,8 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
 
     _dedupe_nonproduct_globalids(f, ctx)
     _assert_products_unique(f)
+    # after the dedupe, so the declaration's id is not re-keyed with the rest
+    _declare_types(f)
     result.merged_contexts = _unify_contexts(f, model_ctx, body_ctx)
     # ifcopenshell.api's aggregate/containment usecases merge members through
     # Python set unions, so relationship member order is run-dependent; sort

@@ -113,6 +113,55 @@ def test_federate_carries_type_identity(tmp_path):
     assert len(all_gids) == len(set(all_gids))       # nothing collides
 
 
+def _typed_wall(path, ctx, type_name):
+    m = StructureModel("wall", ctx)
+    p = Prism("footing", [(-2, -2), (2, -2), (2, 2), (-2, 2)],
+              z_bot=0.0, z_top=2.0, ifc="IfcFooting")
+    m.add(Element.from_geometry(p.name, p, ifc_class="IfcFooting",
+                                type_name=type_name))
+    emit_ifc(m, str(path))
+
+
+def test_federate_declares_the_carried_types_to_its_project(tmp_path):
+    # C.4: emit_ifc declares every type to its project, but each source's
+    # declaration hangs off a project federate does not carry; the federated
+    # file declares every type it holds to its own project, once, keyed as
+    # emit_ifc keys it
+    import ifcopenshell
+    import ifcopenshell.validate
+
+    from bimforge.bim import stable_ids
+    a, b = tmp_path / "w1.ifc", tmp_path / "w2.ifc"
+    _typed_wall(a, _ctx(), "FTG-A")
+    _typed_wall(b, _ctx(), "FTG-B")
+    out = tmp_path / "fed.ifc"
+    federate([(a, "Wall 1"), (b, "Wall 2")], str(out), _ctx())
+    f = ifcopenshell.open(str(out))
+    (project,) = f.by_type("IfcProject")
+    (rel,) = f.by_type("IfcRelDeclares")
+    assert rel.RelatingContext == project
+    assert set(rel.RelatedDefinitions) == set(f.by_type("IfcTypeObject"))
+    assert {t.Name for t in rel.RelatedDefinitions} == {"FTG-A", "FTG-B"}
+    assert rel.GlobalId == stable_ids.stable_id(
+        f, f"rel/IfcRelDeclares/{project.GlobalId}")
+    lg = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, lg, express_rules=True)
+    assert [s for s in lg.statements if "IfcRelDeclares" in str(s)] == []
+    # the same sources write the same file
+    again = tmp_path / "fed2.ifc"
+    federate([(a, "Wall 1"), (b, "Wall 2")], str(again), _ctx())
+    assert out.read_bytes() == again.read_bytes()
+
+
+def test_federate_of_untyped_sources_declares_nothing(tmp_path):
+    import ifcopenshell
+    a = tmp_path / "w1.ifc"
+    _typed_wall(a, _ctx(), None)
+    out = tmp_path / "fed.ifc"
+    federate([(a, "Wall 1")], str(out), _ctx())
+    assert not ifcopenshell.open(str(out)).by_type("IfcRelDeclares")
+
+
 def test_federate_refuses_non_metre_source(tmp_path):
     import ifcopenshell
     a = tmp_path / "w1.ifc"

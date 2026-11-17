@@ -48,7 +48,7 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.2 | ESTIMATE schedule keyed by pay item, cost codes nested, ADD-composed leaves, one cost evaluator, currency. Spec `docs/superpowers/specs/2026-11-09-estimate-schedule-by-bid-item-design.md`. | Done in #71 (0.1.118) |
 | C.2a | Stable GlobalIds for schedules, tasks, cost items, crews and dxf2bim output (#74), then relationships, property sets and alignments (#80). | Done in #75 (0.1.119) and #81 (0.1.120) |
 | C.3 | Audit Phase 0: the remaining bugs (0.2 to 0.10). 0.6 was fixed in #58 and 0.10 in #46. | Done in #82 (0.1.121) |
-| C.4 | Audit Phase 1: additive units, types and statuses (#37, #77). Deferred: a FootPrint subcontext (nothing writes FootPrint shapes), material layer/profile set usages (no material sets are written, and usages would change the association readers see), and carrying IfcRelDeclares through `federate`. | This PR |
+| C.4 | Audit Phase 1: additive units, types and statuses (#37, #77). Deferred: a FootPrint subcontext (nothing writes FootPrint shapes), material layer/profile set usages (no material sets are written, and usages would change the association readers see). Type declarations through `federate` were added in the same PR. | This PR |
 | C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. | In progress, coordinated with ProjectCommand |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
 
