@@ -623,10 +623,8 @@ def schema_issues(f, rules: bool = True) -> list[str]:
             continue
         msg = (str(stmt.get("message", "")).strip().splitlines() or [""])[0]
         where = stmt.get("instance") or ""
-        if stmt.get("type") in ("entity_rule", "global_rule"):
-            out.append(f"{stmt.get('attribute')}: {where}: {msg}")
-        else:
-            out.append(f"{where}: {msg}" if where else msg)
+        what = stmt.get("attribute")      # the rule, or the attribute
+        out.append(": ".join(str(p) for p in (what, where, msg) if p))
     return out
 
 
