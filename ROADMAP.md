@@ -13,6 +13,7 @@ the same PR that finishes or adds an item.
 | 2026-11-11 | **The takeoff's input contract is an IDS document**, generated from the reader's own tables, so any IDS checker can test a Revit, Tekla or bimforge model before takeoff. |
 | 2026-11-11 | **The family vocabulary lives in one dictionary file in bSDD's import format.** It is a local file. Publishing to the bSDD service, calling its API, and stamping bSDD URIs on classifications are deferred until an owner requires it or third-party models arrive already classified against bSDD. |
 | 2026-11-15 | **Agency content lives in a pack: a subpackage of the wheel, `bimforge.caltrans` first.** The core keeps the kernel and the families no agency owns. A pack holds an agency's standard-plan tables, its families and its part of the dictionary, and nothing the core needs to build without it, so it can become a distribution of its own later (an extra cannot carry code or data). Only what public plans, standard plans and specifications state goes in: no prices, no bid data, no job identifiers. |
+| 2026-11-17 | **The model is the estimate's record, and a quantity says how it was derived.** Takeoffs are made from the model and checked against the plan sheets, so the IFC carries, for the estimating system to keep: what each element is (its dictionary class), the dimensions that size it, each quantity's formula over those dimensions where the shape has one, where it sits, and the record of its check. All of it in standard IFC places (classification reference, quantity sets, `Formula` on the quantity, IfcApproval), so any reader gets it. BidSheet.ai's side is D8 and rows 5.16 to 5.22 of its roadmap. |
 
 ## Model exchange: contract and dictionary
 
@@ -52,6 +53,28 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.4 | Audit Phase 1: additive units, types and statuses (#37, #77). Type declarations through `federate` are included. Moved out: material layer/profile set usages (readers in C.5, writers in X.5/X.6) and the FootPrint subcontext (X.10). | This PR |
 | C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. Readers also unwrap IfcMaterialLayerSetUsage/ProfileSetUsage to their materials (dual-read), before X.5/X.6 write them; tell Work and ProjectCommand when it lands. | In progress, coordinated with ProjectCommand |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
+
+## The model as the estimate's record
+
+Goal: an element modelled for one bid arrives in the estimating system as a
+thing that can be found, compared and scaled on the next: a D89 headwall of a
+stated height on a stated pipe, with the dimensions its concrete comes from
+and the sheet it was checked against, where today it arrives as a volume.
+
+What is there today: `est-bim model-elements` sends GlobalId, name, IFC class,
+structure id and quantities in the estimate's units (`bimforge/bim/model_elements.py`).
+The emitter already writes Length, Width and Height beside volume on some
+elements; nothing writes a `Formula`, a class reference or an approval.
+
+| ID | Item | State |
+|---|---|---|
+| M.1 | Every element of a typed family references its dictionary class: an IfcClassificationReference into the family dictionary, in its own classification system so it is never read as a pay code. A reader gets the class without matching a type name's prefix. Needs X.4, and X.6 for the families that emit no type today (walls, culverts, headwalls, wingwalls, approach slab, bridge), which are most of what is estimated. | After X.4 and X.6 |
+| M.2 | The dimensions that size an element are written on it: the family's parameters for that element (design height, pipe diameter, cover, skew, run length, section dimensions), in a property set whose names and units come from the dictionary, so "design height" is one property on every job. Dimensions that are quantities (Length, Width, Height, a section's CrossSectionArea) stay in the quantity set. | With M.1 |
+| M.3 | A quantity says how it was derived, in the quantity's own `Formula` attribute (IFC4 and IFC4X3 both have it), over names in the same quantity set. Three grades: **box** (`Length * Width * Height`), **section by length** (`CrossSectionArea * Length`, for anything swept along a line), and **solid** (no formula: a warped wingwall, earthwork between surfaces). A build gate holds every written formula to its quantity within a stated tolerance, so a reader that recomputes gets the number in the file. | Next |
+| M.4 | The standard plan's own figure, where the pack's table tabulates one (D89: concrete CY/LF and reinforcing LB/LF by design height): written on the element with the table and row it came from, and the build compares it to the modelled quantity as the catalog tests already do. Needs the tables keyed by class (P.3, P.12). | After P.3 |
+| M.5 | The check is recorded in the model. A command records that an element's quantity was checked against a plan sheet: the sheet, the date, who, the result and the value read off the sheet, as an IfcApproval on the element with the sheet as a document reference. It is keyed by GlobalId and quantity, survives a rebuild through the stable GlobalIds (C.2a), and is dropped when the quantity it approved changes. **Settle first:** where the check is made today (a viewer, a plugin skill, by eye), since that is where it gets recorded. ProjectCommand already writes IfcApproval for submittals; agree one shape with it. | Next, after the question |
+| M.6 | `model-elements` sends all of it: class, type name, standard-plan reference, family and parameters, alignment, station and offset (the `BIMForge_LinearReference` properties), dimensions and formulas, the standard-plan figure, the check, and the model's own identity (file sha256, schema, bimforge version, spec). A contract change with BidSheet.ai (its rows 5.16 to 5.19): additive, old payloads still accepted. | With BidSheet.ai 5.16 |
+| M.7 | An advisory IDS beside the takeoff contract (X.1): an element that is paid carries a class reference and the dimensions its class declares. It is how a Revit or Tekla export is held to what a bimforge model carries (X.7). | After M.1 and M.2 |
 
 ## Agency packs
 
