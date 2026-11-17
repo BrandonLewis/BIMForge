@@ -70,7 +70,7 @@ after a small version shows the search finds useful neighbours.
 | Stage | What | Rows here |
 |---|---|---|
 | 1. Foundation | Validation of every written file in CI and the inventory; buildingSMART's rules run once to size the work; the retaining wall family (B3) typed from the dictionary with its class reference, dimensions and quantity formulas. conformed.ai exports its boring data alongside. | C.7, C.9 (inventory), C.8 (first run); X.4 and X.6 for the wall family; M.1 to M.3 |
-| 2. The retaining wall, through to a bid | The import carries class, dimensions and model version into BidSheet.ai, used on the owner's next bid. The check record follows once it is settled where the check is made. | M.6; M.5 |
+| 2. The retaining wall, through to a bid | The import carries class, dimensions and model version into BidSheet.ai, used on the owner's next bid. The check record follows: measurements recorded where they are taken (ProjectCommand, or a command after Bonsai), the takeoff's sum by the tool. | M.6; M.5 |
 | 3. Wall pilot | Ten to twenty public projects with retaining walls modelled on a conformed.ai worker, the ground surface included, inside the $200 a month API limit. Accepted on validation and agreement with the engineer's quantities; cost per project recorded. BidSheet.ai syncs them, joins prices and runs a small holdout. | M.12, M.14, C.11 |
 | **Decision** | Widen if the neighbours predict prices usefully and the cost per project fits the budget. | |
 | 4. Paving | The road corridor family: alignment, typical section, pavement courses by layer. Quantity is section times length, so it is held to the engineer's quantities tightly. Roadwork is in nearly every public project, so it yields the most data per project modelled. | P.6 |
