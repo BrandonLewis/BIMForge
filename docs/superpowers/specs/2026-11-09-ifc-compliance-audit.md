@@ -38,8 +38,8 @@ Date: 2026-11-09. Base: main `d5abdfb` (0.1.111). Read-only audit; nothing chang
   - No BIMForge writer adds a second ESTIMATE schedule. One from another tool still only warns, since refusing it would block embedding into that tool's files.
   - PILE_CAP is unused, because no family writes a pile cap.
 - **Deferred:**
-  - The FootPrint subcontext, because nothing writes a FootPrint representation.
-  - Material layer and profile set usages, because no material sets are written. Usages would also change the material association readers see, which needs a coordinated reader change.
+  - The FootPrint subcontext, because nothing writes a FootPrint representation: roadmap X.10.
+  - Material layer and profile set usages, because no material sets are written. Usages would also change the material association readers see, which needs a coordinated reader change: readers in C.5, writers with the family typing in X.5/X.6.
 - **Added late in C.4:** `federate` declares the types it carries to the federated project. Each source's declaration hangs off a project that is not carried.
 
 - **Units.** Always assign MASSUNIT kg: weights are written in kg today, which stock readers take as grams. Also always assign PLANEANGLEUNIT radian, since alignment segments carry radians. Assign a TIMEUNIT of hour, because cost5d's `StandardWork` hours currently default to seconds. Assign an IfcMonetaryUnit (USD, configurable) whenever a cost value is written; there is none anywhere today. Sources: `emit_ifc.py:1527-1531`, `dxf2bim.py:231-235`, `cost5d.add_declared_cost_schedule`.
