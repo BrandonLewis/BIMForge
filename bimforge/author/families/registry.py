@@ -4,6 +4,11 @@ The spec file:
 
     family: pipe-supports
     params: { ...family-specific, cites plan sheets... }
+            # a table-driven family reads params.tables:
+            #   tables_pack: caltrans/2025/d89-pipe-headwall   (one, or a
+            #     list: tables shipped in bimforge.caltrans)
+            #   tables_file: ./my-tables.yaml   (relative to the spec; merged
+            #     over the packaged tables, so it carries the project's rows)
     paycodes: ./paycodes.yaml
     outputs: {dxf: CAD/x.dxf, ifc: CAD/x.ifc,
               takeoff_map: CAD/x-takeoff-map.yaml,
@@ -152,6 +157,33 @@ REQUIRED_SPEC_KEYS = ("family", "params", "paycodes", "outputs", "project")
 OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs")
 
 
+# Packs a spec's `params.tables_pack` can name: pack -> the module whose
+# `load_ref(ref)` returns the table.
+TABLE_PACKS = {"caltrans": "bimforge.caltrans"}
+
+
+def _load_tables_pack(spec_name: str, ref) -> dict:
+    """The packaged table `<pack>/<ref>` names, e.g.
+    `caltrans/2025/d89-pipe-headwall`."""
+    pack, _, rest = str(ref).partition("/")
+    if pack not in TABLE_PACKS or not rest:
+        raise ValueError(f"{spec_name}: tables_pack {ref!r} must be "
+                         f"<pack>/<table>; packs: {', '.join(sorted(TABLE_PACKS))}")
+    try:
+        return importlib.import_module(TABLE_PACKS[pack]).load_ref(rest)
+    except KeyError as exc:
+        raise ValueError(f"{spec_name}: tables_pack {ref!r}: {exc.args[0]}") from None
+
+
+def _merge_tables(into: dict, more: dict) -> None:
+    """Merge `more` over `into`, mapping by mapping; anything else replaces."""
+    for key, value in more.items():
+        if isinstance(value, dict) and isinstance(into.get(key), dict):
+            _merge_tables(into[key], value)
+        else:
+            into[key] = value
+
+
 def load_spec(path: Path | str) -> dict:
     """Parse + validate a build spec; relative paths resolve from the spec."""
     path = Path(path)
@@ -181,14 +213,22 @@ def load_spec(path: Path | str) -> dict:
     spec["outputs"] = {k: (str((base / v).resolve()) if isinstance(v, str) else v)
                        for k, v in outs.items()}
     params = spec.get("params") or {}
-    tf = params.get("tables_file")
-    if tf:
-        tf_path = (base / tf).resolve()
-        if not tf_path.exists():
-            raise ValueError(f"{path.name}: tables_file {tf!r} not found "
-                             f"at {tf_path}")
-        params["tables"] = yaml.safe_load(tf_path.read_text(encoding="utf-8"))
-        params.pop("tables_file")
+    tf = params.pop("tables_file", None)
+    tp = params.pop("tables_pack", None)
+    if tf or tp:
+        # packaged tables first, in the order named; the project's own file
+        # last, so its rows (a field-varied schedule, say) land on top
+        tables: dict = {}
+        for ref in ([tp] if isinstance(tp, str) else tp or []):
+            _merge_tables(tables, _load_tables_pack(path.name, ref))
+        if tf:
+            tf_path = (base / tf).resolve()
+            if not tf_path.exists():
+                raise ValueError(f"{path.name}: tables_file {tf!r} not found "
+                                 f"at {tf_path}")
+            _merge_tables(tables, yaml.safe_load(
+                tf_path.read_text(encoding="utf-8")) or {})
+        params["tables"] = tables
         spec["params"] = params
     proj = spec.get("project") or {}
     if proj.get("alignments"):

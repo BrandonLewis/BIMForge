@@ -17,7 +17,7 @@ import math
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
-from pyproj import Transformer
+from pyproj import CRS, Transformer
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -152,3 +152,58 @@ def convergence_deg(epsg: int, easting: float, northing: float) -> float:
     to true north, positive when true north leans toward +x (east)."""
     x, y = true_north_direction(epsg, easting, northing)
     return math.degrees(math.atan2(x, y))
+
+def _inside(aou, lon: float, lat: float, margin_deg: float) -> bool:
+    return (math.isfinite(lon) and math.isfinite(lat)
+            and aou.west - margin_deg <= lon <= aou.east + margin_deg
+            and aou.south - margin_deg <= lat <= aou.north + margin_deg)
+
+
+def check_base_in_crs(epsg: int, easting: float, northing: float, *,
+                      what: str = "base point", margin_deg: float = 0.5) -> None:
+    """Refuse a georeference base that does not land inside its CRS.
+
+    ``easting``/``northing`` are read in EPSG:epsg's OWN units, which is what
+    IfcMapConversion.Eastings/Northings mean (MapUnit is the CRS's unit,
+    #58). A base outside the CRS's area of use that lands inside it when
+    read in another unit is a unit mix-up: metre values under a ftUS zone put
+    a Central Valley structure in the Pacific, ~1,480 km off. That raises,
+    and the error says which unit the numbers fit. A base outside the zone
+    in every unit (a local or synthetic base) only warns.
+
+    A base of exactly (0, 0) is skipped: that is the "geometry drawn at full
+    State Plane coordinates" convention, not a placement.
+    """
+    if easting == 0.0 and northing == 0.0:
+        return
+    crs = CRS.from_epsg(epsg)
+    aou = crs.area_of_use
+    if aou is None:
+        return
+    to_ll = transformer(epsg, WGS84)
+    lon, lat = to_ll.transform(easting, northing)
+    if _inside(aou, lon, lat, margin_deg):
+        return
+    k = float(crs.axis_info[0].unit_conversion_factor)
+    unit = crs.axis_info[0].unit_name
+    hint = ""
+    for label, unit_m in (("metres", 1.0), ("US survey feet", 0.30480060960121924)):
+        factor = unit_m / k
+        if abs(factor - 1.0) < 1e-3:
+            continue
+        lon2, lat2 = to_ll.transform(easting * factor, northing * factor)
+        if _inside(aou, lon2, lat2, margin_deg):
+            hint = (f" The numbers fit the zone if read as {label}: convert them "
+                    f"to {unit} (multiply by {factor:.12g}) or declare the CRS "
+                    f"that is in {label}.")
+            break
+    msg = (f"{what} E={easting} N={northing}, read in {unit} as EPSG:{epsg} "
+           f"({crs.name}) declares, lands at lat {lat:.6f} lon {lon:.6f}, outside "
+           f"the CRS's area of use.")
+    if not hint:
+        # outside the zone in every unit: a local or synthetic base, not a
+        # unit mix-up, so say so and go on
+        import warnings
+        warnings.warn(msg, stacklevel=2)
+        return
+    raise ValueError(msg + hint)

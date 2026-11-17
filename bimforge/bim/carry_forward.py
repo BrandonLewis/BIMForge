@@ -75,6 +75,11 @@ class _Copier:
         return hit
 
     def entity(self, ent):
+        if ent.id() == 0:
+            # a typed value in a select (an IfcDuration lag, an IfcLabel
+            # NominalValue): not an instance, so every one has id 0 and
+            # must never be memoised
+            return self.dst.create_entity(ent.is_a(), ent.wrappedValue)
         if ent.id() in self.memo:
             return self.memo[ent.id()]
         if ent.is_a("IfcRoot") and not foreign(ent):

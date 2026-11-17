@@ -1,6 +1,6 @@
 # Caltrans wingwall reinforcement callouts (example fixture -- illustrative
-# rows; the real git-ignored catalog is transcribed by
-# scripts/dxf_build_wingwall_tables.py). Keyed as the sheets key: Type E by H,
+# rows; the real catalog ships in bimforge.caltrans: tables_pack
+# caltrans/2025/d84-wingwall). Keyed as the sheets key: Type E by H,
 # warped wall by H+slope, warped beam by an L->H-breakpoint staircase.
 type_e:
   "8":  {k_bar: "#5@8", L_bar: "#5", L_each_wall: 2}

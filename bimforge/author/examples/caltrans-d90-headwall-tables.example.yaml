@@ -1,5 +1,5 @@
 # Fixture D90 catalog for the example spec (representative, NOT the transcribed
-# real sheet -- that is Task 6, under data/caltrans-2025/tables/). Includes the
+# real sheet -- that ships in bimforge.caltrans, caltrans/2025/d90-headwall). Includes the
 # B3 Retaining Wall Type-1 row the headwall wall section (WallSection) reads,
 # keyed by design H, plus the D90 wingwall catalog + bar schedule.
 type_1_case_1:

@@ -7,7 +7,7 @@ that says which sheets, from which URLs, at which sha256 — i.e. the only way
 to reconstitute the inputs, or to prove that a re-download is the same
 document a table was transcribed from. Ignored alongside the binaries it
 described, it lived on one developer's disk, and losing that disk would have
-made every catalog in `data/caltrans-2025/tables/` unverifiable against its
+made every catalog in `bimforge/caltrans/tables/2025/` unverifiable against its
 source.
 
 `scripts/fetch_caltrans_dgn.py` writes this file. These tests check the

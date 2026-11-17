@@ -152,7 +152,9 @@ def test_federate_refuses_sources_on_different_georeferences(tmp_path, change):
     out = tmp_path / "fed.ifc"
     with pytest.raises(ValueError, match="georeferenc") as exc:
         federate([(a, "Wall 1"), (b, "Wall 2")], str(out), _ctx())
-    assert "w1.ifc" in str(exc.value) and "w2.ifc" in str(exc.value)
+    # the per-source check against the ctx names the odd source; sources
+    # that disagree only with each other (one not georeferenced) name both
+    assert "w2.ifc" in str(exc.value)
     assert not out.exists()
 
 

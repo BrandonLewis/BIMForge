@@ -218,7 +218,8 @@ def ifc_datetime(value: str | None, what: str) -> str | None:
 def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
                                status: str | None = None,
                                currency: str | None = None,
-                               submitted_on: str | None = None):
+                               submitted_on: str | None = None,
+                               update_date: str | None = None):
     """An IfcCostSchedule declared to the IfcProject (IfcRelDeclares).
 
     A control that sits outside the project's decomposition and declarations
@@ -227,15 +228,19 @@ def add_declared_cost_schedule(model, *, name: str, predefined_type: str,
     declared. `status` is the schedule's Status (PLANNED, APPROVED, ...).
     The file's currency is declared on the way (`ensure_currency`).
 
-    `submitted_on` (an IfcDateTime) is the SubmittedOn and UpdateDate; with
-    none both stay unset. ifcopenshell stamps UpdateDate with the write
-    time, which a reader takes as the schedule's date and which changes the
-    file on every run (the rule #36 set for StartTime), so it is cleared."""
+    `submitted_on` (an IfcDateTime) is the SubmittedOn; `update_date` is the
+    schedule's UpdateDate, an IfcDateTime from the source, defaulting to
+    `submitted_on`. Without either it is left unset, never the clock, so the
+    same source writes the same file (the rule #36 set for StartTime). A
+    reader places an undated value of an actual-cost schedule on its
+    UpdateDate, so a writer of actuals puts an ApplicableDate on each value
+    instead."""
     ensure_currency(model, currency)
     cs = cost.add_cost_schedule(model, name=name,
                                 predefined_type=predefined_type)
     stable_ids.assign(model, cs, f"cost-schedule/{name}")
-    cs.UpdateDate = submitted_on
+    # ifcopenshell stamps now()
+    cs.UpdateDate = update_date if update_date is not None else submitted_on
     if submitted_on:
         cs.SubmittedOn = submitted_on
     if status:

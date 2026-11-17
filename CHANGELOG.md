@@ -22,13 +22,59 @@ IFC compliance audit Phase 1 (roadmap C.4): additive compliance.
 - **ObjectType only with USERDEFINED** (#77): an `object_type` with no predefined type is written PredefinedType USERDEFINED, and one beside any other predefined type is refused. A typed element's type carries USERDEFINED with the ElementType, and the occurrence is NOTDEFINED. The IFC4 downgrade writes USERDEFINED. Every family proxy names what it is (BOX_CULVERT_BARREL, GROUT_PAD, TREATED_PERMEABLE_BASE, APPURTENANCE).
 - Task ScheduleStart is written at 08:00 and ScheduleFinish at 17:00 instead of midnight, so a one-day task is a working day long; a single-date milestone has zero length. Dates and durations read back unchanged.
 - `est-bim estimate-model` writes its tasks with PredefinedType CONSTRUCTION instead of NOTDEFINED.
-- `federate` refuses sources whose MapConversion or CRS differ from each other or from the target, naming both, instead of silently writing one.
+- `federate` also refuses sources whose MapConversion or CRS differ from each other (including a georeferenced source beside an ungeoreferenced one, or a different OrthogonalHeight), naming both; `georef_check=False` turns this off with the per-source check below.
+- `add_declared_cost_schedule` takes `submitted_on` beside 0.1.124's `update_date`; UpdateDate is `update_date`, else `submitted_on`, else unset.
 - `add-alignments` aggregates the IfcAlignment to the IfcProject and references it into the IfcSite (IFC4.3 CT 4.1.4.1.1), as emit_ifc and federate do; it was aggregated under the site.
 - The IFC4 golden digests are re-recorded under ifcopenshell 0.9.0.post1, so they run in CI again instead of skipping.
 
 ### Fixed
 
-- Cost schedules no longer carry ifcopenshell's write-time UpdateDate, so the same input writes the same file on every run.
+- **A georeference base in the wrong unit for its CRS is refused.** #58 checks
+  `IfcMapConversion.Scale` against the CRS unit, but metre Eastings/Northings
+  under a US-survey-feet zone keep Scale right and still put the model ~1,480 km
+  off the coast. `emit_ifc` and `dxf2bim` now refuse a base that falls outside
+  the CRS's area of use but inside it in another unit, and say which unit the
+  numbers fit (`cad.geo.check_base_in_crs`). A base outside the zone in every
+  unit, such as a local test base, only warns; (0, 0) is skipped.
+- **`federate` refuses a source on another georeference.** The federated file
+  takes its map conversion from the ctx alone, so a source written on another
+  CRS, base, Scale or rotation was placed wrong with no error. Pass
+  `georef_check=False` when that is deliberate.
+
+## 0.1.124 — 2026-11-15
+
+### Fixed
+
+- A cost schedule's UpdateDate is no longer the clock. ifcopenshell stamps it
+  with the current time, so `est-bim cost5d`, `estimate5d` and `estimate-model`
+  wrote a different file on every run of the same source.
+  `add_declared_cost_schedule` takes an `update_date` from the caller and
+  otherwise leaves it unset, like the work schedule's CreationDate (#83).
+
+## 0.1.123 — 2026-11-15
+
+### Added
+
+- **`bimforge.caltrans`: the Caltrans Standard Plans tables ship in the wheel.**
+  The 2025 B3, D80, D84, D89 and D90 tables are package data
+  (`caltrans.load_table("d89-pipe-headwall")`), so a spec names them instead of
+  carrying a copy: `params.tables_pack: caltrans/2025/d89-pipe-headwall`, or a
+  list of them. A spec's own `tables_file` now merges over the packaged tables,
+  mapping by mapping, so it holds only the project's rows.
+
+### Changed
+
+- The tables moved from `data/caltrans-2025/tables/` to
+  `bimforge/caltrans/tables/2025/`. `data/caltrans-2025/` keeps the sheet
+  manifest. The catalog tests no longer skip on an installed wheel.
+
+### Fixed
+
+- `est-bim schedule --returned` copies each typed value in a select as written
+  (#83). An IfcDuration lag, or an IfcLabel or other measure a property holds, has
+  no instance id, and 0.1.122 cached its copies by that id, so every such value
+  became the first one copied: a returned file's lags all read alike. Rebuild any
+  file carried with 0.1.122.
 
 ## 0.1.122 — 2026-11-15
 

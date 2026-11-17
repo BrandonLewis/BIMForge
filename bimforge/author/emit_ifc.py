@@ -1760,6 +1760,13 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     if ctx.epsg is not None:
         from bimforge.bim.georef import (crs_datum, crs_vertical_datum,
                                          write_map_unit)
+        from bimforge.cad.geo import check_base_in_crs
+        # write_map_unit (#58) refuses a Scale that disagrees with the CRS
+        # unit, but not a base given in the wrong unit: metre values under a
+        # ftUS zone keep Scale right and put the model ~1,480 km off the
+        # coast. Refuse a base outside its CRS first.
+        check_base_in_crs(ctx.epsg, ctx.base_e, ctx.base_n,
+                          what=f"{ctx.name}: project base")
         run("georeference.add_georeferencing", f)
         run("georeference.edit_georeferencing", f,
             projected_crs={"Name": ctx.crs_name,
