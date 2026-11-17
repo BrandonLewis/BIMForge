@@ -60,6 +60,26 @@ ProjectCommand. This is work in progress; C.9 is where its current state is stat
 | C.10 | New kinds of content arrive conformant: class references (M.1), quantity formulas (M.3), approvals (M.5), boreholes and strata (M.15). Each uses the standard entity, property set and quantity set where IFC has one, says in C.9 where it does not, and ships with its C.7 and C.8 checks. | With each M row |
 | C.11 | One command a consumer runs to accept a file: `est-bim validate` reports schema, where-rules, the normative rules, the takeoff contract (X.1, X.8) and the profile's IDS documents and coded checks (C.9) in one machine-readable result, with the versions used. The corpus build (M.12) accepts a model only when it is clean. | After C.7 and C.8 |
 
+## Order of work: models, corpus and search (set 2026-11-17)
+
+One epic across three repositories: this one, conformed.ai (#633) and
+BidSheet.ai (its roadmap, D8 and rows 5.16 to 5.28). One structure type goes
+through all three before anything widens, and the corpus is built out only
+after a small version shows the search finds useful neighbours.
+
+| Stage | What | Rows here |
+|---|---|---|
+| 1. Foundation | Validation of every written file in CI and the inventory; buildingSMART's rules run once to size the work; the retaining wall family (B3) typed from the dictionary with its class reference, dimensions and quantity formulas. conformed.ai exports its boring data alongside. | C.7, C.9 (inventory), C.8 (first run); X.4 and X.6 for the wall family; M.1 to M.3 |
+| 2. The retaining wall, through to a bid | The import carries class, dimensions and model version into BidSheet.ai, used on the owner's next bid. The check record follows once it is settled where the check is made. | M.6; M.5 |
+| 3. Wall pilot | Ten to twenty public projects with retaining walls modelled on a conformed.ai worker, the ground surface included, inside the $200 a month API limit. Accepted on validation and agreement with the engineer's quantities; cost per project recorded. BidSheet.ai syncs them, joins prices and runs a small holdout. | M.12, M.14, C.11 |
+| **Decision** | Widen if the neighbours predict prices usefully and the cost per project fits the budget. | |
+| 4. Paving | The road corridor family: alignment, typical section, pavement courses by layer. Quantity is section times length, so it is held to the engineer's quantities tightly. Roadwork is in nearly every public project, so it yields the most data per project modelled. | P.6 |
+| 5. Grading | The same corridor: cut, fill and mass haul against the ground surface. Plan-sheet contours are not the engineer's survey, so the tolerance is looser and stated per project. Cut and fill balance and average haul are derived features. | P.6, M.13 |
+| 6. Bridges, in pieces | Barrier, handrail and approach slab (standard today); abutments and wingwalls (reusing the wall work); piles and footings once borings are in the models; superstructure when the girder bridge family exists. | P.4, M.15, P.5 |
+| Alongside | Modified standards; the rest of the pack moves and families; the remaining derived features; the full profile and conformance statement. | M.8 to M.11, P.3, P.4, M.13, C.9, C.10 |
+
+The agency surveys (P.10, P.11) run in parallel and block none of this.
+
 ## The model as the estimate's record
 
 Goal: an element modelled for one bid arrives in the estimating system as a
