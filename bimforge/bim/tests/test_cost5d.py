@@ -170,6 +170,89 @@ def test_a_file_without_units_is_left_alone():
     assert not f.by_type("IfcUnitAssignment")
 
 
+def test_the_budget_has_a_status_and_no_write_time():
+    # C.4: a BUDGET states its Status; UpdateDate is not the clock
+    model = _ifc_with_task("1")
+    cost5d.embed_cost_and_resources(
+        model, _sched(), {"A": {"cost": 1.0, "labor_hours": 1.0}})
+    (cs,) = model.by_type("IfcCostSchedule")
+    assert (cs.PredefinedType, cs.Status) == ("BUDGET", "PLANNED")
+    assert cs.UpdateDate is None
+
+
+def _hours_of(model, crew):
+    """A crew's StandardWork in hours, read the way a schema-following reader
+    does: the quantity's own Unit, else the project's TIMEUNIT, else seconds."""
+    import ifcopenshell.util.unit as uu
+    bq = crew.BaseQuantity
+    if bq.Unit is not None:
+        scale = bq.Unit.ConversionFactor.ValueComponent.wrappedValue
+    else:
+        scale = uu.calculate_unit_scale(model, "TIMEUNIT")
+    return bq.TimeValue * scale / 3600.0
+
+
+def test_standard_work_hours_read_as_hours():
+    # C.4: StandardWork holds hours; with no TIMEUNIT they read as seconds
+    import ifcopenshell.api.unit as unit
+    model = _ifc_with_task("1")
+    unit.assign_unit(model)
+    costs = {"A": {"cost": 10000.0, "labor_hours": 400.0}}
+    for _ in range(2):
+        cost5d.embed_cost_and_resources(model, _sched(), costs)
+    (crew,) = model.by_type("IfcLaborResource")
+    assert crew.BaseQuantity.TimeValue == 400.0      # the value is unchanged
+    assert crew.BaseQuantity.Unit is None
+    assert _hours_of(model, crew) == 400.0
+    times = [u for u in model.by_type("IfcProject")[0].UnitsInContext.Units
+             if getattr(u, "UnitType", None) == "TIMEUNIT"]
+    assert len(times) == 1 and times[0].Name == "hour"
+
+
+def test_a_files_own_time_unit_is_kept_and_the_quantity_says_hours():
+    # a third-party file declaring seconds keeps its one TIMEUNIT; the
+    # quantity carries its own hour unit instead
+    import ifcopenshell.api.unit as unit
+    model = _ifc_with_task("1")
+    unit.assign_unit(model, units=[unit.add_si_unit(model,
+                                                    unit_type="TIMEUNIT")])
+    for _ in range(2):
+        cost5d.embed_cost_and_resources(
+            model, _sched(), {"A": {"cost": 1.0, "labor_hours": 40.0}})
+    (crew,) = model.by_type("IfcLaborResource")
+    units = model.by_type("IfcProject")[0].UnitsInContext.Units
+    assert [u.Name for u in units
+            if getattr(u, "UnitType", None) == "TIMEUNIT"] == ["SECOND"]
+    assert _hours_of(model, crew) == 40.0
+    assert len([u for u in model.by_type("IfcConversionBasedUnit")
+                if u.Name == "hour"]) == 1
+
+
+def test_a_file_without_units_gets_hours_on_the_quantity():
+    model = _ifc_with_task("1")
+    cost5d.embed_cost_and_resources(
+        model, _sched(), {"A": {"cost": 1.0, "labor_hours": 40.0}})
+    (crew,) = model.by_type("IfcLaborResource")
+    assert not model.by_type("IfcUnitAssignment")
+    assert _hours_of(model, crew) == 40.0
+
+
+def test_the_currency_is_configurable():
+    import ifcopenshell.api.unit as unit
+    import pytest
+    model = _ifc_with_task("1")
+    unit.assign_unit(model)
+    costs = {"A": {"cost": 1.0, "labor_hours": 1.0}}
+    cost5d.embed_cost_and_resources(model, _sched(), costs, currency="CAD")
+    units = model.by_type("IfcProject")[0].UnitsInContext.Units
+    assert [u.Currency for u in units if u.is_a("IfcMonetaryUnit")] == ["CAD"]
+    # a re-run without one keeps the file's currency; a different explicit
+    # one would relabel every value already written, so it is refused
+    cost5d.embed_cost_and_resources(model, _sched(), costs)
+    with pytest.raises(ValueError, match="CAD"):
+        cost5d.embed_cost_and_resources(model, _sched(), costs, currency="EUR")
+
+
 def test_a_declared_cost_schedule_is_dated_by_its_caller_not_the_clock():
     """ifcopenshell stamps UpdateDate with now(); two runs of the same
     source must write the same file, so it is the caller's date or unset."""

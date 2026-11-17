@@ -58,6 +58,25 @@ def test_classification_identity_defaults_and_overrides_and_round_trips():
     assert pc3.edition == "2020" and isinstance(pc3.edition, str)
 
 
+def test_classification_source_is_explicit_else_the_known_publisher():
+    from bimforge.author.paycodes import classification_source
+    # the default system is the bid's own pay-code table
+    assert classification_source("BidSchedule") == "Project pay codes"
+    # the published systems by their publisher, whatever the spelling
+    assert classification_source("MasterFormat") == "CSI/CSC"
+    assert classification_source("masterformat") == "CSI/CSC"
+    assert classification_source("Uniclass 2015") == "NBS"
+    # an explicit source wins; an unknown system is left unset, never guessed
+    assert classification_source("MasterFormat", "ARCAT") == "ARCAT"
+    assert classification_source("Caltrans") is None
+
+    # `source:` is parsed and round-tripped only when set
+    pc = from_dict({**FIXTURE, "source": "Caltrans"})
+    assert pc.source == "Caltrans"
+    assert pc.takeoff_map(["F-CONC"])["source"] == "Caltrans"
+    assert "source" not in from_dict(FIXTURE).takeoff_map(["F-CONC"])
+
+
 def test_rule_order_first_match_wins():
     pc = from_dict(FIXTURE)
     assert pc.group_of("RW2 footing seg 1", "IfcFooting") == ("wall", 1)

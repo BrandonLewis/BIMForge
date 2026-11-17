@@ -16,6 +16,7 @@ dicts carry a "units" key ("ft" | "in") so emitters convert unambiguously.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 
 from bimforge.author.alignment import poly_area
@@ -1852,6 +1853,23 @@ def swept_disk_mesh(verts, segments, radius: float, *, sides: int = 12,
     for j in range(sides):
         tris.append((c1, rings[-1][j], rings[-1][(j + 1) % sides]))
     return mesh_verts, tris
+
+
+#: mark words naming a bar that ties the main bars (IfcReinforcingBar
+#: LIGATURE); a dowel anchors and a spacer spaces, so neither is MAIN
+LIGATURE_WORDS = frozenset({"stirrup", "tie", "hoop", "ligature"})
+UNROLED_WORDS = frozenset({"dowel", "spacer"})
+
+
+def bar_role(mark: str) -> str | None:
+    """The IfcReinforcingBar PredefinedType a bar mark reads as: LIGATURE for
+    a stirrup, tie or hoop, None for a dowel or spacer, MAIN otherwise."""
+    words = set(re.split(r"[^a-z]+", mark.lower()))
+    if words & LIGATURE_WORDS:
+        return "LIGATURE"
+    if words & UNROLED_WORDS:
+        return None
+    return "MAIN"
 
 
 @dataclass

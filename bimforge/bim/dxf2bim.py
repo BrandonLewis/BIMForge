@@ -44,8 +44,10 @@ import ifcopenshell
 import ifcopenshell.guid
 from ifcopenshell.api import run
 
+from bimforge.author.paycodes import classification_source
 from bimforge.bim.georef import (SCALE_TOL, crs_datum, crs_name, crs_unit,
-                                 resolve_epsg, write_map_unit)
+                                 crs_vertical_datum, resolve_epsg,
+                                 write_map_unit)
 from bimforge.bim.ifc_takeoff import require_supported_schema
 
 # ----------------------------------------------------------------------------
@@ -214,7 +216,12 @@ def _add_classification(model, element, cache: dict, cls: dict):
     """Attach a classification/cost-code reference (Uniclass, MasterFormat, own codes)."""
     system = cls.get("system", "Custom")
     if system not in cache:
-        cache[system] = run("classification.add_classification", model, classification=system)
+        cache[system] = c = run("classification.add_classification", model,
+                                classification=system)
+        # audit C.4: the rule's `source`/`edition`, else the known publisher
+        c.Source = classification_source(system, cls.get("source") or "")
+        if cls.get("edition"):
+            c.Edition = str(cls["edition"])
     run("classification.add_reference", model, products=[element],
         identification=str(cls.get("code", "")), name=cls.get("name", ""),
         classification=cache[system])
@@ -268,11 +275,15 @@ def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
     key(project, "project")
     # SI metres, explicitly: assign_unit's no-arg default is MILLImetres, which
     # would scale stored geometry x1000 and silently mismatch the metre-valued
-    # Qto quantities and MapConversion Scale below.
+    # Qto quantities and MapConversion Scale below. Mass in kg and angles in
+    # radians (C.4), as emit_ifc declares them: IFC's SI mass unit is the
+    # gram, which a file declaring none leaves its reader to assume.
     run("unit.assign_unit", model, units=[
         run("unit.add_si_unit", model, unit_type="LENGTHUNIT"),
         run("unit.add_si_unit", model, unit_type="AREAUNIT"),
         run("unit.add_si_unit", model, unit_type="VOLUMEUNIT"),
+        run("unit.add_si_unit", model, unit_type="MASSUNIT", prefix="KILO"),
+        run("unit.add_si_unit", model, unit_type="PLANEANGLEUNIT"),
     ])
 
     ctx = run("context.add_context", model, context_type="Model")
@@ -331,7 +342,8 @@ def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
                 "Name": f"EPSG:{epsg}",
                 "Description": geo.get("crs_desc") or crs_name(epsg),
                 "GeodeticDatum": geo.get("geodetic_datum") or crs_datum(epsg),
-                "VerticalDatum": geo.get("vertical_datum")},
+                "VerticalDatum": (geo.get("vertical_datum")
+                                  or crs_vertical_datum(epsg))},
             coordinate_operation={
                 "Eastings": east, "Northings": north,
                 "OrthogonalHeight": float(geo.get("base_height", 0.0)),

@@ -319,7 +319,9 @@ def read_schedule(model, name: str | None = None):
     Picks the schedule named `name`, or the only one in the file. Task ids
     and WBS come from the embed's Bimforge_Task (or 0.1.88-and-earlier Pset_BimforgeTask), or else from
     Identification and the nesting tree; dates, duration, milestone, type,
-    notes, calendar, owner bid items and GlobalId from the IfcTask;
+    notes, calendar, owner bid items, actual dates and GlobalId from the
+    IfcTask; the
+    schedule type from the IfcWorkSchedule's PredefinedType (#37);
     dependencies from IfcRelSequence (a predecessor outside the schedule
     becomes an external dependency). A model written before #335, or by
     another tool, reads with the newer fields empty — never an error.
@@ -379,6 +381,9 @@ def read_schedule(model, name: str | None = None):
             filter_ifc_class=ps.get("FilterIfcClass") or None,
             start=_day(getattr(tt, "ScheduleStart", None)) if tt else None,
             finish=_day(getattr(tt, "ScheduleFinish", None)) if tt else None,
+            actual_start=_day(getattr(tt, "ActualStart", None)) if tt else None,
+            actual_finish=(_day(getattr(tt, "ActualFinish", None)) if tt
+                           else None),
             duration_days=duration,
             is_milestone=bool(task.IsMilestone),
             dependencies=deps, external_dependencies=external,
@@ -397,13 +402,14 @@ def read_schedule(model, name: str | None = None):
     # with no work days stays empty (embed writes no weekly pattern for it)
     project = (_read_calendar(project_cal) if project_cal is not None
                else {"work_weekdays": [0, 1, 2, 3, 4], "holidays": []})
+    # PredefinedType (#37); NOTDEFINED (every file before it) says nothing
+    ws_type = str(ws.PredefinedType or "")
     return CanonicalSchedule(
         name=sname, start_date=_day(ws.StartTime),
         work_weekdays=project["work_weekdays"],
         holidays=project["holidays"], tasks=tasks,
         calendars=dict(sorted(calendars.items())),
-        schedule_type=(ws.PredefinedType
-                       if ws.PredefinedType in SCHEDULE_TYPES else None))
+        schedule_type=ws_type if ws_type in SCHEDULE_TYPES else None)
 
 
 def task_elements(model, name: str | None = None) -> dict[str, list[dict]]:

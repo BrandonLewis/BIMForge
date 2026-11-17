@@ -56,6 +56,7 @@ def build(params: dict, ctx) -> StructureModel:
     fp = Prism("headwall footing", foot_plan, el_bf, el_tf, ifc="IfcFooting")
     m.add(Element.from_geometry(fp.name, fp, ifc_class="IfcFooting",
                                 layer="S-CONC-OTLN",
+                                predefined_type="STRIP_FOOTING",
                                 quantities={"height_ft": el_tf - el_bf,
                                             "volume_cf": fp.volume_cf}))
 

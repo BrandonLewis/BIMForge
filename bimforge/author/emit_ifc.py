@@ -29,6 +29,7 @@ import numpy as np
 from bimforge.author.alignment import poly_area
 from bimforge.author.ifc_styles import (material_category, resolve_surface,
                                         sanitize_pack)
+from bimforge.author.paycodes import classification_source
 from bimforge.author.primitives import (
     ARC_SEGMENTS, equal_area_polygon_radius, exact_of,
     taper_prism_triangles)
@@ -461,29 +462,15 @@ def _parametric_solid(f, d, k):
         Depth=float(depth * k))
 
 
-def _ensure_radians(f) -> None:
-    """Declare a radian PLANEANGLEUNIT on the project's unit assignment, once.
-
-    Only a file that writes a plane angle needs one, and a file that does
-    and declares none leaves its reader to guess; adding it only then keeps
-    every other file byte-identical (test_ifc4_golden)."""
-    for ua in f.by_type("IfcUnitAssignment"):
-        if any(getattr(u, "UnitType", None) == "PLANEANGLEUNIT"
-               for u in ua.Units):
-            continue
-        ua.Units = list(ua.Units) + [f.create_entity(
-            "IfcSIUnit", UnitType="PLANEANGLEUNIT", Name="RADIAN")]
-
-
 def _revolved_solid(f, d, k):
     """The exact IfcRevolvedAreaSolid a "revolution" dict names (#331).
 
     The profile plane becomes the Position as for an extrusion (RefDirection
     x, Axis x × y), and the turning axis — a line in that plane — is
     re-expressed in the Position's own frame, which is what IFC measures it
-    in. The angle is radians, and the file says so (_ensure_radians).
+    in. The angle is radians, and the file says so (every emitted file
+    declares a radian PLANEANGLEUNIT).
     """
-    _ensure_radians(f)
     pl, ax = d["plane"], d["axis"]
     x, y = pl["x"], pl["y"]
     z = _cross(x, y)
@@ -1022,25 +1009,93 @@ def _type_guid_key(type_class: str, type_name: str) -> str:
     return f"type/{type_class}/{type_name}"
 
 
-def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str):
+USERDEFINED = "USERDEFINED"
+
+
+def _predefined_enum(schema: str, ifc_class: str) -> tuple | None:
+    """The PredefinedType enumeration `ifc_class` has in `schema`, or None
+    when the class carries no PredefinedType (IfcEarthworksElement, and
+    IfcVirtualElement in IFC4)."""
+    import ifcopenshell.ifcopenshell_wrapper as wrapper
+    decl = wrapper.schema_by_name(schema).declaration_by_name(ifc_class)
+    for attr in decl.all_attributes():
+        if attr.name() == "PredefinedType":
+            return attr.type_of_attribute().declared_type().enumeration_items()
+    return None
+
+
+def _check_typing(model) -> None:
+    """IFC carries a custom type in ObjectType only beside PredefinedType
+    USERDEFINED (the "Object Predefined Type" concept; the CorrectPredefinedType
+    where rule), so an element that gives both an object_type and another
+    predefined type contradicts itself: one of the two is wrong. And a
+    USERDEFINED with nothing to name it is the where rule's failure."""
+    for el in model.elements:
+        pdt = (el.predefined_type or "").upper()
+        if el.object_type and pdt and pdt != USERDEFINED:
+            raise ValueError(
+                f"{el.name}: object_type {el.object_type!r} with predefined "
+                f"type {el.predefined_type!r} - an ObjectType is written only "
+                "with PredefinedType USERDEFINED; drop one of the two")
+        if pdt == USERDEFINED and not el.object_type:
+            raise ValueError(f"{el.name}: predefined type USERDEFINED needs "
+                             "an object_type to name it")
+
+
+def _object_typing(schema: str, ifc_class: str, wanted: str,
+                   object_type: str | None, el) -> tuple[str | None, str | None]:
+    """(PredefinedType, custom type) an element is written with (#77).
+
+    The custom type rides with USERDEFINED: it is the element's object_type,
+    the class it wanted when the schema lacks it (the IFC4 downgrade), or a
+    predefined type the schema's enumeration lacks (IFC4 has no PIERCAP).
+    A class with no PredefinedType carries the custom type alone."""
+    enum = _predefined_enum(schema, ifc_class)
+    if ifc_class != wanted:
+        custom, pdt = wanted, None
+    else:
+        custom, pdt = object_type or el.object_type, el.predefined_type
+    if enum is None:
+        return None, custom or pdt
+    if custom:
+        return USERDEFINED, custom
+    if pdt and pdt.upper() not in enum:
+        return USERDEFINED, pdt
+    return (pdt.upper() if pdt else None), None
+
+
+def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str,
+                 typing: tuple = (None, None)):
     """Relate `product` to the IfcTypeObject of its (class, Element.type_name):
-    one per distinct (type class, name, predefined type) in the file, made on
-    first use, named `type_name`, carrying the element's predefined type.
+    one per distinct (type class, name, typing) in the file, made on first
+    use, named `type_name`, carrying the element's `typing` ((PredefinedType,
+    custom type), see _object_typing).
 
     The type class is the occurrence class + "Type" (IfcWall -> IfcWallType).
     A class the schema has no type for (none among the shipped families)
-    leaves the occurrence untyped, with a note."""
+    leaves the occurrence untyped, with a note, and returns None."""
     type_class = f"{ifc_class}Type"
     if not _schema_has(ctx.schema, type_class):
         print(f"{el.name}: {ctx.schema} has no {type_class}; the type "
               f"{el.type_name!r} is not written", file=sys.stderr)
         return None
-    key = (type_class, el.type_name, el.predefined_type)
+    pdt, custom = typing
+    key = (type_class, el.type_name, pdt, custom)
     t = cache.get(key)
     if t is None:
         t = run("root.create_entity", f, ifc_class=type_class,
-                predefined_type=el.predefined_type, name=el.type_name)
+                name=el.type_name)
         t.GlobalId = ctx.guid(_type_guid_key(type_class, el.type_name))
+        enum = _predefined_enum(ctx.schema, type_class)
+        if pdt and enum is not None:
+            # a custom type on a type object is its ElementType ("Element
+            # Type Predefined Type"); a value the type's enumeration lacks
+            # is one too
+            if pdt != USERDEFINED and pdt in enum:
+                t.PredefinedType = pdt
+            else:
+                t.PredefinedType = USERDEFINED
+                t.ElementType = custom or pdt
         cache[key] = t
     # the api clears the occurrence's PredefinedType and ObjectType when the
     # type carries a predefined type: IFC's rule ("PredefinedType shall only
@@ -1048,7 +1103,65 @@ def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str):
     # double-typing check. A reader resolves it through the type
     # (ifcopenshell.util.element.get_predefined_type).
     run("type.assign_type", f, related_objects=[product], relating_type=t)
+    if pdt and hasattr(product, "PredefinedType"):
+        product.PredefinedType = "NOTDEFINED"        # the type says what it is
     return t
+
+
+#: one IfcReinforcingBarType per bar size: "Reinforcing bar #5"
+BAR_TYPE_NAME = "Reinforcing bar #{size}"
+
+
+def _bar_types(run, f, ctx, products: list) -> None:
+    """Type every sized bar (Element.bar_size) to one IfcReinforcingBarType
+    per size, with the size's NominalDiameter and CrossSectionArea (file
+    units: metres) and BarSurface TEXTURED (deformed bar). The type stays
+    NOTDEFINED: one size holds main bars and ligatures both, so each
+    occurrence keeps its own PredefinedType.
+
+    Written after the sweep numbers the file's other roots, so no existing
+    GlobalId moves: the type is keyed like any type (class and name), its
+    IfcRelDefinesByType by the type it relates."""
+    from bimforge.author.primitives import BAR_PROPS
+    by_size: dict = {}
+    for product, el in products:
+        if el.bar_size not in BAR_PROPS:
+            raise ValueError(f"{el.name}: bar_size {el.bar_size!r} is not an "
+                             f"ASTM bar number ({min(BAR_PROPS)}-{max(BAR_PROPS)})")
+        by_size.setdefault(el.bar_size, []).append(product)
+    in_m = 0.0254
+    for size in sorted(by_size):
+        name = BAR_TYPE_NAME.format(size=size)
+        t = run("root.create_entity", f, ifc_class="IfcReinforcingBarType",
+                name=name)
+        t.GlobalId = ctx.guid(_type_guid_key("IfcReinforcingBarType", name))
+        dia_in, area_in2, _plf = BAR_PROPS[size]
+        t.NominalDiameter = dia_in * in_m
+        t.CrossSectionArea = area_in2 * in_m * in_m
+        t.BarSurface = "TEXTURED"
+        rel = run("type.assign_type", f, related_objects=by_size[size],
+                  relating_type=t)
+        rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByType/{t.GlobalId}")
+
+
+def _declare_types(run, f, project) -> None:
+    """Declare every IfcTypeObject to the IfcProject (IfcRelDeclares, the
+    Project Declaration concept): a type nothing declares sits outside the
+    project. An untyped file declares nothing.
+
+    Keyed as the embedders key a relationship (stable_ids:
+    `rel/IfcRelDeclares/<project id>` under the project's GlobalId), so a
+    cost schedule cost5d declares later joins this one and its re-key
+    (key_relationships) leaves the id alone. Written after the sweep, so
+    no existing GlobalId moves."""
+    from bimforge.bim import stable_ids
+    types = f.by_type("IfcTypeObject")
+    if not types:
+        return
+    rel = run("project.assign_declaration", f, definitions=types,
+              relating_context=project)
+    rel.GlobalId = stable_ids.stable_id(
+        f, f"rel/IfcRelDeclares/{project.GlobalId}")
 
 
 def _check_parts(model) -> None:
@@ -1248,8 +1361,10 @@ def _assert_guid_uniqueness(model, *, scope: str = "", spatial_keys=()) -> None:
     pdts: dict = {}
     for el in model.elements:
         if el.type_name:
+            typing = (f"USERDEFINED {el.object_type}" if el.object_type
+                      else el.predefined_type)
             pdts.setdefault((el.ifc_class, el.type_name), {}).setdefault(
-                el.predefined_type, []).append(el.name)
+                typing, []).append(el.name)
     for (cls, name), by_pdt in sorted(pdts.items()):
         if len(by_pdt) > 1:
             detail = "; ".join(f"{p or 'none'}: {', '.join(sorted(n)[:3])}"
@@ -1579,10 +1694,15 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     # gave it as the file's first root, so files built before keep theirs
     project.GlobalId = ctx.guid(PROJECT_GUID_KEY)
     project.LongName = ctx.long_name or None
+    # C.4: kg because weights are written in kg (IFC's SI mass unit is the
+    # gram, which a file declaring none leaves its reader to assume), and
+    # radians because alignment segments and revolutions carry them
     run("unit.assign_unit", f, units=[
         run("unit.add_si_unit", f, unit_type="LENGTHUNIT"),
         run("unit.add_si_unit", f, unit_type="AREAUNIT"),
         run("unit.add_si_unit", f, unit_type="VOLUMEUNIT"),
+        run("unit.add_si_unit", f, unit_type="MASSUNIT", prefix="KILO"),
+        run("unit.add_si_unit", f, unit_type="PLANEANGLEUNIT"),
     ])
     mctx = run("context.add_context", f, context_type="Model")
     body = run("context.add_context", f, context_type="Model",
@@ -1638,7 +1758,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                combined)
 
     if ctx.epsg is not None:
-        from bimforge.bim.georef import crs_datum, write_map_unit
+        from bimforge.bim.georef import (crs_datum, crs_vertical_datum,
+                                         write_map_unit)
         from bimforge.cad.geo import check_base_in_crs
         # write_map_unit (#58) refuses a Scale that disagrees with the CRS
         # unit, but not a base given in the wrong unit: metre values under a
@@ -1652,7 +1773,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                            "Description": ctx.crs_desc or None,
                            "GeodeticDatum": (ctx.geodetic_datum
                                              or crs_datum(ctx.epsg)),
-                           "VerticalDatum": ctx.vertical_datum},
+                           # a compound CRS names its height datum (C.4)
+                           "VerticalDatum": (ctx.vertical_datum
+                                             or crs_vertical_datum(ctx.epsg))},
             coordinate_operation={
                 "Eastings": ctx.base_e, "Northings": ctx.base_n,
                 "OrthogonalHeight": ctx.base_h,
@@ -1695,9 +1818,11 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     style_cache: dict = {}     # resolved appearance -> IfcSurfaceStyle
     layer_cache: dict = {}     # layer name -> IfcPresentationLayerAssignment
     type_cache: dict = {}      # (type class, name, predefined) -> IfcTypeObject
+    sized_bars: list = []      # (product, el): typed after the sweep
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
+        _check_typing(m)
     by_material: dict = {}     # material name -> [products]
     mat_appear: dict = {}      # material name -> the appearance it resolved on
     mat_category: dict = {}    # material name -> (IfcMaterial.Category, element)
@@ -1755,16 +1880,20 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                         f"voiding the ground", UserWarning, stacklevel=2)
             ifc_class = _class_for_schema(ctx.schema, wanted, el.name)
             product = run("root.create_entity", f, ifc_class=ifc_class,
-                          predefined_type=el.predefined_type, name=el.name)
+                          name=el.name)
             product.GlobalId = ctx.guid(_gk(scope, el.guid_key))
-            if ifc_class != wanted:
-                product.ObjectType = wanted
-            elif object_type:
-                product.ObjectType = object_type
-            elif el.object_type:
-                product.ObjectType = el.object_type
-            if el.type_name:
-                _assign_type(run, f, ctx, type_cache, product, el, ifc_class)
+            typing = _object_typing(ctx.schema, ifc_class, wanted, object_type,
+                                    el)
+            typed = el.type_name and _assign_type(
+                run, f, ctx, type_cache, product, el, ifc_class, typing)
+            if (el.bar_size is not None and not el.type_name
+                    and product.is_a("IfcReinforcingBar")):
+                sized_bars.append((product, el))
+            pdt, custom = typing
+            if not typed or pdt is None:          # else the type carries it
+                if pdt:
+                    product.PredefinedType = pdt
+                product.ObjectType = custom
             for pset_name, props in (el.psets or {}).items():
                 if props:
                     pset = run("pset.add_pset", f, product=product,
@@ -1905,6 +2034,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         cls = run("classification.add_classification", f, classification=system)
         if edition:
             cls.Edition = edition
+        # audit C.4: who publishes it -- paycodes `source:`, else the known
+        # publisher (CSI/CSC, NBS, ...; "Project pay codes" for BidSchedule)
+        cls.Source = classification_source(system, paycodes.source if paycodes else "")
         cls_cache[system] = cls
     for code in sorted(by_code):
         desc = ""
@@ -2033,6 +2165,10 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     for i, ent in enumerate(f.by_type("IfcRoot")):
         if ent.GlobalId not in assigned:
             ent.GlobalId = ctx.guid(f"root/{i}/{ent.is_a()}")
+    # roots added since the sweep was first written are keyed and come
+    # after it, so they renumber nothing (test_example_globalids)
+    _bar_types(run, f, ctx, sized_bars)
+    _declare_types(run, f, project)
 
     # then pin every relationship's member order (see _pin_relationship_order:
     # ifcopenshell.api set-unions reorder members nondeterministically) — after

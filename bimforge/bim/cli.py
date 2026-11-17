@@ -403,8 +403,6 @@ def _run_schedule(args) -> int:
 
     try:
         sched = load_schedule(args.schedule)
-        if args.schedule_type:
-            sched.schedule_type = args.schedule_type
         task_map = {}
         if args.task_map:
             task_map = _json.loads(Path(args.task_map).read_text(encoding="utf-8"))
@@ -415,7 +413,8 @@ def _run_schedule(args) -> int:
             sched, task_map=task_map, name_code_re=args.name_code_re)
         model = ifcopenshell.open(args.ifc)
         report = embed_schedule(model, sched,
-                                schedule_name=args.schedule_name)
+                                schedule_name=args.schedule_name,
+                                schedule_type=args.schedule_type)
         carried = None
         if args.returned:
             from bimforge.bim.carry_forward import carry_forward
@@ -552,7 +551,8 @@ def _run_cost5d(args) -> int:
         model = ifcopenshell.open(args.ifc)
         report = embed_cost_and_resources(
             model, sched, costs, schedule_name=args.schedule_name,
-            work_hours_per_day=args.work_hours_per_day)
+            work_hours_per_day=args.work_hours_per_day,
+            currency=args.currency)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -590,7 +590,8 @@ def _run_estimate5d(args) -> int:
         validate_costs(costs)
         model = ifcopenshell.open(args.ifc)
         report = embed_estimate(model, tmap, costs, schedule_name=args.name,
-                                stage=args.stage)
+                                stage=args.stage, currency=args.currency,
+                                submitted_on=args.submitted_on)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -712,7 +713,7 @@ def _run_estimate_model(args) -> int:
                              "activities, shares)")
         summary = embed_estimate_model(
             args.ifc, model_json, args.out, schedule_name=args.schedule_name,
-            placeholders=args.placeholders)
+            placeholders=args.placeholders, currency=args.currency)
     except (OSError, ValueError, KeyError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -2430,6 +2431,11 @@ def _run_label_crops(args) -> int:
     return 0
 
 
+_CURRENCY_HELP = ("ISO 4217 currency of the cost values (IfcMonetaryUnit; "
+                  "default: the IFC's own, else USD). A file that already "
+                  "declares another currency is refused")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="est-bim")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -2560,7 +2566,7 @@ def main(argv=None) -> int:
     sc.add_argument("--name", dest="schedule_name",
                     help="IfcWorkSchedule name (default: the schedule's own name)")
     sc.add_argument("--schedule-type", dest="schedule_type",
-                    choices=["BASELINE", "PLANNED", "ACTUAL"],
+                    type=str.upper, choices=("ACTUAL", "BASELINE", "PLANNED"),
                     help="IfcWorkSchedule PredefinedType (default: the "
                          "schedule's own schedule_type, else PLANNED)")
     sc.add_argument("--out", help="output IFC path (default: alongside the input, "
@@ -2604,6 +2610,7 @@ def main(argv=None) -> int:
     c5.add_argument("--schedule-name", dest="schedule_name", default=None)
     c5.add_argument("--work-hours-per-day", dest="work_hours_per_day",
                     type=float, default=8.0)
+    c5.add_argument("--currency", default=None, help=_CURRENCY_HELP)
     c5.add_argument("--out", default=None)
 
     e5 = sub.add_parser("estimate5d",
@@ -2622,6 +2629,11 @@ def main(argv=None) -> int:
     e5.add_argument("--stage", choices=("tender", "awarded"), default="tender",
                     help="tender: TENDER / PLANNED (at bid, the default); "
                          "awarded: PRICEDBILLOFQUANTITIES / APPROVED")
+    e5.add_argument("--currency", default=None, help=_CURRENCY_HELP)
+    e5.add_argument("--submitted-on", dest="submitted_on", default=None,
+                    metavar="YYYY-MM-DD",
+                    help="the bid's date, written as the schedule's "
+                         "SubmittedOn (default: left unset, never today)")
     e5.add_argument("--out", help="output IFC path (default: alongside the "
                                   "input, <stem>.est.ifc)")
 
@@ -2675,6 +2687,7 @@ def main(argv=None) -> int:
     em.add_argument("--placeholders", action="store_true",
                     help="add an IfcBuildingElementProxy (no geometry) for "
                          "each model element the IFC lacks, under its GlobalId")
+    em.add_argument("--currency", default=None, help=_CURRENCY_HELP)
 
     k = sub.add_parser("kml", help="convert a georeferenced IFC into 3D KML (Google Earth)")
     k.add_argument("ifc", help="input IFC file (georeferenced, est-bim >= 0.1.11)")

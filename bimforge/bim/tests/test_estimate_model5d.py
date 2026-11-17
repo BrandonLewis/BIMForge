@@ -175,6 +175,13 @@ def test_one_task_per_activity_with_dates():
     assert summary["tasks"] == 3 and summary["tasks_timed"] == 2
 
 
+def test_every_activity_task_is_construction():
+    # C.4: an estimate activity is construction work, not NOTDEFINED
+    f, _, _, _ = _embed()
+    assert {t.PredefinedType for t in f.by_type("IfcTask")} == {"CONSTRUCTION"}
+    assert {t.task_type for t in read_schedule(f).tasks} == {"CONSTRUCTION"}
+
+
 def test_tasks_link_elements_by_global_id_and_spread_links_none():
     f, summary, ftg, wall = _embed()
     links = task_elements(f, NAME)
@@ -463,6 +470,26 @@ def test_the_file_declares_one_currency_after_a_rerun():
     declares = [r for r in f.by_type("IfcRelDeclares")
                 if estimates[0] in r.RelatedDefinitions]
     assert len(declares) == 1
+
+
+def test_the_estimate_schedule_has_a_status_and_no_write_time():
+    f, site, ftg, wall = _ifc()
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    (cs,) = [c for c in f.by_type("IfcCostSchedule")
+             if c.PredefinedType == "ESTIMATE"]
+    assert cs.Status == "PLANNED"
+    assert cs.UpdateDate is None
+
+
+def test_the_estimate_currency_is_configurable():
+    import ifcopenshell.api.unit as unit
+    f, site, ftg, wall = _ifc()
+    unit.assign_unit(f)
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId),
+                         currency="CAD")
+    (project,) = f.by_type("IfcProject")
+    assert [u.Currency for u in project.UnitsInContext.Units
+            if u.is_a("IfcMonetaryUnit")] == ["CAD"]
 
 
 def test_item_numbers_equal_after_the_prefix_is_stripped_stay_distinct():
