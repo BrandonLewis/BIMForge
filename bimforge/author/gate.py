@@ -609,6 +609,27 @@ def _ifc_spatial_chain_check(model, ifc_path: str) -> list[str]:
     return fail
 
 
+def schema_issues(f, rules: bool = True) -> list[str]:
+    """ifcopenshell.validate's findings, one line each. `rules` adds the
+    schema's WHERE and global rules (#94): attribute checks alone pass a
+    file that breaks, say, IfcWall.CorrectPredefinedType."""
+    import ifcopenshell.validate
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, logger, express_rules=rules)
+    out = []
+    for stmt in logger.statements:
+        if not isinstance(stmt, dict):
+            out.append(str(stmt))
+            continue
+        msg = (str(stmt.get("message", "")).strip().splitlines() or [""])[0]
+        where = stmt.get("instance") or ""
+        if stmt.get("type") in ("entity_rule", "global_rule"):
+            out.append(f"{stmt.get('attribute')}: {where}: {msg}")
+        else:
+            out.append(f"{where}: {msg}" if where else msg)
+    return out
+
+
 def _ifc4x3_facility_check(f, reached) -> list[str]:
     """The IFC4X3 facility tree (#318): every facility hangs off the IfcSite,
     every facility part off a facility, and no part is empty — then the file
@@ -641,15 +662,10 @@ def _ifc4x3_facility_check(f, reached) -> list[str]:
                 f"spatial tree: {part.is_a()} '{part.Name}' is empty — a part "
                 "that contains nothing is a navigation dead end")
     if facilities or parts:
-        import ifcopenshell.validate
-        logger = ifcopenshell.validate.json_logger()
-        ifcopenshell.validate.validate(f, logger)
-        for stmt in logger.statements[:20]:
-            msg = stmt.get("message", stmt) if isinstance(stmt, dict) else stmt
-            fail.append(f"ifcopenshell.validate: {msg}")
-        if len(logger.statements) > 20:
-            fail.append(f"ifcopenshell.validate: ... "
-                        f"{len(logger.statements) - 20} more")
+        issues = schema_issues(f)
+        fail += [f"ifcopenshell.validate: {msg}" for msg in issues[:20]]
+        if len(issues) > 20:
+            fail.append(f"ifcopenshell.validate: ... {len(issues) - 20} more")
     return fail
 
 

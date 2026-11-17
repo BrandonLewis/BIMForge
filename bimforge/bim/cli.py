@@ -173,7 +173,8 @@ def _run_validate(args) -> int:
     from collections import Counter
 
     import ifcopenshell
-    import ifcopenshell.validate as V
+
+    from bimforge.author.gate import schema_issues
 
     if not os.path.isfile(args.ifc):
         print(f"error: no such file: {args.ifc}", file=sys.stderr)
@@ -184,9 +185,7 @@ def _run_validate(args) -> int:
         print(f"error: cannot open {args.ifc}: {exc}", file=sys.stderr)
         return 1
 
-    logger = V.json_logger()
-    V.validate(model, logger)
-    issues = list(logger.statements)
+    issues = schema_issues(model, rules=not args.no_rules)
     # #364: the validator's "With inverse: VoidsElements ... Not valid" names
     # no element; say which cut is unhosted and what pay-item excavation is
     # Guard on the schema's own declarations: IFC2X3 and IFC4 lack the
@@ -213,8 +212,7 @@ def _run_validate(args) -> int:
     if not counts:
         print("warning: model contains no IfcElement", file=sys.stderr)
     if issues:
-        for stmt in issues[:20]:
-            msg = stmt.get("message", stmt) if isinstance(stmt, dict) else stmt
+        for msg in issues[:20]:
             print(f"  ! {msg}", file=sys.stderr)
         if len(issues) > 20:
             print(f"  ... {len(issues) - 20} more", file=sys.stderr)
@@ -2478,6 +2476,9 @@ def main(argv=None) -> int:
                         help="open + schema-validate an IFC and report "
                              "element counts per class (exit 1 on issues)")
     va.add_argument("ifc", help="input IFC file")
+    va.add_argument("--no-rules", action="store_true", dest="no_rules",
+                    help="check attribute types only, not the schema's WHERE "
+                         "and global rules (faster on very large files)")
 
     t = sub.add_parser("takeoff", help="roll an IFC up into a CanonicalTakeoff")
     t.add_argument("--ifc", required=True, help="input IFC file")
