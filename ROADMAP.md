@@ -40,8 +40,9 @@ not expressible.
 
 ## 5D and IFC compliance
 
-Goal: every schedule BIMForge writes reads correctly in any IFC tool and pairs
-in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-compliance-audit.md`.
+Goal: everything BIMForge writes is standard IFC: valid against the schema and
+buildingSMART's rules, read correctly by any IFC tool, and paired in
+ProjectCommand. This is work in progress; C.9 is where its current state is stated. The audit is `docs/superpowers/specs/2026-11-09-ifc-compliance-audit.md`.
 
 | ID | Item | State |
 |---|---|---|
@@ -53,6 +54,11 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.4 | Audit Phase 1: additive units, types and statuses (#37, #77). Type declarations through `federate` are included. Moved out: material layer/profile set usages (readers in C.5, writers in X.5/X.6) and the FootPrint subcontext (X.10). | Done in #88 (0.1.125) |
 | C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. Readers also unwrap IfcMaterialLayerSetUsage/ProfileSetUsage to their materials (dual-read), before X.5/X.6 write them; tell Work and ProjectCommand when it lands. | In progress, coordinated with ProjectCommand |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
+| C.7 | Conformance is a standing gate, not an audit. The audit validated 515 written files once, by hand, with scripts that lived in a session's scratch folder. Every file any command writes (the families, `dxf2bim`, `schedule`, `cost5d`, `estimate5d`, `estimate-model`, `federate`, a carried-forward rebuild) is validated in CI with `ifcopenshell.validate` including the EXPRESS where-rules and global rules, on IFC4X3 and on IFC4. Today the family gate validates its own output and a few schedule tests do; the rest is unchecked between audits. | Next |
+| C.8 | buildingSMART's normative rules. Schema validity is the floor: the audit found almost no schema failures and many semantic ones. buildingSMART publishes the rule set its validation service runs (implementer agreements and informal propositions, as open-source checks). Run it over the shipped examples in CI, fix or list what fails, and keep the list in C.9. Not yet run against BIMForge output; whether it installs and runs in CI is unverified. | Next |
+| C.9 | A conformance statement, `docs/ifc-conformance.md`, kept current with each release: the schemas written, the entities and relationships each command writes, what sits in standard property and quantity sets and what in BIMForge's own, every known deviation with its roadmap row (C.5, C.6), and the validator and rule-set versions the release passed. It is what a consumer (ProjectCommand, a conformed.ai worker, an owner's checker) is told to expect. | With C.7 |
+| C.10 | New kinds of content arrive conformant: class references (M.1), quantity formulas (M.3), approvals (M.5), boreholes and strata (M.15). Each uses the standard entity, property set and quantity set where IFC has one, says in C.9 where it does not, and ships with its C.7 and C.8 checks. | With each M row |
+| C.11 | One command a consumer runs to accept a file: `est-bim validate` reports schema, where-rules, the normative rules and the takeoff contract (X.1, X.8) in one machine-readable result, with the versions used. The corpus build (M.12) accepts a model only when it is clean. | After C.7 and C.8 |
 
 ## The model as the estimate's record
 
