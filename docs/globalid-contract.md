@@ -102,18 +102,25 @@ What it added itself it may replace or remove on a later write: an entity its
 OwningApplication names, what hangs from one with no GlobalId of its own, and
 its relationships to ours, never the entities of ours they point at. So:
 
-- a rewrite deletes its old lines and appends new ones (stamped MODIFIED, the
-  first CreationDate kept), and our lines stay byte for byte;
+- a rewrite deletes its old lines and appends new ones, or rewrites a line of
+  its own where it stands (stamped MODIFIED, the first CreationDate kept; an
+  addition only re-pointed onto the replacing task keeps its stamp); our lines
+  stay byte for byte;
 - it writes one update, replacing its last, and an update it keeps to compare
   against is retyped BASELINE (rule 2 below keeps it from taking the update's
   place);
 - a changed approval keeps its IfcRelAssociatesApproval and points at a new
   IfcApproval, and a withdrawn one goes with its relationship.
 
-Its GlobalIds are its own to key. ProjectCommand keys them as we key ours,
-`uuid5(<IfcProject GlobalId>, key)`, every key starting `projectcommand/`
-(`projectcommand/task/<our task GlobalId>`, ...), so an id of its can never be
-one of ours, and a rewritten update has the ids of the one it replaces. Its
+Its GlobalIds are its own to key. ProjectCommand keys its update's as we key
+ours, `uuid5(<IfcProject GlobalId>, key)`, every key starting
+`projectcommand/` (`projectcommand/task/<our task GlobalId>`, and
+`projectcommand/baseline/<time kept>/<the id it had>` for a kept update), so
+one of them can never be one of ours, and a rewritten update has the ids of
+the one it replaces. Its other GlobalIds (a task added in it, an approval's
+relationship, a saved view) are stable from write to write but not keyed this
+way: random, or seeded by its own scheme. Our `stable_ids.assign` refuses an id
+another entity holds, so a collision would fail loudly, not overwrite. Its
 ApplicationIdentifier does not change: it is how both sides tell its entities
 from ours (`stable_ids.foreign`).
 
