@@ -4,8 +4,6 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
-IFC compliance audit Phase 2 (roadmap C.5): relationship semantics.
-
 ### Added
 
 - **An inventory of what each command writes (C.9).** `docs/ifc-inventory.md`
@@ -21,6 +19,24 @@ IFC compliance audit Phase 2 (roadmap C.5): relationship semantics.
   schedule rebuild with a downstream update carried onto it. All pass the
   schema's rules, and buildingSMART's rules find nothing beyond the three
   listed kinds.
+
+### Changed
+
+- **A downstream tool may rewrite what it added itself.** The returned-files
+  contract (`docs/globalid-contract.md`) keeps "never modifies an entity of
+  ours" and now lets the tool replace or remove its own additions: one
+  update instead of a pile, a kept update retyped BASELINE, approvals changed
+  or withdrawn. `carry_forward` already carried these unchanged; tests now
+  pin a MODIFIED update and a kept BASELINE beside the current one.
+
+## 0.1.126 — 2026-11-17
+
+IFC compliance audit Phase 2 (roadmap C.5): relationship semantics; and buildingSMART's normative rules in CI (#94).
+
+**For the estimating plugin:** raise the floor to `bimforge>=0.1.126`. An earlier bimforge reads a 0.1.126 cost5d file's task `labor_hours` as null, since it looks for crews only through IfcRelAssignsToResource; per-code hours and estimate-model hours are unaffected.
+
+### Added
+
 - **The CI checks buildingSMART's normative rules (#94).** `validate`, the build
   gate and a new conformance suite check the schema's WHERE and global rules
   on every kind of file bimforge writes (`est-bim validate --no-rules`

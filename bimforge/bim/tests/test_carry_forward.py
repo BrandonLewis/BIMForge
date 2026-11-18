@@ -21,12 +21,12 @@ def _stamp(f, action="ADDED"):
                                    None, 1794783608)
 
 
-def _returned():
+def _returned(action="ADDED"):
     """Our schedule file with a downstream tool's additions: its own copy of
     the Deck task tied to ours, progress on the copy, the copy building one
     of our walls, and an approval on a wall."""
     f = _linked_file()
-    oh = _stamp(f)
+    oh = _stamp(f, action)
     ws = root.create_entity(f, ifc_class="IfcWorkSchedule", name="Update")
     ws.GlobalId, ws.OwnerHistory, ws.Purpose = "1PCschedule00000000000", oh, \
         "Contractor update"
@@ -138,6 +138,45 @@ def test_a_modified_task_of_ours_is_rebuilt_and_reported():
     assert [m["global_id"] for m in report.modified] == [deck.GlobalId]
     assert rebuilt.by_guid(deck.GlobalId).TaskTime.ScheduleFinish \
         != "2026-08-01T00:00:00"
+
+
+def test_a_rewritten_update_is_carried_as_it_is():
+    # a downstream tool may replace what it added itself (stamped MODIFIED):
+    # it is still its own, so it is carried, stamp and all, and not reported
+    returned, rebuilt = _returned("MODIFIED"), _rebuilt()
+    report = carry_forward(returned, rebuilt)
+    assert report.carried == 6
+    assert not (report.vanished or report.dropped or report.modified)
+    copy = _by(rebuilt, "1PCtaskDeck00000000000")
+    assert copy.OwnerHistory.ChangeAction == "MODIFIED"
+
+
+def test_a_kept_update_retyped_baseline_is_carried_beside_the_current_one():
+    # its last update kept to compare against: retyped BASELINE, re-keyed,
+    # and still tied to our task, as the current update is
+    returned = _returned("MODIFIED")
+    oh = returned.by_guid("1PCtaskDeck00000000000").OwnerHistory
+    kept = root.create_entity(returned, ifc_class="IfcWorkSchedule",
+                              name="Update (kept)")
+    kept.GlobalId, kept.OwnerHistory, kept.PredefinedType = \
+        "1PCkeptSchedule0000000", oh, "BASELINE"
+    copy = root.create_entity(returned, ifc_class="IfcTask", name="Deck")
+    copy.GlobalId, copy.OwnerHistory = "1PCkeptDeck00000000000", oh
+    deck = _one(returned, "IfcTask",
+                lambda e: e.Name == "Deck" and e.OwnerHistory is None)
+    returned.createIfcRelDefinesByObject("1PCkeptDefines00000000", oh, None,
+                                         None, [copy], deck)
+    returned.createIfcRelAssignsToControl("1PCkeptControls0000000", oh, None,
+                                          None, [copy], None, kept)
+    rebuilt = _rebuilt()
+    report = carry_forward(returned, rebuilt)
+    assert report.carried == 10
+    assert not (report.vanished or report.dropped or report.modified)
+    assert _by(rebuilt, "1PCkeptSchedule0000000").PredefinedType == "BASELINE"
+    ours = _one(rebuilt, "IfcTask",
+                lambda e: e.Name == "Deck" and e.OwnerHistory is None)
+    for gid in ("1PCdefines000000000000", "1PCkeptDefines00000000"):
+        assert _by(rebuilt, gid).RelatingObject == ours
 
 
 def test_another_project_is_refused():
