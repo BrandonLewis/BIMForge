@@ -124,8 +124,9 @@ def test_emit_ifc_bent_bar_is_one_swept_disk_not_a_mesh(tmp_path):
            if r.RepresentationIdentifier == "Body"][0]
     assert rep.RepresentationType == "AdvancedSweptSolid"
     # the whole point: a bent bar costs a handful of entities, not thousands
-    # (the georeference's MapUnit, #58, is 3 of them)
-    assert len(list(f)) < 64
+    # (the georeference's MapUnit, #58, is 3 of them; the model's identity,
+    # M.6, 6)
+    assert len(list(f)) < 70
 
 
 def test_emit_ifc_bent_bar_is_byte_deterministic(tmp_path):

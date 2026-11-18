@@ -110,13 +110,16 @@ def test_federate_carries_the_alignment_whole(tmp_path, facility):
 
 
 def test_federating_an_alignment_is_byte_deterministic(tmp_path):
+    # one file name per source in both runs: the federation's identity
+    # names its sources (M.6)
     for name in ("one", "two"):
+        d = tmp_path / name
+        d.mkdir()
         m, *_ = _with_line(_bridge())
-        emit_ifc(m, str(tmp_path / f"{name}-b.ifc"))
-        emit_ifc(_terrain(), str(tmp_path / f"{name}-t.ifc"))
-        federate([(tmp_path / f"{name}-b.ifc", "Bridge"),
-                  (tmp_path / f"{name}-t.ifc", "Terrain")],
-                 str(tmp_path / f"{name}.ifc"), _ctx())
-    a = (tmp_path / "one.ifc").read_bytes()
-    b = (tmp_path / "two.ifc").read_bytes()
+        emit_ifc(m, str(d / "b.ifc"))
+        emit_ifc(_terrain(), str(d / "t.ifc"))
+        federate([(d / "b.ifc", "Bridge"), (d / "t.ifc", "Terrain")],
+                 str(d / "fed.ifc"), _ctx())
+    a = (tmp_path / "one" / "fed.ifc").read_bytes()
+    b = (tmp_path / "two" / "fed.ifc").read_bytes()
     assert a == b

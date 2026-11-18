@@ -259,7 +259,11 @@ def schema_of(config: dict) -> str:
     return schema
 
 
-def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
+def build_ifc(features: list[Feature], config: dict, out_path: str,
+              source_name: str | None = None) -> str:
+    """Write `features` as an IFC at `out_path`. `source_name` (the DXF's
+    name) and the features themselves identify the model in its
+    BIMForge_Model set (bimforge.bim.model_identity, M.6)."""
     proj_cfg = config.get("project", {})
     schema = schema_of(config)   # IFC4X3_ADD2 (#332); "IFC4" opts out
     geo = config.get("georeference", {}) or {}
@@ -404,6 +408,10 @@ def build_ifc(features: list[Feature], config: dict, out_path: str) -> str:
             run("pset.edit_pset", model, pset=pset, properties=props)
 
         made += 1
+
+    from bimforge.bim import model_identity
+    model_identity.write(model, model_identity.features_source(features, config),
+                         source_name)
 
     # Name the STEP header after the artifact rather than ifcopenshell's
     # '/dev/null' default — some IFC consumers surface FILE_NAME in metadata

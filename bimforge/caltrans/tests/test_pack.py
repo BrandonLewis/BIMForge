@@ -127,9 +127,11 @@ def test_a_d90_headwall_builds_from_the_pack_and_its_own_schedule(tmp_path):
 def test_a_build_from_the_pack_is_the_build_from_the_example_rows(
         tmp_path, example, table):
     """The example table files carry real rows, so swapping one for the
-    packaged table must not move a byte of the model."""
-    pytest.importorskip("ifcopenshell")
+    packaged table must not move a byte of the model. Only its BuildId
+    moves: the source is another (M.6)."""
+    ifcopenshell = pytest.importorskip("ifcopenshell")
     from bimforge.author.families.registry import build_from_spec
+    from bimforge.bim import model_identity
     examples = files("bimforge.author") / "examples"
     built = {}
     for how in ("file", "pack"):
@@ -146,5 +148,7 @@ def test_a_build_from_the_pack_is_the_build_from_the_example_rows(
             spec["params"]["tables_pack"] = f"caltrans/2025/{table}"
             path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
         assert build_from_spec(str(path)) == 0
-        built[how] = (d / spec["outputs"]["ifc"]).read_bytes()
+        out = d / spec["outputs"]["ifc"]
+        bid = model_identity.read(ifcopenshell.open(str(out)))["BuildId"]
+        built[how] = out.read_bytes().replace(bid.encode(), b"<BuildId>")
     assert built["file"] == built["pack"]

@@ -402,10 +402,13 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
             written["dxf"] = outs["dxf"]
         if outs.get("ifc"):
             from bimforge.author.emit_ifc import emit_ifc
+            from bimforge.bim.model_identity import spec_source
             print(emit_ifc(model, outs["ifc"], pc,
                            allow_local=bool(outs.get("ifc_allow_local")),
                            stylepack=spec_stylepack(spec, style_pack),
-                           sweeps=outs.get("ifc_sweeps")),   # None: the model's
+                           sweeps=outs.get("ifc_sweeps"),   # None: the model's
+                           source=spec_source(spec_path, builder, style_pack),
+                           source_name=Path(spec_path).name),
                   file=sys.stderr)
             written["ifc"] = outs["ifc"]
             station_ifc(model, outs["ifc"], log=lambda m: print(m, file=sys.stderr))

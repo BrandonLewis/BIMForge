@@ -86,8 +86,8 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcProductDefinitionShape | build, dxf2bim | both |
 | IfcProject | build, dxf2bim | both |
 | IfcProjectedCRS | build, dxf2bim | both |
-| IfcPropertySet | IFC4X3: build, dxf2bim; IFC4: build, dxf2bim, estimate-model, schedule + cost5d, schedule --returned | both |
-| IfcPropertySingleValue | IFC4X3: build, dxf2bim; IFC4: build, dxf2bim, estimate-model, schedule + cost5d, schedule --returned | both |
+| IfcPropertySet | build, dxf2bim | both |
+| IfcPropertySingleValue | build, dxf2bim | both |
 | IfcQuantityArea | build, dxf2bim | both |
 | IfcQuantityCount | build, dxf2bim | both |
 | IfcQuantityLength | build, dxf2bim | both |
@@ -141,6 +141,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | Set | Properties | Applied to | Written by | Schema |
 |---|---|---|---|---|
 | BIMForge_LinearReference | Alignment, OffsetLeftMax, OffsetLeftMin, OffsetText, StationEnd, StationEndText, StationStart, StationStartText, StationUnit | IfcBeam, IfcColumn, IfcPlate, IfcSlab, IfcWall | build | IFC4X3 |
+| BIMForge_Model | BimforgeVersion, BuildId, Schema, Source | IfcProject | build, dxf2bim | both |
 | BidSheet_Activity | ActivityId, Cost, CostCode, HomeItemId, Kind, Manhours | IfcTask | estimate-model | both |
 | BidSheet_Crew | CrewId, Headcount, Members, Writer | IfcLaborResource | estimate-model | both |
 | BidSheet_EstimateItem | AllocatedTotal, CostKey, ItemCode, ItemId, ItemNumber, PricingSource, Quantity, Schedule, Total, Unit, UnitPrice | IfcCostItem | estimate-model | both |

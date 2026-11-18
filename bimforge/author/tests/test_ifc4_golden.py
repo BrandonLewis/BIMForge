@@ -18,6 +18,10 @@ ifcopenshell can still legitimately change the entities its api usecases mint,
 so on a version other than the recorded one a mismatch skips (with the new
 digest in the reason) instead of failing: re-record the digests then, after
 checking the diff is ifcopenshell's and not ours.
+
+Both digests leave out the model's identity set (BIMForge_Model, M.6): it
+carries the bimforge version, so it changes with every release, and it is
+written last, so the file without it is the file as it was before M.6.
 """
 from __future__ import annotations
 
@@ -119,8 +123,24 @@ def _federation_signature(path) -> str:
     return hashlib.sha256(repr(rows).encode()).hexdigest()
 
 
+def _without_identity(path):
+    """`path` written again without BIMForge_Model (see the module doc)."""
+    import ifcopenshell.api
+    import ifcopenshell.util.element
+
+    from bimforge.bim.model_identity import PSET
+    f = ifcopenshell.open(str(path))
+    project = f.by_type("IfcProject")[0]
+    pset = ifcopenshell.util.element.get_psets(project)[PSET]
+    ifcopenshell.api.run("pset.remove_pset", f, product=project,
+                         pset=f.by_id(pset["id"]))
+    bare = path.with_name(f"{path.stem}-bare.ifc")
+    f.write(str(bare))
+    return bare
+
+
 def _check(key, path, digest=_digest):
-    got = digest(path)
+    got = digest(_without_identity(path))
     if got == GOLDEN[key]:
         return
     if ifcopenshell.version != RECORDED_WITH:
