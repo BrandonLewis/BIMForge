@@ -4,6 +4,52 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.126 — 2026-11-17
+
+IFC compliance audit Phase 2 (roadmap C.5): relationship semantics; and buildingSMART's normative rules in CI (#94).
+
+**For the estimating plugin:** raise the floor to `bimforge>=0.1.126`. An earlier bimforge reads a 0.1.126 cost5d file's task `labor_hours` as null, since it looks for crews only through IfcRelAssignsToResource; per-code hours and estimate-model hours are unaffected.
+
+### Added
+
+- **The CI checks buildingSMART's normative rules (#94).** `validate`, the build
+  gate and a new conformance suite check the schema's WHERE and global rules
+  on every kind of file bimforge writes (`est-bim validate --no-rules`
+  keeps the attribute-only check). A `bsi-rules` CI job runs buildingSMART's
+  ifc-gherkin-rules, at a pinned commit, on the same files and fails on any
+  finding that `scripts/bsi_baseline.yaml` does not list with its reason.
+  Three kinds are listed: QTY001 (the generic Qto set, C.6), ALS016 (plan-rounded
+  arc lengths, a warning) and GRF005, where the rule inverts the map
+  conversion's Scale.
+- `bimforge.bim.materials.governing_material(element)`: the IfcMaterial that governs an element or its type, through an IfcMaterialLayerSetUsage or IfcMaterialProfileSetUsage, a layer, profile or constituent set (its first member) or a list. The developed views' cut layers use it, so they keep naming the material once X.5 and X.6 write sets.
+- `schedule_read.crews_of(task)`: the resources assigned to a task, by either relationship below.
+
+### Changed
+
+- **Crews are assigned to tasks with IfcRelAssignsToProcess**, the task relating, in `cost5d` and `estimate-model`; it was IfcRelAssignsToResource (the crew relating). `read_costs` reads both, so earlier files read the same hours. A tool that copies a task's process assignments (ProjectCommand's schedule update) now carries the crew along. A re-embed removes the old crews' assignments with them (ifcopenshell's `remove_resource` leaves process assignments behind). The 4D readers (`task_elements`, element start dates, appear and vanish spans) skip resources among a task's process inputs.
+- `read_costs` and the web contract find a work schedule's cost schedule by type and link: a BUDGET or ESTIMATE schedule declared to the project whose cost items control its tasks, whatever it is named. The name "<ws> cost" and the estimate-model marker remain the fallbacks. The error for none or several now says which.
+- The web contract reads bid items (`BidSheet_EstimateItem`) only from ESTIMATE cost schedules.
+
+### Fixed
+
+- **A typed occurrence's PredefinedType is unset, not NOTDEFINED.** 0.1.125
+  wrote NOTDEFINED on an occurrence whose type carries the predefined type.
+  IFC's CorrectPredefinedType has it unset ("e.g. because a type is
+  associated"), and buildingSMART's OJT001 refuses NOTDEFINED there. A
+  reader still resolves it through the type
+  (`ifcopenshell.util.element.get_predefined_type`).
+- **A crest vertical curve's radius is negative.** IFC4.3 signs
+  `IfcAlignmentVerticalSegment.RadiusOfCurvature` (positive turns
+  counter-clockwise, so a sag; negative clockwise, so a crest), and
+  buildingSMART's ALB012 checks it as HorizontalLength / (EndGradient −
+  StartGradient). The alignment writer wrote every radius positive.
+- **`federate` leaves nothing stranded on the storey path.** Each source's own
+  site/building/storey placements, and each merged context's
+  WorldCoordinateSystem and TrueNorth, were left in the file referenced by
+  nothing (buildingSMART IFC106). Only the facility path cleaned up placements.
+- **The sample layer map's wall is `SOLIDWALL`.** `STANDARD` is deprecated in
+  IFC4.3 (buildingSMART IFC102).
+
 ## 0.1.125 — 2026-11-16
 
 IFC compliance audit Phase 1 (roadmap C.4): additive compliance.

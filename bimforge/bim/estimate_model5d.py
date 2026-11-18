@@ -83,7 +83,8 @@ import ifcopenshell.api.spatial as spatial
 
 from bimforge.bim.cost5d import (COST_ITEM_PSET, PLANNED, _classification,
                                  _code_reference,
-                                 add_declared_cost_schedule, check_currency,
+                                 add_declared_cost_schedule, assign_crew,
+                                 check_currency, remove_crew,
                                  remove_declared_cost_schedule)
 from bimforge.bim.estimate5d import _walk_items, pay_item_id
 from bimforge.bim.schedule4d import embed_schedule, link_outputs
@@ -217,7 +218,7 @@ def _remove_prior(model, name: str) -> None:
     for r in list(model.by_type("IfcLaborResource")):
         if (r.Name or "").startswith(prefix) and _pset(r, CREW_PSET) is not None:
             _remove_psets(model, r)
-            res.remove_resource(model, r)
+            remove_crew(model, r)
 
 
 def _remove_psets(model, obj) -> None:
@@ -613,8 +614,7 @@ def embed_estimate_model(ifc, model_json: dict, out_path: str | None = None, *,
                                  "Members": members}.items()
                if v not in (None, "")}})
         for key in keys:
-            res.assign_resource(model, relating_resource=r,
-                                related_object=task_ent[key])
+            assign_crew(model, r, task_ent[key])
 
     stable_ids.key_relationships(model)
     if out_path:

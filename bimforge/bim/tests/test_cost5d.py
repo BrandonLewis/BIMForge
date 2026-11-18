@@ -45,7 +45,10 @@ def test_embed_authors_cost_and_labor_linked_to_task():
     task = model.by_type("IfcTask")[0]
     rels = {a.is_a() for a in (task.HasAssignments or [])}
     assert "IfcRelAssignsToControl" in rels    # cost item -> task
-    assert "IfcRelAssignsToResource" in rels    # labor -> task
+    assert "IfcRelAssignsToResource" not in rels
+    # C.5: the task relates its crew, IFC's resource assignment
+    (use,) = task.OperatesOn
+    assert use.is_a("IfcRelAssignsToProcess") and use.RelatedObjects == (lr[0],)
     assert report.cost_items == 1 and report.resources == 1
 
 
@@ -69,6 +72,10 @@ def test_embed_is_idempotent_by_name():
     dangling = [r for r in model.by_type("IfcRelAssignsToControl")
                 if r.RelatingControl is None]
     assert dangling == []
+    # C.5: one crew assignment, naming the surviving crew; none left
+    # pointing at a removed one (remove_resource does not clean them)
+    (use,) = model.by_type("IfcRelAssignsToProcess")
+    assert use.RelatedObjects == tuple(model.by_type("IfcLaborResource"))
     # the surviving cost item still carries the right value and task link
     ci = model.by_type("IfcCostItem")[0]
     assert round(ci.CostValues[0].AppliedValue.wrappedValue, 2) == 10000.0
@@ -264,3 +271,19 @@ def test_a_declared_cost_schedule_is_dated_by_its_caller_not_the_clock():
                                    update_date="2026-12-03T00:00:00")
     assert a.UpdateDate is None and a.SubmittedOn is None
     assert b.UpdateDate == "2026-12-03T00:00:00"
+
+
+def test_crew_hours_read_from_a_file_written_before_c5():
+    # files from before 0.1.126 assign the crew by IfcRelAssignsToResource
+    import ifcopenshell.api.resource as res
+    from bimforge.bim.schedule_read import crews_of, read_costs
+    model = _ifc_with_task("1")
+    cost5d.embed_cost_and_resources(
+        model, _sched(), {"A": {"cost": 10000.0, "labor_hours": 400.0}})
+    task = model.by_type("IfcTask")[0]
+    (crew,) = model.by_type("IfcLaborResource")
+    sq.unassign_process(model, relating_process=task, related_object=crew)
+    res.assign_resource(model, relating_resource=crew, related_object=task)
+    assert crews_of(task) == [crew]
+    got = read_costs(model)
+    assert next(iter(got["tasks"].values()))["labor_hours"] == 400.0

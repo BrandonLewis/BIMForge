@@ -13,6 +13,7 @@ the same PR that finishes or adds an item.
 | 2026-11-11 | **The takeoff's input contract is an IDS document**, generated from the reader's own tables, so any IDS checker can test a Revit, Tekla or bimforge model before takeoff. |
 | 2026-11-11 | **The family vocabulary lives in one dictionary file in bSDD's import format.** It is a local file. Publishing to the bSDD service, calling its API, and stamping bSDD URIs on classifications are deferred until an owner requires it or third-party models arrive already classified against bSDD. |
 | 2026-11-15 | **Agency content lives in a pack: a subpackage of the wheel, `bimforge.caltrans` first.** The core keeps the kernel and the families no agency owns. A pack holds an agency's standard-plan tables, its families and its part of the dictionary, and nothing the core needs to build without it, so it can become a distribution of its own later (an extra cannot carry code or data). Only what public plans, standard plans and specifications state goes in: no prices, no bid data, no job identifiers. |
+| 2026-11-17 | **The model is the estimate's record, and a quantity says how it was derived.** Takeoffs are made from the model and checked against the plan sheets, so the IFC carries, for the estimating system to keep: what each element is (its dictionary class), the dimensions that size it, each quantity's formula over those dimensions where the shape has one, where it sits, and the record of its check. All of it in standard IFC places (classification reference, quantity sets, `Formula` on the quantity, IfcApproval), so any reader gets it. BidSheet.ai's side is D8 and rows 5.16 to 5.22 of its roadmap. |
 
 ## Model exchange: contract and dictionary
 
@@ -25,8 +26,8 @@ reaches the takeoff with the same classification, type names and properties.
 | X.2 | Draft family dictionary: `bimforge/author/dictionary/bimforge-families.bsdd.json`. Covers what the typed families emit: Type 842 and 732SW barrier runs, B11-51 tubular handrailing and its parts, the D90 pipe guardrail, and the `BIMForge_LinearReference` properties. A test holds it to the built examples. | Done in #48 |
 | X.3 | IFC2X3 refused by name (`ifc_takeoff.require_supported_schema`). | Done in #48 |
 | X.4 | Families read their type names and standard-plan references from the dictionary; the string literals in `rail_run.py`, `barrier_template.py` and `headwall_926.py` go. | Next |
-| X.5 | Section size as a property. It is baked into type names today ("B11-51 post HSS2x2x3/16"), so the dictionary can only match by name prefix. Write it as an IfcMaterialProfileSet on the type (an HSS 2x2x3/16 IfcRectangleHollowProfileDef under "B11-51 post"), after the C.5 readers unwrap set usages. | Next |
-| X.6 | Type the untyped families. The retaining wall, box culvert, headwalls, wingwalls, approach slab and bridge emit plain walls, footings and bars with no type, so the dictionary has nothing to name. Wall and slab types carry an IfcMaterialLayerSet, their occurrences the usage, after the C.5 readers unwrap set usages. | Next |
+| X.5 | Section size as a property. It is baked into type names today ("B11-51 post HSS2x2x3/16"), so the dictionary can only match by name prefix. Write it as an IfcMaterialProfileSet on the type (an HSS 2x2x3/16 IfcRectangleHollowProfileDef under "B11-51 post"), after the C.5 readers unwrap set usages. The governing material goes first: readers (`governing_material`, ProjectCommand) take the first. | Next |
+| X.6 | Type the untyped families. The retaining wall, box culvert, headwalls, wingwalls, approach slab and bridge emit plain walls, footings and bars with no type, so the dictionary has nothing to name. Wall and slab types carry an IfcMaterialLayerSet, their occurrences the usage, after the C.5 readers unwrap set usages; the governing layer goes first. | Next |
 | X.7 | Revit and Tekla: IFC4 export presets and property mappings generated from the dictionary, then run `takeoff.ids` on real exports from both. Not yet checked: how much each tool takes from a file. | Next |
 | X.8 | An `est-bim` subcommand that runs the contract, so a user needs no separate checker. | Later |
 | X.10 | A FootPrint subcontext (audit Phase 1), in the PR of the first family that draws a FootPrint shape or the first reader that uses one: plan sheets reading outlines from the IFC, or an X.7 export showing Revit/Tekla plan views take it. Nothing writes or reads one today. Key the new context explicitly, as the Axis one is, so no pinned GlobalId moves. | Later |
@@ -39,8 +40,9 @@ not expressible.
 
 ## 5D and IFC compliance
 
-Goal: every schedule BIMForge writes reads correctly in any IFC tool and pairs
-in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-compliance-audit.md`.
+Goal: everything BIMForge writes is standard IFC: valid against the schema and
+buildingSMART's rules, read correctly by any IFC tool, and paired in
+ProjectCommand. This is work in progress; C.9 is where its current state is stated. The audit is `docs/superpowers/specs/2026-11-09-ifc-compliance-audit.md`.
 
 | ID | Item | State |
 |---|---|---|
@@ -50,8 +52,63 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.2a | Stable GlobalIds for schedules, tasks, cost items, crews and dxf2bim output (#74), then relationships, property sets and alignments (#80). | Done in #75 (0.1.119) and #81 (0.1.120) |
 | C.3 | Audit Phase 0: the remaining bugs (0.2 to 0.10). 0.6 was fixed in #58 and 0.10 in #46. | Done in #82 (0.1.121) |
 | C.4 | Audit Phase 1: additive units, types and statuses (#37, #77). Type declarations through `federate` are included. Moved out: material layer/profile set usages (readers in C.5, writers in X.5/X.6) and the FootPrint subcontext (X.10). | Done in #88 (0.1.125) |
-| C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. Readers also unwrap IfcMaterialLayerSetUsage/ProfileSetUsage to their materials (dual-read), before X.5/X.6 write them; tell Work and ProjectCommand when it lands. | In progress, coordinated with ProjectCommand |
+| C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct in #62 (0.1.115); the cost evaluator and ESTIMATE re-key with C.2. Then: crews assigned by IfcRelAssignsToProcess, the task relating (readers take both forms); cost schedules found by type and their links to the tasks, the name as fallback; the contract's bid items from the ESTIMATE schedule only; readers unwrap material set usages to the governing (first) material, before X.5/X.6 write them. Checked with ProjectCommand, which reads all of it already. Not taken up: IfcCrewResource over the labor resources, which no reader wants yet; do it when a crew's members need telling apart. | Done in #98 (0.1.126) |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
+| C.7 | Conformance is a standing gate, not an audit. The audit validated 515 written files once, by hand. `validate`, the build gate and a conformance suite (`bimforge/bim/tests/test_conformance.py`) now check the schema with its EXPRESS where-rules and global rules on every shipped example as built, 4D and cost 5D on a built bridge, the estimate model, `estimate5d`, the `dxf2bim` sample and a `federate` of two examples, and expect no finding. Not in the suite yet: a carried-forward rebuild; and confirm each writer is exercised on IFC4 as well as IFC4X3. | Done in #97 (#94), but for those two |
+| C.8 | buildingSMART's normative rules. Schema validity is the floor: the audit found almost no schema failures and many semantic ones. buildingSMART's own rule set (`ifc-gherkin-rules`, the checks its validation service runs) runs in CI on every file the conformance suite writes (`scripts/bsi_rules.py`, the `bsi-rules` job). A finding passes only if `scripts/bsi_baseline.yaml` lists it with the reason, and a listed finding no longer found fails too, so the baseline can only shrink. The first run fixed four findings (a typed occurrence's PredefinedType, a crest curve's radius sign, what `federate` strands, a deprecated wall type); three rules are accepted in the baseline. Remaining: clear the baseline. | Done in #97 (#94); baseline open |
+| C.9 | A profile of the schema, generated, and the conformance statement rendered from it. Not a copy of IFC4X3: the schema ships in IfcOpenShell as EXPRESS (C.7) and buildingSMART's rules cover what it cannot state (C.8). The profile is the part of it BIMForge writes and what it promises about it, from one source, as the takeoff contract is generated from the reader's own tables (X.1). **First, an inventory**, made by scanning every file the test suite writes: the entity types, relationships, property sets and quantity sets each command produces, on each schema. It needs no design and shows at once where a writer strays. **Then IDS documents per concept** (a bid schedule, an estimate schedule, a class reference, a borehole and its strata), so any IDS checker tests a file against the profile with no code of ours. **Then `docs/ifc-conformance.md`**, rendered from the two for each release: the schemas written, what sits in standard sets and what in BIMForge's own, every known deviation with its roadmap row (C.5, C.6), and the validator and rule-set versions the release passed. IDS cannot say that cost items nest correctly, that composed values sum, or that a rebuild kept its GlobalIds: those stay coded checks, and the profile lists them. It describes BIMForge's files; it is not a model view definition. Its readers are this CI, a conformed.ai worker accepting a model, and ProjectCommand, whose reader holds its attribute positions by hand. | Inventory with C.7; IDS and statement after |
+| C.10 | New kinds of content arrive conformant: class references (M.1), quantity formulas (M.3), approvals (M.5), boreholes and strata (M.15). Each uses the standard entity, property set and quantity set where IFC has one, says in C.9 where it does not, and ships with its C.7 and C.8 checks. | With each M row |
+| C.11 | One command a consumer runs to accept a file: `est-bim validate` reports schema, where-rules, the normative rules, the takeoff contract (X.1, X.8) and the profile's IDS documents and coded checks (C.9) in one machine-readable result, with the versions used. The corpus build (M.12) accepts a model only when it is clean. | After C.7 and C.8 |
+
+## Order of work: models, corpus and search (set 2026-11-17)
+
+One epic across three repositories: this one, conformed.ai (#633) and
+BidSheet.ai (its roadmap, D8 and rows 5.16 to 5.28). One structure type goes
+through all three before anything widens, and the corpus is built out only
+after a small version shows the search finds useful neighbours.
+
+| Stage | What | Rows here |
+|---|---|---|
+| 1. Foundation | Validation of every written file in CI and buildingSMART's rules against a baseline (both done in #97); the inventory; the retaining wall family (B3) typed from the dictionary with its class reference, dimensions and quantity formulas. conformed.ai exports its boring data alongside. | C.7, C.9 (inventory), C.8 (first run); X.4 and X.6 for the wall family; M.1 to M.3 |
+| 2. The retaining wall, through to a bid | The import carries class, dimensions and model version into BidSheet.ai, used on the owner's next bid. The check record follows: measurements recorded where they are taken (ProjectCommand, or a command after Bonsai), the takeoff's sum by the tool. | M.6; M.5 |
+| 3. Wall pilot | Ten to twenty public projects with retaining walls modelled on a conformed.ai worker, the ground surface included, inside the $200 a month API limit. Accepted on validation and agreement with the engineer's quantities; cost per project recorded. BidSheet.ai syncs them, joins prices and runs a small holdout. | M.12, M.14, C.11 |
+| **Decision** | Widen if the neighbours predict prices usefully and the cost per project fits the budget. | |
+| 4. Paving | The road corridor family: alignment, typical section, pavement courses by layer. Quantity is section times length, so it is held to the engineer's quantities tightly. Roadwork is in nearly every public project, so it yields the most data per project modelled. | P.6 |
+| 5. Grading | The same corridor: cut, fill and mass haul against the ground surface. Plan-sheet contours are not the engineer's survey, so the tolerance is looser and stated per project. Cut and fill balance and average haul are derived features. | P.6, M.13 |
+| 6. Bridges, in pieces | Barrier, handrail and approach slab (standard today); abutments and wingwalls (reusing the wall work); piles and footings once borings are in the models; superstructure when the girder bridge family exists. | P.4, M.15, P.5 |
+| Alongside | Modified standards; the rest of the pack moves and families; the remaining derived features; the full profile and conformance statement. | M.8 to M.11, P.3, P.4, M.13, C.9, C.10 |
+
+The agency surveys (P.10, P.11) run in parallel and block none of this.
+
+## The model as the estimate's record
+
+Goal: an element modelled for one bid arrives in the estimating system as a
+thing that can be found, compared and scaled on the next: a D89 headwall of a
+stated height on a stated pipe, with the dimensions its concrete comes from
+and the sheet it was checked against, where today it arrives as a volume.
+
+What is there today: `est-bim model-elements` sends GlobalId, name, IFC class,
+structure id and quantities in the estimate's units (`bimforge/bim/model_elements.py`).
+The emitter already writes Length, Width and Height beside volume on some
+elements; nothing writes a `Formula`, a class reference or an approval.
+
+| ID | Item | State |
+|---|---|---|
+| M.1 | Every element of a typed family references its dictionary class: an IfcClassificationReference into the family dictionary, in its own classification system so it is never read as a pay code. A reader gets the class without matching a type name's prefix. Needs X.4, and X.6 for the families that emit no type today (walls, culverts, headwalls, wingwalls, approach slab, bridge), which are most of what is estimated. | After X.4 and X.6 |
+| M.2 | The dimensions that size an element are written on it: the family's parameters for that element (design height, pipe diameter, cover, skew, run length, section dimensions), in a property set whose names and units come from the dictionary, so "design height" is one property on every job. Dimensions that are quantities (Length, Width, Height, a section's CrossSectionArea) stay in the quantity set. | With M.1 |
+| M.3 | A quantity says how it was derived, in the quantity's own `Formula` attribute (IFC4 and IFC4X3 both have it), over names in the same quantity set. Three grades: **box** (`Length * Width * Height`), **section by length** (`CrossSectionArea * Length`, for anything swept along a line), and **solid** (no formula: a warped wingwall, earthwork between surfaces). A build gate holds every written formula to its quantity within a stated tolerance, so a reader that recomputes gets the number in the file. | Next |
+| M.4 | The standard plan's own figure, where the pack's table tabulates one (D89: concrete CY/LF and reinforcing LB/LF by design height): written on the element with the table and row it came from, and the build compares it to the modelled quantity as the catalog tests already do. Needs the tables keyed by class (P.3, P.12). | After P.3 |
+| M.5 | The check is recorded in the model. How the check is made today (settled 2026-11-17): the owner measures the IFC model in Bonsai or ProjectCommand, compares the measurements to the plan sheets, then confirms the takeoff adds up. So there are two records. **The measurement:** what was measured on an element (a dimension from M.2, or a quantity), the value in the model, the value on the sheet, the sheet, the date, who, and the result, as an IfcApproval on the element with the sheet as a document reference. Checking dimensions is enough where the quantity has a formula over them (M.3): the quantity is then verified by construction. ProjectCommand already writes IfcApproval for submittals and is where a measurement is taken, so it records the check there in one step; for a check made in Bonsai, an `est-bim` command records it. Agree one shape with ProjectCommand. **The sum:** that the takeoff's rows add up to the model's elements is arithmetic, so it is checked and recorded by the tool on every takeoff, not by a person. Both are keyed by GlobalId, survive a rebuild through the stable GlobalIds (C.2a), and are dropped when what they approved changes. | Next |
+| M.6 | `model-elements` sends all of it: class, type name, standard-plan reference, family and parameters, alignment, station and offset (the `BIMForge_LinearReference` properties), dimensions and formulas, the standard-plan figure, the check, and the model's own identity (file sha256, schema, bimforge version, spec). A contract change with BidSheet.ai (its rows 5.16 to 5.19): additive, old payloads still accepted. | With BidSheet.ai 5.16 |
+| M.7 | An advisory IDS beside the takeoff contract (X.1): an element that is paid carries a class reference and the dimensions its class declares. It is how a Revit or Tekla export is held to what a bimforge model carries (X.7). | After M.1 and M.2 |
+| M.8 | A modified standard (the plans' "(MOD)") is its standard class plus recorded differences, never a new class and never an unlabelled bespoke shape. On the element: the base class reference (so a Type 842 (MOD) is found as a Type 842), the route it was built by (standard, modified by value, by part, by section, or bespoke), and each changed property with its standard and its actual value. A bespoke `bimforge.author` model declares the class it is based on, if any. Needs M.1 and M.2. | With M.2 |
+| M.9 | Modified by value, from what exists. A project's `tables_file` already overrides rows of a packaged table (P.1), silently. The merge reports every packaged value the project changed, and those become the element's recorded differences (M.8) with no extra authoring. The gate changes to match: a family holds a modified element to the table on its unmodified values and lists the rest, where today it fails or is switched off (`gate: {ignore: [tables]}`). | Next |
+| M.10 | Modified by part and by section. A family takes a part swapped, added or dropped (another rail on a barrier, an added curb, an omitted end block), and an explicit section in place of the standard one while keeping its run, end treatments, reinforcing rules and checks. The section case is filed for barriers as BIMForge #26 (estimating plugin roadmap 4.2: three bids have each replaced the section by hand); generalise it family by family as modifications recur. | After M.8 |
+| M.11 | The standard beside the modification. A modified element carries the standard plan's figure (M.4) as well as its own, so the difference (concrete per foot as built against the table's) is in the model. Across many projects the route in M.8 measures what share of elements build standard, modified and bespoke, which is how the next family option gets chosen. | After M.4 and M.8 |
+| M.12 | Build a corpus. About 300 public projects are to be modelled by an agent on a conformed.ai worker, which holds the plans and keeps the models (decided 2026-11-17); BidSheet.ai consumes the result as reference data (its rows 5.23 to 5.26). BIMForge's part is to be driven unattended: a project is a folder of specs built in one command, every failure is a structured report an agent can act on, each model is compared to the engineer's published bid quantities per pay item with a report of what agrees and by how much, and every element carries its route (M.8). Staged by structure type, starting with what the Caltrans pack covers; the share built standard, modified and bespoke after each stage says which family or pack to deepen next (P.10, P.11). | After M.8, staged |
+| M.13 | Derived features: what the model implies, computed and kept. At build, for each element, from the geometry and relationships already in the model, never typed in as a property. **From the alignment:** grade and cross slope at its station, curve radius, skew to the line, change in elevation along its run. **From the ground** (existing and finished): cut depth or fill height, depth of excavation to the bottom of footing, height of a deck or cap above ground (the falsework height), ground slope across the footprint. **From borings** (M.15): distance to the nearest one, thickness of each material an excavation or pile passes through, blow counts over a pile's length, depth to rock against pile tip, groundwater against the bottom of excavation. **From other elements:** what bears on what, clearance over a road or channel, distance to existing structures and live traffic. Each value is stored beside the element with the method and its version, outside the IFC, so a feature is recomputed from the kept model when its definition improves. `model-elements` sends them (M.6). Exact coordinates are not a feature; district, county and site elevation are. | After M.6, feature by feature |
+| M.14 | Existing ground in every corpus model. The alignment features need only the line the families already build; the ground features need a surface. Plan-sheet contours already become terrain (`est-bim contours`, `contour-surface`, with `terrain-diff` against public elevation data as the check); the corpus build (M.12) makes it a step of every project and writes the surface into the model. | With M.12 |
+| M.15 | Borings in the model. The log of test borings is a drawing on the plans, and reading it is already built outside this repository: conformed.ai's `geotech` app extracts holes, layers (USCS symbol, description, bedrock and fill flags), samples with blow counts and refusal, lab tests, groundwater observations and coordinates into a standalone database, as printed, with alignment, station and offset where the sheet gives them. BIMForge reads that export and writes each hole as an IfcBorehole with its IfcGeotechnicalStratum layers (IFC4X3; on IFC4, which has neither, as proxies with the same properties), placed by station and offset on the project's alignment, or by coordinates where the sheet prints the zone. conformed.ai does not convert coordinates and has no export or API for the data yet: both are needed first. Borings first on projects with piles, deep excavation or walls. | After an export exists in conformed.ai |
 
 ## Agency packs
 
@@ -76,3 +133,42 @@ is the brief for building one.
 | P.11 | City of Sacramento pack: the same survey over the city's standard drawings and standard specifications. Starts from the inventory; the S-280 and S-290 pipe inlet and outlet structure tables already exist in a private family and move in with it. | Next: needs someone assigned |
 | P.12 | Pack mechanics for more than one agency: a conformance test every pack passes (declared tables ship, table names are class codes, manifest present), and `est-bim` listing the packs and their tables. | With P.11 |
 
+## Geometry: checks and outputs
+
+From a review on 2026-11-14 of how bodies are created and checked, against
+how open-source CAD kernels work. The ten shipped examples were rebuilt and
+measured: every body is a closed solid, 139 of 158 are exact parametric
+solids (extrusions and revolutions), and each matches its stated volume
+within the gate's 0.5% tolerance. These rows are not yet listed in the
+platform roadmap's Phase 4.
+
+| ID | Item | State |
+|---|---|---|
+| G.1 | The QTO and bar-schedule workbooks are not byte-identical between rebuilds. `openpyxl` overwrites the modified time on save, so pinning it in `emit_qto.py` and `emit_bbs.py` has no effect; the created time is pinned correctly. `takeoff_workbook._save_deterministic` rewrites the modified time after saving: reuse it, and test it. | Next (bug) |
+| G.2 | An overlap gate. No check finds two elements occupying the same space, which is how a headwall's double-counted concrete passed (10.134 against 9.967 cy, #24). Bounding boxes first, then the common volume, with an opt-out for catalog examples that place alternatives together. | Next |
+| G.3 | Two outputs disagree with the IFC. STEP writes a post as a true cylinder where the IFC writes the equal-area polygon: +0.64% on the posts alone and about +0.25% on their element, inside the 0.5% tolerance today and outside it at fewer segments. The DXF plan of a tube is drawn at the origin, ignoring its position and axis. | Next |
+| G.4 | Orientation checked face by face. Edges are compared undirected and volumes taken absolute, so one flipped face lowers the stated and the emitted volume together. A directed-edge check in `mesh_topology`. | Next |
+| G.5 | Owner's call. When a spec asks for cuts and the terrain carve cannot run (the mesh libraries are missing, or the cut fails), the build goes on with the open surface. It is not silent: `carve` returns `closed` as false, and the caller records that in the provenance and leaves "(excavation carved)" off the element's name, beside a log line. Whether that build should fail is not ruled. | Not ruled |
+| G.6 | The post-gate tessellates the written IFC twice, at different settings on purpose: `_ifc_mesh_check` finely (an angular deflection of 0.1) to measure the solid the file states, and `_ifc_solid_body_check` at the defaults to test the mesh as a viewer draws it. One pass cannot serve both unchanged. Worth doing: skip the topology of surface bodies, which is computed and then set aside. | Later |
+| G.7 | Owner's call. Whenever build123d is installed, every build imports it and runs `true_volume_check`, which rebuilds each solid in OpenCascade, with or without STEP output. On the bridge example that is 4.6 s against 1.7 s without it: about 1.3 s is the import and about 0.8 s the check, so both have to be skipped to get the time back. Limiting them to STEP builds or a gate flag is faster, and gives up a second kernel's opinion on every solid. | Not ruled |
+| G.8 | Owner's call. Formwork contact area counts side faces that lie against another element. Measured on the examples and not yet verified: 6 to 22% of side area on the D90 headwall, 40 to 46% on the retaining wall's footings. Whether a contact is a joint that needs a bulkhead is an estimator's judgment, so a deduction would need a flag per element from the family. | Not ruled |
+
+Considered and not taken up:
+
+- One OpenCascade solid as the source of every output. A B-rep cannot
+  give back the parametric solids the IFC states, and Revit and Tekla
+  import a circle-profile extrusion as a native pipe or rod only because
+  the file says it is a circle. It would also replace "quantities from the
+  emitted faces".
+- `WarpedStem` stating its analytic volume, 0.3% off the facets it emits.
+  That is the documented rule for warped and curved primitives: the closed
+  form is the pay quantity, and the faceted volume is held to it within
+  tolerance.
+- Stable names for faces. Faces are classified by direction on every read
+  and no face identity is stored anywhere, so there is nothing to keep
+  stable.
+- Exact-arithmetic or all-manifold booleans. The degenerate-geometry bugs
+  on record came from export precision and from readers' kernels, and each
+  was fixed more cheaply.
+- A cache of built geometry. A build takes 2 to 5 s and the geometry under
+  10 ms of it.

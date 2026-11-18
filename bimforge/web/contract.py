@@ -118,10 +118,24 @@ def _elements(model, spans) -> dict:
 def _bid_items(model) -> dict:
     """{item_number: {"unit_price", "total", "quantity", "unit", "code"}}
     from the estimate an IFC carries (estimate_model5d's
-    BidSheet_EstimateItem on each bid item's cost item). {} without one."""
+    BidSheet_EstimateItem on each bid item's cost item). {} without one.
+
+    Only the items of an ESTIMATE schedule are read (C.5), so a cost item
+    in another schedule that happens to carry the pset is not taken as a
+    bid item."""
     import ifcopenshell.util.element as ue
     out = {}
-    for ci in model.by_type("IfcCostItem"):
+    items, todo = [], [o for cs in model.by_type("IfcCostSchedule")
+                       if cs.PredefinedType == "ESTIMATE"
+                       for rel in cs.Controls or []
+                       for o in rel.RelatedObjects or []
+                       if o.is_a("IfcCostItem")]
+    while todo:
+        ci = todo.pop(0)
+        items.append(ci)
+        todo[:0] = [o for rel in getattr(ci, "IsNestedBy", None) or []
+                    for o in rel.RelatedObjects or [] if o.is_a("IfcCostItem")]
+    for ci in items:
         ps = ue.get_psets(ci).get("BidSheet_EstimateItem")
         if not ps or ps.get("ItemNumber") in (None, ""):
             continue

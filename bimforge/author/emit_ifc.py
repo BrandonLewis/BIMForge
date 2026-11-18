@@ -1103,8 +1103,12 @@ def _assign_type(run, f, ctx, cache: dict, product, el, ifc_class: str,
     # double-typing check. A reader resolves it through the type
     # (ifcopenshell.util.element.get_predefined_type).
     run("type.assign_type", f, related_objects=[product], relating_type=t)
-    if pdt and hasattr(product, "PredefinedType"):
-        product.PredefinedType = "NOTDEFINED"        # the type says what it is
+    if (hasattr(product, "PredefinedType")
+            and getattr(t, "PredefinedType", None) not in (None, "NOTDEFINED")):
+        # the type says what it is, so the occurrence's is unset, not
+        # NOTDEFINED: CorrectPredefinedType ("unset, e.g. because a type is
+        # associated") and bSI's OJT001 (#94)
+        product.PredefinedType = None
     return t
 
 

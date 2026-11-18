@@ -70,6 +70,8 @@ Date: 2026-11-09. Base: main `d5abdfb` (0.1.111). Read-only audit; nothing chang
 
 ## Phase 2 — relationship and reader semantics (BIMForge readers dual-read; JSON outputs change)
 
+**Status (C.5):** done, except the IfcCrewResource row, which is not taken up: no reader wants it yet. Task outputs shipped in #62, the evaluator and the ESTIMATE re-key with C.2, the category vocabulary is `cost_categories.CATEGORIES`, and the rest in the C.5 PR, with material set usages read through `bimforge.bim.materials` ahead of X.5/X.6.
+
 | Change | Spec basis | What downstream sees |
 |---|---|---|
 | Task builds element: **IfcRelAssignsToProduct** (element relating, task related). Today it is `assign_process`, which IFC reads as the task *consuming* the element. Verified: ifcopenshell `get_task_outputs` reads only AssignsToProduct. Sources: `schedule4d.py:463`, `estimate_model5d.py:386`. | IFC4 process input/output (ICOM) | Readers already accept both directions. `task_elements()` / `schedule_links()` `direction` flips from `"input"` to `"output"`. |

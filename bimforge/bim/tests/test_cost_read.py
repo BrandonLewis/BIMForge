@@ -119,7 +119,35 @@ def test_no_cost_schedule_is_a_clear_error():
     f = ifcopenshell.file(schema="IFC4X3_ADD2")
     root.create_entity(f, ifc_class="IfcProject")
     embed_schedule(f, _sched())
-    with pytest.raises(ValueError, match="no IfcCostSchedule named 'S cost'"):
+    with pytest.raises(ValueError, match="none is named 'S cost'"):
+        read_costs(f)
+
+
+# -- C.5: a cost schedule is found by type and link, not by name ------------
+
+def test_a_renamed_cost_schedule_is_found_by_its_links():
+    f = _model()
+    want = read_costs(f)
+    (cs,) = f.by_type("IfcCostSchedule")
+    cs.Name = "Renamed in another tool"
+    assert read_costs(f) == want
+
+
+def test_two_schedules_each_find_their_own_cost_schedule_by_link():
+    f = _model("S", "T")
+    for cs in f.by_type("IfcCostSchedule"):
+        cs.Name = f"x {cs.Name}"                # neither name matches
+    assert read_costs(f, "S")["tasks"] == read_costs(f, "T")["tasks"]
+    assert read_costs(f, "S")["schedule"] == "S"
+
+
+def test_a_tender_schedule_is_not_a_task_schedules_cost():
+    f = _model()
+    (cs,) = f.by_type("IfcCostSchedule")
+    cs.PredefinedType = "TENDER"                 # still named "S cost"
+    assert read_costs(f)["tasks"]                # found by its name only
+    cs.Name = "S bid"
+    with pytest.raises(ValueError, match="no IfcCostSchedule costs"):
         read_costs(f)
 
 
@@ -275,6 +303,10 @@ def test_a_renamed_estimate_schedule_is_found_through_its_marker():
     f = _model()    # this file's helper: embeds the schedule and its costs
     (cs,) = f.by_type("IfcCostSchedule")
     cs.Name = "Renamed in another tool"
+    assert cost_schedules_for(f, sched.name) == [cs]   # C.5: by its links
+    # undeclared, so only the name and the marker can find it
+    for rel in list(cs.HasContext):
+        f.remove(rel)
     assert cost_schedules_for(f, sched.name) == []
     ps = pset.add_pset(f, product=cs, name="BidSheet_EstimateModel")
     pset.edit_pset(f, pset=ps, properties={"WorkSchedule": sched.name})
