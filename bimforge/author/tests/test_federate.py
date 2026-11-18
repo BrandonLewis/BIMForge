@@ -241,3 +241,23 @@ def test_federate_keeps_storeys_decomposed_from_building(tmp_path):
     msgs = [str(s.get("message", s)) for s in log.statements]
     assert not any("WR41" in m for m in msgs), msgs
     assert msgs == []
+
+
+def test_federate_leaves_no_stranded_placement(tmp_path):
+    # bSI IFC106 (#94): re-hanging each source's products under the target's
+    # storeys strands the copies of the source's own site/building/storey
+    # placements; nothing rooted may be left referencing nothing
+    import ifcopenshell
+    a, b = tmp_path / "w1.ifc", tmp_path / "w2.ifc"
+    _wall_ifc(a, "footing A")
+    _wall_ifc(b, "footing B")
+    out = tmp_path / "fed.ifc"
+    federate([(a, "Wall 1"), (b, "Wall 2")], str(out), _ctx())
+    f = ifcopenshell.open(str(out))
+    stranded = [p.id() for p in f.by_type("IfcLocalPlacement")
+                if not f.get_total_inverses(p)]
+    assert stranded == []
+    # ...nor the merged contexts' WorldCoordinateSystem and TrueNorth
+    loose = [e.id() for cls in ("IfcAxis2Placement3D", "IfcDirection")
+             for e in f.by_type(cls) if not f.get_total_inverses(e)]
+    assert loose == []
