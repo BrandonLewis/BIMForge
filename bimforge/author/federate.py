@@ -524,10 +524,20 @@ def _unify_contexts(f, model_ctx, body_ctx) -> int:
             if inv.is_a("IfcProject"):
                 inv.RepresentationContexts = tuple(
                     x for x in inv.RepresentationContexts if x.id() != cid)
+    # a merged context's WorldCoordinateSystem and TrueNorth go with it, or
+    # nothing rooted references them (bSI IFC106, #94)
+    owned = [a for cid in dead
+             if not f.by_id(cid).is_a("IfcGeometricRepresentationSubContext")
+             for a in (f.by_id(cid).WorldCoordinateSystem, f.by_id(cid).TrueNorth)
+             if a is not None]
     # subcontexts reference their parent, so remove them first, then parents
     for cid in sorted(dead, key=lambda i: not f.by_id(i).is_a(
             "IfcGeometricRepresentationSubContext")):
         f.remove(f.by_id(cid))
+    import ifcopenshell.util.element
+    for a in owned:
+        if not f.get_total_inverses(a):
+            ifcopenshell.util.element.remove_deep2(f, a)
     return len(dead)
 
 
@@ -879,14 +889,15 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
         f.remove(building)
         if bpl is not None and not f.get_total_inverses(bpl):
             ifcopenshell.util.element.remove_deep2(f, bpl)
-    if used_facility_path:
-        # carried spatial elements and site products are re-localized onto the
-        # target's placements, which strands the copies of each source's
-        # site/building/storey placements; nothing references them any more.
-        import ifcopenshell.util.element
-        for pl in list(f.by_type("IfcLocalPlacement")):
-            if not f.get_total_inverses(pl):
-                ifcopenshell.util.element.remove_deep2(f, pl)
+    # products, carried spatial elements and site products are re-localized
+    # onto the target's placements, on either path, which strands the copies
+    # of each source's site/building/storey placements; nothing references
+    # them any more (bSI IFC106, #94). Removing one can strand its parent.
+    import ifcopenshell.util.element
+    while stranded := [pl for pl in f.by_type("IfcLocalPlacement")
+                       if not f.get_total_inverses(pl)]:
+        for pl in stranded:
+            ifcopenshell.util.element.remove_deep2(f, pl)
 
     _dedupe_nonproduct_globalids(f, ctx)
     _assert_products_unique(f)

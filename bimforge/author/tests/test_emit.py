@@ -1537,8 +1537,8 @@ def test_emit_ifc_types_occurrences_and_hangs_parts_under_their_whole(tmp_path):
     for p in posts:
         assert ue.get_type(p) == types["B11-51 post HSS2x2x3/16"]
         assert ue.get_predefined_type(p) == "POST"
-        # inherited, not doubled: NOTDEFINED ("Element Type Predefined Type", #77)
-        assert p.PredefinedType == "NOTDEFINED" and p.ObjectType is None
+        # inherited, not doubled: unset (CorrectPredefinedType, bSI OJT001, #94)
+        assert p.PredefinedType is None and p.ObjectType is None
     # the whole
     (whole,) = [r for r in f.by_type("IfcRailing") if r.Name == "NB handrail run"]
     assert whole.Representation is None

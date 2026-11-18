@@ -97,6 +97,20 @@ def test_the_gradient_curve_lies_on_the_swept_alignment(tmp_path):
     assert _worst_offset_m(f, m, al, prof, curve) < 1e-3     # chord sag only
 
 
+def test_a_crest_curve_has_a_negative_radius(tmp_path):
+    """IFC4.3 signs RadiusOfCurvature: positive CCW, negative CW (bSI
+    ALB012: HorizontalLength / (EndGradient - StartGradient)). The fixture's
+    +3% to -2% crest over 200 ft turns clockwise: R = -4000 ft (#94)."""
+    m, _al, _prof = _model()
+    _out, f = _emit(tmp_path, m)
+    (vc,) = [s.DesignParameters for s in f.by_type("IfcAlignmentSegment")
+             if s.DesignParameters.is_a("IfcAlignmentVerticalSegment")
+             and s.DesignParameters.PredefinedType == "PARABOLICARC"]
+    assert vc.RadiusOfCurvature == pytest.approx(-4000.0 * m.ctx.ft_to_m)
+    assert vc.RadiusOfCurvature == pytest.approx(
+        vc.HorizontalLength / (vc.EndGradient - vc.StartGradient))
+
+
 def test_without_a_profile_the_plan_curve_is_written(tmp_path):
     m, al, _ = _model(profile=False)
     _out, f = _emit(tmp_path, m)

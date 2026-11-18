@@ -88,3 +88,28 @@ def test_ifc2x3_file_validates_without_crashing(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "TOTAL" in out and "schema issues:" in out
     assert rc in (0, 1)
+
+
+def _rule_break(tmp_path):
+    """A file every attribute of which is valid but that breaks a WHERE rule
+    (IfcWall.CorrectPredefinedType: USERDEFINED needs an ObjectType)."""
+    import ifcopenshell
+    import ifcopenshell.api.root
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    w = ifcopenshell.api.root.create_entity(f, ifc_class="IfcWall", name="W1")
+    w.PredefinedType = "USERDEFINED"
+    path = tmp_path / "rule.ifc"
+    f.write(str(path))
+    return path
+
+
+def test_a_where_rule_break_fails(tmp_path, capsys):
+    # #94: the schema's rules are checked, not only its attribute types
+    assert cli.main(["validate", str(_rule_break(tmp_path))]) == 1
+    assert "CorrectPredefinedType" in capsys.readouterr().err
+
+
+def test_no_rules_checks_attributes_only(tmp_path, capsys):
+    assert cli.main(["validate", "--no-rules",
+                     str(_rule_break(tmp_path))]) == 0
