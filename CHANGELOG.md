@@ -4,6 +4,12 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.127 — 2026-11-18
+
+Conformance as a standing gate on IFC4 too (C.7, #101), the inventory of what each command writes (C.9, #102), the model's identity (M.6, #103), mesh conformance (GEM001, GEM111) and fast output links (#64).
+
+**For ProjectCommand and BidSheet.ai:** this is the first release that writes `BIMForge_Model.BuildId` on the IfcProject. Models built earlier have no set. The estimating plugin's floor need not move.
+
 ### Added
 
 - **The model names itself (M.6).** Every file `est-bim build`, `dxf2bim`
