@@ -4,6 +4,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+IFC compliance audit Phase 2 (roadmap C.5): relationship semantics.
+
+### Added
+
+- `bimforge.bim.materials.governing_material(element)`: the IfcMaterial that governs an element or its type, through an IfcMaterialLayerSetUsage or IfcMaterialProfileSetUsage, a layer, profile or constituent set (its first member) or a list. The developed views' cut layers use it, so they keep naming the material once X.5 and X.6 write sets.
+- `schedule_read.crews_of(task)`: the resources assigned to a task, by either relationship below.
+
+### Changed
+
+- **Crews are assigned to tasks with IfcRelAssignsToProcess**, the task relating, in `cost5d` and `estimate-model`; it was IfcRelAssignsToResource (the crew relating). `read_costs` reads both, so earlier files read the same hours. A tool that copies a task's process assignments (ProjectCommand's schedule update) now carries the crew along. A re-embed removes the old crews' assignments with them (ifcopenshell's `remove_resource` leaves process assignments behind). The 4D readers (`task_elements`, element start dates, appear and vanish spans) skip resources among a task's process inputs.
+- `read_costs` and the web contract find a work schedule's cost schedule by type and link: a BUDGET or ESTIMATE schedule declared to the project whose cost items control its tasks, whatever it is named. The name "<ws> cost" and the estimate-model marker remain the fallbacks. The error for none or several now says which.
+- The web contract reads bid items (`BidSheet_EstimateItem`) only from ESTIMATE cost schedules.
+
 ## 0.1.125 — 2026-11-16
 
 IFC compliance audit Phase 1 (roadmap C.4): additive compliance.
