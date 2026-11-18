@@ -55,6 +55,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcFaceOuterBound | build | both |
 | IfcFacetedBrep | build | both |
 | IfcFooting | build | both |
+| IfcFootingType | build | both |
 | IfcGeometricRepresentationContext | build, dxf2bim | both |
 | IfcGeometricRepresentationSubContext | build, dxf2bim | both |
 | IfcGradientCurve | build | IFC4X3 |
@@ -148,6 +149,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | BidSheet_EstimateModel | EstimateId, WorkSchedule, Writer | IfcCostSchedule, IfcWorkSchedule | estimate-model | both |
 | Bimforge_CostItem | ActivityId, ElementGlobalId, ElementId, ExactCost, Fraction, ItemId, LaborHours, Reason, TaskId | IfcCostItem | estimate-model, schedule + cost5d | both |
 | Bimforge_Task | MatchIfcClass, TaskId, Wbs | IfcTask | estimate-model, schedule + cost5d, schedule --returned | both |
+| Pset_FootingCommon | Reference | IfcFooting | build | both |
 | Pset_RailingCommon | Reference | IfcRailing | build | both |
 | Pset_Stationing | Station | IfcReferent | build | IFC4X3 |
 | Pset_WallCommon | IsExternal, LoadBearing, Reference | IfcWall | build, dxf2bim | both |

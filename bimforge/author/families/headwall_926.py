@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import math
 
+from bimforge.author import family_dictionary as fd
 from bimforge.author.model import Element, StructureModel
 from bimforge.author.primitives import (
     IN3_PER_CF, STEEL_LB_PER_IN3, Prism, Tube, equal_area_polygon_radius)
@@ -160,8 +161,8 @@ def build(params: dict, ctx) -> StructureModel:
         r_in_poly = equal_area_polygon_radius(r_out - wall_t_rail, segs)
         m.add(Element(
             "guardrail", "IfcRailing", predefined_type="GUARDRAIL",
-            type_name="Pipe guardrail (D90 headwall)",
-            psets={"Pset_RailingCommon": {"Reference": "D90"}},
+            type_name=fd.type_name("pipe-guardrail-d90"),
+            psets=fd.reference_psets("pipe-guardrail-d90"),
             geometry=[{"kind": "tube", "units": "ft", "x0": -hw_w / 2,
                        "length": hw_w, "cz": post_h, "r_outer": r_out,
                        "wall": wall_t_rail, "axis": "x"}] + [

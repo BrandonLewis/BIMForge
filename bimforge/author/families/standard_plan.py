@@ -20,6 +20,7 @@ bid-side):
 """
 from __future__ import annotations
 
+from bimforge.author import family_dictionary as fd
 from bimforge.author.alignment import Alignment, WallSection, _resolve_pob, sta
 from bimforge.author.model import Element, StructureModel
 from bimforge.author.primitives import Prism
@@ -75,6 +76,12 @@ def _cuts(w):
     return sorted(cuts)
 
 
+def wall_class(wall_type) -> str:
+    """The dictionary class of a B3 wall type's stem ("retaining-wall-b3-
+    type-1"); its footing's is the same code with "-footing"."""
+    return f"retaining-wall-b3-type-{str(wall_type).strip().lower()}"
+
+
 def build(params: dict, ctx) -> StructureModel:
     missing = [k for k in REQUIRED if params.get(k) is None]
     if missing:
@@ -89,6 +96,8 @@ def build(params: dict, ctx) -> StructureModel:
         front = w["front_side"]
         back = "Rt" if str(front).upper().startswith("L") else "Lt"
         cuts = _cuts(w)
+        stem_cls = wall_class(w["wall_type"])
+        foot_cls = f"{stem_cls}-footing"
         for a, b in zip(cuts[:-1], cuts[1:]):
             mid = (a + b) / 2.0
             H = _wall_H(w, mid)
@@ -108,6 +117,9 @@ def build(params: dict, ctx) -> StructureModel:
             model.add(Element.from_geometry(
                 p.name, p, ifc_class="IfcFooting", layer="S-CONC-OTLN",
                 predefined_type="STRIP_FOOTING",
+                type_name=fd.type_name(foot_cls),
+                psets=fd.reference_psets(foot_cls),
+                typed_late=True,
                 quantities={"length_ft": b - a, "width_ft": ws.W,
                             "height_ft": ws.F, "volume_cf": p.volume_cf}))
             # stem at MID-HEIGHT thickness: the prism volume IS the trapezoid's
@@ -121,6 +133,9 @@ def build(params: dict, ctx) -> StructureModel:
             model.add(Element.from_geometry(
                 p.name, p, ifc_class="IfcWall", layer="S-CONC-OTLN",
                 predefined_type="RETAININGWALL",
+                type_name=fd.type_name(stem_cls),
+                psets=fd.reference_psets(stem_cls),
+                typed_late=True,
                 quantities={"length_ft": b - a, "width_ft": th,
                             "height_ft": h, "volume_cf": p.volume_cf}))
 

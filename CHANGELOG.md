@@ -4,6 +4,29 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **The B3 retaining wall is typed (X.6).** Every stem slice is an
+  IfcWall/RETAININGWALL of an IfcWallType named for its wall type
+  ("Retaining wall Type 1"), every footing slice an IfcFooting/STRIP_FOOTING
+  of an IfcFootingType ("Retaining wall Type 1 footing"), and both carry the
+  B3 sheet they are built to as `Pset_WallCommon.Reference` /
+  `Pset_FootingCommon.Reference` (B3-1A, B3-3A, B3-4A, B3-7A). The family
+  dictionary has a class for each of the five wall types and its footing.
+  A reader groups a run's slices by type instead of by name.
+  No GlobalId moves: the types and sets are written after the sweep that
+  numbers the file's other roots, each keyed (`Element.typed_late`,
+  docs/globalid-contract.md), as the bar types are.
+
+### Changed
+
+- **Families read their names from the dictionary (X.4).** The type names
+  and standard-plan references of the barriers, the B11-51 handrailing and
+  the D90 pipe guardrail come from `bimforge-families.bsdd.json` through
+  `bimforge.author.family_dictionary`, not from literals in each family.
+  What is written is unchanged. `BarrierTemplate.standard_plan` is gone: the
+  plan is the dictionary class's, by `family_id`.
+
 ## 0.1.127 — 2026-11-18
 
 Conformance as a standing gate on IFC4 too (C.7, #101), the inventory of what each command writes (C.9, #102), the model's identity (M.6, #103), mesh conformance (GEM001, GEM111) and fast output links (#64).

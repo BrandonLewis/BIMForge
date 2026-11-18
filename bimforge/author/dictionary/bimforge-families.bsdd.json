@@ -221,6 +221,256 @@
       ]
     },
     {
+      "Code": "retaining-wall-b3-type-1",
+      "Name": "Retaining wall Type 1",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 1 retaining wall: front face vertical, back face battered. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-1A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-1A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-1-footing",
+      "Name": "Retaining wall Type 1 footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 1 retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-1A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-1A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-1"
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-1a",
+      "Name": "Retaining wall Type 1A",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 1A retaining wall: a constant-thickness vertical stem. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-3A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-3A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-1a-footing",
+      "Name": "Retaining wall Type 1A footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 1A retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-3A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-3A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-1a"
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-5",
+      "Name": "Retaining wall Type 5",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 5 retaining wall: front face battered, back face vertical. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-4A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-4A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-5-footing",
+      "Name": "Retaining wall Type 5 footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 5 retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-4A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-4A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-5"
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-6a",
+      "Name": "Retaining wall Type 6A",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 6A retaining wall: a short vertical stem, at most 6 ft high. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-7A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-7A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-6a-footing",
+      "Name": "Retaining wall Type 6A footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 6A retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-7A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-7A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-6a"
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-6b",
+      "Name": "Retaining wall Type 6B",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 6B retaining wall: a short vertical stem set near the toe, with a long heel. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-7A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-7A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-6b-footing",
+      "Name": "Retaining wall Type 6B footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 6B retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-7A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-7A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-6b"
+        }
+      ]
+    },
+    {
       "Code": "reinforcing-bar",
       "Name": "Reinforcing bar",
       "ClassType": "Class",

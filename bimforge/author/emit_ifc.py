@@ -1222,6 +1222,29 @@ def _bar_types(run, f, ctx, products: list) -> None:
         rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByType/{t.GlobalId}")
 
 
+def _late_typing(run, f, ctx, cache: dict, late: list) -> None:
+    """Type and give property sets to the Element.typed_late elements, after
+    the sweep, every root keyed: the type as any type (`_assign_type`), its
+    IfcRelDefinesByType by the type, a property set by its owner and name,
+    its IfcRelDefinesByProperties by the set (the embedders' keys,
+    docs/globalid-contract.md)."""
+    for product, el, ifc_class, typing in late:
+        t = el.type_name and _assign_type(run, f, ctx, cache, product, el,
+                                          ifc_class, typing)
+        if t:
+            for rel in t.Types or ():
+                rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByType/{t.GlobalId}")
+        for pset_name, props in (el.psets or {}).items():
+            if not props:
+                continue
+            pset = run("pset.add_pset", f, product=product, name=pset_name)
+            run("pset.edit_pset", f, pset=pset, properties=dict(props))
+            pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{pset_name}")
+            for rel in pset.DefinesOccurrence or ():
+                rel.GlobalId = ctx.guid(
+                    f"rel/IfcRelDefinesByProperties/{pset.GlobalId}")
+
+
 def _declare_types(run, f, project) -> None:
     """Declare every IfcTypeObject to the IfcProject (IfcRelDeclares, the
     Project Declaration concept): a type nothing declares sits outside the
@@ -1907,6 +1930,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     layer_cache: dict = {}     # layer name -> IfcPresentationLayerAssignment
     type_cache: dict = {}      # (type class, name, predefined) -> IfcTypeObject
     sized_bars: list = []      # (product, el): typed after the sweep
+    late: list = []            # (product, el, ifc_class, typing): Element.typed_late
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
@@ -1972,8 +1996,11 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             product.GlobalId = ctx.guid(_gk(scope, el.guid_key))
             typing = _object_typing(ctx.schema, ifc_class, wanted, object_type,
                                     el)
-            typed = el.type_name and _assign_type(
-                run, f, ctx, type_cache, product, el, ifc_class, typing)
+            typed = (el.type_name and not el.typed_late
+                     and _assign_type(run, f, ctx, type_cache, product, el,
+                                      ifc_class, typing))
+            if el.typed_late:
+                late.append((product, el, ifc_class, typing))
             if (el.bar_size is not None and not el.type_name
                     and product.is_a("IfcReinforcingBar")):
                 sized_bars.append((product, el))
@@ -1983,7 +2010,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                     product.PredefinedType = pdt
                 product.ObjectType = custom
             for pset_name, props in (el.psets or {}).items():
-                if props:
+                if props and not el.typed_late:
                     pset = run("pset.add_pset", f, product=product,
                                name=pset_name)
                     run("pset.edit_pset", f, pset=pset,
@@ -2257,6 +2284,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     # roots added since the sweep was first written are keyed and come
     # after it, so they renumber nothing (test_example_globalids)
     _bar_types(run, f, ctx, sized_bars)
+    _late_typing(run, f, ctx, type_cache, late)
     _declare_types(run, f, project)
 
     # then pin every relationship's member order (see _pin_relationship_order:
