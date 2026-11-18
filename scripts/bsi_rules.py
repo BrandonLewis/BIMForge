@@ -30,11 +30,13 @@ import yaml
 
 BASELINE = Path(__file__).with_name("bsi_baseline.yaml")
 _OUTCOME = re.compile(r"ValidationOutcome\(inst=(\d+).*?severity=ValidationOutcome"
-                      r"\.OutcomeSeverity\.(ERROR|WARNING)")
+                      r"\.OutcomeSeverity\.(ERROR|WARNING).*?expected=(.*?), observed=(.*?)\)"
+                      r"(?=\s+-\s|\s*$|\s+Captured)")
 
 
 def run_rules(rules: Path, python: str, ifc: Path) -> tuple[dict, list[str]]:
-    """({rule code: [instance ids]}, [rule codes whose code raised])."""
+    """({rule code: [instance ids]}, [rule codes whose code raised],
+    {rule code: its first outcome's expected and observed})."""
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "behave.json"
         subprocess.run(
@@ -45,7 +47,7 @@ def run_rules(rules: Path, python: str, ifc: Path) -> tuple[dict, list[str]]:
              "-f", "outcome_embedding_json", "-o", str(out)],
             cwd=rules, capture_output=True, check=False)
         log = json.loads(out.read_text("utf-8"))
-    found, raised = {}, []
+    found, raised, detail = {}, [], {}
     for feat in log:
         if feat.get("status") != "failed":
             continue
@@ -56,12 +58,14 @@ def run_rules(rules: Path, python: str, ifc: Path) -> tuple[dict, list[str]]:
             if result.get("status") != "failed":
                 continue
             msg = " ".join(result.get("error_message", []))
-            insts = [int(i) for i, _sev in _OUTCOME.findall(msg)]
-            if insts:
-                found.setdefault(code, []).extend(insts)
+            hits = _OUTCOME.findall(msg)
+            if hits:
+                found.setdefault(code, []).extend(int(h[0]) for h in hits)
+                detail.setdefault(code, f"expected {hits[0][2][:200]}; "
+                                        f"observed {hits[0][3][:200]}")
             elif code not in raised:
                 raised.append(code)
-    return found, raised
+    return found, raised, detail
 
 
 def compare(results: dict, baseline: dict) -> tuple[list[str], list[str]]:
@@ -91,16 +95,18 @@ def main(argv=None) -> int:
     if not files:
         print(f"no .ifc files in {args.dir}", file=sys.stderr)
         return 2
-    results = {}
+    results, details = {}, {}
     for ifc in files:
-        found, raised = run_rules(args.rules, args.python, ifc)
-        results[ifc.stem] = found
+        found, raised, detail = run_rules(args.rules, args.python, ifc)
+        results[ifc.stem], details[ifc.stem] = found, detail
         print(f"{ifc.stem}: {', '.join(sorted(found)) or 'clean'}"
               + (f"  (rule code raised: {', '.join(raised)})" if raised else ""))
     baseline = yaml.safe_load(args.baseline.read_text("utf-8")) or {}
     new, stale = compare(results, baseline)
     for line in new:
+        out, code = line.split(": ")[0], line.split(": ")[1].split(" ")[0]
         print(f"NEW   {line}", file=sys.stderr)
+        print(f"      {details[out].get(code, '')}", file=sys.stderr)
     for line in stale:
         print(f"STALE {line}: fixed? remove it from {args.baseline.name}",
               file=sys.stderr)

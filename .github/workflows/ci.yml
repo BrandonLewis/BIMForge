@@ -129,3 +129,9 @@ jobs:
         run: >
           python scripts/bsi_rules.py --rules ifc-gherkin-rules
           --python /tmp/rules/bin/python ${{ runner.temp }}/conformance
+      - name: Keep the checked files
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-ifc
+          path: ${{ runner.temp }}/conformance
