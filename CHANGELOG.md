@@ -22,6 +22,14 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   or withdrawn. `carry_forward` already carried these unchanged; tests now
   pin a MODIFIED update and a kept BASELINE beside the current one.
 
+### Fixed
+
+- **Linking a task to many elements is fast again** (follow-up to #60). The output
+  links are written once per element by `schedule4d.link_outputs`, not once per
+  task-element pair through `sequence.assign_product`, which looked through the
+  task's assignments on every call. One task on 4,000 elements took 33 s after #60
+  (3.4 s before it) and now takes 0.2 s. The relationships written are the same.
+
 ## 0.1.126 — 2026-11-17
 
 IFC compliance audit Phase 2 (roadmap C.5): relationship semantics; and buildingSMART's normative rules in CI (#94).
