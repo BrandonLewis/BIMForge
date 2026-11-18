@@ -11,6 +11,7 @@ import ifcopenshell.api.root  # noqa: E402
 import ifcopenshell.guid  # noqa: E402
 
 from bimforge.bim import cli  # noqa: E402
+from bimforge.bim.cost_categories import total_of  # noqa: E402
 from bimforge.bim.estimate_model5d import (  # noqa: E402
     apportion_cents, embed_estimate_model,
 )
@@ -127,7 +128,17 @@ def _kids(ci):
 
 
 def _value(ci):
-    return sum(cv.AppliedValue.wrappedValue for cv in ci.CostValues or [])
+    return total_of(ci)
+
+
+def _leaves(ci):
+    kids = _kids(ci)
+    return [leaf for k in kids for leaf in (_leaves(k) if _kids(k) else [k])]
+
+
+def _psets(obj):
+    import ifcopenshell.util.element as ue
+    return ue.get_psets(obj)
 
 
 def test_apportion_cents_sums_to_the_rounded_exact_total():
@@ -164,12 +175,22 @@ def test_one_task_per_activity_with_dates():
     assert summary["tasks"] == 3 and summary["tasks_timed"] == 2
 
 
+def test_every_activity_task_is_construction():
+    # C.4: an estimate activity is construction work, not NOTDEFINED
+    f, _, _, _ = _embed()
+    assert {t.PredefinedType for t in f.by_type("IfcTask")} == {"CONSTRUCTION"}
+    assert {t.task_type for t in read_schedule(f).tasks} == {"CONSTRUCTION"}
+
+
 def test_tasks_link_elements_by_global_id_and_spread_links_none():
     f, summary, ftg, wall = _embed()
     links = task_elements(f, NAME)
     assert [l["global_id"] for l in links["a1"]] == [ftg.GlobalId]  # noqa: E741
     assert [l["global_id"] for l in links["a2"]] == [wall.GlobalId]  # noqa: E741
     assert links["a3"] == []             # spread: no elements, even listed
+    # #60: the elements are the tasks' outputs, never inputs
+    assert {l["direction"] for ls in links.values() for l in ls} ==         {"output"}  # noqa: E741
+    assert not f.by_type("IfcRelAssignsToProcess")
     assert summary["task_element_links"] == 2
     assert summary["unmatched_links"] == [{"activity": "a1",
                                            "element_id": 103}]
@@ -179,25 +200,30 @@ def test_cost_items_per_item_and_share_sum_to_item_total():
     f, summary, ftg, wall = _embed()
     cs, parents = _parents(f)
     assert cs.PredefinedType == "ESTIMATE" and cs.Name == f"{NAME} cost"
-    assert set(parents) == {"51-CONC", "20"}   # item code, else number
-    conc = parents["51-CONC"]
+    assert set(parents) == {"10", "20"}        # the pay item ids
+    conc = parents["10"]
     assert conc.Name == "Structural concrete"
-    assert not (conc.CostValues or [])         # valueless: sum the children
-    kids = _kids(conc)
-    values = sorted(round(_value(k), 2) for k in kids)
+    assert not (conc.CostValues or [])         # valueless: sum the leaves
+    (node,) = _kids(conc)                      # a1 and a2 share 03-300
+    assert node.Identification == "10.03-300"
+    assert not (node.CostValues or [])
+    leaves = _leaves(conc)
+    values = sorted(round(_value(k), 2) for k in leaves)
     assert values == [10.00, 10.01]
     assert round(sum(values), 2) == 20.01      # not 20.00
     assert summary["cost_items"] == 2 and summary["share_items"] == 3
-    # an item with no shares gets no (valueless, unlinked) cost item
+    assert summary["code_items"] == 2
     assert summary["items_without_shares"] == [3]
-    assert "99-UNUSED" not in parents
+    assert "30" not in parents
     assert Decimal(summary["allocated_total"]) == Decimal("520.01")
-    # each share's item links its task and its element
-    by_name = {k.Name: k for k in kids}
+    by_name = {k.Name: k for k in leaves}
     ftg_kid = by_name["Form & pour footing: F-1"]
     related = [o for rel in ftg_kid.Controls for o in rel.RelatedObjects]
     assert {o.is_a() for o in related} == {"IfcTask", "IfcFooting"}
     assert ftg in related
+    # the pre-0.1.118 key read_costs still uses
+    assert _psets(conc)["BidSheet_EstimateItem"]["CostKey"] == "51-CONC"
+    assert _psets(parents["20"])["BidSheet_EstimateItem"]["CostKey"] == "20"
 
 
 def test_one_labor_resource_per_crew_with_headcount():
@@ -254,6 +280,10 @@ def test_round_trip_through_read_costs():
     assert got["tasks"]["a3"]["labor_hours"] == pytest.approx(0.0)
     # the read-back task ids are read_schedule's
     assert set(got["tasks"]) <= {t.id for t in read_schedule(f, NAME).tasks}
+    assert got["tasks"]["a1"]["costs"]["51-CONC"]["cost_code"] == "10.03-300"
+    assert got["tasks"]["a3"]["costs"]["20"]["cost_code"] == "20.01-500"
+    assert got["tasks"]["a1"]["costs"]["51-CONC"]["categories"] == {
+        "Labor": pytest.approx(10.00)}
 
 
 def test_rerun_replaces_by_name(tmp_path):
@@ -261,7 +291,7 @@ def test_rerun_replaces_by_name(tmp_path):
     counts = lambda: {c: len(f.by_type(c)) for c in (  # noqa: E731
         "IfcTask", "IfcCostItem", "IfcCostValue", "IfcLaborResource",
         "IfcRelAssociatesClassification", "IfcRelAssignsToControl",
-        "IfcRelAssignsToProcess", "IfcRelAssignsToResource",
+        "IfcRelAssignsToProduct", "IfcRelAssignsToResource",
         "IfcPropertySet", "IfcClassificationReference")}
     before = counts()
     embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
@@ -294,10 +324,12 @@ def test_items_sharing_a_code_get_distinct_identifications():
     model["items"][1]["schedule"] = "B"
     embed_estimate_model(f, model)
     _, parents = _parents(f)
-    assert set(parents) == {"51-CONC [A]", "51-CONC [B]"}
-    import ifcopenshell.util.element as ue
-    for ident, ci in parents.items():
-        assert ue.get_psets(ci)["BidSheet_EstimateItem"]["ItemCode"] ==             "51-CONC"
+    assert set(parents) == {"10", "20"}             # pay ids stay distinct
+    keys = {_psets(ci)["BidSheet_EstimateItem"]["CostKey"]
+            for ci in parents.values()}
+    assert keys == {"51-CONC [A]", "51-CONC [B]"}
+    for ci in parents.values():
+        assert _psets(ci)["BidSheet_EstimateItem"]["ItemCode"] == "51-CONC"
     got = read_costs(f, NAME)
     assert got["costs"]["51-CONC [A]"]["cost"] == pytest.approx(20.01)
     assert got["costs"]["51-CONC [B]"]["cost"] == pytest.approx(500.0)
@@ -346,7 +378,8 @@ def test_rerun_leaves_other_tools_schedules_alone():
     assert names == [NAME, "Staging"]
     assert sorted(c.Name for c in f.by_type("IfcCostSchedule")) == [
         f"{NAME} cost", "Staging cost"]
-    assert read_costs(f, "Staging")["costs"]["X"]["cost"] ==         pytest.approx(10.0)
+    assert read_costs(f, "Staging")["costs"]["X"]["cost"] == \
+        pytest.approx(10.0)
     # cost5d's crew ("Staging: Stage 1") survives; ours is replaced, not doubled
     crews = sorted(r.Name for r in f.by_type("IfcLaborResource"))
     assert crews == [f"{NAME}: crew Concrete crew", "Staging: Stage 1"]
@@ -362,3 +395,215 @@ def test_an_unscheduled_estimate_says_its_start_is_not_real():
     assert any("no activity has a start_date" in w for w in summary["warnings"])
     _f, dated, _ftg, _wall = _embed()
     assert not any("no activity has a start_date" in w for w in dated["warnings"])
+
+
+def test_the_schedule_is_projectcommand_s_shape():
+    f, _, _, _ = _embed()
+    cs, parents = _parents(f)
+    every = [ci for ci in f.by_type("IfcCostItem")]
+    idents = [ci.Identification for ci in every if ci.Identification]
+    assert len(idents) == len(set(idents))          # unique
+    for top in parents.values():
+        assert not (top.CostValues or ())
+        for node in _kids(top):
+            assert not (node.CostValues or ())
+    for leaf in [l for top in parents.values() for l in _leaves(top)]:  # noqa: E741
+        assert leaf.Identification is None
+        (cv,) = leaf.CostValues                     # exactly one value
+        assert cv.ArithmeticOperator == "ADD" and cv.AppliedValue is None
+        assert not (leaf.CostQuantities or ())      # totals, not rates
+    marker = _psets(cs)["BidSheet_EstimateModel"]
+    assert marker["WorkSchedule"] == NAME
+
+
+def test_a_share_with_no_bid_item_is_a_top_level_indirect():
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["shares"][2]["item_id"] = None            # a3 Mobilize, 01-500
+    summary = embed_estimate_model(f, model)
+    _, parents = _parents(f)
+    assert set(parents) == {"10", "01-500"}
+    mob = parents["01-500"]
+    (leaf,) = _kids(mob)                            # no code node under it
+    assert _value(leaf) == pytest.approx(500.0)
+    assert summary["indirect_items"] == 1
+    assert not any("left out" in w for w in summary["warnings"])
+    got = read_costs(f, NAME)
+    assert got["tasks"]["a3"]["costs"]["01-500"]["cost"] == \
+        pytest.approx(500.0)
+    assert got["tasks"]["a3"]["costs"]["01-500"]["cost_code"] == "01-500"
+    assert Decimal(summary["allocated_total"]) == Decimal("520.01")
+
+
+def test_a_share_naming_an_unknown_item_is_still_dropped():
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["shares"][2]["item_id"] = 999
+    summary = embed_estimate_model(f, model)
+    assert any("999" in w and "left out" in w for w in summary["warnings"])
+
+
+def test_another_estimate_schedule_in_the_file_is_warned_about():
+    import ifcopenshell.api.cost as cost
+    f, site, ftg, wall = _ifc()
+    cost.add_cost_schedule(f, name="Someone else's", predefined_type="ESTIMATE")
+    summary = embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    assert any("ESTIMATE" in w and "Someone else's" in w
+               for w in summary["warnings"])
+    _f, clean, _ftg, _wall = _embed()
+    assert not any("ESTIMATE schedule" in w for w in clean["warnings"])
+
+
+def test_the_file_declares_one_currency_after_a_rerun():
+    import ifcopenshell.api.unit as unit
+    f, site, ftg, wall = _ifc()
+    unit.assign_unit(f)
+    doc = _model_json(ftg.GlobalId, wall.GlobalId)
+    embed_estimate_model(f, doc)
+    embed_estimate_model(f, doc)
+    (project,) = f.by_type("IfcProject")
+    assert [u.Currency for u in project.UnitsInContext.Units
+            if u.is_a("IfcMonetaryUnit")] == ["USD"]
+    estimates = [c for c in f.by_type("IfcCostSchedule")
+                 if c.PredefinedType == "ESTIMATE"]
+    assert len(estimates) == 1
+    declares = [r for r in f.by_type("IfcRelDeclares")
+                if estimates[0] in r.RelatedDefinitions]
+    assert len(declares) == 1
+
+
+def test_the_estimate_schedule_has_a_status_and_no_write_time():
+    f, site, ftg, wall = _ifc()
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    (cs,) = [c for c in f.by_type("IfcCostSchedule")
+             if c.PredefinedType == "ESTIMATE"]
+    assert cs.Status == "PLANNED"
+    assert cs.UpdateDate is None
+
+
+def test_the_estimate_currency_is_configurable():
+    import ifcopenshell.api.unit as unit
+    f, site, ftg, wall = _ifc()
+    unit.assign_unit(f)
+    embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId),
+                         currency="CAD")
+    (project,) = f.by_type("IfcProject")
+    assert [u.Currency for u in project.UnitsInContext.Units
+            if u.is_a("IfcMonetaryUnit")] == ["CAD"]
+
+
+def test_item_numbers_equal_after_the_prefix_is_stripped_stay_distinct():
+    # "Item # 10" and "10" both pay_item_id to "10": a data error, but the
+    # uniqueness suffixes keep the two bid items (and their keys) apart
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["items"][1]["item_number"] = "Item # 10"
+    model["items"][1]["schedule"] = "B"
+    summary = embed_estimate_model(f, model)
+    _, parents = _parents(f)
+    assert set(parents) == {"10 [A]", "10 [B]"}
+    keys = {_psets(ci)["BidSheet_EstimateItem"]["CostKey"]
+            for ci in parents.values()}
+    assert keys == {"51-CONC", "Item # 10"}
+    assert "bid items 1, 2 share pay item id '10' — written as '10 [A]', " \
+        "'10 [B]'; ProjectCommand will report a duplicate" in summary["warnings"]
+    _f, clean, _ftg, _wall = _embed()
+    assert not any("share pay item id" in w for w in clean["warnings"])
+
+
+def test_estimate_and_tender_pair_by_identification():
+    """The same bid through estimate5d (TENDER) and estimate-model
+    (ESTIMATE): their top-level Identifications are equal, though the
+    takeoff map spells the number "Item # 7" and BidSheet.ai "7"."""
+    from bimforge.bim import estimate5d
+    from bimforge.bim.tests.test_estimate5d import _pile_ifc
+    f = _pile_ifc(schema="IFC4X3_ADD2")
+    (pile,) = f.by_type("IfcPile")
+    estimate5d.embed_estimate(
+        f, {"codes": {"PILE-200W-FRN": {"measure": "Length", "unit": "LF",
+                                        "item_number": "Item # 7"}}},
+        {"PILE-200W-FRN": {"cost": 0, "unit_price": 10.0, "unit": "LF"}})
+    embed_estimate_model(f, {
+        "estimate": {"id": 9},
+        "items": [{"id": 1, "item_number": "7", "item_code": "PILE-200W-FRN",
+                   "description": "Piles", "unit": "LF", "quantity": "41",
+                   "unit_price": "10", "total": "410"}],
+        "elements": [{"id": 11, "global_id": pile.GlobalId,
+                      "global_id_assigned": True, "name": "P-1"}],
+        "activities": [{"id": 1, "key": "a1", "name": "Drive piles",
+                        "home_item_id": 1, "cost_code": "31-620",
+                        "cost": "410",
+                        "cost_split": {"labor": "300", "equipment": "110"},
+                        "start_date": "2026-08-10",
+                        "finish_date": "2026-08-14",
+                        "element_ids": [11], "spread": {}}],
+        "shares": [{"activity_id": 1, "activity_key": "a1", "item_id": 1,
+                    "element_id": 11, "fraction": "1", "cost": "410",
+                    "manhours": "16"}]})
+
+    def tops(kind):
+        (cs,) = [c for c in f.by_type("IfcCostSchedule")
+                 if c.PredefinedType == kind]
+        return {ci.Identification for rel in cs.Controls or []
+                for ci in rel.RelatedObjects if ci.is_a("IfcCostItem")}
+
+    assert tops("TENDER") == tops("ESTIMATE") == {"7"}
+
+
+def test_an_indirect_code_equal_to_a_bid_item_key_is_qualified():
+    # a3's code "20" is item 2's pay id and CostKey: part of a3 pays item 2,
+    # part names no item. The indirect must not read back under item 2
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["activities"][2]["cost_code"] = "20"
+    model["shares"][2]["cost"] = "300"              # item 2's own share
+    model["shares"].append(dict(model["shares"][2], item_id=None, cost="200"))
+    summary = embed_estimate_model(f, model)
+    _, parents = _parents(f)
+    assert set(parents) == {"10", "20", "20 [indirect]"}
+    idents = [ci.Identification for ci in f.by_type("IfcCostItem")
+              if ci.Identification]
+    assert len(idents) == len(set(idents))
+    got = read_costs(f, NAME)
+    assert got["costs"]["20"]["cost"] == pytest.approx(300.0)    # not 500
+    assert got["costs"]["20 [indirect]"]["cost"] == pytest.approx(200.0)
+    assert "indirect cost code '20' is also a bid item's id/key — written " \
+        "as '20 [indirect]'" in summary["warnings"]
+    assert not any("pair it with" in w for w in summary["warnings"])
+
+
+def test_a_duplicate_identification_in_the_schedule_is_warned_about():
+    # item 2 numbered "10.03-300" collides with item 1's 03-300 code node
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["items"][1]["item_number"] = "10.03-300"
+    summary = embed_estimate_model(f, model)
+    dup = [w for w in summary["warnings"] if "repeats" in w]
+    assert len(dup) == 1 and "'10.03-300'" in dup[0]
+    _f, clean, _ftg, _wall = _embed()
+    assert not any("repeats" in w for w in clean["warnings"])
+
+
+def test_a_renamed_schedule_is_replaced_on_a_rerun():
+    f, _, ftg, wall = _embed()
+    (cs,) = f.by_type("IfcCostSchedule")
+    cs.Name = "Renamed in another tool"
+    again = embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
+    estimates = [c for c in f.by_type("IfcCostSchedule")
+                 if c.PredefinedType == "ESTIMATE"]
+    assert [c.Name for c in estimates] == [f"{NAME} cost"]
+    assert not any("another ESTIMATE schedule" in w
+                   for w in again["warnings"])
+
+
+def test_a_spread_activity_lands_under_each_item_it_pays():
+    f, site, ftg, wall = _ifc()
+    model = _model_json(ftg.GlobalId, wall.GlobalId)
+    model["shares"][2]["cost"] = "250"              # a3 spread on items 1, 2
+    model["shares"].append(dict(model["shares"][2], item_id=1))
+    embed_estimate_model(f, model)
+    _, parents = _parents(f)
+    assert "10.01-500" in {n.Identification for n in _kids(parents["10"])}
+    assert "20.01-500" in {n.Identification for n in _kids(parents["20"])}
+    got = read_costs(f, NAME)
+    assert got["costs"]["20"]["cost"] == pytest.approx(250.0)

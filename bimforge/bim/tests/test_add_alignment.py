@@ -84,7 +84,11 @@ def test_a_curve_is_written_as_a_circular_arc_and_lands_on_the_site():
     (al,) = f.by_type("IfcAlignment")
     kinds = [s.PredefinedType for s in _h_segments(al) if s.SegmentLength > 0]
     assert kinds == ["LINE", "CIRCULARARC", "LINE"]
-    assert al.Decomposes[0].RelatingObject.is_a("IfcSite")
+    # IFC4.3 CT 4.1.4.1.1, as emit_alignment and federate write it: aggregated
+    # to the project, referenced (not contained) in the site
+    assert [r.RelatingObject.is_a() for r in al.Decomposes] == ["IfcProject"]
+    assert [r.RelatingStructure.is_a() for r in al.ReferencedInStructures] == ["IfcSite"]
+    assert not al.ContainedInStructure
     assert rep["start"] == "10+00.00"
     names = sorted(r.Name for r in f.by_type("IfcReferent"))
     assert any("10+00.00" in n for n in names)
@@ -202,3 +206,27 @@ def test_back_to_back_curves_are_written_as_the_traverse(kind):
         n, e, _az = A.point_az(seg["s1"])
         x, y = to_model(e, n, mc)
         assert math.dist(_seg_end(sp), (x, y)) / M_PER_FT < 0.001
+
+def test_a_rerun_on_the_same_file_writes_the_same_ids():
+    """#80: every IfcRoot add_alignments writes (alignment, layouts,
+    segments, referents, nests, Pset_Stationing) repeats."""
+    import uuid
+
+    import ifcopenshell.guid
+
+    def build():
+        f = _model()
+        for i, e in enumerate(f.by_type("IfcRoot")):   # an authored file's ids
+            e.GlobalId = ifcopenshell.guid.compress(uuid.UUID(int=1 + i).hex)
+        block = dict(ZIGZAG, profile={
+            "pvis": [{"station": 1000.0, "elevation": 90.0},
+                     {"station": 1200.0, "elevation": 92.0},
+                     {"station": 1450.0, "elevation": 91.0}],
+            "vc_length_ft": 0.0})
+        add_alignments(f, [block, CURVED | {"name": "C2"}],
+                       referents={"ZIGZAG": [1050.0]})
+        return {e.GlobalId: e.is_a() for e in f.by_type("IfcRoot")}
+    a = build()
+    assert {"IfcAlignmentSegment", "IfcReferent", "IfcRelNests",
+            "IfcAlignmentVertical", "IfcPropertySet"} <= set(a.values())
+    assert a == build()

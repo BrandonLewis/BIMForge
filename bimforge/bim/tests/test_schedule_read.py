@@ -50,7 +50,7 @@ def sample_ifc(tmp_path_factory):
 def _full_schedule():
     """A schedule using every #335 field."""
     return CanonicalSchedule(
-        name="Bridge BL V.02", start_date="2026-06-01",
+        name="Bridge BL V.02", start_date="2026-06-01", schedule_type="BASELINE",
         work_weekdays=[0, 1, 2, 3], holidays=["2026-07-03", "2026-09-07"],
         calendars={
             "in-water": Calendar(work_weekdays=[0, 1, 2, 3, 4],
@@ -237,6 +237,15 @@ def test_model_from_before_335_reads_with_new_fields_empty(sample_ifc):
     assert got.work_weekdays == [0, 1, 2, 3, 4]
 
 
+def test_schedule_type_reads_back_and_notdefined_reads_as_unset(sample_ifc):
+    path, _ = _embed(sample_ifc, _full_schedule(), "typed.4d.ifc")
+    m = ifcopenshell.open(path)
+    assert read_schedule(m).schedule_type == "BASELINE"
+    # a file written before #37 says NOTDEFINED: the source never said
+    m.by_type("IfcWorkSchedule")[0].PredefinedType = "NOTDEFINED"
+    assert read_schedule(m).schedule_type is None
+
+
 def test_schedule_selection(sample_ifc):
     path, _ = _embed(sample_ifc, _full_schedule(), "two.4d.ifc")
     m = ifcopenshell.open(path)
@@ -284,23 +293,24 @@ def _staged(ifc_path, out_name="staged.4d.ifc"):
     tasks = {t.Name: t for t in m.by_type("IfcTask")}
     cols = sorted(m.by_type("IfcColumn"), key=lambda e: e.GlobalId)
     for el in cols[:2]:
-        sq.assign_process(m, relating_process=tasks["Piling stage 1"],
-                          related_object=el)
+        sq.assign_product(m, relating_product=el,
+                          related_object=tasks["Piling stage 1"])
     for el in cols[2:]:
-        sq.assign_process(m, relating_process=tasks["Piling stage 2"],
-                          related_object=el)
+        sq.assign_product(m, relating_product=el,
+                          related_object=tasks["Piling stage 2"])
     out = os.path.join(os.path.dirname(ifc_path), out_name)
     m.write(out)
     return out, [c.GlobalId for c in cols]
 
 
-def _to_outputs(path, out_name):
-    """Post-process every input link into an output link (Bonsai playback)."""
+def _to_inputs(path, out_name):
+    """Rewrite every output link as an input link, the way embed_schedule
+    wrote them before #60."""
     m = ifcopenshell.open(path)
-    for rel in list(m.by_type("IfcRelAssignsToProcess")):
-        task = rel.RelatingProcess
-        for el in rel.RelatedObjects:
-            sq.assign_product(m, relating_product=el, related_object=task)
+    for rel in list(m.by_type("IfcRelAssignsToProduct")):
+        el = rel.RelatingProduct
+        for task in rel.RelatedObjects:
+            sq.assign_process(m, relating_process=task, related_object=el)
         m.remove(rel)
     out = os.path.join(os.path.dirname(path), out_name)
     m.write(out)
@@ -314,8 +324,8 @@ def _undirected(links):
 
 def test_task_elements_reads_inputs_and_outputs_alike(sample_ifc):
     path, cols = _staged(sample_ifc)
-    outs = _to_outputs(path, "staged.out.ifc")
-    m_in, m_out = ifcopenshell.open(path), ifcopenshell.open(outs)
+    ins = _to_inputs(path, "staged.in.ifc")
+    m_in, m_out = ifcopenshell.open(ins), ifcopenshell.open(path)
     links_in, links_out = task_elements(m_in), task_elements(m_out)
     assert _undirected(links_in) == _undirected(links_out)
     assert {l["direction"] for ls in links_in.values() for l in ls} == \
@@ -354,8 +364,8 @@ def _tmap():
 @pytest.mark.parametrize("outputs", [False, True])
 def test_takeoff_by_task_splits_each_row(sample_ifc, outputs):
     path, cols = _staged(sample_ifc, f"tbt{outputs}.4d.ifc")
-    if outputs:
-        path = _to_outputs(path, "tbt.out.ifc")
+    if not outputs:                          # a model written before #60
+        path = _to_inputs(path, f"tbt{outputs}.in.ifc")
     takeoff, warnings = takeoff_by_task(path, _tmap())
     rows = {r["cost_code"]: r for r in takeoff["rows"]}
 
@@ -384,7 +394,8 @@ def test_two_constructive_tasks_earliest_claims_with_warning(sample_ifc):
     path, cols = _staged(sample_ifc, "dup.4d.ifc")
     m = ifcopenshell.open(path)
     p2 = next(t for t in m.by_type("IfcTask") if t.Name == "Piling stage 2")
-    sq.assign_process(m, relating_process=p2, related_object=m.by_guid(cols[0]))
+    sq.assign_product(m, relating_product=m.by_guid(cols[0]),
+                      related_object=p2)
     out = path.replace(".4d.ifc", ".dup2.ifc")
     m.write(out)
     takeoff, warnings = takeoff_by_task(out, _tmap())
@@ -400,7 +411,8 @@ def test_takeoff_by_task_with_a_replanned_schedule(sample_ifc):
     path, cols = _staged(sample_ifc, "replan.4d.ifc")
     m = ifcopenshell.open(path)
     p2 = next(t for t in m.by_type("IfcTask") if t.Name == "Piling stage 2")
-    sq.assign_process(m, relating_process=p2, related_object=m.by_guid(cols[0]))
+    sq.assign_product(m, relating_product=m.by_guid(cols[0]),
+                      related_object=p2)
     out = path.replace(".4d.ifc", ".r2.ifc")
     m.write(out)
     plan = read_schedule(ifcopenshell.open(out))
@@ -461,7 +473,8 @@ def test_renamed_replan_in_a_multi_schedule_file_matches_by_global_id(
                    if t.Name == "Piling stage 1"
                    and t.TaskTime and t != _task_named(m, "Staged", "P1"))
     for gid in cols[2:]:
-        sq.assign_process(m, relating_process=copy_p1, related_object=m.by_guid(gid))
+        sq.assign_product(m, relating_product=m.by_guid(gid),
+                          related_object=copy_p1)
     out = path.replace(".4d.ifc", ".m2.ifc")
     m.write(out)
 
@@ -525,3 +538,29 @@ def test_lump_sum_and_count_as_rows_split_to_the_capped_quantity(
     assert row["unassigned"] == 0.0
     assert sum(row["tasks"].values()) + row["unassigned"] == \
         pytest.approx(row["quantity"])
+
+
+@pytest.mark.parametrize("lag,written", [(-1.5, "-P1.5D"), (0.0, None),
+                                         (2.0, "P2D")])
+def test_lag_round_trips_with_its_sign(sample_ifc, lag, written):
+    # audit 0.5: a negative lag was written "P-1.5D" (not ISO 8601) and read
+    # back as 0; the sign leads the duration
+    sched = CanonicalSchedule(name="Lag", tasks=[
+        ScheduleTask(id="a", name="A", start="2026-06-01", finish="2026-06-05"),
+        ScheduleTask(id="b", name="B", start="2026-06-04", finish="2026-06-10",
+                     dependencies=[Dependency("a", "FS", lag)]),
+    ])
+    path, _ = _embed(sample_ifc, sched, f"lag{lag:g}.4d.ifc")
+    model = ifcopenshell.open(path)
+    lags = [r.TimeLag.LagValue.wrappedValue
+            for r in model.by_type("IfcRelSequence") if r.TimeLag]
+    assert lags == ([written] if written else [])
+    got = read_schedule(model)
+    assert got.tasks[1].dependencies[0].lag_days == lag
+
+
+def test_inner_sign_lag_from_older_files_still_reads():
+    from bimforge.bim.schedule_read import _days
+    assert _days("-P1.5D") == -1.5
+    assert _days("P-1.5D") == -1.5             # written by 0.1.119 or earlier
+    assert _days("-PT4H") == -0.5

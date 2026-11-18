@@ -3,11 +3,14 @@
 Authors one `IfcWorkSchedule` (idempotent by name), an `IfcTask` tree from
 the WBS (`IfcRelNests`), `IfcTaskTime` schedule dates, an `IfcWorkCalendar`
 from the canonical work-week + holidays, `IfcRelSequence` from dependencies
-(with lag), and `IfcRelAssignsToProcess` linking each task to the elements
+(with lag), and `IfcRelAssignsToProduct` linking each task to the elements
 whose classification code is in the task's `bid_item_codes` — the same
 classification-code spine `ifc_takeoff` reads (docs/ifc-takeoff-contract.md),
-pointed the other way. Construction semantics only: elements appear at task
-start and persist; the KML/KMZ TimeSpan writer (slice 3) reads these dates.
+pointed the other way. The elements are the task's OUTPUTS (#60): what a
+construction task puts in place, or what a DEMOLITION / DISMANTLE / REMOVAL
+task takes away (its PredefinedType says which; `schedule_state`). Never an
+input (IfcRelAssignsToProcess), which IFC, Bonsai and other 4D readers take
+as material the task consumes. The KML/KMZ TimeSpan writer reads these dates.
 
 Issue #335 adds what a re-planning consumer needs back out: each task's
 `Bimforge_Task` (canonical TaskId + Wbs, since Identification carries the
@@ -15,7 +18,8 @@ wbs-or-id that cost5d and Bonsai key on), PredefinedType (task_type),
 Description (notes), a ScheduleDuration, owner bid items as classification
 references under `BID_ITEM_CLASSIFICATION`, and one IfcWorkCalendar per named
 task calendar — its blackouts as yearly ExceptionTimes — assigned to its tasks
-with IfcRelAssignsToControl. `schedule_read.read_schedule` is the inverse.
+with IfcRelAssignsToControl. The project calendar controls the root tasks
+the same way (C.4). `schedule_read.read_schedule` is the inverse.
 
 Deterministic authoring via `ifcopenshell.api.sequence`; no MCP, no network.
 """
@@ -31,7 +35,8 @@ import ifcopenshell.api.sequence as sq
 import ifcopenshell.guid
 
 from bimforge.bim.ifc_takeoff import classifications_of
-from bimforge.bim.schedule_model import parse_month_day
+from bimforge.bim.schedule_model import check_schedule_type, parse_month_day
+from bimforge.bim import stable_ids
 
 from typing import TYPE_CHECKING
 
@@ -63,6 +68,11 @@ BLACKOUT_PREFIX = "blackout "
 
 _MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)   # leap year
 
+# The working day a task's IfcTaskTime dates are written in (C.4): it
+# starts at the start of its first day and finishes at the end of its last.
+DAY_START = "08:00:00"
+DAY_FINISH = "17:00:00"
+
 
 @dataclass
 class EmbedReport:
@@ -70,7 +80,7 @@ class EmbedReport:
     tasks: int = 0
     tasks_timed: int = 0
     sequences: int = 0
-    assignments: int = 0                 # task->element assign_process calls
+    assignments: int = 0                 # task->element output links
     calendars: int = 0                   # named task calendars authored
     bid_item_links: int = 0              # task->owner bid item references
     assigned_elements: int = 0           # distinct elements assigned
@@ -79,6 +89,7 @@ class EmbedReport:
     unscheduled_elements: list = field(default_factory=list)
     start_time: date | None = None       # the IfcWorkSchedule's StartTime
     start_from: str = ""                 # "start_date", "earliest task", "none"
+    schedule_type: str = ""              # its PredefinedType (#37)
 
     @property
     def unscheduled_element_count(self) -> int:
@@ -204,6 +215,7 @@ def _add_calendar(model, cal_spec, name: str):
     of its named `Calendar`s — both carry work_weekdays and holidays.
     """
     cal = sq.add_work_calendar(model, name=name)
+    stable_ids.assign(model, cal, f"calendar/{name}")
     if cal_spec.work_weekdays:
         wt = sq.add_work_time(model, cal, time_type="WorkingTimes")
         rp = sq.assign_recurrence_pattern(model, wt, recurrence_type="WEEKLY")
@@ -300,20 +312,30 @@ def _set_global_id(model, ent, gid: str, tid: str) -> None:
 
 
 def embed_schedule(model, sched: CanonicalSchedule, *,
-                   schedule_name: str | None = None) -> EmbedReport:
+                   schedule_name: str | None = None,
+                   schedule_type: str | None = None) -> EmbedReport:
     """Author `sched` into the open IFC `model` in place; return an EmbedReport.
 
     The model is mutated (caller writes it). Re-running with the same name
     replaces the prior schedule. Nothing is dropped silently: task codes
     that match no element, and elements no task claims, are both
-    reported.
+    reported. The IfcWorkSchedule's PredefinedType (#37) is
+    `schedule_type`, else the schedule's own, else PLANNED: a bid-time
+    schedule is a plan, and NOTDEFINED tells a consumer nothing.
     """
     sched.validate()
     name = schedule_name or sched.name or "Schedule"
+    ws_type = check_schedule_type(schedule_type or sched.schedule_type
+                                  or "PLANNED")
     start_time, start_from = _schedule_start(sched)
     _remove_schedule_named(model, name)
-    ws = sq.add_work_schedule(model, name=name, start_time=start_time)
-    _add_calendar(model, sched, f"{name} calendar")
+    ws = sq.add_work_schedule(model, name=name, predefined_type=ws_type,
+                              start_time=start_time)
+    # CreationDate is mandatory and ifcopenshell stamps it with now(); the
+    # schedule's own start keeps the file the same run to run
+    ws.CreationDate = ws.StartTime
+    stable_ids.assign(model, ws, f"work-schedule/{name}")
+    project_cal = _add_calendar(model, sched, f"{name} calendar")
 
     # classification-code -> elements (code join), plus the full element set
     # for the name-regex / IFC-class matchers (slice 5)
@@ -343,7 +365,7 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
                                      f"{pattern!r}: {exc}")
 
     report = EmbedReport(schedule_name=name, start_time=start_time,
-                         start_from=start_from)
+                         start_from=start_from, schedule_type=ws_type)
 
     # tasks, parents before children (shallower WBS first)
     def depth(t):
@@ -351,6 +373,7 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
 
     task_by_id: dict[str, object] = {}
     task_by_wbs: dict[str, object] = {}
+    roots: list = []                     # on the project calendar
     for t in sorted(sched.tasks, key=depth):
         parent = None
         if t.wbs and "." in t.wbs:
@@ -363,8 +386,11 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
                           predefined_type=predefined)
         if object_type:
             ent.ObjectType = object_type
+        # an id a consumer read back (write-back) wins over the key (#74)
         if t.global_id:
             _set_global_id(model, ent, t.global_id, t.id)
+        else:
+            stable_ids.assign(model, ent, f"task/{name}/{t.id}")
         ps = pset_api.add_pset(model, product=ent, name=TASK_PSET)
         # the task map's selectors and filters ride along (#365), so
         # schedule_read hands back the join rule, not only its result
@@ -378,10 +404,18 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
         task_by_id[t.id] = ent
         if t.wbs:
             task_by_wbs[t.wbs] = ent
+        if parent is None and t.calendar is None:
+            roots.append(ent)
         report.tasks += 1
         if t.is_milestone:
             sq.edit_task(model, ent, attributes={"IsMilestone": True})
 
+    # the project calendar controls the root tasks, which their subtasks
+    # inherit (IFC: a task without a calendar works to its parent's). A
+    # root on a named calendar has that one instead: one calendar a task.
+    if roots:
+        ctl.assign_control(model, relating_control=project_cal,
+                           related_objects=roots)
     # named task calendars, each assigned to the tasks that work to it
     for key, cal_spec in sched.calendars.items():
         cal = _add_calendar(model, cal_spec, f"{name} calendar{CALENDAR_SEP}{key}")
@@ -403,8 +437,10 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
             if dep.lag_days:
                 # ISO-8601 duration; :g keeps a fractional day (P1.5D) and
                 # drops the trailing .0 on whole days (P2D) — never truncate.
+                # A negative lag (a lead) carries its sign in front: -P1.5D.
+                sign = "-" if dep.lag_days < 0 else ""
                 sq.assign_lag_time(model, rel,
-                                   lag_value=f"P{dep.lag_days:g}D",
+                                   lag_value=f"{sign}P{abs(dep.lag_days):g}D",
                                    duration_type="WORKTIME")
 
     # task times: write ScheduleStart/Finish as raw IfcDateTime attributes,
@@ -413,16 +449,33 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     # which silently overwrites the source schedule's own computed dates once
     # any IfcRelSequence exists. The source (P6/gw/MSP) already resolved the
     # CPM; we embed those dates verbatim.
+    # The dates are whole working days: a task starts at the start of its
+    # first day and finishes at the end of its last (C.4), so a one-day
+    # task (start == finish) is a day long, not zero. A milestone on one
+    # date has no length, so it finishes when it starts. Readers take the
+    # date part ([:10]), so the dates read back unchanged.
     for t in sched.tasks:
         start, finish = _iso_date(t.start), _iso_date(t.finish)
-        if not (start or finish or t.duration_days is not None):
+        act_start, act_finish = (_iso_date(t.actual_start),
+                                 _iso_date(t.actual_finish))
+        if not (start or finish or act_start or act_finish
+                or t.duration_days is not None):
             continue
         ent = task_by_id[t.id]
         tt = ent.TaskTime or sq.add_task_time(model, ent)
         if start:
-            tt.ScheduleStart = f"{start.isoformat()}T00:00:00"
+            tt.ScheduleStart = f"{start.isoformat()}T{DAY_START}"
         if finish:
-            tt.ScheduleFinish = f"{finish.isoformat()}T00:00:00"
+            end = (DAY_START if t.is_milestone and finish == start
+                   else DAY_FINISH)
+            tt.ScheduleFinish = f"{finish.isoformat()}T{end}"
+        # what really happened (C.4), on the same working day
+        if act_start:
+            tt.ActualStart = f"{act_start.isoformat()}T{DAY_START}"
+        if act_finish:
+            end = (DAY_START if t.is_milestone and act_finish == act_start
+                   else DAY_FINISH)
+            tt.ActualFinish = f"{act_finish.isoformat()}T{end}"
         if t.duration_days is not None:
             # work days, as the lag is (:g keeps P1.5D, drops P2.0D)
             tt.ScheduleDuration = f"P{t.duration_days:g}D"
@@ -480,8 +533,9 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
             if el.id() in seen:
                 continue
             seen.add(el.id())
-            sq.assign_process(model, relating_process=task_by_id[t.id],
-                              related_object=el)
+            # the element is the task's output (#60), not an input
+            sq.assign_product(model, relating_product=el,
+                              related_object=task_by_id[t.id])
             report.assignments += 1
             assigned.add(el.id())
     report.assigned_elements = len(assigned)
@@ -491,4 +545,5 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     # so "unscheduled" spans all elements, not only classified ones)
     report.unscheduled_elements = sorted(
         (el.Name or el.is_a()) for el in all_elements if el.id() not in assigned)
+    stable_ids.key_relationships(model)
     return report

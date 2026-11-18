@@ -48,6 +48,10 @@ class Element:
     #: Pay codes ([] = reference geometry, never a pay quantity).
     classifications: list[str] = field(default_factory=list)
     material: str | None = None
+    #: The IfcMaterial.Category the material is written with (#65), one of
+    #: ifc_styles.MATERIAL_CATEGORIES. None: from the material's name, else
+    #: from the element's surface (ifc_styles.material_category).
+    material_category: str | None = None
     density_pcf: float | None = None
     #: Placement: model-frame feet. Emitters place the element here.
     x_ft: float = 0.0
@@ -67,8 +71,10 @@ class Element:
     guid_key: str | None = None
     predefined_type: str | None = None
     #: IfcObject.ObjectType: the user-defined type name an importer shows
-    #: beside the class ("Type 842 concrete barrier"). Required by IFC when
-    #: predefined_type is USERDEFINED. A class the schema lacks overrides it
+    #: beside the class ("GROUT_PAD"). IFC carries it only with PredefinedType
+    #: USERDEFINED, so emit_ifc writes USERDEFINED with it, and refuses it
+    #: beside any other predefined_type (#77); on a typed element the type
+    #: carries it as its ElementType. A class the schema lacks overrides it
     #: with the class it wanted (emit_ifc's fallback record).
     object_type: str | None = None
     #: The element TYPE this occurrence is of (IfcRelDefinesByType): one
@@ -78,6 +84,11 @@ class Element:
     #: type; FreeCAD and Bonsai: the type tree), so twenty posts read as one
     #: kind of post. None = untyped, as before.
     type_name: str | None = None
+    #: An IfcReinforcingBar's ASTM bar number (#4, #5 ...): emit_ifc types
+    #: every bar of one size to one IfcReinforcingBarType carrying its
+    #: NominalDiameter, CrossSectionArea and BarSurface. None = a bar total
+    #: with no single size (a weight per foot), left untyped.
+    bar_size: int | None = None
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
@@ -168,6 +179,10 @@ class StructureModel:
     elements: list[Element] = field(default_factory=list)
     #: name -> list of element names aggregated into an IfcElementAssembly.
     assemblies: dict[str, list[str]] = field(default_factory=dict)
+    #: name -> list of element names assigned to an IfcGroup (#59): things
+    #: selected and hidden together without a common parent, such as a pit
+    #: (whose parent is the ground it voids) and its backfill.
+    groups: dict[str, list[str]] = field(default_factory=dict)
     #: Openings: (host element name, opening Element) — emitted as
     #: IfcOpeningElement voids on the host.
     openings: list[tuple[str, Element]] = field(default_factory=list)

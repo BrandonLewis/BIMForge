@@ -1,8 +1,9 @@
 """What stands on a given day: the 4D state an IFC's embedded schedule gives.
 
-Every IfcTask linked to an element (as an input, IfcRelAssignsToProcess,
-which `est-bim schedule` writes, or an output, IfcRelAssignsToProduct, which
-Bonsai playback reads) moves it by the task's type:
+Every IfcTask linked to an element (as an output, IfcRelAssignsToProduct,
+which `est-bim schedule` writes (#60) and Bonsai playback reads, or as an
+input, IfcRelAssignsToProcess, which it wrote before) moves it by the task's
+type:
 
 * CONSTRUCTION / INSTALLATION / NOTDEFINED (and no type): the element
   APPEARS at the task's ScheduleStart;

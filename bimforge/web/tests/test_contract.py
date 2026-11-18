@@ -268,6 +268,7 @@ def test_rows_carry_prices_from_the_bid_list_and_shares_from_the_5d(tmp_path):
     sh = b["costs"]["shares"]
     assert {(s["task"], s["code"]) for s in sh} == {("t1", "F-CONC"), ("t2", "W-CONC"), ("t3", "POSTS")}
     assert all(s["element"] is None and s["item_number"] is None for s in sh)
+    assert all("cost_code" not in s for s in sh)      # no code nodes in cost5d
     assert next(s for s in sh if s["task"] == "t1")["cost"] == 12000.0
     assert next(s for s in sh if s["task"] == "t1")["labor_hours"] == 300.0
 
@@ -293,6 +294,8 @@ def test_estimate_shares_name_the_element_item_and_price(tmp_path):
     assert by_el[ftg.GlobalId]["task"] == "a1"
     assert by_el[ftg.GlobalId]["cost"] == pytest.approx(10.0, abs=0.01)
     assert by_el[ftg.GlobalId]["labor_hours"] == pytest.approx(20.0)
+    assert by_el[ftg.GlobalId]["code"] == "51-CONC"          # dashboard join
+    assert by_el[ftg.GlobalId]["cost_code"] == "10.03-300"
     # the row for the code the item carries gets the IFC's unit price
     rows = {r["cost_code"]: r for r in b["takeoff"]["rows"]}
     # (the fixture's elements carry no quantities, so no row sums; the

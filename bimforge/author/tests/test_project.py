@@ -74,7 +74,7 @@ def _emitted_842_stem_height_m(tmp_path, unit: str) -> float:
     from bimforge.author.families import concrete_barrier_842 as fam
 
     ctx = ProjectContext.from_spec({
-        "name": "F", "epsg": 2226, "base": [0.0, 0.0],
+        "name": "F", "epsg": 2226, "base": [6_594_000.0, 1_943_000.0],
         "guid_ns": str(NS), "unit": unit})
     model = fam.build(
         {"runs": [{"name": "NB", "straight_length_ft": 100.0,
@@ -114,6 +114,29 @@ def test_a_known_published_dimension_reaches_the_ifc_at_its_real_size(tmp_path, 
     height = _emitted_842_stem_height_m(tmp_path, unit)
     assert abs(height - 1.0668) < 0.002, (
         f"unit {unit!r} emits the 842 barrier {height:.4f} m tall, not 1.067 m")
+
+
+@pytest.mark.parametrize("base", [[0.0, 0.0], [0, 0, 120.0], None])
+def test_an_epsg_on_a_zero_base_is_refused(base):
+    """Audit 0.7: E = N = 0 under a projected CRS is the zone's false
+    origin, not the site — the model lands hundreds of miles off with its
+    TrueNorth convergence taken there. A missing base is the same zero."""
+    spec = {"name": "F", "guid_ns": str(NS), "epsg": 2226}
+    if base is not None:
+        spec["base"] = base
+    with pytest.raises(ValueError, match="allow_zero_origin"):
+        ProjectContext.from_spec(spec)
+
+
+def test_a_zero_base_is_allowed_when_the_spec_says_so():
+    ctx = ProjectContext.from_spec({
+        "name": "F", "guid_ns": str(NS), "epsg": 2226, "base": [0.0, 0.0],
+        "allow_zero_origin": True})
+    assert (ctx.base_e, ctx.base_n) == (0.0, 0.0)
+    # only both at zero: one real coordinate is a base, and no EPSG no georef
+    ProjectContext.from_spec({"name": "F", "guid_ns": str(NS), "epsg": 2226,
+                              "base": [6_594_000.0, 0.0]})
+    ProjectContext.from_spec({"name": "F", "guid_ns": str(NS)})
 
 
 def test_from_spec_requires_name_and_guid_ns():

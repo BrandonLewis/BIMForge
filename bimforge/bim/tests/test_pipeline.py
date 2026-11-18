@@ -300,3 +300,32 @@ def test_non_mapping_code_entry_is_a_clean_error(pipeline):
     # a null entry (bare "code:" line in YAML) means "no overrides" — allowed
     takeoff, _ = build_takeoff(ifc_path, {"codes": {"32 16 13": None}})
     assert [r for r in takeoff["rows"] if r["cost_code"] == "32 16 13"]
+
+
+# ----------------------------------------------------------------------------
+# IFC2X3 is refused by name (audit 0.9; ROADMAP 2026-11-11)
+# ----------------------------------------------------------------------------
+
+def test_build_ifc_refuses_ifc2x3_by_name(tmp_path):
+    # it used to crash deep in create_owner_history
+    layer_map = _example("layer_map.example.yaml")
+    layer_map["project"]["schema"] = "IFC2X3"
+    out = tmp_path / "model.ifc"
+    with pytest.raises(ValueError, match="IFC2X3 is not supported"):
+        build_ifc([], layer_map, str(out))
+    assert not out.exists()
+
+
+def test_cli_dxf2bim_refuses_ifc2x3_before_reading_the_dxf(tmp_path, capsys):
+    from bimforge.bim import cli
+
+    layer_map = _example("layer_map.example.yaml")
+    layer_map["project"]["schema"] = "IFC2X3"
+    cfg = tmp_path / "layer_map.yaml"
+    cfg.write_text(yaml.safe_dump(layer_map), encoding="utf-8")
+    out = tmp_path / "model.ifc"
+    # the DXF does not exist: the refusal comes before any work
+    assert cli.main(["dxf2bim", "--dxf", str(tmp_path / "missing.dxf"),
+                     "--config", str(cfg), "--out", str(out)]) == 1
+    assert "IFC2X3 is not supported" in capsys.readouterr().err
+    assert not out.exists()

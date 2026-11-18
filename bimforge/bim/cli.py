@@ -78,12 +78,14 @@ def _run_sample(args) -> int:
 def _run_dxf2bim(args) -> int:
     import yaml
 
-    from bimforge.bim.dxf2bim import UNIT_TO_M, build_ifc, extract_features
+    from bimforge.bim.dxf2bim import (UNIT_TO_M, build_ifc, extract_features,
+                                      schema_of)
 
     try:
         with open(args.config, encoding="utf-8") as fh:
             config = yaml.safe_load(fh) or {}
-    except OSError as exc:
+        schema_of(config)   # IFC2X3 is refused by name, before any work
+    except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     unit = config.get("units", {}).get("dxf_length_unit", "mm")
@@ -363,6 +365,32 @@ def _run_sfca(args) -> int:
     return 0
 
 
+def _report_carry(carried, out: str, path: str | None) -> None:
+    """Print a carry-forward's counts and gaps; write its JSON report."""
+    import json as _json
+    from pathlib import Path
+
+    path = path or str(Path(out).with_suffix(".carry.json"))
+    Path(path).write_text(_json.dumps(carried.to_dict(), indent=2) + "\n",
+                          encoding="utf-8")
+    apps = ", ".join(carried.applications) or "no other application"
+    print(f"Carried {carried.carried} addition(s) from {apps} "
+          f"({carried.already_present} already present); report {path}")
+    for label, rows in (
+            ("addition(s) dropped: nothing left to relate", carried.dropped),
+            ("addition(s) lost a target", carried.vanished),
+            ("of our entities were changed in the returned file and are "
+             "rebuilt from the source", carried.modified),
+            ("of our tasks no downstream task is tied to", carried.uncovered_tasks),
+            ("element(s) our tasks build that no downstream task does",
+             carried.uncovered_elements)):
+        if rows:
+            print(f"\nReview: {len(rows)} {label}:", file=sys.stderr)
+            for r in rows[:20]:
+                print(f"  ! {r['class']} {r.get('name') or ''} {r['global_id']}",
+                      file=sys.stderr)
+
+
 def _run_schedule(args) -> int:
     import json as _json
     from pathlib import Path
@@ -385,13 +413,20 @@ def _run_schedule(args) -> int:
             sched, task_map=task_map, name_code_re=args.name_code_re)
         model = ifcopenshell.open(args.ifc)
         report = embed_schedule(model, sched,
-                                schedule_name=args.schedule_name)
+                                schedule_name=args.schedule_name,
+                                schedule_type=args.schedule_type)
+        carried = None
+        if args.returned:
+            from bimforge.bim.carry_forward import carry_forward
+            carried = carry_forward(ifcopenshell.open(args.returned), model)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
     out = args.out or str(Path(args.ifc).with_suffix(".4d.ifc"))
     model.write(out)
+    if carried is not None:
+        _report_carry(carried, out, args.carry_report)
     print(f"Embedded schedule '{report.schedule_name}': {report.tasks} tasks "
           f"({report.tasks_timed} dated), {report.sequences} dependencies, "
           f"{report.assigned_elements} elements assigned across "
@@ -516,7 +551,8 @@ def _run_cost5d(args) -> int:
         model = ifcopenshell.open(args.ifc)
         report = embed_cost_and_resources(
             model, sched, costs, schedule_name=args.schedule_name,
-            work_hours_per_day=args.work_hours_per_day)
+            work_hours_per_day=args.work_hours_per_day,
+            currency=args.currency)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -554,7 +590,8 @@ def _run_estimate5d(args) -> int:
         validate_costs(costs)
         model = ifcopenshell.open(args.ifc)
         report = embed_estimate(model, tmap, costs, schedule_name=args.name,
-                                stage=args.stage)
+                                stage=args.stage, currency=args.currency,
+                                submitted_on=args.submitted_on)
     except (OSError, ValueError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -563,7 +600,7 @@ def _run_estimate5d(args) -> int:
     model.write(out)
     print(f"Embedded {report.schedule_type} '{report.schedule_name}': "
           f"{report.parents} pay item(s), {report.children} element "
-          f"child(ren), extended ${report.extended_total:,.0f}.")
+          f"child(ren), extended ${report.extended_total:,.2f}.")
     print(f"estimate IFC written to {out}")
     for code, v in sorted(report.by_code.items()):
         if v["variance_pct"] is None:
@@ -574,6 +611,13 @@ def _run_estimate5d(args) -> int:
                   f"${v['bm_cost']:,.0f} ({v['variance_pct']:+.1f}%)")
     for code, item in sorted(report.covered_by_item.items()):
         print(f"  {code}: no unit_price -- covered at $0 by pay item {item}")
+    for item, amount in sorted(report.items_without_elements.items()):
+        print(f"  item {item}: ${amount:,.2f}, no elements (costs.json items)")
+    for code, snap in sorted(report.snapped_to_cost.items()):
+        if abs(snap["drift"]) < 0.0005:     # float noise, not worth a line
+            continue
+        print(f"  {code}: rates scaled {snap['scale_pct']:+.4f}% so its "
+              f"children sum to its cost ${snap['cost']:,.2f}")
     for label, entries in (
             ("no unit_price — skipped", report.codes_without_rate),
             ("no explicit measure — skipped", report.codes_without_measure),
@@ -669,14 +713,16 @@ def _run_estimate_model(args) -> int:
                              "activities, shares)")
         summary = embed_estimate_model(
             args.ifc, model_json, args.out, schedule_name=args.schedule_name,
-            placeholders=args.placeholders)
+            placeholders=args.placeholders, currency=args.currency)
     except (OSError, ValueError, KeyError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(summary, indent=2))
     print(f"Embedded '{summary['schedule_name']}': {summary['tasks']} task(s), "
-          f"{summary['cost_items']} item(s) / {summary['share_items']} share "
-          f"cost item(s) (${float(summary['allocated_total']):,.2f}), "
+          f"{summary['cost_items']} item(s) / {summary['code_items']} cost "
+          f"code(s) / {summary['indirect_items']} indirect(s) / "
+          f"{summary['share_items']} share cost item(s) "
+          f"(${float(summary['allocated_total']):,.2f}), "
           f"{summary['labor_resources']} crew(s); written to {args.out}",
           file=sys.stderr)
     if summary["unmatched_elements"]:
@@ -2385,6 +2431,11 @@ def _run_label_crops(args) -> int:
     return 0
 
 
+_CURRENCY_HELP = ("ISO 4217 currency of the cost values (IfcMonetaryUnit; "
+                  "default: the IFC's own, else USD). A file that already "
+                  "declares another currency is refused")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="est-bim")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -2514,8 +2565,19 @@ def main(argv=None) -> int:
                          "item codes from each task name")
     sc.add_argument("--name", dest="schedule_name",
                     help="IfcWorkSchedule name (default: the schedule's own name)")
+    sc.add_argument("--schedule-type", dest="schedule_type",
+                    type=str.upper, choices=("ACTUAL", "BASELINE", "PLANNED"),
+                    help="IfcWorkSchedule PredefinedType (default: the "
+                         "schedule's own schedule_type, else PLANNED)")
     sc.add_argument("--out", help="output IFC path (default: alongside the input, "
                                   "<stem>.4d.ifc)")
+    sc.add_argument("--returned", help="a returned copy of this 4D IFC: what "
+                    "another application added to it (its own schedule, "
+                    "approvals, progress, stamped by its OwnerHistory) is "
+                    "carried onto the rebuilt file with its GlobalIds (#83)")
+    sc.add_argument("--carry-report", dest="carry_report",
+                    help="carry-forward report JSON path (default: alongside "
+                         "--out, <stem>.carry.json; needs --returned)")
 
     sr = sub.add_parser("schedule-read",
                         help="read a 4D IFC's IfcWorkSchedule back into "
@@ -2548,6 +2610,7 @@ def main(argv=None) -> int:
     c5.add_argument("--schedule-name", dest="schedule_name", default=None)
     c5.add_argument("--work-hours-per-day", dest="work_hours_per_day",
                     type=float, default=8.0)
+    c5.add_argument("--currency", default=None, help=_CURRENCY_HELP)
     c5.add_argument("--out", default=None)
 
     e5 = sub.add_parser("estimate5d",
@@ -2558,12 +2621,19 @@ def main(argv=None) -> int:
     e5.add_argument("--map", required=True,
                     help="the takeoff map yaml est-bim takeoff reads")
     e5.add_argument("--costs", required=True,
-                    help="costs.json with unit_price (and optional unit) per code")
+                    help="costs.json with unit_price (and optional unit) per "
+                         "code, and optional \"items\" for bid items no "
+                         "element carries")
     e5.add_argument("--name", default=None,
                     help="schedule base name (default: the map's project_ref)")
     e5.add_argument("--stage", choices=("tender", "awarded"), default="tender",
                     help="tender: TENDER / PLANNED (at bid, the default); "
                          "awarded: PRICEDBILLOFQUANTITIES / APPROVED")
+    e5.add_argument("--currency", default=None, help=_CURRENCY_HELP)
+    e5.add_argument("--submitted-on", dest="submitted_on", default=None,
+                    metavar="YYYY-MM-DD",
+                    help="the bid's date, written as the schedule's "
+                         "SubmittedOn (default: left unset, never today)")
     e5.add_argument("--out", help="output IFC path (default: alongside the "
                                   "input, <stem>.est.ifc)")
 
@@ -2617,6 +2687,7 @@ def main(argv=None) -> int:
     em.add_argument("--placeholders", action="store_true",
                     help="add an IfcBuildingElementProxy (no geometry) for "
                          "each model element the IFC lacks, under its GlobalId")
+    em.add_argument("--currency", default=None, help=_CURRENCY_HELP)
 
     k = sub.add_parser("kml", help="convert a georeferenced IFC into 3D KML (Google Earth)")
     k.add_argument("ifc", help="input IFC file (georeferenced, est-bim >= 0.1.11)")
@@ -3016,6 +3087,9 @@ def main(argv=None) -> int:
     b.add_argument("--family-path", action="append", default=[], dest="family_paths",
                    metavar="DIR", help="also resolve the spec's family from the modules "
                    "in DIR that export FAMILIES = {name: build}; repeatable")
+    b.add_argument("--style-pack", dest="style_pack", metavar="PACK",
+                   help="style the IFC with this palette (a pack directory or "
+                        "package), over the spec's style_pack and the org pack")
 
     stn = sub.add_parser("stations", help="write every element's station / offset "
                                           "along its IfcAlignment into the IFC")
@@ -3120,7 +3194,8 @@ def main(argv=None) -> int:
             from bimforge.author.families.registry import build_from_spec
             try:
                 return build_from_spec(args.spec, check_only=args.check_only,
-                                       family_paths=args.family_paths)
+                                       family_paths=args.family_paths,
+                                       style_pack=args.style_pack)
             except (OSError, ValueError, KeyError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1

@@ -42,7 +42,8 @@ from bimforge.author.culvert_headwall_section import headwall_stem
 from bimforge.author.culvert_headwall_wingwall import rail_barrier
 from bimforge.author.footing_run import FootingRun, step_rise_ft
 from bimforge.author.model import Element, StructureModel
-from bimforge.author.primitives import BatteredWall, mitre_offset, outward_normals
+from bimforge.author.primitives import (BatteredWall, bar_role, mitre_offset,
+                                       outward_normals)
 from bimforge.author.type_836_section import type_836_section
 
 REQUIRED = ("tables", "structures")
@@ -58,7 +59,8 @@ def _emit_bars(model, sname, bars):
             quantities={"count": len(bs),
                         "length_ft": sum(b.length for b in bs),
                         "weight_lb": sum(b.weight for b in bs)},
-            layer="S-REBAR", description=f"#{size} {mark}"))
+            layer="S-REBAR", description=f"#{size} {mark}",
+            predefined_type=bar_role(mark), bar_size=size))
 
 
 def _lol_length(lol: list) -> float:
@@ -270,6 +272,7 @@ def build(params: dict, ctx) -> StructureModel:
                 f"{name}: footing self-intersects (skew/flare too extreme)")
         model.add(Element.from_geometry(
             fr.name, fr, ifc_class="IfcFooting", layer="S-CONC",
+            predefined_type="STRIP_FOOTING",
             quantities={"length_ft": _lol_length(lol),
                         "volume_cf": fr.volume_cf}))
 
@@ -360,6 +363,7 @@ def build(params: dict, ctx) -> StructureModel:
                 ifc="IfcWall", layer="S-CONC")
             model.add(Element.from_geometry(
                 bw.name, bw, ifc_class="IfcWall", layer="S-CONC",
+                predefined_type="RETAININGWALL",
                 quantities={"length_ft": wl, "volume_cf": bw.volume_cf}))
             wws.append({"length_ft": wl})
 

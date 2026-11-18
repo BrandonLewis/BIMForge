@@ -4,6 +4,11 @@ The spec file:
 
     family: pipe-supports
     params: { ...family-specific, cites plan sheets... }
+            # a table-driven family reads params.tables:
+            #   tables_pack: caltrans/2025/d89-pipe-headwall   (one, or a
+            #     list: tables shipped in bimforge.caltrans)
+            #   tables_file: ./my-tables.yaml   (relative to the spec; merged
+            #     over the packaged tables, so it carries the project's rows)
     paycodes: ./paycodes.yaml
     outputs: {dxf: CAD/x.dxf, ifc: CAD/x.ifc,
               takeoff_map: CAD/x-takeoff-map.yaml,
@@ -21,8 +26,12 @@ The spec file:
     gate: {solid_bodies: warn,   # optional: warn (default) | error | off
            unread_params: warn, # optional: off (default) | warn | error -
            ignore: [notes]}     #  params the family never reads (params_tracking)
-    ifc_surfaces:           # optional: {layer or IfcClass: {rgb, transparency,
-      IfcCovering: {rgb: [0.5, 0.5, 0.5]}  # ...}} merged over the style pack's
+    style_pack: ./palette   # optional: this job's palette (a pack directory,
+                            #  relative to the spec, or a package), in place of
+                            #  the org pack (#65)
+    ifc_surfaces:           # optional: {layer, IfcClass, category:<c> or
+      IfcCovering: {rgb: [0.5, 0.5, 0.5]}  # material:<name>: {rgb, ...}}
+                            #  merged over the style pack's
     bodies:                 # optional: element-name regex -> body kind
       - {match: "^existing-grade", body: surface}
     placement:              # optional: put a local-frame family on a line
@@ -148,6 +157,33 @@ REQUIRED_SPEC_KEYS = ("family", "params", "paycodes", "outputs", "project")
 OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs")
 
 
+# Packs a spec's `params.tables_pack` can name: pack -> the module whose
+# `load_ref(ref)` returns the table.
+TABLE_PACKS = {"caltrans": "bimforge.caltrans"}
+
+
+def _load_tables_pack(spec_name: str, ref) -> dict:
+    """The packaged table `<pack>/<ref>` names, e.g.
+    `caltrans/2025/d89-pipe-headwall`."""
+    pack, _, rest = str(ref).partition("/")
+    if pack not in TABLE_PACKS or not rest:
+        raise ValueError(f"{spec_name}: tables_pack {ref!r} must be "
+                         f"<pack>/<table>; packs: {', '.join(sorted(TABLE_PACKS))}")
+    try:
+        return importlib.import_module(TABLE_PACKS[pack]).load_ref(rest)
+    except KeyError as exc:
+        raise ValueError(f"{spec_name}: tables_pack {ref!r}: {exc.args[0]}") from None
+
+
+def _merge_tables(into: dict, more: dict) -> None:
+    """Merge `more` over `into`, mapping by mapping; anything else replaces."""
+    for key, value in more.items():
+        if isinstance(value, dict) and isinstance(into.get(key), dict):
+            _merge_tables(into[key], value)
+        else:
+            into[key] = value
+
+
 def load_spec(path: Path | str) -> dict:
     """Parse + validate a build spec; relative paths resolve from the spec."""
     path = Path(path)
@@ -177,14 +213,22 @@ def load_spec(path: Path | str) -> dict:
     spec["outputs"] = {k: (str((base / v).resolve()) if isinstance(v, str) else v)
                        for k, v in outs.items()}
     params = spec.get("params") or {}
-    tf = params.get("tables_file")
-    if tf:
-        tf_path = (base / tf).resolve()
-        if not tf_path.exists():
-            raise ValueError(f"{path.name}: tables_file {tf!r} not found "
-                             f"at {tf_path}")
-        params["tables"] = yaml.safe_load(tf_path.read_text(encoding="utf-8"))
-        params.pop("tables_file")
+    tf = params.pop("tables_file", None)
+    tp = params.pop("tables_pack", None)
+    if tf or tp:
+        # packaged tables first, in the order named; the project's own file
+        # last, so its rows (a field-varied schedule, say) land on top
+        tables: dict = {}
+        for ref in ([tp] if isinstance(tp, str) else tp or []):
+            _merge_tables(tables, _load_tables_pack(path.name, ref))
+        if tf:
+            tf_path = (base / tf).resolve()
+            if not tf_path.exists():
+                raise ValueError(f"{path.name}: tables_file {tf!r} not found "
+                                 f"at {tf_path}")
+            _merge_tables(tables, yaml.safe_load(
+                tf_path.read_text(encoding="utf-8")) or {})
+        params["tables"] = tables
         spec["params"] = params
     proj = spec.get("project") or {}
     if proj.get("alignments"):
@@ -195,6 +239,13 @@ def load_spec(path: Path | str) -> dict:
         proj["alignments"] = str(ap)
     if spec.get("placement") is not None and not proj.get("alignments"):
         raise ValueError(f"{path.name}: placement: needs project.alignments")
+    pack = spec.get("style_pack")
+    if pack is not None:
+        if not isinstance(pack, str) or not pack:
+            raise ValueError(f"{path.name}: style_pack: must be a pack "
+                             f"directory or package name, not {pack!r}")
+        if (base / pack).is_dir():
+            spec["style_pack"] = str((base / pack).resolve())
     surfaces = spec.get("ifc_surfaces")
     if surfaces is not None and not isinstance(surfaces, dict):
         raise ValueError(f"{path.name}: ifc_surfaces: must be a mapping "
@@ -262,16 +313,23 @@ def station_ifc(model, ifc_path, log=None) -> dict | None:
     return rep
 
 
-def spec_stylepack(spec: dict):
-    """The active style pack with the spec's `ifc_surfaces` merged OVER its
+def spec_stylepack(spec: dict, style_pack: str | None = None):
+    """The job's style pack with the spec's `ifc_surfaces` merged OVER its
     `ifc.surfaces`: a model's own presentation colours (stone tones for rock
-    slope protection, say) without touching the pack. None when the spec has
-    none, so emit_ifc resolves the pack exactly as before."""
+    slope protection, say) without touching the pack.
+
+    The pack is `style_pack` (the CLI's --style-pack), else the spec's
+    `style_pack` (#65: a palette per job), else the org pack. None when the
+    spec names neither a pack nor surfaces, so emit_ifc resolves the pack
+    exactly as before."""
+    explicit = style_pack or spec.get("style_pack")
     extra = spec.get("ifc_surfaces")
-    if not extra:
+    if not extra and not explicit:
         return None
     from bimforge.cad.stylepack import StylePack, resolve_style_pack
-    base = resolve_style_pack()
+    base = resolve_style_pack(explicit)
+    if not extra:
+        return base
     styles = dict(base.styles)
     ifc = dict(styles.get("ifc") or {})
     ifc["surfaces"] = {**(ifc.get("surfaces") or {}), **extra}
@@ -280,8 +338,11 @@ def spec_stylepack(spec: dict):
 
 
 def build_from_spec(spec_path: Path | str, check_only: bool = False,
-                    family_paths=(), unread_params: str = "off") -> int:
+                    family_paths=(), unread_params: str = "off",
+                    style_pack: str | None = None) -> int:
     """The est-bim build pipeline. Returns a process exit code.
+
+    `style_pack`: the palette to style the IFC with, over the spec's own.
 
     `family_paths`: directories of extra family modules (`load_family_dirs`).
     `unread_params`: the default for the spec's `gate.unread_params`.
@@ -343,7 +404,7 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
             from bimforge.author.emit_ifc import emit_ifc
             print(emit_ifc(model, outs["ifc"], pc,
                            allow_local=bool(outs.get("ifc_allow_local")),
-                           stylepack=spec_stylepack(spec),
+                           stylepack=spec_stylepack(spec, style_pack),
                            sweeps=outs.get("ifc_sweeps")),   # None: the model's
                   file=sys.stderr)
             written["ifc"] = outs["ifc"]

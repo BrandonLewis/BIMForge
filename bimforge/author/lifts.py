@@ -24,6 +24,11 @@ wall; a tie-back goes in when the fill reaches its elevation).
 The thin remainder at the top (less than `min_top_fraction` of a lift) is
 merged into the lift below, as the last lift is in the field.
 
+Not for 4D (#59): a 4D viewer drains or fills one earthwork solid by volume
+over its task, so model a pit as one hosted IfcEarthworksCut and its
+backfill as one solid derived from it (`author.backfill.derive_backfill`).
+Lifts stay for families that still schedule fill lift by lift, until none do.
+
 manifold3d is an optional dependency (``pip install 'bimforge[terrain]'``).
 
 Examples:
@@ -356,6 +361,7 @@ def split_into_lifts(model, name: str, lift_ft: float, *,
             classifications=list(parent.classifications),
             material=parent.material, density_pcf=parent.density_pcf,
             layer=parent.layer, predefined_type=parent.predefined_type,
+            object_type=parent.object_type,
             description=(f"lift {lf.index} of {len(lifts)}, "
                          f"{lf.thickness_ft:.2f} ft compacted, El "
                          f"{lf.z_bot + base_h:.2f}-{lf.z_top + base_h:.2f}"),

@@ -4,6 +4,295 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.125 — 2026-11-16
+
+IFC compliance audit Phase 1 (roadmap C.4): additive compliance.
+
+### Added
+
+- The project calendar ("<schedule> calendar") controls the root tasks through IfcRelAssignsToControl, with a stable GlobalId; a root on a named calendar keeps only that one.
+- P6 XER actual dates (`act_start_date` / `act_end_date`) are carried as `actual_start` / `actual_finish` and written to IfcTaskTime ActualStart / ActualFinish; `schedule-read` returns them.
+- **Units:** emitted and dxf2bim IFCs declare MASSUNIT kilogram and PLANEANGLEUNIT radian. cost5d's StandardWork hours are declared as hours (a project TIMEUNIT, or the quantity's own Unit in a file that keeps its own). The currency every cost writer declares is configurable (`--currency` on cost5d, estimate5d and estimate-model; default the file's, else USD), and a conflicting currency is refused.
+- IfcProjectedCRS.VerticalDatum comes from a compound EPSG CRS when the spec gives none.
+- `estimate5d --submitted-on YYYY-MM-DD` writes the TENDER's SubmittedOn. BUDGET and ESTIMATE cost schedules carry Status PLANNED, as TENDER already did.
+- **Element typing:** family elements carry IFC PredefinedTypes: PIERCAP and PIERSTEM bents, RETAININGWALL retaining walls and wingwalls, APPROACH_SLAB, STRIP_FOOTING and PAD_FOOTING footings, MAIN and LIGATURE bars by mark. Values IFC4 lacks are written USERDEFINED with the value as ObjectType.
+- Sized bars are typed to one IfcReinforcingBarType per size ("Reinforcing bar #5") with NominalDiameter, CrossSectionArea and BarSurface, and every IfcTypeObject is declared to the IfcProject, in a federated file too (`federate` declares the types it carries to its own project). No existing GlobalId changes; `test_example_globalids` pins every example's ids.
+- IfcClassification carries Source: paycodes `source:` (new, optional) or a dxf2bim rule's `source`, else the known publisher (CSI/CSC, ASTM E1557, NBS; "Project pay codes" for the default BidSchedule). dxf2bim classification rules also accept `edition`.
+
+### Changed
+
+- **ObjectType only with USERDEFINED** (#77): an `object_type` with no predefined type is written PredefinedType USERDEFINED, and one beside any other predefined type is refused. A typed element's type carries USERDEFINED with the ElementType, and the occurrence is NOTDEFINED. The IFC4 downgrade writes USERDEFINED. Every family proxy names what it is (BOX_CULVERT_BARREL, GROUT_PAD, TREATED_PERMEABLE_BASE, APPURTENANCE).
+- Task ScheduleStart is written at 08:00 and ScheduleFinish at 17:00 instead of midnight, so a one-day task is a working day long; a single-date milestone has zero length. Dates and durations read back unchanged.
+- `est-bim estimate-model` writes its tasks with PredefinedType CONSTRUCTION instead of NOTDEFINED.
+- `federate` also refuses sources whose MapConversion or CRS differ from each other (including a georeferenced source beside an ungeoreferenced one, or a different OrthogonalHeight), naming both; `georef_check=False` turns this off with the per-source check below.
+- `add_declared_cost_schedule` takes `submitted_on` beside 0.1.124's `update_date`; UpdateDate is `update_date`, else `submitted_on`, else unset.
+- `add-alignments` aggregates the IfcAlignment to the IfcProject and references it into the IfcSite (IFC4.3 CT 4.1.4.1.1), as emit_ifc and federate do; it was aggregated under the site.
+- The IFC4 golden digests are re-recorded under ifcopenshell 0.9.0.post1, so they run in CI again instead of skipping.
+
+### Fixed
+
+- **A georeference base in the wrong unit for its CRS is refused.** #58 checks
+  `IfcMapConversion.Scale` against the CRS unit, but metre Eastings/Northings
+  under a US-survey-feet zone keep Scale right and still put the model ~1,480 km
+  off the coast. `emit_ifc` and `dxf2bim` now refuse a base that falls outside
+  the CRS's area of use but inside it in another unit, and say which unit the
+  numbers fit (`cad.geo.check_base_in_crs`). A base outside the zone in every
+  unit, such as a local test base, only warns; (0, 0) is skipped.
+- **`federate` refuses a source on another georeference.** The federated file
+  takes its map conversion from the ctx alone, so a source written on another
+  CRS, base, Scale or rotation was placed wrong with no error. Pass
+  `georef_check=False` when that is deliberate.
+
+## 0.1.124 — 2026-11-15
+
+### Fixed
+
+- A cost schedule's UpdateDate is no longer the clock. ifcopenshell stamps it
+  with the current time, so `est-bim cost5d`, `estimate5d` and `estimate-model`
+  wrote a different file on every run of the same source.
+  `add_declared_cost_schedule` takes an `update_date` from the caller and
+  otherwise leaves it unset, like the work schedule's CreationDate (#83).
+
+## 0.1.123 — 2026-11-15
+
+### Added
+
+- **`bimforge.caltrans`: the Caltrans Standard Plans tables ship in the wheel.**
+  The 2025 B3, D80, D84, D89 and D90 tables are package data
+  (`caltrans.load_table("d89-pipe-headwall")`), so a spec names them instead of
+  carrying a copy: `params.tables_pack: caltrans/2025/d89-pipe-headwall`, or a
+  list of them. A spec's own `tables_file` now merges over the packaged tables,
+  mapping by mapping, so it holds only the project's rows.
+
+### Changed
+
+- The tables moved from `data/caltrans-2025/tables/` to
+  `bimforge/caltrans/tables/2025/`. `data/caltrans-2025/` keeps the sheet
+  manifest. The catalog tests no longer skip on an installed wheel.
+
+### Fixed
+
+- `est-bim schedule --returned` copies each typed value in a select as written
+  (#83). An IfcDuration lag, or an IfcLabel or other measure a property holds, has
+  no instance id, and 0.1.122 cached its copies by that id, so every such value
+  became the first one copied: a returned file's lags all read alike. Rebuild any
+  file carried with 0.1.122.
+
+## 0.1.122 — 2026-11-15
+
+### Added
+
+- **Carry a returned IFC's additions through a rebuild** (#83). `est-bim
+  schedule --returned <file>` rebuilds the schedule from the source, then
+  copies what another application added to the returned file onto it, with
+  its GlobalIds: its own work schedule, its links to our tasks and elements,
+  approvals and progress. An addition is anything whose IfcOwnerHistory
+  names another application. Anything it points at of ours is re-pointed by
+  GlobalId (`bimforge.bim.carry_forward`). A JSON report lists, both ways,
+  what no longer lines up: additions whose target is gone, our tasks and
+  elements no downstream task covers, and our entities the returned file
+  changed, which are rebuilt from the source. A file from another project
+  is refused. The model is in `docs/globalid-contract.md`.
+- **A schedule type** (#37): the canonical schedule's `schedule_type`
+  (BASELINE, PLANNED or ACTUAL), or `est-bim schedule --schedule-type`, sets
+  IfcWorkSchedule.PredefinedType, and `schedule-read` reads it back.
+
+### Changed
+
+- `est-bim schedule` writes the IfcWorkSchedule as PLANNED, not NOTDEFINED,
+  when the source names no type. Its CreationDate is the schedule's start
+  date, not the time of the run, so a rebuild writes the same file.
+
+## 0.1.121 — 2026-11-15
+
+### Changed
+
+- **A spec giving `project.epsg` with a zero base point is refused** (audit 0.7). E=0, N=0 georeferenced the model to the CRS's false origin with TrueNorth about 13° off. Set a real base, drop the EPSG for a local model, or set `project.allow_zero_origin: true` to keep it on purpose. The 732SW, 842 and tubular-handrail examples now use a real base point.
+- **KML staging matches elements by GlobalId through `schedule_state.element_spans`** (audit 0.8). An element touched only by tasks of other types (OPERATION, LOGISTIC, …) no longer gets a TimeSpan.
+
+### Fixed
+
+- `federate` no longer orphans the real IfcBuildingStorey entities (WR41): it removes only the placeholder storey from the Building→storeys IfcRelAggregates instead of deleting the whole relationship (audit 0.2).
+- An alignment sweep with no vertical profile runs on a flat IfcGradientCurve over the horizontal curve, so IfcSectionedSolidHorizontal passes `DirectrixIs3D` and keeps its exact geometry (audit 0.3).
+- IfcAnnotation has an ObjectPlacement relative to its container, fixing `PlacementForShapeRepresentation` (audit 0.4).
+- Negative task-sequence lags are written as ISO 8601 `-P1.5D` (was `P-1.5D`, which read back as 0); files with the old form still read correctly (audit 0.5).
+- KML staging: elements on DEMOLITION/REMOVAL tasks stand until the removal date and disappear then (an end-only `<TimeSpan>` when nothing builds them), instead of appearing on it (audit 0.8).
+- `dxf2bim` refuses IFC2X3 by name before reading the DXF, instead of crashing in `create_owner_history`; the example layer map no longer offers it (audit 0.9).
+
+## 0.1.120 — 2026-11-15
+
+### Added
+
+- **Stable GlobalIds for relationships, property sets and alignments**
+  (#80), so a 4D or 5D file is the same run to run, not only its tasks and
+  cost items. `stable_ids.key_relationships` keys each property set by its
+  owner and name, each IfcRelSequence by its two tasks, and every other
+  relationship by its type and relating entity, leaving the related set out
+  so adding a member keeps the id. `est-bim schedule`, `cost5d`, `estimate5d`
+  and `estimate-model` run it last; a writer that adds to an embedded file
+  calls it before saving. `est-bim add-alignments` keys its alignments,
+  layouts, segments and referents, and the nests and Pset_Stationing around
+  them. The contract is `docs/globalid-contract.md`.
+
+## 0.1.119 — 2026-11-15
+
+### Added
+
+- **Stable GlobalIds for what the embedders write** (#74), so records a
+  consumer attaches by GlobalId survive a rebuild or a re-embed. `est-bim
+  schedule`, `cost5d`, `estimate5d` and `estimate-model` key their work
+  schedules, calendars, tasks, cost schedules, cost items and crews as
+  `uuid5(<the file's IfcProject GlobalId>, <key>)`, the rule elements already
+  follow (`bimforge.bim.stable_ids`). A task's `global_id` from write-back
+  still wins. `dxf2bim` keys its project, spatial containers and elements
+  (`element/<layer>-<DXF handle>`) from a new layer-map `project.guid_ns`, and
+  warns without one. `est-bim build` keys the IfcProject explicitly, to the id
+  it already had. What changes an id, and what never does, is in
+  `docs/globalid-contract.md`.
+
+### Changed
+
+- **Re-running an embedder over a file it wrote before this release changes
+  that file's schedule and cost ids once**, from random to keyed. After that
+  they hold.
+
+## 0.1.118 — 2026-11-14
+
+### Changed
+
+- **`est-bim estimate-model` writes ProjectCommand's ESTIMATE shape.** Each bid
+  item's Identification is now its pay item id, the one the TENDER schedule
+  (`est-bim estimate5d`) writes, so the two pair by Identification. Beneath it,
+  one `"<item>.<cost code>"` item per cost code, and one leaf per share with a
+  single ADD-composed IfcCostValue (its components are the money by kind) and
+  no CostQuantities. `read_costs` keys and the dashboard's share `code` are
+  unchanged; the old key rides on the bid item as `BidSheet_EstimateItem.CostKey`.
+  A reader older than 0.1.118 reads the composed leaves as $0, and re-running an
+  older `estimate-model` over a new file leaves orphan cost values: adopt
+  0.1.118 everywhere at once.
+- **Pay item ids are the bare item number** in both schedules
+  (`estimate5d.pay_item_id`): "Item # 2" is written "2".
+- **A TENDER rate over an undeclared unit is per one raw unit** (`estimate5d`):
+  where the project declares no unit for the dimension, the UnitBasis is 1 of a
+  unit the size of the raw quantity (a prefixed IfcSIUnit such as MILLI
+  SQUARE_METRE, else an IfcConversionBasedUnit), not the SI base unit valued at
+  that size, so a reader that divides by the basis value without converting
+  units (ProjectCommand's) reads the right money.
+
+### Added
+
+- **Top-level indirects:** an estimate share naming no bid item is filed under
+  a top-level cost item keyed by its cost code (`"<code> [indirect]"` when the
+  code is also a bid item's id or key). Before, it was dropped with a warning.
+- **Composite cost values are read everywhere** (`cost_categories.value_of`):
+  `read_costs`, the categories and the web contract sum an ADD value's
+  components.
+- **`cost_code`** in `read_costs` per-task records and contract shares of
+  estimate-model files.
+- **The file's currency:** every cost schedule BIMForge writes declares an
+  IfcMonetaryUnit (USD) in the project's units when it has none.
+- An ESTIMATE schedule renamed in another tool is still found and replaced (its
+  `BidSheet_EstimateModel.WorkSchedule`). `estimate-model` warns about a second
+  ESTIMATE schedule in the file, bid items that share a pay item id, and any
+  repeated Identification.
+- **costs.json `"items"`** for bid items no element carries (mobilization):
+  `est-bim estimate5d` writes each as a top-level total in the TENDER schedule (#49).
+
+### Fixed
+
+- **The TENDER schedule totals the bid** (#49): a code whose extension is within
+  float residue of its `cost` (0.001%, at least $0.01) has its non-count rates
+  scaled so its children sum to the cost exactly, and `estimate5d` refuses to
+  write a schedule that does not read back at its priced total to $0.01.
+
+## 0.1.117 — 2026-11-14
+
+### Fixed
+
+- **The unhosted-excavation warning names the terrain** (#59). It took the first
+  IfcGeographicElement as the ground, so a model with rock slope protection listed first
+  was told to void the RSP. It now considers only a TERRAIN IfcGeographicElement, and
+  warns only when the model has one.
+- **More material names have a Category** (#65): redwood and cedar are wood, baserock is
+  stone.
+
+## 0.1.116 — 2026-11-14
+
+### Added
+
+- **A backfill derived from its pit** (#59). `author.backfill.derive_backfill(model,
+  pit, name, top=...)` adds one IfcEarthworksFill (BACKFILL) whose solid is the pit
+  clipped at the backfill's top (a level or a surface) less every element body
+  standing in it, cut with manifold3d when the model is built: a stem rising above the
+  backfill takes away only its buried part. Its `volume_cf` is the solid's volume, held
+  by a stated-quantity assertion. Ground and other earthwork bodies are never taken
+  away; `exclude=` names more. A body that is not a closed solid, nothing left to
+  backfill, or a backfill in another number of pieces than `pieces=` (default 1) is
+  refused. A 4D viewer animates the one solid by volume, so no lifts are needed;
+  `author.lifts` is no longer the way for 4D.
+- **Groups** (#59). `StructureModel.groups` ({name: [element names]}) is written as one
+  named IfcGroup each, with IfcRelAssignsToGroup; `derive_backfill(group=...)` ties a
+  pit and its backfill together ("Abut 1 earthwork"). A group is an assignment, not a
+  parent, so a hosted cut (whose parent is the ground it voids) can join one where it
+  cannot join an IfcElementAssembly. A group naming a missing element is refused.
+- **Every IfcMaterial states its IFC Category** (#65): `concrete`, `steel`, `aluminium`,
+  `block`, `brick`, `stone`, `wood`, `glass`, `gypsum`, `plastic` or `earth`, so a
+  viewer can give each kind of material its own surface without parsing the free-text
+  Name. It comes from `Element.material_category`, else the first keyword in the
+  material's name (shotcrete, mortar and concrete are concrete; pipe, rod, bar and cable
+  are steel; ground, backfill, fill and excavation are earth; timber and plyform are
+  wood; ...), else the element's surface; no match leaves it unset. One material has
+  one Category: a clash is warned and the first element decides.
+- **Palettes** (#65). A style pack's `ifc.surfaces` can be keyed by
+  `material:<name>` and `category:<category>` as well as by layer and IFC class, in
+  that order (name, layer, category, class), each key merging field by field over the
+  built-in entry. Entries take `diffuse` and `specular_colour` (a factor or an rgb)
+  alongside colour, transparency, reflectance and roughness; `texture` is reserved and
+  ignored with a warning. A build spec's `style_pack:` (or `est-bim build
+  --style-pack`) picks the palette for one job, over the org pack. Every category has a
+  built-in look (steel and aluminium METAL, glass GLASS and see-through, concrete,
+  stone, masonry, wood and earth MATT), so a material whose layer the table does not
+  know now reads as what it is rather than as its IFC class's default.
+
+### Changed
+
+- **An excavation written unhosted while existing ground is in the model is warned**
+  (#59). The hosted IfcEarthworksCut (`Element.voids` naming the ground) is the
+  standard form a 4D viewer opens the ground with; the unhosted rewrite to
+  IfcEarthworksElement / EXCAVATION (#364) is unchanged.
+
+## 0.1.115 — 2026-11-14
+
+### Fixed
+
+- **A georeferenced IFC states the unit of its map coordinates** (#58). Neither
+  `emit_ifc` nor `dxf2bim` set `IfcProjectedCRS.MapUnit`, and a CRS without one takes
+  the project's length unit, the metre, so a reader that follows the schema took a
+  US-survey-feet CRS's eastings and northings as metres. Both now write the CRS's
+  unit from the EPSG registry, through one helper (`bim.georef.write_map_unit`): an
+  `IfcConversionBasedUnit` ('US survey foot', 'foot') or the SI metre. A
+  MapConversion Scale that disagrees with that unit is refused.
+- **`dxf2bim` converts a drawing in another unit than its CRS through metres.** A mm
+  DXF on a metre CRS passed its mm base through as metre eastings and wrote Scale
+  1000, putting the model 1000x off; a drawing in the CRS's own unit (a ft DXF on a
+  ftUS CRS) is unchanged.
+- **`dxf2bim` names the CRS and its geodetic datum** from the EPSG registry unless the
+  layer map's `georeference` block gives `crs_desc` / `geodetic_datum` /
+  `vertical_datum`; `emit_ifc` falls back to the registry datum when the project spec
+  gives none.
+
+### Changed
+
+- **Tasks link to the elements they build or take away as outputs, not inputs**
+  (#60). `est-bim schedule` and `est-bim estimate-model` wrote every task-to-element
+  link as `IfcRelAssignsToProcess`, which IFC, Bonsai and other 4D readers take as
+  material the task consumes, so a construction task showed nothing built. They now
+  write `IfcRelAssignsToProduct` (the element relating, the task related) for both
+  construction tasks and DEMOLITION / DISMANTLE / REMOVAL tasks; the task's
+  PredefinedType still says which. bimforge's readers read both forms, so older
+  models load as before, and re-embedding a schedule replaces its old input links.
+  `schedule-read`'s link `direction` is now `"output"` for these links.
+
 ## 0.1.114 — 2026-11-13
 
 ### Fixed

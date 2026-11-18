@@ -26,6 +26,7 @@ def build(params: dict, ctx) -> StructureModel:
                   z_bot=0.0, z_top=d, dims_ft=(s, s), ifc="IfcFooting")
         m.add(Element.from_geometry(p.name, p, ifc_class="IfcFooting",
                                     x_ft=i * sp, layer="S-CONC-OTLN",
+                                    predefined_type="PAD_FOOTING",
                                     quantities={"length_ft": s, "width_ft": s,
                                                 "height_ft": d,
                                                 "volume_cf": s * s * d}))
