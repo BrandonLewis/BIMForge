@@ -1,0 +1,173 @@
+"""What bimforge writes, by command and schema: the inventory (C.9).
+
+The first part of the profile: the entity types, property sets and quantity
+sets each command writes, on IFC4X3 and on IFC4, found by scanning the files
+test_conformance.py writes under BIMFORGE_CONFORMANCE_OUT. A file made from
+another (4D and cost on a built bridge, a federation of two headwalls) is
+credited only with what it adds to what it was made from, so each item names
+the command that writes it.
+
+    python scripts/ifc_inventory.py DIR            # write docs/ifc-inventory.*
+    python scripts/ifc_inventory.py DIR --check    # fail if they would change
+
+`--check` is the CI gate: a writer that starts writing a new entity type, set
+or property fails it until the inventory is regenerated and the change is
+seen in review. Presence only, no counts, so geometry changes pass.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+DOCS = Path(__file__).resolve().parents[1] / "docs"
+JSON_OUT, MD_OUT = DOCS / "ifc-inventory.json", DOCS / "ifc-inventory.md"
+SCHEMAS = ("IFC4X3", "IFC4")
+
+#: output name (without -ifc4) -> (command, the output it was made from)
+DERIVED = {
+    "bridge-standard-4d-cost5d": ("schedule + cost5d", ["bridge-standard"]),
+    "bridge-standard-estimate-model": ("estimate-model", ["bridge-standard"]),
+    "bridge-standard-carried": ("schedule --returned", ["bridge-standard"]),
+    "federated-headwalls": ("federate", ["caltrans-pipe-headwall",
+                                         "caltrans-d90-headwall"]),
+}
+STANDALONE = {"dxf2bim-sample": "dxf2bim"}
+
+
+def _name_schema(stem: str) -> tuple[str, str]:
+    return (stem[:-5], "IFC4") if stem.endswith("-ifc4") else (stem, "IFC4X3")
+
+
+def scan(f) -> set[tuple]:
+    """Every item a file holds: ("entity", class), ("pset", name, property),
+    ("qset", name, quantity, class), ("applies", set name, element class)."""
+    items = {("entity", e.is_a()) for e in f}
+    for ps in f.by_type("IfcPropertySet"):
+        items.add(("pset", ps.Name))
+        items |= {("pset", ps.Name, p.Name) for p in ps.HasProperties or ()}
+    for qs in f.by_type("IfcElementQuantity"):
+        items.add(("qset", qs.Name))
+        items |= {("qset", qs.Name, q.Name, q.is_a()) for q in qs.Quantities or ()}
+    for rel in f.by_type("IfcRelDefinesByProperties"):
+        d = rel.RelatingPropertyDefinition
+        if d is None or not hasattr(d, "Name"):
+            continue
+        kind = "qset" if d.is_a("IfcElementQuantity") else "pset"
+        items |= {("applies", kind, d.Name, o.is_a()) for o in rel.RelatedObjects}
+    for t in f.by_type("IfcTypeObject"):
+        for d in t.HasPropertySets or ():
+            kind = "qset" if d.is_a("IfcElementQuantity") else "pset"
+            items.add(("applies", kind, d.Name, t.is_a()))
+    return items
+
+
+def inventory(folder: Path) -> dict:
+    """{item key: {schema: [commands]}} over the files in `folder`."""
+    import ifcopenshell
+    files = {_name_schema(p.stem): p for p in sorted(folder.glob("*.ifc"))}
+    scanned = {k: scan(ifcopenshell.open(str(p))) for k, p in files.items()}
+    credit: dict[tuple, dict[str, set]] = {}
+    for (name, schema), items in scanned.items():
+        if name in DERIVED:
+            command, bases = DERIVED[name]
+            base = set().union(*(scanned.get((b, schema), set()) for b in bases))
+            items = items - base
+        else:
+            command = STANDALONE.get(name, "build")
+        for item in items:
+            credit.setdefault(item, {}).setdefault(schema, set()).add(command)
+    return {"|".join(item): {s: sorted(c) for s, c in sorted(by.items())}
+            for item, by in sorted(credit.items())}
+
+
+def render(inv: dict) -> str:
+    """docs/ifc-inventory.md from the inventory."""
+    def who(by):
+        cmds = sorted({c for cs in by.values() for c in cs})
+        schemas = [s for s in SCHEMAS if s in by]
+        where = "both" if len(schemas) == 2 else schemas[0]
+        same = len(schemas) < 2 or by[SCHEMAS[0]] == by[SCHEMAS[1]]
+        if same:
+            return ", ".join(cmds), where
+        return "; ".join(f"{s}: {', '.join(by[s])}" for s in schemas), where
+
+    rows = {"entity": [], "pset": {}, "qset": {}, "applies": {}}
+    for key, by in inv.items():
+        kind, *rest = key.split("|")
+        if kind == "entity":
+            rows["entity"].append((rest[0], *who(by)))
+        elif kind in ("pset", "qset"):
+            entry = rows[kind].setdefault(rest[0], {"by": None, "members": []})
+            if len(rest) == 1:
+                entry["by"] = who(by)
+            else:
+                entry["members"].append(rest[1] if kind == "pset"
+                                        else f"{rest[1]} ({rest[2]})")
+        else:
+            rows["applies"].setdefault((rest[0], rest[1]), []).append(rest[2])
+
+    out = ["# What bimforge writes",
+           "",
+           "Generated by `scripts/ifc_inventory.py` from the files the conformance",
+           "suite writes (`bimforge/bim/tests/test_conformance.py`); do not edit by hand.",
+           "Each item names the command that writes it, on IFC4X3, IFC4 or both. A",
+           "command run on a built file (schedule, cost5d, estimate-model, a carried",
+           "rebuild, federate) is credited only with what it adds. This is the",
+           "inventory of roadmap C.9; the profile and conformance statement build on it.",
+           "",
+           "## Entity types",
+           "",
+           "| Entity | Written by | Schema |",
+           "|---|---|---|"]
+    out += [f"| {e} | {c} | {s} |" for e, c, s in rows["entity"]]
+    for kind, title, col in (("pset", "Property sets", "Properties"),
+                             ("qset", "Quantity sets", "Quantities")):
+        out += ["", f"## {title}", "",
+                f"| Set | {col} | Applied to | Written by | Schema |",
+                "|---|---|---|---|---|"]
+        for name, entry in sorted(rows[kind].items()):
+            c, s = entry["by"] or ("", "")
+            to = ", ".join(sorted(rows["applies"].get((kind, name), [])))
+            out.append(f"| {name} | {', '.join(sorted(entry['members']))} "
+                       f"| {to} | {c} | {s} |")
+    return "\n".join(out) + "\n"
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("dir", type=Path, help="folder of the conformance outputs")
+    ap.add_argument("--check", action="store_true",
+                    help="fail if docs/ifc-inventory.* would change")
+    args = ap.parse_args(argv)
+    if not any(args.dir.glob("*.ifc")):
+        print(f"no .ifc files in {args.dir}", file=sys.stderr)
+        return 2
+    inv = inventory(args.dir)
+    text_json = json.dumps(inv, indent=1, sort_keys=True) + "\n"
+    text_md = render(inv)
+    if args.check:
+        old = json.loads(JSON_OUT.read_text("utf-8")) if JSON_OUT.exists() else {}
+        added = sorted(set(inv) - set(old))
+        gone = sorted(set(old) - set(inv))
+        moved = sorted(k for k in set(inv) & set(old) if inv[k] != old[k])
+        for label, keys in (("NEW", added), ("GONE", gone), ("CHANGED", moved)):
+            for k in keys:
+                print(f"{label:7} {k}  {inv.get(k) or old.get(k)}", file=sys.stderr)
+        stale_md = (not MD_OUT.exists()
+                    or MD_OUT.read_text("utf-8").replace("\r\n", "\n") != text_md)
+        if added or gone or moved or stale_md:
+            print("the inventory is out of date: run scripts/ifc_inventory.py "
+                  "and commit docs/ifc-inventory.*", file=sys.stderr)
+            return 1
+        print(f"inventory current ({len(inv)} items)")
+        return 0
+    JSON_OUT.write_text(text_json, "utf-8", newline="\n")
+    MD_OUT.write_text(text_md, "utf-8", newline="\n")
+    print(f"wrote {JSON_OUT.name} and {MD_OUT.name} ({len(inv)} items)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

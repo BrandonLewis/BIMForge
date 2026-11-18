@@ -125,6 +125,10 @@ jobs:
         env:
           BIMFORGE_CONFORMANCE_OUT: ${{ runner.temp }}/conformance
         run: python -m pytest bimforge/bim/tests/test_conformance.py -q
+      - name: The inventory of what each command writes is current (C.9)
+        # a new entity type, set or property fails until docs/ifc-inventory.*
+        # is regenerated (scripts/ifc_inventory.py DIR) and seen in review
+        run: python scripts/ifc_inventory.py ${{ runner.temp }}/conformance --check
       - name: Normative rules against the baseline
         run: >
           python scripts/bsi_rules.py --rules ifc-gherkin-rules

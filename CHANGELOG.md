@@ -6,6 +6,13 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ### Added
 
+- **An inventory of what each command writes (C.9).** `docs/ifc-inventory.md`
+  lists the entity types, property sets and quantity sets (with their
+  properties and the classes they apply to) that `build`, `dxf2bim`,
+  `schedule`, `cost5d`, `estimate-model`, a carried rebuild and `federate`
+  write, on IFC4X3 and IFC4, generated from the conformance suite's files by
+  `scripts/ifc_inventory.py`. CI fails when a writer starts writing something
+  the inventory does not hold.
 - **Conformance on IFC4 too, and on a carried-forward rebuild (C.7).** The
   conformance suite builds every example on IFC4 as well as IFC4X3, runs the
   4D, cost, estimate, dxf2bim and federate writers on both, and checks a
