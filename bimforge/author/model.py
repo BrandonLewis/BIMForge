@@ -95,6 +95,12 @@ class Element:
     #: family that shipped untyped moves no GlobalId a consumer holds
     #: (test_example_globalids). Families typed since 0.1.121 set it.
     typed_late: bool = False
+    #: The family dictionary class this element is (roadmap M.1), by Code
+    #: ("retaining-wall-b3-type-1"): emit_ifc writes an IfcClassification-
+    #: Reference to it under the dictionary's own system ("bimforge
+    #: families"), never read as a pay code. A sized bar (`bar_size`) is a
+    #: "reinforcing-bar" without saying so. None = no class.
+    family_class: str | None = None
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.

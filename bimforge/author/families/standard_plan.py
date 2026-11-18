@@ -118,7 +118,7 @@ def build(params: dict, ctx) -> StructureModel:
                 p.name, p, ifc_class="IfcFooting", layer="S-CONC-OTLN",
                 predefined_type="STRIP_FOOTING",
                 type_name=fd.type_name(foot_cls),
-                psets=fd.reference_psets(foot_cls),
+                psets=fd.reference_psets(foot_cls), family_class=foot_cls,
                 typed_late=True,
                 quantities={"length_ft": b - a, "width_ft": ws.W,
                             "height_ft": ws.F, "volume_cf": p.volume_cf}))
@@ -134,7 +134,7 @@ def build(params: dict, ctx) -> StructureModel:
                 p.name, p, ifc_class="IfcWall", layer="S-CONC-OTLN",
                 predefined_type="RETAININGWALL",
                 type_name=fd.type_name(stem_cls),
-                psets=fd.reference_psets(stem_cls),
+                psets=fd.reference_psets(stem_cls), family_class=stem_cls,
                 typed_late=True,
                 quantities={"length_ft": b - a, "width_ft": th,
                             "height_ft": h, "volume_cf": p.volume_cf}))

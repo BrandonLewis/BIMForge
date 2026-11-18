@@ -17,6 +17,7 @@ Every stable id is `uuid5(namespace, key)`, compressed to the IFC form.
 | `est-bim build` | spatial containers, types | `project.guid_ns` | `spatial/...`, the type's class and name |
 | `est-bim build` | a bar type's IfcRelDefinesByType | `project.guid_ns` | `rel/IfcRelDefinesByType/<type id>` |
 | `est-bim build` | a late-typed element's (`Element.typed_late`: the B3 retaining wall) IfcRelDefinesByType, property sets and their IfcRelDefinesByProperties | `project.guid_ns` | `rel/IfcRelDefinesByType/<type id>`, `pset/<element id>/<pset name>`, `rel/IfcRelDefinesByProperties/<pset id>` |
+| `est-bim build` | a family class's (M.1) IfcRelAssociatesClassification | `project.guid_ns` | `rel/IfcRelAssociatesClassification/` + the reference's `stable_ids` name (its system and class code) |
 | `est-bim build` | the types' IfcRelDeclares | the file's IfcProject GlobalId | `rel/IfcRelDeclares/<project id>`, the key the embedders give it |
 | `author.federate` | aggregates, storeys | derived from the source ids | |
 | `est-bim schedule` | IfcWorkSchedule | the file's IfcProject GlobalId | `work-schedule/<name>` |

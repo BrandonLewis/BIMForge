@@ -4,7 +4,21 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+**For ProjectCommand and BidSheet.ai:** typed elements now carry a second IfcClassificationReference, to their family class, under an IfcClassification named `bimforge families`. It is not a pay code: bimforge's pay readers skip it, and so should any reader that keys pay items on element classifications.
+
 ### Added
+
+- **Every element of a typed family references its dictionary class
+  (M.1).** An IfcClassificationReference with the class's Code as
+  Identification ("retaining-wall-b3-type-1"), its Name, and its bSDD URI
+  as Location, under one IfcClassification `bimforge families` (Source
+  `bimforge`, Edition the dictionary version, the dictionary URI as its
+  Location/Specification): the B3 walls and footings, the barrier runs and
+  bodies, the B11-51 handrailing and its parts, the D90 guardrail, and
+  every sized reinforcing bar. A reader gets the class without matching a
+  type name's prefix: `ifc_takeoff.family_class_of(element)`. Written after
+  the GlobalId sweep, the relationship keyed by its reference, so no
+  GlobalId moves.
 
 - **The B3 retaining wall is typed (X.6).** Every stem slice is an
   IfcWall/RETAININGWALL of an IfcWallType named for its wall type
@@ -19,6 +33,12 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   docs/globalid-contract.md), as the bar types are.
 
 ### Changed
+
+- **Pay readers skip the family class.** `classifications_of` (the
+  takeoff, `estimate5d`, `model-elements`, the takeoff workbook, the web
+  contract, the 4D schedule) and the GIS export's cost code leave out
+  references under `bimforge families`. The takeoff IDS applies its
+  classified-element rules to every system but that one.
 
 - **Families read their names from the dictionary (X.4).** The type names
   and standard-plan references of the barriers, the B11-51 handrailing and

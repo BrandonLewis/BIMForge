@@ -199,7 +199,7 @@
         <ids:classification cardinality="required">
           <ids:system>
             <xs:restriction base="xs:string">
-              <xs:pattern value=".+" />
+              <xs:pattern value="b|bi|bim|bimf|bimfo|bimfor|bimforg|bimforge|bimforge |bimforge f|bimforge fa|bimforge fam|bimforge fami|bimforge famil|bimforge famili|bimforge familie|[^b].*|b[^i].*|bi[^m].*|bim[^f].*|bimf[^o].*|bimfo[^r].*|bimfor[^g].*|bimforg[^e].*|bimforge[^ ].*|bimforge [^f].*|bimforge f[^a].*|bimforge fa[^m].*|bimforge fam[^i].*|bimforge fami[^l].*|bimforge famil[^i].*|bimforge famili[^e].*|bimforge familie[^s].*|bimforge families.+" />
             </xs:restriction>
           </ids:system>
         </ids:classification>

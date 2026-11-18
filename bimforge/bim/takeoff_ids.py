@@ -33,7 +33,7 @@ from pathlib import Path
 
 import ifcopenshell
 
-from bimforge.bim.ifc_takeoff import MEASURE_DIM
+from bimforge.bim.ifc_takeoff import FAMILY_CLASSIFICATION, MEASURE_DIM
 
 IDS_NS = "http://standards.buildingsmart.org/IDS"
 XS_NS = "http://www.w3.org/2001/XMLSchema"
@@ -107,10 +107,29 @@ def _elements(parent) -> None:
     _restricted(entity, "name", enumeration=element_classes())
 
 
+_XSD_META = set(r"\|.?*+(){}[]^$-")
+
+
+def _not_exactly(literal: str) -> str:
+    """An XSD pattern matching every non-empty string but `literal`. XSD
+    patterns have no lookahead, so: a proper prefix of it, or a string
+    that differs from it at some position, or it followed by more."""
+    def esc(c, in_class=False):
+        meta = set(r"\]^-[") if in_class else _XSD_META
+        return "\\" + c if c in meta else c
+    lit = [esc(c) for c in literal]
+    alts = ["".join(lit[:i]) for i in range(1, len(literal))]
+    alts += ["".join(lit[:i]) + f"[^{esc(c, True)}].*"
+             for i, c in enumerate(literal)]
+    alts.append("".join(lit) + ".+")
+    return "|".join(alts)
+
+
 def _classified(parent, **attrs) -> None:
-    """Any classification reference, under any system."""
+    """Any pay classification reference: under any system but the family
+    dictionary's (M.1), whose class references say what an element is."""
     facet = ET.SubElement(parent, _ids("classification"), **attrs)
-    _restricted(facet, "system", pattern=".+")
+    _restricted(facet, "system", pattern=_not_exactly(FAMILY_CLASSIFICATION))
 
 
 def _quantity(parent, names, **attrs) -> None:

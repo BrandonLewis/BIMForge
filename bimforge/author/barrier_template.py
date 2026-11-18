@@ -80,6 +80,11 @@ def run_type_name(tmpl: BarrierTemplate) -> str:
     return f"Concrete barrier Type {tmpl.label.upper()}"
 
 
+def _family_class(tmpl: BarrierTemplate) -> str | None:
+    """The dictionary class a barrier family's run and bodies reference."""
+    return tmpl.family_id if fd.has_class(tmpl.family_id) else None
+
+
 def standard_plan(tmpl: BarrierTemplate) -> str | None:
     """The standard plan a barrier family is built to, from the dictionary."""
     return fd.standard_plan(tmpl.family_id) if fd.has_class(tmpl.family_id) else None
@@ -96,6 +101,7 @@ def begin_run(tmpl: BarrierTemplate, model: StructureModel, name: str) -> int:
                     predefined_type=tmpl.predefined_type,
                     type_name=run_type_name(tmpl), layer="S-CONC",
                     psets=(fd.reference_psets(tmpl.family_id) if plan else {}),
+                    family_class=_family_class(tmpl),
                     description=run_type_name(tmpl)
                                 + (f" ({plan})" if plan else "")
                                 + ": the run; its barrier, end blocks, "
@@ -119,6 +125,8 @@ def end_run(tmpl: BarrierTemplate, model: StructureModel, start: int) -> None:
                 el.predefined_type = tmpl.predefined_type
             if el.type_name is None:
                 el.type_name = run_type_name(tmpl)
+            if el.family_class is None:
+                el.family_class = _family_class(tmpl)
 
 
 def build_barrier(tmpl: BarrierTemplate, params: dict, ctx) -> StructureModel:

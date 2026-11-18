@@ -151,3 +151,31 @@ def test_every_linear_reference_property_is_declared(dictionary, built):
         for el in model.by_type("IfcElement"):
             emitted |= set(ue.get_pset(el, LINEAR_PSET) or {}) - {"id"}
     assert emitted and emitted <= declared
+
+
+def test_every_typed_element_references_its_class(dictionary, built):
+    """M.1: an element of a dictionary type carries a class reference to
+    that class, under the dictionary's own system, which no pay reader
+    takes for a pay code."""
+    from bimforge.author import family_dictionary as fd
+    from bimforge.bim.ifc_takeoff import classifications_of, family_class_of
+    ue = ifcopenshell.util.element
+    checked = 0
+    for model in built:
+        for el in model.by_type("IfcElement"):
+            el_type = ue.get_type(el)
+            got = family_class_of(el)
+            if el_type is None:
+                assert got is None, el.Name
+                continue
+            cls = _class_for(dictionary, el_type.Name)
+            assert got == {"code": cls["Code"], "name": cls["Name"],
+                           "uri": fd.class_uri(cls["Code"])}, el.Name
+            assert all(c["code"] != cls["Code"] for c in classifications_of(el))
+            checked += 1
+        systems = [c for c in model.by_type("IfcClassification")
+                   if c.Name == fd.system()["name"]]
+        assert len(systems) <= 1
+        for system in systems:
+            assert system.Source == "bimforge" and system.Edition
+    assert checked
