@@ -608,10 +608,27 @@ def _cost_code(ci) -> str | None:
     return parent.Identification
 
 
+#: the cost schedule types that cost a work schedule's tasks
+COST_SCHEDULE_TYPES = ("BUDGET", "ESTIMATE")
+
+
 def cost_schedules_for(model, sname: str) -> list:
-    """The cost schedules of work schedule `sname`: those named
+    """The cost schedules of work schedule `sname`. By type and link first
+    (C.5), as ProjectCommand finds them: the BUDGET (cost5d) and ESTIMATE
+    (estimate-model) schedules declared to the project whose cost items
+    control its tasks, whatever they are named. Else those named
     "<sname> cost", else the ESTIMATE ones whose BidSheet_EstimateModel
     marker names it (a schedule renamed in another tool)."""
+    wss = [w for w in model.by_type("IfcWorkSchedule") if w.Name == sname]
+    tasks = {t.id() for ws in wss for t, _ in _schedule_tasks(ws)}
+    linked = [c for c in model.by_type("IfcCostSchedule")
+              if c.PredefinedType in COST_SCHEDULE_TYPES
+              and getattr(c, "HasContext", None)
+              and any(o.id() in tasks for ci in _leaf_cost_items(c)
+                      for rel in getattr(ci, "Controls", None) or []
+                      for o in rel.RelatedObjects or [])]
+    if linked:
+        return linked
     named = [c for c in model.by_type("IfcCostSchedule")
              if c.Name == f"{sname} cost"]
     if named:
@@ -658,8 +675,9 @@ def read_costs(model, name: str | None = None) -> dict:
     An estimate-model leaf (0.1.118+) is keyed by its bid item's CostKey,
     the key earlier versions used, and its record also carries
     `cost_code`, the "<item>.<code>" node it sits under. The cost schedule
-    is "<name> cost", else the ESTIMATE schedule whose
-    BidSheet_EstimateModel marker names the work schedule.
+    is the one `cost_schedules_for` finds: by type and its links to the
+    work schedule's tasks, else by the name "<name> cost" or the
+    estimate-model marker.
 
     Per-code hours come from each cost item's Bimforge_CostItem (0.1.88 and earlier: Pset_BimforgeCostItem). A model
     embedded before #335 has only the per-task crew: a single-code task's
@@ -671,10 +689,13 @@ def read_costs(model, name: str | None = None) -> dict:
     cost_name = f"{sname} cost"
     css = cost_schedules_for(model, sname)
     if not css:
-        raise ValueError(f"no IfcCostSchedule named {cost_name!r} — is this "
-                         f"the 5D IFC (est-bim cost5d)?")
+        raise ValueError(f"no IfcCostSchedule costs the tasks of {sname!r} "
+                         f"and none is named {cost_name!r} — is this the 5D "
+                         f"IFC (est-bim cost5d)?")
     if len(css) > 1:
-        raise ValueError(f"{len(css)} IfcCostSchedules are named {cost_name!r}")
+        raise ValueError(f"{len(css)} IfcCostSchedules cost the tasks of "
+                         f"{sname!r}: "
+                         f"{', '.join(sorted(c.Name or '' for c in css))}")
 
     in_schedule = {t.id() for t, _ in _schedule_tasks(ws)}
     warnings: list[str] = []
