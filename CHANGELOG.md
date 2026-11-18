@@ -22,6 +22,12 @@ IFC compliance audit Phase 2 (roadmap C.5): relationship semantics.
 
 ### Changed
 
+- **A downstream tool may rewrite what it added itself.** The returned-files
+  contract (`docs/globalid-contract.md`) keeps "never modifies an entity of
+  ours" and now lets the tool replace or remove its own additions: one
+  update instead of a pile, a kept update retyped BASELINE, approvals changed
+  or withdrawn. `carry_forward` already carried these unchanged; tests now
+  pin a MODIFIED update and a kept BASELINE beside the current one.
 - **Crews are assigned to tasks with IfcRelAssignsToProcess**, the task relating, in `cost5d` and `estimate-model`; it was IfcRelAssignsToResource (the crew relating). `read_costs` reads both, so earlier files read the same hours. A tool that copies a task's process assignments (ProjectCommand's schedule update) now carries the crew along. A re-embed removes the old crews' assignments with them (ifcopenshell's `remove_resource` leaves process assignments behind). The 4D readers (`task_elements`, element start dates, appear and vanish spans) skip resources among a task's process inputs.
 - `read_costs` and the web contract find a work schedule's cost schedule by type and link: a BUDGET or ESTIMATE schedule declared to the project whose cost items control its tasks, whatever it is named. The name "<ws> cost" and the estimate-model marker remain the fallbacks. The error for none or several now says which.
 - The web contract reads bid items (`BidSheet_EstimateItem`) only from ESTIMATE cost schedules.
