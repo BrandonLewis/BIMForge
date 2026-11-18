@@ -306,6 +306,11 @@ def test_estimate_shares_name_the_element_item_and_price(tmp_path):
     assert items["10"]["unit_price"] == 1.0 and items["10"]["code"] == "51-CONC"
     assert items["20"]["total"] == 500.0
     assert rows == {} or rows["51-CONC"]["unit_price"] == 1.0
+    # C.5: only an ESTIMATE schedule's items are bid items
+    g = ifcopenshell.open(str(out))
+    for cs in g.by_type("IfcCostSchedule"):
+        cs.PredefinedType = "BUDGET"
+    assert _bid_items(g) == {}
 
 
 def test_shares_and_tasks_carry_the_kind_of_cost(tmp_path):
