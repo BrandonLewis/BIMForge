@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from bimforge.author import curved_run as _curved
+from bimforge.author import family_dictionary as fd
 from bimforge.author.model import Element, StructureModel
 from bimforge.author.primitives import SectionPrism, bar_role
 
@@ -31,8 +32,6 @@ class BarrierTemplate:
     extras_fn: Optional[Callable] = None     # (name, run, section, length) -> list[Element]
     default_run_name: str = "barrier"
     endblock_rings_fn: Optional[Callable] = None   # (run, section, kind) -> (inboard_ring, nose_ring)
-    #: The standard plan the barrier is built to (Pset_WallCommon.Reference).
-    standard_plan: str = ""
     #: IfcWall.PredefinedType of the barrier and its end blocks. PARAPET is
     #: IFC's "wall-like barrier to protect human or vehicle from falling ...
     #: along edges of bridges": the bridge-rail and wall-top barriers.
@@ -73,8 +72,17 @@ def end_kinds(run) -> tuple[str, str]:
 
 
 def run_type_name(tmpl: BarrierTemplate) -> str:
-    """The IfcWallType name of a barrier family: "Concrete barrier Type 842"."""
+    """The IfcWallType name of a barrier family: its dictionary class's Name
+    ("Concrete barrier Type 842"); a template the dictionary does not know
+    is named from its label."""
+    if fd.has_class(tmpl.family_id):
+        return fd.type_name(tmpl.family_id)
     return f"Concrete barrier Type {tmpl.label.upper()}"
+
+
+def standard_plan(tmpl: BarrierTemplate) -> str | None:
+    """The standard plan a barrier family is built to, from the dictionary."""
+    return fd.standard_plan(tmpl.family_id) if fd.has_class(tmpl.family_id) else None
 
 
 def begin_run(tmpl: BarrierTemplate, model: StructureModel, name: str) -> int:
@@ -83,14 +91,13 @@ def begin_run(tmpl: BarrierTemplate, model: StructureModel, name: str) -> int:
     family, and return the element index the run's parts start at (for
     `end_run`). The whole measures and pays nothing (`paycodes.apply` skips
     it); it is what a viewer's tree and an IDS check see as THE barrier."""
+    plan = standard_plan(tmpl)
     whole = Element(f"{name} {tmpl.label} barrier run", "IfcWall",
                     predefined_type=tmpl.predefined_type,
                     type_name=run_type_name(tmpl), layer="S-CONC",
-                    psets=({"Pset_WallCommon": {"Reference": tmpl.standard_plan}}
-                           if tmpl.standard_plan else {}),
-                    description=f"Concrete barrier Type {tmpl.label.upper()}"
-                                + (f" ({tmpl.standard_plan})"
-                                   if tmpl.standard_plan else "")
+                    psets=(fd.reference_psets(tmpl.family_id) if plan else {}),
+                    description=run_type_name(tmpl)
+                                + (f" ({plan})" if plan else "")
                                 + ": the run; its barrier, end blocks, "
                                   "reinforcing and hardware are its parts")
     model.add(whole)

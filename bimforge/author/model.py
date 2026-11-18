@@ -89,6 +89,12 @@ class Element:
     #: NominalDiameter, CrossSectionArea and BarSurface. None = a bar total
     #: with no single size (a weight per foot), left untyped.
     bar_size: int | None = None
+    #: Write this element's type and property sets after emit_ifc's sweep
+    #: numbers the file's roots, each keyed (the type by class and name, a
+    #: set by its owner, a relationship by what it relates), so typing a
+    #: family that shipped untyped moves no GlobalId a consumer holds
+    #: (test_example_globalids). Families typed since 0.1.121 set it.
+    typed_late: bool = False
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.

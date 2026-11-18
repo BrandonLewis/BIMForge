@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 
+from bimforge.author import family_dictionary as fd
 from bimforge.author import rail_section as rs
 from bimforge.author.model import Element
 from bimforge.author.primitives import (
@@ -21,10 +22,11 @@ from bimforge.author.primitives import (
     _signed_volume, _wound, clean_ring2d, ear_clip, keyhole_ring, poly_area)
 
 STEEL_LAYER = "S-METAL"
-#: The standard plan the run is built to: the IfcRailingType name and
-#: Pset_RailingCommon.Reference a viewer shows for the run and its parts.
-STANDARD_PLAN = "B11-51"
-RUN_TYPE = f"Tubular handrailing {STANDARD_PLAN}"
+#: The run's dictionary class: its IfcRailingType name and the standard
+#: plan (Pset_RailingCommon.Reference) a viewer shows for the run.
+RUN_CLASS = "tubular-handrailing-b11-51"
+STANDARD_PLAN = fd.standard_plan(RUN_CLASS)
+RUN_TYPE = fd.type_name(RUN_CLASS)
 
 #: Max arc-angle step per facet bay so the chorded sweep's volume defect
 #: (~step^2/6) stays inside the gate's FACET_TOLERANCE band -- the same
@@ -93,7 +95,8 @@ def _rail_element(run_name: str, rail, length_ft: float, base_z_ft: float,
         q["length_ft"] = length_ft          # plan payment length, explicit
     return _swept_member(sp, ifc_class=sp.ifc, layer=sp.layer, quantities=q,
                          predefined_type="HANDRAIL" if rail.is_payment else None,
-                         type_name=f"{STANDARD_PLAN} {label} {rail.size}")
+                         type_name=fd.type_name(f"b11-51-{label.replace(' ', '-')}",
+                                              rail.size))
 
 
 def _post_element(run_name: str, i: int, s: float, cfg, base_z_ft: float,
@@ -108,7 +111,7 @@ def _post_element(run_name: str, i: int, s: float, cfg, base_z_ft: float,
               ifc="IfcMember", layer=STEEL_LAYER)
     return Element.from_geometry(p.name, p, ifc_class="IfcMember",
                                  layer=STEEL_LAYER, predefined_type="POST",
-                                 type_name=f"{STANDARD_PLAN} post {cfg.post_size}",
+                                 type_name=fd.type_name("b11-51-post", cfg.post_size),
                                  quantities={"height_ft": z_top - z_bot,
                                              "volume_cf": p.volume_cf})
 
@@ -128,7 +131,7 @@ def _mortar_element(run_name: str, i: int, s: float, base_z_ft: float,
               layer="S-CONC")
     return Element.from_geometry(p.name, p, ifc_class="IfcBuildingElementProxy",
                                  layer="S-CONC", object_type="Post pocket mortar",
-                                 type_name=f"{STANDARD_PLAN} post pocket mortar",
+                                 type_name=fd.type_name("b11-51-post-pocket-mortar"),
                                  quantities={"volume_cf": p.volume_cf})
 
 
@@ -338,7 +341,7 @@ def _end_return_element(run_name: str, end: str, cfg, base_z_ft: float,
                      phi0=0.0, phi1=phi1, y_bc=y_bc, toward=toward,
                      ifc="IfcMember", layer=STEEL_LAYER)
     return _swept_member(tube, ifc_class="IfcMember", layer=STEEL_LAYER,
-                         type_name=f"{STANDARD_PLAN} end return {rail.size}",
+                         type_name=fd.type_name("b11-51-end-return", rail.size),
                          quantities={"volume_cf": tube.volume_cf}), phi1
 
 
@@ -356,7 +359,7 @@ def _rail_cap_element(run_name: str, end: str, cfg, base_z_ft: float,
                     phi0=phi_start, phi1=phi_start + dphi, y_bc=y_bc,
                     toward=toward, ifc="IfcPlate", layer=STEEL_LAYER)
     return _swept_member(cap, ifc_class="IfcPlate", layer=STEEL_LAYER,
-                         type_name=f"{STANDARD_PLAN} rail cap plate",
+                         type_name=fd.type_name("b11-51-rail-cap-plate"),
                          quantities={"volume_cf": cap.volume_cf})
 
 
@@ -374,7 +377,7 @@ def _sleeve_element(run_name: str, j: int, cfg, y0: float, x0: float = 0.0):
     sp = SectionPrism(f"{run_name} splice sleeve {j}", outer, SLEEVE_LEN_FT,
                       y0=y0, voids=[void], ifc="IfcMember", layer=STEEL_LAYER)
     return _swept_member(sp, ifc_class="IfcMember", layer=STEEL_LAYER,
-                         type_name=f"{STANDARD_PLAN} splice sleeve",
+                         type_name=fd.type_name("b11-51-splice-sleeve"),
                          quantities={"volume_cf": sp.volume_cf})
 
 
@@ -387,7 +390,7 @@ def run_element(run_name: str) -> Element:
     category and an IDS check see as THE handrail."""
     return Element(f"{run_name} handrail run", "IfcRailing",
                    predefined_type="HANDRAIL", type_name=RUN_TYPE,
-                   psets={"Pset_RailingCommon": {"Reference": STANDARD_PLAN}},
+                   psets=fd.reference_psets(RUN_CLASS),
                    layer=STEEL_LAYER,
                    description=f"Caltrans {STANDARD_PLAN} tubular handrailing: "
                                "the run; its rails, posts, returns, sleeves, "
