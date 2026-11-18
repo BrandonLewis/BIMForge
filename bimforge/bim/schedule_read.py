@@ -43,7 +43,9 @@ def element_start_dates(model) -> dict[int, str]:
                 starts[eid] = day
 
     for rel in model.by_type("IfcRelAssignsToProcess"):
-        stamp(rel.RelatingProcess, rel.RelatedObjects or [])
+        # inputs are products, or (C.5) the crews the task uses
+        stamp(rel.RelatingProcess, [o for o in rel.RelatedObjects or []
+                                    if o.is_a("IfcProduct")])
     # outputs too (#335): models post-processed for Bonsai playback link
     # task -> element with IfcRelAssignsToProduct instead
     for rel in model.by_type("IfcRelAssignsToProduct"):
@@ -516,6 +518,25 @@ def _number(value) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+def crews_of(task) -> list:
+    """The resources assigned to `task`, each once, in file order: those it
+    relates by IfcRelAssignsToProcess (C.5: cost5d and estimate-model from
+    0.1.126), then IfcRelAssignsToResource ones (written before). A task's
+    process inputs can also be products; only resources are taken."""
+    found = [o for rel in getattr(task, "OperatesOn", None) or []
+             if rel.is_a("IfcRelAssignsToProcess")
+             for o in rel.RelatedObjects or []]
+    found += [rel.RelatingResource
+              for rel in getattr(task, "HasAssignments", None) or []
+              if rel.is_a("IfcRelAssignsToResource") and rel.RelatingResource]
+    out, seen = [], set()
+    for obj in found:
+        if obj.is_a("IfcResource") and obj.id() not in seen:
+            seen.add(obj.id())
+            out.append(obj)
+    return out
+
+
 def _crew_hours(crew) -> float | None:
     """A labor resource's hours: ScheduleWork usage, else StandardWork."""
     usage = getattr(crew, "Usage", None)
@@ -587,10 +608,27 @@ def _cost_code(ci) -> str | None:
     return parent.Identification
 
 
+#: the cost schedule types that cost a work schedule's tasks
+COST_SCHEDULE_TYPES = ("BUDGET", "ESTIMATE")
+
+
 def cost_schedules_for(model, sname: str) -> list:
-    """The cost schedules of work schedule `sname`: those named
+    """The cost schedules of work schedule `sname`. By type and link first
+    (C.5), as ProjectCommand finds them: the BUDGET (cost5d) and ESTIMATE
+    (estimate-model) schedules declared to the project whose cost items
+    control its tasks, whatever they are named. Else those named
     "<sname> cost", else the ESTIMATE ones whose BidSheet_EstimateModel
     marker names it (a schedule renamed in another tool)."""
+    wss = [w for w in model.by_type("IfcWorkSchedule") if w.Name == sname]
+    tasks = {t.id() for ws in wss for t, _ in _schedule_tasks(ws)}
+    linked = [c for c in model.by_type("IfcCostSchedule")
+              if c.PredefinedType in COST_SCHEDULE_TYPES
+              and getattr(c, "HasContext", None)
+              and any(o.id() in tasks for ci in _leaf_cost_items(c)
+                      for rel in getattr(ci, "Controls", None) or []
+                      for o in rel.RelatedObjects or [])]
+    if linked:
+        return linked
     named = [c for c in model.by_type("IfcCostSchedule")
              if c.Name == f"{sname} cost"]
     if named:
@@ -637,8 +675,9 @@ def read_costs(model, name: str | None = None) -> dict:
     An estimate-model leaf (0.1.118+) is keyed by its bid item's CostKey,
     the key earlier versions used, and its record also carries
     `cost_code`, the "<item>.<code>" node it sits under. The cost schedule
-    is "<name> cost", else the ESTIMATE schedule whose
-    BidSheet_EstimateModel marker names the work schedule.
+    is the one `cost_schedules_for` finds: by type and its links to the
+    work schedule's tasks, else by the name "<name> cost" or the
+    estimate-model marker.
 
     Per-code hours come from each cost item's Bimforge_CostItem (0.1.88 and earlier: Pset_BimforgeCostItem). A model
     embedded before #335 has only the per-task crew: a single-code task's
@@ -650,10 +689,13 @@ def read_costs(model, name: str | None = None) -> dict:
     cost_name = f"{sname} cost"
     css = cost_schedules_for(model, sname)
     if not css:
-        raise ValueError(f"no IfcCostSchedule named {cost_name!r} — is this "
-                         f"the 5D IFC (est-bim cost5d)?")
+        raise ValueError(f"no IfcCostSchedule costs the tasks of {sname!r} "
+                         f"and none is named {cost_name!r} — is this the 5D "
+                         f"IFC (est-bim cost5d)?")
     if len(css) > 1:
-        raise ValueError(f"{len(css)} IfcCostSchedules are named {cost_name!r}")
+        raise ValueError(f"{len(css)} IfcCostSchedules cost the tasks of "
+                         f"{sname!r}: "
+                         f"{', '.join(sorted(c.Name or '' for c in css))}")
 
     in_schedule = {t.id() for t, _ in _schedule_tasks(ws)}
     warnings: list[str] = []
@@ -708,10 +750,8 @@ def read_costs(model, name: str | None = None) -> dict:
         if manhours is not None:
             entry(task_id(task))["labor_hours"] = manhours
             continue
-        for rel in getattr(task, "HasAssignments", None) or []:
-            crew = rel.RelatingResource if rel.is_a(
-                "IfcRelAssignsToResource") else None
-            if crew is None or not crew.is_a("IfcLaborResource") \
+        for crew in crews_of(task):
+            if not crew.is_a("IfcLaborResource") \
                     or not (crew.Name or "").startswith(crew_prefix):
                 continue
             hours = _crew_hours(crew)

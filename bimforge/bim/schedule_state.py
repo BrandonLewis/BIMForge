@@ -54,8 +54,9 @@ def _start(task) -> str | None:
 
 def _links(task):
     for rel in getattr(task, "OperatesOn", None) or ():
-        if rel.is_a("IfcRelAssignsToProcess"):
-            yield from rel.RelatedObjects or ()
+        if rel.is_a("IfcRelAssignsToProcess"):    # products, not crews (C.5)
+            yield from (o for o in rel.RelatedObjects or ()
+                        if o.is_a("IfcProduct"))
     for rel in getattr(task, "HasAssignments", None) or ():
         if rel.is_a("IfcRelAssignsToProduct") and rel.RelatingProduct:
             yield rel.RelatingProduct

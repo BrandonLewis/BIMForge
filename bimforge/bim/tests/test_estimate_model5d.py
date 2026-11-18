@@ -190,7 +190,10 @@ def test_tasks_link_elements_by_global_id_and_spread_links_none():
     assert links["a3"] == []             # spread: no elements, even listed
     # #60: the elements are the tasks' outputs, never inputs
     assert {l["direction"] for ls in links.values() for l in ls} ==         {"output"}  # noqa: E741
-    assert not f.by_type("IfcRelAssignsToProcess")
+    # C.5: process assignments hold the crew only, never an element
+    assert all(o.is_a("IfcLaborResource")
+               for r in f.by_type("IfcRelAssignsToProcess")
+               for o in r.RelatedObjects)
     assert summary["task_element_links"] == 2
     assert summary["unmatched_links"] == [{"activity": "a1",
                                            "element_id": 103}]
@@ -234,8 +237,9 @@ def test_one_labor_resource_per_crew_with_headcount():
     import ifcopenshell.util.element as ue
     ps = ue.get_psets(crew)["BidSheet_Crew"]
     assert ps["Headcount"] == 4.0 and ps["CrewId"] == 5
-    tasks = {t.Identification for rel in crew.ResourceOf or []
-             for t in rel.RelatedObjects}
+    tasks = {rel.RelatingProcess.Identification
+             for rel in crew.HasAssignments or []
+             if rel.is_a("IfcRelAssignsToProcess")}
     assert tasks == {"a1", "a2"}
     assert summary["labor_resources"] == 1
 
@@ -291,7 +295,7 @@ def test_rerun_replaces_by_name(tmp_path):
     counts = lambda: {c: len(f.by_type(c)) for c in (  # noqa: E731
         "IfcTask", "IfcCostItem", "IfcCostValue", "IfcLaborResource",
         "IfcRelAssociatesClassification", "IfcRelAssignsToControl",
-        "IfcRelAssignsToProduct", "IfcRelAssignsToResource",
+        "IfcRelAssignsToProduct", "IfcRelAssignsToProcess",
         "IfcPropertySet", "IfcClassificationReference")}
     before = counts()
     embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))

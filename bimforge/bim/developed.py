@@ -152,8 +152,9 @@ def _all_bodies(f, date):
     if key in _BODY_CACHE:
         return _BODY_CACHE[key]
     import ifcopenshell.geom as geom
-    import ifcopenshell.util.element as ue
     import numpy as np
+
+    from bimforge.bim.materials import governing_material
     spans = None
     if date:
         from .schedule_state import element_spans, standing
@@ -196,7 +197,7 @@ def _all_bodies(f, date):
                 parts = ([(ids == i, [mats[i]], [rgb[i]], None)
                           for i in sorted(set(ids.tolist())) if 0 <= i < len(mats)]
                          if len(ids) == len(t) and len(set(ids.tolist())) > 1
-                         else [(None, mats, rgb, ue.get_material(el))])
+                         else [(None, mats, rgb, governing_material(el))])
                 # a surface (terrain, finished grade) cuts as a LINE; a body
                 # with any solid item is never one, even when the geometry
                 # kernel draws it open (IfcSectionedSolidHorizontal, #9820)
