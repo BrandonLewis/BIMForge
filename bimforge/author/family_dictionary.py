@@ -12,10 +12,33 @@ DICTIONARY = files("bimforge.author") / "dictionary" / "bimforge-families.bsdd.j
 
 
 @lru_cache(maxsize=None)
+def _document() -> dict:
+    return json.loads(DICTIONARY.read_text(encoding="utf-8"))
+
+
 def classes() -> dict:
     """Every class of the dictionary, by Code."""
-    doc = json.loads(DICTIONARY.read_text(encoding="utf-8"))
-    return {c["Code"]: c for c in doc["Classes"]}
+    return {c["Code"]: c for c in _document()["Classes"]}
+
+
+def system() -> dict:
+    """The IfcClassification a class reference is made under (M.1): the
+    dictionary's own system, never the pay codes', so a reader keying pay
+    items on classification codes skips it by Name. Location is the bSDD
+    dictionary URI (a placeholder until X.9 registers it)."""
+    from bimforge.bim.ifc_takeoff import FAMILY_CLASSIFICATION
+    d = _document()
+    return {"name": FAMILY_CLASSIFICATION, "edition": d["DictionaryVersion"],
+            "source": d["OrganizationCode"],
+            "location": ("https://identifier.buildingsmart.org/uri/"
+                         f"{d['OrganizationCode']}/{d['DictionaryCode']}/"
+                         f"{d['DictionaryVersion']}")}
+
+
+def class_uri(code: str) -> str:
+    """A class's bSDD URI, the Location of its IfcClassificationReference."""
+    _class(code)
+    return f"{system()['location']}/class/{code}"
 
 
 def has_class(code: str) -> bool:

@@ -163,6 +163,7 @@ def build(params: dict, ctx) -> StructureModel:
             "guardrail", "IfcRailing", predefined_type="GUARDRAIL",
             type_name=fd.type_name("pipe-guardrail-d90"),
             psets=fd.reference_psets("pipe-guardrail-d90"),
+            family_class="pipe-guardrail-d90",
             geometry=[{"kind": "tube", "units": "ft", "x0": -hw_w / 2,
                        "length": hw_w, "cz": post_h, "r_outer": r_out,
                        "wall": wall_t_rail, "axis": "x"}] + [
