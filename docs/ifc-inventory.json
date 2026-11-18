@@ -96,6 +96,14 @@
    "schedule --returned"
   ]
  },
+ "applies|pset|Pset_FootingCommon|IfcFooting": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "applies|pset|Pset_RailingCommon|IfcRailing": {
   "IFC4": [
    "build"
@@ -603,6 +611,14 @@
   ]
  },
  "entity|IfcFooting": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcFootingType": {
   "IFC4": [
    "build"
   ],
@@ -1767,6 +1783,22 @@
   "IFC4X3": [
    "schedule + cost5d",
    "schedule --returned"
+  ]
+ },
+ "pset|Pset_FootingCommon": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_FootingCommon|Reference": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
   ]
  },
  "pset|Pset_RailingCommon": {

@@ -183,14 +183,15 @@ def require_supported_schema(model) -> None:
             f"IFC4 as a fallback. Re-export the model as IFC4X3 or IFC4.")
 
 
-def classifications_of(element) -> list[dict]:
-    """EVERY {system, code, name} classification on the element, in
-    association order. IFC permits more than one, and heavy-civil pay
-    structures require it — furnish by the foot AND drive by the each off
-    one physical pile (issue #106). Truncating to the first silently drops
-    pay items."""
-    require_supported_schema(element.file)
-    out = []
+#: The IfcClassification.Name of the family dictionary's class references
+#: (roadmap M.1, `bimforge.author.family_dictionary`): what an element IS,
+#: never a pay code, so the pay readers skip it.
+FAMILY_CLASSIFICATION = "bimforge families"
+
+
+def _references(element):
+    """(IfcClassificationReference, its system's Name) on the element, in
+    association order."""
     for rel in getattr(element, "HasAssociations", []) or []:
         if not rel.is_a("IfcRelAssociatesClassification"):
             continue
@@ -202,6 +203,31 @@ def classifications_of(element) -> list[dict]:
         if src and (src.is_a("IfcClassification")
                     or src.is_a("IfcClassificationReference")):
             system = src.Name
+        yield ref, system
+
+
+def family_class_of(element) -> Optional[dict]:
+    """The element's family dictionary class (M.1), {code, name, uri}, or
+    None: its reference under FAMILY_CLASSIFICATION."""
+    for ref, system in _references(element):
+        if system == FAMILY_CLASSIFICATION:
+            return {"code": ref.Identification or "", "name": ref.Name or "",
+                    "uri": ref.Location or ""}
+    return None
+
+
+def classifications_of(element) -> list[dict]:
+    """EVERY {system, code, name} pay classification on the element, in
+    association order. IFC permits more than one, and heavy-civil pay
+    structures require it — furnish by the foot AND drive by the each off
+    one physical pile (issue #106). Truncating to the first silently drops
+    pay items. The family class reference (FAMILY_CLASSIFICATION) is not a
+    pay code and is left out; `family_class_of` reads it."""
+    require_supported_schema(element.file)
+    out = []
+    for ref, system in _references(element):
+        if system == FAMILY_CLASSIFICATION:
+            continue
         out.append({"system": system,
                     "code": ref.Identification or "",
                     "name": ref.Name or ""})

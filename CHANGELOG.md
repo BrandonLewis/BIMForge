@@ -6,9 +6,52 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## 0.1.128 — 2026-11-18
 
-A fix to `federate(merge_facilities=True)`, which re-keyed a folded facility on 0.1.127.
+The retaining wall typed from the dictionary (X.4, X.6, #105), every typed element's family class (M.1, #106), and a fix to `federate(merge_facilities=True)`, which re-keyed a folded facility on 0.1.127.
 
 **For anyone who federated on 0.1.127 with `merge_facilities`:** rebuild on 0.1.128. A facility and its parts whose GlobalIds moved get their 0.1.126 GlobalIds back.
+
+**For ProjectCommand and BidSheet.ai:** typed elements now carry a second IfcClassificationReference, to their family class, under an IfcClassification named `bimforge families`. It is not a pay code: bimforge's pay readers skip it, and so should any reader that keys pay items on element classifications.
+
+### Added
+
+- **Every element of a typed family references its dictionary class
+  (M.1).** An IfcClassificationReference with the class's Code as
+  Identification ("retaining-wall-b3-type-1"), its Name, and its bSDD URI
+  as Location, under one IfcClassification `bimforge families` (Source
+  `bimforge`, Edition the dictionary version, the dictionary URI as its
+  Location/Specification): the B3 walls and footings, the barrier runs and
+  bodies, the B11-51 handrailing and its parts, the D90 guardrail, and
+  every sized reinforcing bar. A reader gets the class without matching a
+  type name's prefix: `ifc_takeoff.family_class_of(element)`. Written after
+  the GlobalId sweep, the relationship keyed by its reference, so no
+  GlobalId moves.
+
+- **The B3 retaining wall is typed (X.6).** Every stem slice is an
+  IfcWall/RETAININGWALL of an IfcWallType named for its wall type
+  ("Retaining wall Type 1"), every footing slice an IfcFooting/STRIP_FOOTING
+  of an IfcFootingType ("Retaining wall Type 1 footing"), and both carry the
+  B3 sheet they are built to as `Pset_WallCommon.Reference` /
+  `Pset_FootingCommon.Reference` (B3-1A, B3-3A, B3-4A, B3-7A). The family
+  dictionary has a class for each of the five wall types and its footing.
+  A reader groups a run's slices by type instead of by name.
+  No GlobalId moves: the types and sets are written after the sweep that
+  numbers the file's other roots, each keyed (`Element.typed_late`,
+  docs/globalid-contract.md), as the bar types are.
+
+### Changed
+
+- **Pay readers skip the family class.** `classifications_of` (the
+  takeoff, `estimate5d`, `model-elements`, the takeoff workbook, the web
+  contract, the 4D schedule) and the GIS export's cost code leave out
+  references under `bimforge families`. The takeoff IDS applies its
+  classified-element rules to every system but that one.
+
+- **Families read their names from the dictionary (X.4).** The type names
+  and standard-plan references of the barriers, the B11-51 handrailing and
+  the D90 pipe guardrail come from `bimforge-families.bsdd.json` through
+  `bimforge.author.family_dictionary`, not from literals in each family.
+  What is written is unchanged. `BarrierTemplate.standard_plan` is gone: the
+  plan is the dictionary class's, by `family_id`.
 
 ### Fixed
 
