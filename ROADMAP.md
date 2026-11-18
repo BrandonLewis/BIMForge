@@ -52,10 +52,10 @@ ProjectCommand. This is work in progress; C.9 is where its current state is stat
 | C.2a | Stable GlobalIds for schedules, tasks, cost items, crews and dxf2bim output (#74), then relationships, property sets and alignments (#80). | Done in #75 (0.1.119) and #81 (0.1.120) |
 | C.3 | Audit Phase 0: the remaining bugs (0.2 to 0.10). 0.6 was fixed in #58 and 0.10 in #46. | Done in #82 (0.1.121) |
 | C.4 | Audit Phase 1: additive units, types and statuses (#37, #77). Type declarations through `federate` are included. Moved out: material layer/profile set usages (readers in C.5, writers in X.5/X.6) and the FootPrint subcontext (X.10). | Done in #88 (0.1.125) |
-| C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct in #62 (0.1.115); the cost evaluator and ESTIMATE re-key with C.2. Then: crews assigned by IfcRelAssignsToProcess, the task relating (readers take both forms); cost schedules found by type and their links to the tasks, the name as fallback; the contract's bid items from the ESTIMATE schedule only; readers unwrap material set usages to the governing (first) material, before X.5/X.6 write them. Checked with ProjectCommand, which reads all of it already. Not taken up: IfcCrewResource over the labor resources, which no reader wants yet; do it when a crew's members need telling apart. | In review (#98) |
+| C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct in #62 (0.1.115); the cost evaluator and ESTIMATE re-key with C.2. Then: crews assigned by IfcRelAssignsToProcess, the task relating (readers take both forms); cost schedules found by type and their links to the tasks, the name as fallback; the contract's bid items from the ESTIMATE schedule only; readers unwrap material set usages to the governing (first) material, before X.5/X.6 write them. Checked with ProjectCommand, which reads all of it already. Not taken up: IfcCrewResource over the labor resources, which no reader wants yet; do it when a crew's members need telling apart. | Done in #98 (0.1.126) |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
 | C.7 | Conformance is a standing gate, not an audit. Every kind of file a command writes is validated in CI with `ifcopenshell.validate`, EXPRESS where-rules and global rules included (`gate.schema_issues`, `est-bim validate`), on IFC4X3 and on IFC4: the shipped examples (the families), `dxf2bim`, `schedule`, `cost5d`, `estimate5d`, `estimate-model`, `federate` and a carried-forward rebuild (`bimforge/bim/tests/test_conformance.py`). A finding fails the build. | Done in #97, IFC4 and the carried-forward rebuild after it |
-| C.8 | buildingSMART's normative rules. The `bsi-rules` CI job runs buildingSMART's ifc-gherkin-rules (implementer agreements, informal propositions, industry practice), at a pinned commit, on every file C.7 checks, and fails on a finding `scripts/bsi_baseline.yaml` does not list with its reason, or on a listed one that is gone. Listed: QTY001 (the generic quantity set, C.6), ALS016 (plan-rounded arc lengths, a warning) and GRF005, where the rule inverts IfcMapConversion.Scale. Four found and fixed in #97: ALB012, IFC102, IFC106, OJT001. Three rules raise in their own code at the pinned commit (ALB021, ALB022, ALS017); they are reported, not gated. The list moves into C.9's statement. | Done in #97 |
+| C.8 | buildingSMART's normative rules. Schema validity is the floor: the audit found almost no schema failures and many semantic ones. buildingSMART's own rule set (`ifc-gherkin-rules`, the checks its validation service runs) runs in CI on every file the conformance suite writes (`scripts/bsi_rules.py`, the `bsi-rules` job). A finding passes only if `scripts/bsi_baseline.yaml` lists it with the reason, and a listed finding no longer found fails too, so the baseline can only shrink. The first run fixed four findings (a typed occurrence's PredefinedType, a crest curve's radius sign, what `federate` strands, a deprecated wall type); three rules are accepted in the baseline. Remaining: clear the baseline. | Done in #97 (#94); baseline open |
 | C.9 | A profile of the schema, generated, and the conformance statement rendered from it. Not a copy of IFC4X3: the schema ships in IfcOpenShell as EXPRESS (C.7) and buildingSMART's rules cover what it cannot state (C.8). The profile is the part of it BIMForge writes and what it promises about it, from one source, as the takeoff contract is generated from the reader's own tables (X.1). **First, an inventory**, made by scanning every file the test suite writes: the entity types, relationships, property sets and quantity sets each command produces, on each schema. It needs no design and shows at once where a writer strays. **Then IDS documents per concept** (a bid schedule, an estimate schedule, a class reference, a borehole and its strata), so any IDS checker tests a file against the profile with no code of ours. **Then `docs/ifc-conformance.md`**, rendered from the two for each release: the schemas written, what sits in standard sets and what in BIMForge's own, every known deviation with its roadmap row (C.5, C.6), and the validator and rule-set versions the release passed. IDS cannot say that cost items nest correctly, that composed values sum, or that a rebuild kept its GlobalIds: those stay coded checks, and the profile lists them. It describes BIMForge's files; it is not a model view definition. Its readers are this CI, a conformed.ai worker accepting a model, and ProjectCommand, whose reader holds its attribute positions by hand. | Inventory with C.7; IDS and statement after |
 | C.10 | New kinds of content arrive conformant: class references (M.1), quantity formulas (M.3), approvals (M.5), boreholes and strata (M.15). Each uses the standard entity, property set and quantity set where IFC has one, says in C.9 where it does not, and ships with its C.7 and C.8 checks. | With each M row |
 | C.11 | One command a consumer runs to accept a file: `est-bim validate` reports schema, where-rules, the normative rules, the takeoff contract (X.1, X.8) and the profile's IDS documents and coded checks (C.9) in one machine-readable result, with the versions used. The corpus build (M.12) accepts a model only when it is clean. | After C.7 and C.8 |
@@ -69,7 +69,7 @@ after a small version shows the search finds useful neighbours.
 
 | Stage | What | Rows here |
 |---|---|---|
-| 1. Foundation | Validation of every written file in CI and the inventory; buildingSMART's rules run once to size the work; the retaining wall family (B3) typed from the dictionary with its class reference, dimensions and quantity formulas. conformed.ai exports its boring data alongside. | C.7, C.9 (inventory), C.8 (first run); X.4 and X.6 for the wall family; M.1 to M.3 |
+| 1. Foundation | Validation of every written file in CI and buildingSMART's rules against a baseline (both done in #97); the inventory; the retaining wall family (B3) typed from the dictionary with its class reference, dimensions and quantity formulas. conformed.ai exports its boring data alongside. | C.7, C.9 (inventory), C.8 (first run); X.4 and X.6 for the wall family; M.1 to M.3 |
 | 2. The retaining wall, through to a bid | The import carries class, dimensions and model version into BidSheet.ai, used on the owner's next bid. The check record follows: measurements recorded where they are taken (ProjectCommand, or a command after Bonsai), the takeoff's sum by the tool. | M.6; M.5 |
 | 3. Wall pilot | Ten to twenty public projects with retaining walls modelled on a conformed.ai worker, the ground surface included, inside the $200 a month API limit. Accepted on validation and agreement with the engineer's quantities; cost per project recorded. BidSheet.ai syncs them, joins prices and runs a small holdout. | M.12, M.14, C.11 |
 | **Decision** | Widen if the neighbours predict prices usefully and the cost per project fits the budget. | |
@@ -133,3 +133,42 @@ is the brief for building one.
 | P.11 | City of Sacramento pack: the same survey over the city's standard drawings and standard specifications. Starts from the inventory; the S-280 and S-290 pipe inlet and outlet structure tables already exist in a private family and move in with it. | Next: needs someone assigned |
 | P.12 | Pack mechanics for more than one agency: a conformance test every pack passes (declared tables ship, table names are class codes, manifest present), and `est-bim` listing the packs and their tables. | With P.11 |
 
+## Geometry: checks and outputs
+
+From a review on 2026-11-14 of how bodies are created and checked, against
+how open-source CAD kernels work. The ten shipped examples were rebuilt and
+measured: every body is a closed solid, 139 of 158 are exact parametric
+solids (extrusions and revolutions), and each matches its stated volume
+within the gate's 0.5% tolerance. These rows are not yet listed in the
+platform roadmap's Phase 4.
+
+| ID | Item | State |
+|---|---|---|
+| G.1 | The QTO and bar-schedule workbooks are not byte-identical between rebuilds. `openpyxl` overwrites the modified time on save, so pinning it in `emit_qto.py` and `emit_bbs.py` has no effect; the created time is pinned correctly. `takeoff_workbook._save_deterministic` rewrites the modified time after saving: reuse it, and test it. | Next (bug) |
+| G.2 | An overlap gate. No check finds two elements occupying the same space, which is how a headwall's double-counted concrete passed (10.134 against 9.967 cy, #24). Bounding boxes first, then the common volume, with an opt-out for catalog examples that place alternatives together. | Next |
+| G.3 | Two outputs disagree with the IFC. STEP writes a post as a true cylinder where the IFC writes the equal-area polygon: +0.64% on the posts alone and about +0.25% on their element, inside the 0.5% tolerance today and outside it at fewer segments. The DXF plan of a tube is drawn at the origin, ignoring its position and axis. | Next |
+| G.4 | Orientation checked face by face. Edges are compared undirected and volumes taken absolute, so one flipped face lowers the stated and the emitted volume together. A directed-edge check in `mesh_topology`. | Next |
+| G.5 | Owner's call. When a spec asks for cuts and the terrain carve cannot run (the mesh libraries are missing, or the cut fails), the build goes on with the open surface. It is not silent: `carve` returns `closed` as false, and the caller records that in the provenance and leaves "(excavation carved)" off the element's name, beside a log line. Whether that build should fail is not ruled. | Not ruled |
+| G.6 | The post-gate tessellates the written IFC twice, at different settings on purpose: `_ifc_mesh_check` finely (an angular deflection of 0.1) to measure the solid the file states, and `_ifc_solid_body_check` at the defaults to test the mesh as a viewer draws it. One pass cannot serve both unchanged. Worth doing: skip the topology of surface bodies, which is computed and then set aside. | Later |
+| G.7 | Owner's call. Whenever build123d is installed, every build imports it and runs `true_volume_check`, which rebuilds each solid in OpenCascade, with or without STEP output. On the bridge example that is 4.6 s against 1.7 s without it: about 1.3 s is the import and about 0.8 s the check, so both have to be skipped to get the time back. Limiting them to STEP builds or a gate flag is faster, and gives up a second kernel's opinion on every solid. | Not ruled |
+| G.8 | Owner's call. Formwork contact area counts side faces that lie against another element. Measured on the examples and not yet verified: 6 to 22% of side area on the D90 headwall, 40 to 46% on the retaining wall's footings. Whether a contact is a joint that needs a bulkhead is an estimator's judgment, so a deduction would need a flag per element from the family. | Not ruled |
+
+Considered and not taken up:
+
+- One OpenCascade solid as the source of every output. A B-rep cannot
+  give back the parametric solids the IFC states, and Revit and Tekla
+  import a circle-profile extrusion as a native pipe or rod only because
+  the file says it is a circle. It would also replace "quantities from the
+  emitted faces".
+- `WarpedStem` stating its analytic volume, 0.3% off the facets it emits.
+  That is the documented rule for warped and curved primitives: the closed
+  form is the pay quantity, and the faceted volume is held to it within
+  tolerance.
+- Stable names for faces. Faces are classified by direction on every read
+  and no face identity is stored anywhere, so there is nothing to keep
+  stable.
+- Exact-arithmetic or all-manifold booleans. The degenerate-geometry bugs
+  on record came from export precision and from readers' kernels, and each
+  was fixed more cheaply.
+- A cache of built geometry. A build takes 2 to 5 s and the geometry under
+  10 ms of it.

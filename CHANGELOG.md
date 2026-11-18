@@ -4,7 +4,11 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
-IFC compliance audit Phase 2 (roadmap C.5): relationship semantics.
+## 0.1.126 — 2026-11-17
+
+IFC compliance audit Phase 2 (roadmap C.5): relationship semantics; and buildingSMART's normative rules in CI (#94).
+
+**For the estimating plugin:** raise the floor to `bimforge>=0.1.126`. An earlier bimforge reads a 0.1.126 cost5d file's task `labor_hours` as null, since it looks for crews only through IfcRelAssignsToResource; per-code hours and estimate-model hours are unaffected.
 
 ### Added
 
