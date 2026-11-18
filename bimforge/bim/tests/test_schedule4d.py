@@ -11,6 +11,8 @@ yaml = pytest.importorskip("yaml")
 
 from importlib.resources import files  # noqa: E402
 
+import ifcopenshell.validate  # noqa: E402
+
 from bimforge.bim.dxf2bim import UNIT_TO_M, build_ifc, extract_features  # noqa: E402
 from bimforge.bim.sample import write_sample_dxf  # noqa: E402
 from bimforge.bim.schedule4d import embed_schedule  # noqa: E402
@@ -429,6 +431,14 @@ def test_the_schedule_start_is_the_sources_start_date(sample_ifc):
     assert report.start_from == "start_date"
 
 
+def test_the_creation_date_is_the_schedule_start_not_the_write_time(sample_ifc):
+    # ifcopenshell stamps CreationDate with now(); the same input must write
+    # the same file on every run
+    g, _ = _embed(sample_ifc, _schedule(), out_name="created.ifc")
+    (ws,) = [w for w in g.by_type("IfcWorkSchedule") if w.Name == "Sample BL V.01"]
+    assert ws.CreationDate == ws.StartTime
+
+
 def test_without_a_start_date_the_schedule_starts_at_its_earliest_task(sample_ifc):
     # #36: never the moment the file was written
     sched = CanonicalSchedule(name="NoStart", tasks=[
@@ -471,3 +481,171 @@ def test_cli_says_where_the_schedule_start_came_from(sample_ifc, tmp_path, capsy
     assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
                  "--out", str(out)]) == 0
     assert "starts 2027-03-01 (its earliest task" in capsys.readouterr().out
+
+
+# -- #37: IfcWorkSchedule.PredefinedType ------------------------------------
+
+def _ws_type(g, name):
+    return next(w for w in g.by_type("IfcWorkSchedule")
+                if w.Name == name).PredefinedType
+
+
+def test_work_schedule_type_defaults_to_planned(sample_ifc):
+    g, report = _embed(sample_ifc, _schedule(), out_name="type_default.ifc")
+    assert _ws_type(g, "Sample BL V.01") == "PLANNED"     # not NOTDEFINED
+    assert report.schedule_type == "PLANNED"
+
+
+def test_work_schedule_type_comes_from_the_schedule(sample_ifc):
+    sched = _schedule()
+    sched.schedule_type = "baseline"
+    g, report = _embed(sample_ifc, sched, out_name="type_src.ifc")
+    assert _ws_type(g, "Sample BL V.01") == "BASELINE"
+    assert report.schedule_type == "BASELINE"
+
+
+def test_work_schedule_type_override_wins(sample_ifc):
+    sched = _schedule()
+    sched.schedule_type = "BASELINE"
+    g, _ = _embed(sample_ifc, sched, out_name="type_over.ifc",
+                  schedule_type="actual")
+    assert _ws_type(g, "Sample BL V.01") == "ACTUAL"
+
+
+def test_work_schedule_type_override_outside_the_enum_is_refused(sample_ifc):
+    with pytest.raises(ValueError, match="schedule_type"):
+        embed_schedule(ifcopenshell.open(sample_ifc), _schedule(),
+                       schedule_type="NOTDEFINED")
+
+
+def test_cli_schedule_type_from_the_source_and_overridden(sample_ifc, tmp_path):
+    import json
+
+    from bimforge.bim.cli import main
+    src = tmp_path / "typed.gw.json"
+    src.write_text(json.dumps({"name": "Typed", "schedule_type": "BASELINE",
+                               "tasks": [{"id": "a", "name": "A", "wbs": "1",
+                                          "start_date": "2027-03-01",
+                                          "end_date": "2027-03-05"}]}),
+                   encoding="utf-8")
+    out = tmp_path / "typed.4d.ifc"
+    assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
+                 "--out", str(out)]) == 0
+    assert _ws_type(ifcopenshell.open(str(out)), "Typed") == "BASELINE"
+    assert main(["schedule", "--ifc", sample_ifc, "--schedule", str(src),
+                 "--schedule-type", "ACTUAL", "--out", str(out)]) == 0
+    assert _ws_type(ifcopenshell.open(str(out)), "Typed") == "ACTUAL"
+
+
+# -- C.4: the project calendar controls the root tasks ----------------------
+
+def _two_roots():
+    from bimforge.bim.schedule_model import Calendar
+    return CanonicalSchedule(
+        name="Roots", start_date="2026-07-10",
+        calendars={"night": Calendar(work_weekdays=[0, 1, 2, 3])},
+        tasks=[
+            ScheduleTask(id="s", name="Structure", wbs="1"),
+            ScheduleTask(id="c", name="Deck", wbs="1.1", start="2026-07-10",
+                         finish="2026-07-14"),
+            ScheduleTask(id="n", name="Night work", wbs="2", calendar="night",
+                         start="2026-07-15", finish="2026-07-16"),
+            ScheduleTask(id="m", name="Unfiled", start="2026-07-17",
+                         finish="2026-07-17")])
+
+
+def _controlled(g, cal_name):
+    cal = next(c for c in g.by_type("IfcWorkCalendar") if c.Name == cal_name)
+    return sorted(o.Name for rel in cal.Controls or []
+                  for o in rel.RelatedObjects), cal.Controls
+
+
+def test_project_calendar_controls_the_root_tasks(sample_ifc):
+    from bimforge.bim.schedule_read import read_schedule
+    g, _ = _embed(sample_ifc, _two_roots(), out_name="roots.ifc")
+    # roots on the project calendar; a root on its own calendar keeps only
+    # that one, and a child inherits its root's
+    names, rels = _controlled(g, "Roots calendar")
+    assert names == ["Structure", "Unfiled"] and len(rels) == 1
+    assert _controlled(g, "Roots calendar: night")[0] == ["Night work"]
+    got = {t.id: t.calendar for t in read_schedule(g).tasks}
+    assert got == {"s": None, "c": None, "n": "night", "m": None}
+
+
+def test_project_calendar_link_has_a_stable_id_and_reembeds_once(sample_ifc):
+    g1, _ = _embed(sample_ifc, _two_roots(), out_name="roots1.ifc")
+    model = ifcopenshell.open(sample_ifc)
+    embed_schedule(model, _two_roots())
+    embed_schedule(model, _two_roots())          # re-run replaces by name
+    _, rels1 = _controlled(g1, "Roots calendar")
+    names, rels2 = _controlled(model, "Roots calendar")
+    assert names == ["Structure", "Unfiled"] and len(rels2) == 1
+    assert rels1[0].GlobalId == rels2[0].GlobalId
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(model, logger, express_rules=True)
+    assert not logger.statements, logger.statements[:5]
+
+
+# -- C.4: a working day runs 08:00 to 17:00 ----------------------------------
+
+def _times(g, name):
+    tt = next(t for t in g.by_type("IfcTask") if t.Name == name).TaskTime
+    return tt.ScheduleStart, tt.ScheduleFinish
+
+
+def test_task_starts_at_8_and_finishes_at_17(sample_ifc):
+    from bimforge.bim.schedule_read import element_start_dates, read_schedule
+    sched = _schedule()
+    sched.tasks.append(ScheduleTask(id="one", name="One day", wbs="1.5",
+                                    start="2026-07-31", finish="2026-07-31",
+                                    duration_days=1.0))
+    g, _ = _embed(sample_ifc, sched, out_name="times.ifc")
+    assert _times(g, "Place deck") == ("2026-07-10T08:00:00",
+                                       "2026-07-14T17:00:00")
+    # a one-day task is a working day long, not zero: same date, 08:00-17:00
+    assert _times(g, "One day") == ("2026-07-31T08:00:00",
+                                    "2026-07-31T17:00:00")
+    # the readers still see the dates and durations the source gave
+    got = {t.id: (t.start, t.finish, t.duration_days)
+           for t in read_schedule(g).tasks}
+    want = {t.id: (t.start, t.finish, t.duration_days) for t in sched.tasks}
+    assert got == want
+    assert set(element_start_dates(g).values()) == {
+        "2026-07-10", "2026-07-15", "2026-07-26"}
+    assert {s.appear for s in element_spans(g).values()} == {
+        "2026-07-10", "2026-07-15", "2026-07-26"}
+
+
+def test_a_one_date_milestone_has_no_length(sample_ifc):
+    sched = _schedule()
+    sched.tasks.append(ScheduleTask(id="ms", name="Open to traffic",
+                                    wbs="1.5", is_milestone=True,
+                                    start="2026-07-31", finish="2026-07-31"))
+    g, _ = _embed(sample_ifc, sched, out_name="ms.ifc")
+    assert _times(g, "Open to traffic") == ("2026-07-31T08:00:00",
+                                            "2026-07-31T08:00:00")
+
+
+# -- C.4: actual dates (a P6 update's act_start / act_end) -------------------
+
+def test_actual_dates_go_to_actual_start_and_finish(sample_ifc):
+    from bimforge.bim.schedule_read import read_schedule
+    sched = _schedule()
+    deck, walls = sched.tasks[1], sched.tasks[2]
+    deck.actual_start, deck.actual_finish = "2026-07-11", "2026-07-15"
+    walls.actual_start = "2026-07-16"                   # under way
+    g, _ = _embed(sample_ifc, sched, out_name="actual.ifc")
+    tt = {t.Name: t.TaskTime for t in g.by_type("IfcTask")}
+    assert (tt["Place deck"].ActualStart, tt["Place deck"].ActualFinish) == (
+        "2026-07-11T08:00:00", "2026-07-15T17:00:00")
+    assert (tt["Build walls"].ActualStart,
+            tt["Build walls"].ActualFinish) == ("2026-07-16T08:00:00", None)
+    assert tt["Set columns"].ActualStart is None
+    got = {t.id: (t.actual_start, t.actual_finish)
+           for t in read_schedule(g).tasks}
+    assert got["deck"] == ("2026-07-11", "2026-07-15")
+    assert got["walls"] == ("2026-07-16", None)
+    assert got["cols"] == (None, None)
+    logger = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(g, logger, express_rules=True)
+    assert not logger.statements, logger.statements[:5]

@@ -77,6 +77,34 @@ def test_embed_authors_estimate_schedule_with_shared_qto_entity():
     assert report.parents == 1 and report.children == 1
 
 
+def test_the_tender_is_dated_from_the_data_never_the_clock():
+    # C.4: SubmittedOn is the bid's date when one is given; with none it is
+    # left unset, and no date attribute takes the write time (#36's rule)
+    model = _pile_ifc()
+    estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS,
+                              submitted_on="2026-11-20")
+    (cs,) = model.by_type("IfcCostSchedule")
+    assert cs.SubmittedOn == "2026-11-20T00:00:00"
+    assert cs.UpdateDate == "2026-11-20T00:00:00"
+    model = _pile_ifc()
+    estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS)
+    (cs,) = model.by_type("IfcCostSchedule")
+    assert cs.SubmittedOn is None and cs.UpdateDate is None
+    with pytest.raises(ValueError, match="submitted_on"):
+        estimate5d.embed_estimate(_pile_ifc(), PILE_MAP, PILE_COSTS,
+                                  submitted_on="20 Nov")
+
+
+def test_the_bid_currency_is_configurable():
+    # C.4: every cost writer states its currency, USD unless told otherwise
+    model = _pile_ifc()
+    estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS, currency="CAD")
+    units = model.by_type("IfcProject")[0].UnitsInContext.Units
+    assert [u.Currency for u in units if u.is_a("IfcMonetaryUnit")] == ["CAD"]
+    with pytest.raises(ValueError, match="CAD"):
+        estimate5d.embed_estimate(model, PILE_MAP, PILE_COSTS, currency="USD")
+
+
 def test_rate_is_converted_to_per_raw_model_unit():
     # $10/LF on a native-mm Length of 12_500 (12.5 m = 41.0105 LF):
     # AppliedValue x raw quantity must equal unit_price x pay quantity.

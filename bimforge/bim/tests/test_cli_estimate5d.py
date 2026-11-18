@@ -44,6 +44,20 @@ def _write_inputs(tmp_path):
     return tmap, costs
 
 
+def test_cli_estimate5d_dates_the_bid_and_names_its_currency(tmp_path):
+    ifc = tmp_path / "m.ifc"
+    _pile_ifc(ifc)
+    tmap, costs = _write_inputs(tmp_path)
+    rc = cli.main(["estimate5d", "--ifc", str(ifc), "--map", str(tmap),
+                   "--costs", str(costs), "--submitted-on", "2026-11-20",
+                   "--currency", "CAD"])
+    assert rc == 0
+    model = ifcopenshell.open(str(tmp_path / "m.est.ifc"))
+    (cs,) = model.by_type("IfcCostSchedule")
+    assert cs.SubmittedOn == "2026-11-20T00:00:00"
+    assert [u.Currency for u in model.by_type("IfcMonetaryUnit")] == ["CAD"]
+
+
 def test_cli_estimate5d_writes_est_ifc_and_prints_variance(tmp_path, capsys):
     ifc = tmp_path / "m.ifc"
     _pile_ifc(ifc)

@@ -39,6 +39,7 @@ def build(params: dict, ctx) -> StructureModel:
         # bounding width/height would trip the gate's L x W x H = volume check.
         model.add(Element.from_geometry(
             p.name, p, ifc_class="IfcBuildingElementProxy", layer="S-CONC-OTLN",
+            object_type="BOX_CULVERT_BARREL",
             quantities={"length_ft": length, "volume_cf": p.volume_cf}))
 
         steel_lb = sec.lb_per_lf * length

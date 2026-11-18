@@ -35,17 +35,17 @@ from bimforge.author.primitives import Prism  # noqa: E402
 from bimforge.author.project import ProjectContext  # noqa: E402
 
 #: the ifcopenshell the digests below were recorded with
-RECORDED_WITH = "0.9.0"
+RECORDED_WITH = "0.9.0.post1"
 
 GOLDEN = {
     "ifc4_single":
-        "213e0fe01192b9e1b52ace2f009ad14a79a5a9e9987c1c1a4323e1f9b623724e",
+        "1b15ff80703e6024e92f6feb7c40adb09b3939951fe678c7f6cbbaece6fd085a",
     "ifc4_combined":
-        "fbb88f0d5a835e0017265e1c4c268f3b5895c5751bc4593c6a29cd22610ac32f",
+        "61f67fca8ac10120df13c8bcef1da307db10b5d1ca8bfce9f418e8f2172bb478",
     "ifc4x3_no_facility":
-        "0720b7ec6360a28a9922f2eb1f5f3870c02517a64d0724439d12f2bb191bfd6f",
+        "cb73cbaa329e6094eef9634bffb2be9ded01645b1bb64ccc340ce1acab7bfe9b",
     "ifc4_federated":
-        "98a3dd0ad463d6ddedd7a64f2acc127b2a48c0dc9cec9999d98dcf40e603e6a3",
+        "84c4e1c0c96e9b79c0d7b7fcd3b42147e573a039fd0d0f874c406b62844da793",
 }
 
 

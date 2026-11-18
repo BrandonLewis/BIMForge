@@ -84,7 +84,11 @@ def test_a_curve_is_written_as_a_circular_arc_and_lands_on_the_site():
     (al,) = f.by_type("IfcAlignment")
     kinds = [s.PredefinedType for s in _h_segments(al) if s.SegmentLength > 0]
     assert kinds == ["LINE", "CIRCULARARC", "LINE"]
-    assert al.Decomposes[0].RelatingObject.is_a("IfcSite")
+    # IFC4.3 CT 4.1.4.1.1, as emit_alignment and federate write it: aggregated
+    # to the project, referenced (not contained) in the site
+    assert [r.RelatingObject.is_a() for r in al.Decomposes] == ["IfcProject"]
+    assert [r.RelatingStructure.is_a() for r in al.ReferencedInStructures] == ["IfcSite"]
+    assert not al.ContainedInStructure
     assert rep["start"] == "10+00.00"
     names = sorted(r.Name for r in f.by_type("IfcReferent"))
     assert any("10+00.00" in n for n in names)

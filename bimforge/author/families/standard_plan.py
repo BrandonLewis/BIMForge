@@ -107,6 +107,7 @@ def build(params: dict, ctx) -> StructureModel:
                       dims_ft=(b - a, ws.W), ifc="IfcFooting")
             model.add(Element.from_geometry(
                 p.name, p, ifc_class="IfcFooting", layer="S-CONC-OTLN",
+                predefined_type="STRIP_FOOTING",
                 quantities={"length_ft": b - a, "width_ft": ws.W,
                             "height_ft": ws.F, "volume_cf": p.volume_cf}))
             # stem at MID-HEIGHT thickness: the prism volume IS the trapezoid's
@@ -119,6 +120,7 @@ def build(params: dict, ctx) -> StructureModel:
                       dims_ft=(b - a, th), ifc="IfcWall")
             model.add(Element.from_geometry(
                 p.name, p, ifc_class="IfcWall", layer="S-CONC-OTLN",
+                predefined_type="RETAININGWALL",
                 quantities={"length_ft": b - a, "width_ft": th,
                             "height_ft": h, "volume_cf": p.volume_cf}))
 

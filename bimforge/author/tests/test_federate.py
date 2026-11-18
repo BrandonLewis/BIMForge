@@ -113,6 +113,55 @@ def test_federate_carries_type_identity(tmp_path):
     assert len(all_gids) == len(set(all_gids))       # nothing collides
 
 
+def _typed_wall(path, ctx, type_name):
+    m = StructureModel("wall", ctx)
+    p = Prism("footing", [(-2, -2), (2, -2), (2, 2), (-2, 2)],
+              z_bot=0.0, z_top=2.0, ifc="IfcFooting")
+    m.add(Element.from_geometry(p.name, p, ifc_class="IfcFooting",
+                                type_name=type_name))
+    emit_ifc(m, str(path))
+
+
+def test_federate_declares_the_carried_types_to_its_project(tmp_path):
+    # C.4: emit_ifc declares every type to its project, but each source's
+    # declaration hangs off a project federate does not carry; the federated
+    # file declares every type it holds to its own project, once, keyed as
+    # emit_ifc keys it
+    import ifcopenshell
+    import ifcopenshell.validate
+
+    from bimforge.bim import stable_ids
+    a, b = tmp_path / "w1.ifc", tmp_path / "w2.ifc"
+    _typed_wall(a, _ctx(), "FTG-A")
+    _typed_wall(b, _ctx(), "FTG-B")
+    out = tmp_path / "fed.ifc"
+    federate([(a, "Wall 1"), (b, "Wall 2")], str(out), _ctx())
+    f = ifcopenshell.open(str(out))
+    (project,) = f.by_type("IfcProject")
+    (rel,) = f.by_type("IfcRelDeclares")
+    assert rel.RelatingContext == project
+    assert set(rel.RelatedDefinitions) == set(f.by_type("IfcTypeObject"))
+    assert {t.Name for t in rel.RelatedDefinitions} == {"FTG-A", "FTG-B"}
+    assert rel.GlobalId == stable_ids.stable_id(
+        f, f"rel/IfcRelDeclares/{project.GlobalId}")
+    lg = ifcopenshell.validate.json_logger()
+    ifcopenshell.validate.validate(f, lg, express_rules=True)
+    assert [s for s in lg.statements if "IfcRelDeclares" in str(s)] == []
+    # the same sources write the same file
+    again = tmp_path / "fed2.ifc"
+    federate([(a, "Wall 1"), (b, "Wall 2")], str(again), _ctx())
+    assert out.read_bytes() == again.read_bytes()
+
+
+def test_federate_of_untyped_sources_declares_nothing(tmp_path):
+    import ifcopenshell
+    a = tmp_path / "w1.ifc"
+    _typed_wall(a, _ctx(), None)
+    out = tmp_path / "fed.ifc"
+    federate([(a, "Wall 1")], str(out), _ctx())
+    assert not ifcopenshell.open(str(out)).by_type("IfcRelDeclares")
+
+
 def test_federate_refuses_non_metre_source(tmp_path):
     import ifcopenshell
     a = tmp_path / "w1.ifc"
@@ -127,6 +176,45 @@ def test_federate_refuses_non_metre_source(tmp_path):
     src.write(str(bad))
     with pytest.raises(ValueError, match="SI metre"):
         federate([(bad, "Wall 1")], str(tmp_path / "fed.ifc"), _ctx())
+
+
+def _wall_on(path, ctx):
+    m = StructureModel("wall", ctx)
+    p = Prism("footing", [(-2, -2), (2, -2), (2, 2), (-2, 2)],
+              z_bot=0.0, z_top=2.0, ifc="IfcFooting")
+    m.add(Element.from_geometry(p.name, p, ifc_class="IfcFooting"))
+    emit_ifc(m, str(path), allow_local=ctx.epsg is None)
+
+
+@pytest.mark.parametrize("change", [
+    {"base_e": 6_594_100.0},           # another base point: MapConversion
+    {"epsg": 2227},                    # another CRS
+    {"epsg": None},                    # no georeference at all
+])
+def test_federate_refuses_sources_on_different_georeferences(tmp_path, change):
+    # C.4: the federated file has ONE MapConversion and CRS; sources on
+    # different ones would be silently placed in the first's frame
+    import dataclasses
+    a, b = tmp_path / "w1.ifc", tmp_path / "w2.ifc"
+    _wall_on(a, _ctx())
+    _wall_on(b, dataclasses.replace(_ctx(), **change))
+    out = tmp_path / "fed.ifc"
+    with pytest.raises(ValueError, match="georeferenc") as exc:
+        federate([(a, "Wall 1"), (b, "Wall 2")], str(out), _ctx())
+    # the per-source check against the ctx names the odd source; sources
+    # that disagree only with each other (one not georeferenced) name both
+    assert "w2.ifc" in str(exc.value)
+    assert not out.exists()
+
+
+def test_federate_refuses_a_target_on_another_georeference(tmp_path):
+    import dataclasses
+    a, b = tmp_path / "w1.ifc", tmp_path / "w2.ifc"
+    _wall_on(a, _ctx())
+    _wall_on(b, _ctx())
+    with pytest.raises(ValueError, match="georeferenc.*ctx|ctx.*georeferenc"):
+        federate([(a, "Wall 1"), (b, "Wall 2")], str(tmp_path / "fed.ifc"),
+                 dataclasses.replace(_ctx(), base_n=1_943_050.0))
 
 
 def test_federate_keeps_storeys_decomposed_from_building(tmp_path):

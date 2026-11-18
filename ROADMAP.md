@@ -25,10 +25,11 @@ reaches the takeoff with the same classification, type names and properties.
 | X.2 | Draft family dictionary: `bimforge/author/dictionary/bimforge-families.bsdd.json`. Covers what the typed families emit: Type 842 and 732SW barrier runs, B11-51 tubular handrailing and its parts, the D90 pipe guardrail, and the `BIMForge_LinearReference` properties. A test holds it to the built examples. | Done in #48 |
 | X.3 | IFC2X3 refused by name (`ifc_takeoff.require_supported_schema`). | Done in #48 |
 | X.4 | Families read their type names and standard-plan references from the dictionary; the string literals in `rail_run.py`, `barrier_template.py` and `headwall_926.py` go. | Next |
-| X.5 | Section size as a property. It is baked into type names today ("B11-51 post HSS2x2x3/16"), so the dictionary can only match by name prefix. | Next |
-| X.6 | Type the untyped families. The retaining wall, box culvert, headwalls, wingwalls, approach slab and bridge emit plain walls, footings and bars with no type, so the dictionary has nothing to name. | Next |
+| X.5 | Section size as a property. It is baked into type names today ("B11-51 post HSS2x2x3/16"), so the dictionary can only match by name prefix. Write it as an IfcMaterialProfileSet on the type (an HSS 2x2x3/16 IfcRectangleHollowProfileDef under "B11-51 post"), after the C.5 readers unwrap set usages. | Next |
+| X.6 | Type the untyped families. The retaining wall, box culvert, headwalls, wingwalls, approach slab and bridge emit plain walls, footings and bars with no type, so the dictionary has nothing to name. Wall and slab types carry an IfcMaterialLayerSet, their occurrences the usage, after the C.5 readers unwrap set usages. | Next |
 | X.7 | Revit and Tekla: IFC4 export presets and property mappings generated from the dictionary, then run `takeoff.ids` on real exports from both. Not yet checked: how much each tool takes from a file. | Next |
 | X.8 | An `est-bim` subcommand that runs the contract, so a user needs no separate checker. | Later |
+| X.10 | A FootPrint subcontext (audit Phase 1), in the PR of the first family that draws a FootPrint shape or the first reader that uses one: plan sheets reading outlines from the IFC, or an X.7 export showing Revit/Tekla plan views take it. Nothing writes or reads one today. Key the new context explicitly, as the Axis one is, so no pinned GlobalId moves. | Later |
 | X.9 | bSDD service: register an organisation code, publish the dictionary, write dictionary and class URIs on IfcClassification and IfcClassificationReference. The codes `bimforge` / `families` in the draft are placeholders, and the IFC property URI used for `Reference` is unverified against the live service. | Deferred (see Decisions) |
 
 Known limits of X.1, by design of IDS: quantity sets are selected by name
@@ -48,8 +49,8 @@ in ProjectCommand. The audit is `docs/superpowers/specs/2026-11-09-ifc-complianc
 | C.2 | ESTIMATE schedule keyed by pay item, cost codes nested, ADD-composed leaves, one cost evaluator, currency. Spec `docs/superpowers/specs/2026-11-09-estimate-schedule-by-bid-item-design.md`. | Done in #71 (0.1.118) |
 | C.2a | Stable GlobalIds for schedules, tasks, cost items, crews and dxf2bim output (#74), then relationships, property sets and alignments (#80). | Done in #75 (0.1.119) and #81 (0.1.120) |
 | C.3 | Audit Phase 0: the remaining bugs (0.2 to 0.10). 0.6 was fixed in #58 and 0.10 in #46. | Done in #82 (0.1.121) |
-| C.4 | Audit Phase 1: additive units, types and statuses (#37). | Next |
-| C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. | In progress, coordinated with ProjectCommand |
+| C.4 | Audit Phase 1: additive units, types and statuses (#37, #77). Type declarations through `federate` are included. Moved out: material layer/profile set usages (readers in C.5, writers in X.5/X.6) and the FootPrint subcontext (X.10). | Done in #88 (0.1.125) |
+| C.5 | Audit Phase 2: relationship semantics. Task outputs as IfcRelAssignsToProduct done in #62 (0.1.115); resources via assign_process next. Readers also unwrap IfcMaterialLayerSetUsage/ProfileSetUsage to their materials (dual-read), before X.5/X.6 write them; tell Work and ProjectCommand when it lands. | In progress, coordinated with ProjectCommand |
 | C.6 | Audit Phase 3: renames out of the reserved `Qto_`/`Pset_` prefixes, behind GlobalId stability. | Later; the estimating plugin shims first |
 
 ## Agency packs
@@ -62,7 +63,7 @@ is the brief for building one.
 
 | ID | Item | State |
 |---|---|---|
-| P.1 | The pack and its tables. `bimforge.caltrans` ships the 2025 Standard Plans tables (B3, D80, D84, D89, D90) as package data, moved from `data/caltrans-2025/tables/`. A spec names them with `params.tables_pack` (one or a list, `caltrans/2025/d89-pipe-headwall`), and its own `tables_file` merges over them: a D90 headwall takes D90 and B3 from the pack and its field-varied schedule from the project. | This PR |
+| P.1 | The pack and its tables. `bimforge.caltrans` ships the 2025 Standard Plans tables (B3, D80, D84, D89, D90) as package data, moved from `data/caltrans-2025/tables/`. A spec names them with `params.tables_pack` (one or a list, `caltrans/2025/d89-pipe-headwall`), and its own `tables_file` merges over them: a D90 headwall takes D90 and B3 from the pack and its field-varied schedule from the project. | Done in #88 (0.1.125) |
 | P.2 | Example fixtures. The B3 and D84 example table files hold illustrative rows that differ from the standard plans; the D80 and D89 ones are true subsets. Point the example specs at the pack and delete the fixtures. Changes the example outputs, so it is its own PR. | Next |
 | P.3 | The Caltrans part of the dictionary moves into the pack. All eleven classes in the draft dictionary are Caltrans types; the thirteen linear-reference properties are not. Split it: properties stay in the core dictionary, classes go to a Caltrans dictionary that references them. Do it with X.4, which already rewrites how families read their names. | Next, with X.4 |
 | P.4 | The Caltrans family modules move into the pack: Type 842 and 732SW barrier, B11-51 handrail, B3 walls, B9 approach slab, D80 culvert, D84 wingwall, D89 and D90 headwalls. Family names in specs do not change. The old import paths stay as shims until the estimating plugin and private family folders import from the pack. | After P.3 |

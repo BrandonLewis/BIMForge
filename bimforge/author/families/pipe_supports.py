@@ -301,6 +301,7 @@ def build(params: dict, ctx) -> StructureModel:
         L, W, D = f["length_ft"], f["width_ft"], f["depth_ft"]
         model.add(Element(
             f"{sid} pipe support footing", "IfcFooting",
+            predefined_type="PAD_FOOTING",
             geometry={"kind": "box", "units": "in", "boxes": [
                 (0.0, 0.0, D * 6.0, L * 12.0, W * 12.0, D * 12.0)]},
             quantities={"length_ft": L, "width_ft": W, "height_ft": D,
@@ -327,7 +328,8 @@ def build(params: dict, ctx) -> StructureModel:
                         for o in offs]
                 model.add(Element(
                     f"{sid} footing rebar #{r['bar_size']} {mat} {direction}",
-                    "IfcReinforcingBar",
+                    "IfcReinforcingBar", predefined_type="MAIN",
+                    bar_size=int(r["bar_size"]),
                     geometry={"kind": "rod", "units": "in", "axis": axis,
                               "radius": bar_r, "length": bar_len * 12.0,
                               "segments": segments, "centres": bars},
@@ -339,6 +341,7 @@ def build(params: dict, ctx) -> StructureModel:
         bp = m["saddle"]["base_plate"]
         model.add(Element(
             f"{sid} grout pad", "IfcBuildingElementProxy",
+            object_type="GROUT_PAD",
             geometry={"kind": "box", "units": "in", "boxes": [
                 (0.0, 0.0, g["thickness_in"] / 2.0,
                  bp["width_in"], bp["length_in"], g["thickness_in"])]},

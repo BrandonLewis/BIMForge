@@ -47,6 +47,7 @@ def test_emit_ifc_classifies_under_paycodes_identity(tmp_path):
     assert len(cls) == 1
     assert cls[0].Name == "MasterFormat"
     assert cls[0].Edition == "2020"
+    assert cls[0].Source == "CSI/CSC"      # the system's publisher
     # per-code references still emit under that classification
     refs = f.by_type("IfcClassificationReference")
     assert refs and all(r.ReferencedSource == cls[0] for r in refs)
@@ -81,6 +82,19 @@ def test_emit_ifc_defaults_to_bidschedule_without_identity(tmp_path):
     assert len(cls) == 1
     assert cls[0].Name == "BidSchedule"
     assert not cls[0].Edition  # unchanged from historical output
+    assert cls[0].Source == "Project pay codes"
+
+
+def test_emit_ifc_writes_an_explicit_classification_source(tmp_path):
+    import dataclasses
+
+    import ifcopenshell
+
+    out = tmp_path / "src.ifc"
+    emit_ifc(_fixture_model(), str(out),
+             dataclasses.replace(PC, source="Caltrans", edition="2024"))
+    (cls,) = ifcopenshell.open(str(out)).by_type("IfcClassification")
+    assert (cls.Name, cls.Source, cls.Edition) == ("BidSchedule", "Caltrans", "2024")
 
 
 def _fixture_model():
@@ -1523,7 +1537,8 @@ def test_emit_ifc_types_occurrences_and_hangs_parts_under_their_whole(tmp_path):
     for p in posts:
         assert ue.get_type(p) == types["B11-51 post HSS2x2x3/16"]
         assert ue.get_predefined_type(p) == "POST"
-        assert p.PredefinedType is None            # inherited, not doubled
+        # inherited, not doubled: NOTDEFINED ("Element Type Predefined Type", #77)
+        assert p.PredefinedType == "NOTDEFINED" and p.ObjectType is None
     # the whole
     (whole,) = [r for r in f.by_type("IfcRailing") if r.Name == "NB handrail run"]
     assert whole.Representation is None
@@ -1818,3 +1833,38 @@ def test_an_element_keyed_like_the_project_is_refused(tmp_path):
     m.add(Element("odd", ifc_class="IfcFooting", guid_key=PROJECT_GUID_KEY))
     with pytest.raises(DuplicateGuidError, match="the project"):
         emit_ifc(m, str(tmp_path / "dup.ifc"))
+
+
+def test_emit_ifc_names_both_datums_of_a_compound_crs(tmp_path):
+    # C.4: pyproj gives the geodetic datum of any CRS and the height datum
+    # of a compound one; the MapConversion keeps its Scale
+    import dataclasses
+    import ifcopenshell
+    m = _fixture_model()
+    m.ctx = dataclasses.replace(m.ctx, epsg=8700, ft_to_m=0.3048)
+    out = tmp_path / "compound.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    crs = f.by_type("IfcProjectedCRS")[0]
+    assert crs.GeodeticDatum == "North American Datum 1983"
+    assert crs.VerticalDatum == "North American Vertical Datum 1988"
+    assert float(f.by_type("IfcMapConversion")[0].Scale) == \
+        pytest.approx(1 / 0.3048)
+
+
+def test_emit_ifc_declares_kilograms_and_radians(tmp_path):
+    # C.4: rebar and fastener weights are written in kg, which a reader of a
+    # file with no MASSUNIT takes in IFC's SI default, the gram; alignment
+    # segments carry radians. Each unit type is declared exactly once.
+    import ifcopenshell
+    out = tmp_path / "units.ifc"
+    emit_ifc(_fixture_model(), str(out), PC)
+    f = ifcopenshell.open(str(out))
+    by_type: dict = {}
+    for u in f.by_type("IfcProject")[0].UnitsInContext.Units:
+        by_type.setdefault(u.UnitType, []).append(u)
+    assert all(len(v) == 1 for v in by_type.values())
+    (kg,) = by_type["MASSUNIT"]
+    assert (kg.Prefix, kg.Name) == ("KILO", "GRAM")
+    (rad,) = by_type["PLANEANGLEUNIT"]
+    assert (rad.Prefix, rad.Name) == (None, "RADIAN")
