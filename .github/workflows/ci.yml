@@ -91,3 +91,41 @@ jobs:
           /tmp/smoke/bin/est-bim --help >/dev/null
           /tmp/smoke/bin/est-sheets --help >/dev/null
           echo "CLIs ok"
+
+  bsi-rules:
+    # buildingSMART's normative rules (implementer agreements, informal
+    # propositions, industry practice) on every kind of IFC bimforge writes,
+    # gated by scripts/bsi_baseline.yaml (#94). The rules are a behave suite
+    # with their own pins, so they get their own venv; the commit is pinned
+    # here so a new rule lands as a deliberate bump, not a red main.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: buildingSMART/ifc-gherkin-rules
+          ref: 893f8275049b8960c3ce0c7379b4b57aefeaa8f9
+          path: ifc-gherkin-rules
+          submodules: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            ifc-gherkin-rules/requirements.txt
+      - name: Install bimforge, and the rules in their own venv
+        run: |
+          python -m pip install -U pip
+          pip install -e '.[all]' pytest
+          python -m venv /tmp/rules
+          /tmp/rules/bin/pip install -q -r ifc-gherkin-rules/requirements.txt \
+            django ifcopenshell==0.8.5
+      - name: Write every writer's output
+        env:
+          BIMFORGE_CONFORMANCE_OUT: ${{ runner.temp }}/conformance
+        run: python -m pytest bimforge/bim/tests/test_conformance.py -q
+      - name: Normative rules against the baseline
+        run: >
+          python scripts/bsi_rules.py --rules ifc-gherkin-rules
+          --python /tmp/rules/bin/python ${{ runner.temp }}/conformance

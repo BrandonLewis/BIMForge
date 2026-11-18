@@ -17,6 +17,29 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   takes its map conversion from the ctx alone, so a source written on another
   CRS, base, Scale or rotation was placed wrong with no error. Pass
   `georef_check=False` when that is deliberate.
+- **A crest vertical curve's radius is negative.** IFC4.3 signs
+  `IfcAlignmentVerticalSegment.RadiusOfCurvature` (positive turns
+  counter-clockwise, so a sag; negative clockwise, so a crest), and
+  buildingSMART's ALB012 checks it as HorizontalLength / (EndGradient −
+  StartGradient). The alignment writer wrote every radius positive.
+- **`federate` leaves nothing stranded on the storey path.** Each source's own
+  site/building/storey placements, and each merged context's
+  WorldCoordinateSystem and TrueNorth, were left in the file referenced by
+  nothing (buildingSMART IFC106). Only the facility path cleaned up placements.
+- **The sample layer map's wall is `SOLIDWALL`.** `STANDARD` is deprecated in
+  IFC4.3 (buildingSMART IFC102).
+
+### Added
+
+- **The CI checks buildingSMART's normative rules (#94).** `validate`, the build
+  gate and a new conformance suite check the schema's WHERE and global rules
+  on every kind of file bimforge writes (`est-bim validate --no-rules`
+  keeps the attribute-only check). A `bsi-rules` CI job runs buildingSMART's
+  ifc-gherkin-rules, at a pinned commit, on the same files and fails on any
+  finding that `scripts/bsi_baseline.yaml` does not list with its reason.
+  Three kinds are listed: QTY001 (the generic Qto set, C.6), ALS016 (plan-rounded
+  arc lengths, a warning) and GRF005, where the rule inverts the map
+  conversion's Scale.
 
 ## 0.1.124 — 2026-11-15
 

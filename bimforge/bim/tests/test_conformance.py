@@ -4,10 +4,15 @@ global rules (#94).
 The examples are built as a user builds them; the 4D and 5D writers then
 embed into a built example, and federate merges two. A finding here is a
 file a third-party tool may refuse, so the gate is strict: no statement.
+
+With BIMFORGE_CONFORMANCE_OUT set, each file checked is also written there
+as <name>.ifc, for buildingSMART's normative rules (scripts/bsi_rules.py).
 """
 from __future__ import annotations
 
+import os
 from importlib.resources import files
+from pathlib import Path
 
 import pytest
 
@@ -37,14 +42,19 @@ def built(tmp_path_factory) -> dict:
     return out
 
 
-def _clean(f):
+def _clean(f, name):
+    """No schema finding. `name` writes f for the normative rules; None for
+    a hand-built fixture, whose own shortcuts they would report."""
     issues = schema_issues(f)
     assert not issues, "\n".join(issues[:20])
+    if name and (out := os.environ.get("BIMFORGE_CONFORMANCE_OUT")):
+        Path(out).mkdir(parents=True, exist_ok=True)
+        f.write(str(Path(out) / f"{name}.ifc"))
 
 
 @pytest.mark.parametrize("name", EXAMPLES)
 def test_every_example_builds_conformant(built, name):
-    _clean(ifcopenshell.open(str(built[name])))
+    _clean(ifcopenshell.open(str(built[name])), name)
 
 
 def _schedule():
@@ -66,7 +76,7 @@ def test_4d_and_cost5d_on_a_built_bridge_are_conformant(built):
     assert report.assigned_elements
     cost5d.embed_cost_and_resources(
         f, _schedule(), {"A": {"cost": 1000.0, "labor_hours": 40.0}})
-    _clean(f)
+    _clean(f, "bridge-standard-4d-cost5d")
 
 
 def test_estimate_model_on_a_built_bridge_is_conformant(built):
@@ -75,7 +85,7 @@ def test_estimate_model_on_a_built_bridge_is_conformant(built):
     f = ifcopenshell.open(str(built["bridge-standard"]))
     a, b = f.by_type("IfcElement")[:2]
     embed_estimate_model(f, _model_json(a.GlobalId, b.GlobalId))
-    _clean(f)
+    _clean(f, "bridge-standard-estimate-model")
 
 
 def test_estimate5d_is_conformant():
@@ -85,7 +95,7 @@ def test_estimate5d_is_conformant():
     )
     f = _pile_ifc()
     estimate5d.embed_estimate(f, PILE_MAP, PILE_COSTS)
-    _clean(f)
+    _clean(f, None)     # a bare pile: no context, no container
 
 
 def test_dxf2bim_sample_is_conformant(tmp_path):
@@ -97,7 +107,7 @@ def test_dxf2bim_sample_is_conformant(tmp_path):
     assert cli.main(["dxf2bim", "--dxf", str(tmp_path / "sample_plan.dxf"),
                      "--config", str(tmp_path / "layer_map.example.yaml"),
                      "--out", str(out)]) == 0
-    _clean(ifcopenshell.open(str(out)))
+    _clean(ifcopenshell.open(str(out)), "dxf2bim-sample")
 
 
 def test_federating_two_examples_is_conformant(built, tmp_path):
@@ -107,4 +117,4 @@ def test_federating_two_examples_is_conformant(built, tmp_path):
     federate([(str(built["caltrans-pipe-headwall"]), "Headwall"),
               (str(built["caltrans-d90-headwall"]), "Guardrail")],
              str(out), _ctx(), georef_check=False)
-    _clean(ifcopenshell.open(str(out)))
+    _clean(ifcopenshell.open(str(out)), "federated-headwalls")
