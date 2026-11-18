@@ -1,0 +1,60 @@
+# buildingSMART normative rules bimforge's outputs are known to break (#94).
+#
+# scripts/bsi_rules.py fails on any finding not listed here, and on any
+# entry listed here that is no longer found: fix a finding, delete its line.
+# Outputs are the names test_conformance.py writes. Rules run at the
+# ifc-gherkin-rules commit pinned in .github/workflows/ci.yml.
+accepted:
+  QTY001:
+    why: >-
+      Every element carries one generic Qto_BaseQuantities set; the standard
+      names are per class (Qto_WallBaseQuantities, Qto_FootingBaseQuantities,
+      ...). Audit phase 3 / C.6 writes the standard sets.
+    outputs:
+      - bridge-standard
+      - bridge-standard-4d-cost5d
+      - bridge-standard-estimate-model
+      - caltrans-b3-retaining-wall
+      - caltrans-box-culvert
+      - caltrans-culvert-wingwall
+      - caltrans-d90-headwall
+      - caltrans-pipe-headwall
+      - concrete-barrier-732sw
+      - concrete-barrier-842
+      - demo-box
+      - dxf2bim-sample
+      - federated-headwalls
+      - tubular-handrail
+  GRF005:
+    why: >-
+      The rule inverts IfcMapConversion.Scale. The schema scales local
+      coordinates into map units before rotating and translating, so a metre
+      project on a US-foot CRS has Scale 3.28083 (ifcopenshell's
+      xyz2enh agrees: local * scale = map). The rule wants 0.3048, the
+      reciprocal, against its own description ("the scale from the source to
+      the target units"). Ours stays; the rule's is the bug.
+    outputs:
+      - bridge-standard
+      - bridge-standard-4d-cost5d
+      - bridge-standard-estimate-model
+      - caltrans-b3-retaining-wall
+      - caltrans-box-culvert
+      - caltrans-culvert-wingwall
+      - caltrans-d90-headwall
+      - caltrans-pipe-headwall
+      - concrete-barrier-732sw
+      - concrete-barrier-842
+      - demo-box
+      - federated-headwalls
+      - tubular-handrail
+  ALS016:
+    why: >-
+      A warning: segments meet within 0.9 mm, against a 0.01 mm tolerance.
+      The example's plan rounds the arc lengths (174.53 ft for 500 ft x 20
+      deg = 174.5329). bimforge places each curve's end by its delta, while
+      IFC evaluates SegmentLength / R. Writing R x delta as the length would
+      close the gap but shift IFC distances off the plan's stations.
+    outputs:
+      - bridge-standard
+      - bridge-standard-4d-cost5d
+      - bridge-standard-estimate-model

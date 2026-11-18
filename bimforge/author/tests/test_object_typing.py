@@ -3,7 +3,8 @@
 IFC 4.3 carries a custom type in ObjectType only beside PredefinedType
 USERDEFINED (the "Object Predefined Type" concept, the CorrectPredefinedType
 where rule); on a type object the custom type is its ElementType, and the
-occurrence is left NOTDEFINED ("Element Type Predefined Type").
+occurrence's PredefinedType is left unset (CorrectPredefinedType: "unset,
+e.g. because a type is associated"; buildingSMART OJT001, #94).
 """
 from __future__ import annotations
 
@@ -99,7 +100,7 @@ def test_userdefined_without_an_object_type_is_refused(tmp_path):
         emit_ifc(m, str(tmp_path / "t.ifc"))
 
 
-def test_a_type_carries_the_custom_type_and_the_occurrence_is_notdefined(
+def test_a_type_carries_the_custom_type_and_the_occurrence_is_unset(
         tmp_path):
     m = _model()
     for i in range(2):
@@ -111,12 +112,12 @@ def test_a_type_carries_the_custom_type_and_the_occurrence_is_notdefined(
     for i in range(2):
         el = _by_name(f, f"mortar {i}")
         assert ue.get_type(el) == t
-        assert (el.PredefinedType, el.ObjectType) == ("NOTDEFINED", None)
+        assert (el.PredefinedType, el.ObjectType) == (None, None)
         assert ue.get_predefined_type(el) == "POCKET_MORTAR"
     assert _valid(f) == []
 
 
-def test_a_type_with_a_predefined_type_leaves_the_occurrence_notdefined(
+def test_a_type_with_a_predefined_type_leaves_the_occurrence_unset(
         tmp_path):
     m = _model()
     _add(m, "wall", "IfcWall", predefined_type="PARAPET", type_name="barrier")
@@ -124,7 +125,7 @@ def test_a_type_with_a_predefined_type_leaves_the_occurrence_notdefined(
     (t,) = f.by_type("IfcWallType")
     assert (t.PredefinedType, t.ElementType) == ("PARAPET", None)
     el = _by_name(f, "wall")
-    assert (el.PredefinedType, el.ObjectType) == ("NOTDEFINED", None)
+    assert (el.PredefinedType, el.ObjectType) == (None, None)
     assert ue.get_predefined_type(el) == "PARAPET"
 
 

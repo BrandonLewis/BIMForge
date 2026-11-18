@@ -38,7 +38,7 @@ layers:
 
   A-WALL:
     ifc_class: "IfcWall"
-    predefined_type: "STANDARD"
+    predefined_type: "SOLIDWALL"      # STANDARD is deprecated in IFC4.3
     feature: "linear"
     height: 3.0                    # wall height (m)
     width: 0.2                     # wall thickness (m)
