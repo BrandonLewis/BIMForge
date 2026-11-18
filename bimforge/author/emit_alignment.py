@@ -130,9 +130,9 @@ def _vertical(f, layout, al, prof, origin, k):
         curved = abs(g1 - g0) > 1e-12
         kw = {}
         if curved:
-            # IFC4.3: the positive minimum-parabola radius; crest vs sag is
-            # read from the gradients
-            kw["RadiusOfCurvature"] = abs((b - a) * k / (g1 - g0))
+            # IFC4.3: the minimum-parabola radius, signed (+ CCW: a sag,
+            # - CW: a crest), as bSI's ALB012 checks it (#94)
+            kw["RadiusOfCurvature"] = (b - a) * k / (g1 - g0)
         api.create_layout_segment(f, layout, f.create_entity(
             "IfcAlignmentVerticalSegment",
             StartDistAlong=(a - s0) * k, HorizontalLength=(b - a) * k,
