@@ -4,6 +4,12 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.128 — 2026-11-18
+
+A fix to `federate(merge_facilities=True)`, which re-keyed a folded facility on 0.1.127.
+
+**For anyone who federated on 0.1.127 with `merge_facilities`:** rebuild on 0.1.128. A facility and its parts whose GlobalIds moved get their 0.1.126 GlobalIds back.
+
 ### Fixed
 
 - **Folding one facility from several sources keeps the first source's.**
