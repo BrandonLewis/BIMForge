@@ -89,13 +89,40 @@ relationship, and upgrading bimforge.
 ## Returned files
 
 A downstream tool may return a file bimforge wrote with its own work added
-(#83). It adds and never modifies, and stamps everything it adds, relationships
-and property sets included, with an IfcOwnerHistory naming its application:
+(#83). It never modifies an entity of ours, and stamps everything it adds,
+relationships and property sets included, with an IfcOwnerHistory naming its
+application:
 
 - its own IfcWorkSchedule, a full copy of ours whose tasks are tied to ours by
   IfcRelDefinesByObject (our task the RelatingObject), carrying its replanning
   and progress;
 - IfcApproval with IfcRelAssociatesApproval on our GlobalIds.
+
+What it added itself it may replace or remove on a later write: an entity its
+OwningApplication names, what hangs from one with no GlobalId of its own, and
+its relationships to ours, never the entities of ours they point at. So:
+
+- a rewrite deletes its old lines and appends new ones, or rewrites a line of
+  its own where it stands (stamped MODIFIED, the first CreationDate kept; an
+  addition only re-pointed onto the replacing task keeps its stamp); our lines
+  stay byte for byte;
+- it writes one update, replacing its last, and an update it keeps to compare
+  against is retyped BASELINE (rule 2 below keeps it from taking the update's
+  place);
+- a changed approval keeps its IfcRelAssociatesApproval and points at a new
+  IfcApproval, and a withdrawn one goes with its relationship.
+
+Its GlobalIds are its own to key. ProjectCommand keys its update's as we key
+ours, `uuid5(<IfcProject GlobalId>, key)`, every key starting
+`projectcommand/` (`projectcommand/task/<our task GlobalId>`, and
+`projectcommand/baseline/<time kept>/<the id it had>` for a kept update), so
+one of them can never be one of ours, and a rewritten update has the ids of
+the one it replaces. Its other GlobalIds (a task added in it, an approval's
+relationship, a saved view) are stable from write to write but not keyed this
+way: random, or seeded by its own scheme. Our `stable_ids.assign` refuses an id
+another entity holds, so a collision would fail loudly, not overwrite. Its
+ApplicationIdentifier does not change: it is how both sides tell its entities
+from ours (`stable_ids.foreign`).
 
 A change to bimforge's own plan comes as a BCF topic against our GlobalIds and
 is made in the source.
@@ -123,6 +150,11 @@ copies every stamped addition onto the rebuilt file (`carry_forward`):
 - what it points at of ours is re-pointed by GlobalId;
 - what it holds that has no GlobalId (an IfcApproval and its organizations, a
   task's IfcTaskTime) comes with it.
+
+It works from the returned file alone. `<out>.carry.json` is written, never
+read, so a file holding fewer additions than the last one reads as it is. An
+addition's ChangeAction (ADDED or MODIFIED) does not matter; only our own
+entities are checked for change.
 
 The report (`<out>.carry.json`) lists what no longer lines up:
 
