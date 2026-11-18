@@ -3,10 +3,12 @@
 A downstream tool (a contractor's scheduler, an approvals register) returns
 the file bimforge wrote with its own work added: its own IfcWorkSchedule, a
 full copy of ours whose tasks are tied to ours by IfcRelDefinesByObject;
-IfcApproval on our GlobalIds; progress on its own tasks. It adds and never
-modifies, and stamps everything it adds with an IfcOwnerHistory naming its
+IfcApproval on our GlobalIds; progress on its own tasks. It never modifies
+an entity of ours (what it added itself it may replace or remove, stamped
+MODIFIED), and stamps everything it adds with an IfcOwnerHistory naming its
 application. A rebuild regenerates bimforge's part from the source, then
-`carry_forward` copies every stamped addition onto the rebuilt file:
+`carry_forward` copies every stamped addition onto the rebuilt file, from the
+returned file alone (nothing of an earlier carry is read):
 
 - its GlobalIds are kept exactly, so the tool sees its own entities again;
 - what it references of ours is re-pointed onto the rebuilt entity by
