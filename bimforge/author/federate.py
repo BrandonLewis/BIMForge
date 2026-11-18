@@ -196,6 +196,26 @@ def _place_alignments(tgt, alignments, site, ctx) -> None:
             ref.GlobalId = ctx.guid(f"federated/referenced/{site.GlobalId}")
 
 
+def _declare_types(tgt) -> None:
+    """Declare every carried IfcTypeObject to the target project (C.4). Each
+    source's IfcRelDeclares hangs off that source's IfcProject, which is not
+    carried, so its types arrive undeclared. Keyed as emit_ifc keys its own
+    (`rel/IfcRelDeclares/<project id>`), so a cost schedule cost5d declares
+    into the federated file later joins this rel."""
+    import ifcopenshell.api
+
+    from bimforge.bim import stable_ids
+    types = [t for t in tgt.by_type("IfcTypeObject")
+             if not getattr(t, "HasContext", None)]
+    if not types:
+        return
+    project = tgt.by_type("IfcProject")[0]
+    rel = ifcopenshell.api.run("project.assign_declaration", tgt,
+                               definitions=types, relating_context=project)
+    rel.GlobalId = stable_ids.stable_id(
+        tgt, f"rel/IfcRelDeclares/{project.GlobalId}")
+
+
 @dataclass
 class FederationResult:
     products: int = 0
@@ -556,9 +576,92 @@ def _assert_products_unique(f) -> None:
                 f"{first.Name!r} and {p.is_a()} {p.Name!r}")
 
 
-def _open_sources(sources, ctx, unit_check: bool):
+def _georef_of(src):
+    """(CRS name, MapConversion eastings, northings, height, x-axis abscissa
+    and ordinate, scale) of a source, rounded for comparison; None for a
+    file that is not georeferenced."""
+    mc = next(iter(src.by_type("IfcMapConversion")), None)
+    if mc is None:
+        return None
+    crs = mc.TargetCRS
+    num = (lambda v, d: round(float(d if v is None else v), 6))
+    return (getattr(crs, "Name", None), num(mc.Eastings, 0.0),
+            num(mc.Northings, 0.0), num(mc.OrthogonalHeight, 0.0),
+            num(mc.XAxisAbscissa, 1.0), num(mc.XAxisOrdinate, 0.0),
+            num(mc.Scale, 1.0))
+
+
+def _ctx_georef(ctx):
+    """What emit_ifc writes for `ctx` (_georef_of's shape)."""
+    if ctx.epsg is None:
+        return None
+    return (ctx.crs_name, round(float(ctx.base_e), 6),
+            round(float(ctx.base_n), 6), round(float(ctx.base_h), 6),
+            1.0, 0.0, round(1.0 / ctx.ft_to_m, 6))
+
+
+def _show_georef(g) -> str:
+    if g is None:
+        return "not georeferenced"
+    name, e, n, h, xa, xo, scale = g
+    return (f"{name}, E {e:g} N {n:g} H {h:g}, x-axis ({xa:g}, {xo:g}), "
+            f"scale {scale:g}")
+
+
+def _check_georef(opened, ctx) -> None:
+    """Refuse sources whose IfcMapConversion or CRS differ from each other or
+    from the target ctx (C.4). The federated file has one georeference and
+    federation does not reproject, so a source on another one would land in
+    the wrong place with nothing to say so. IFC2X3 has no IfcMapConversion
+    (it georeferences by property set) and is not compared."""
+    if not opened or _schema_of(opened[0][2]) == "IFC2X3":
+        return
+    (p0, _n0, s0), g0 = opened[0], _georef_of(opened[0][2])
+    for p, _n, src in opened[1:]:
+        g = _georef_of(src)
+        if g != g0:
+            raise ValueError(
+                f"federate: the sources are georeferenced differently — "
+                f"{p0.name}: {_show_georef(g0)}; {p.name}: {_show_georef(g)}. "
+                "Federation does not reproject: re-emit them on one CRS and "
+                "base point.")
+    want = _ctx_georef(ctx)
+    if want != g0:
+        raise ValueError(
+            f"federate: the target ctx is georeferenced as {_show_georef(want)}"
+            f" but the sources ({p0.name}, ...) are {_show_georef(g0)}; give "
+            "the target ctx the sources' CRS and base point.")
+
+
+def _georef_mismatch(src, ctx) -> str | None:
+    """Why a source's own georeference disagrees with the federation ctx, or
+    None. The federated file takes its IfcMapConversion from ctx alone, so a
+    source written on another base, CRS or scale would be placed wrong with
+    no error. A source with no georeference is not a mismatch."""
+    convs, crss = src.by_type("IfcMapConversion"), src.by_type("IfcProjectedCRS")
+    if ctx.epsg is None or not convs or not crss:
+        return None
+    c = convs[0]
+    out = []
+    if crss[0].Name != ctx.crs_name:
+        out.append(f"CRS {crss[0].Name} vs {ctx.crs_name}")
+    for attr, want, default in (("Eastings", ctx.base_e, 0.0),
+                                ("Northings", ctx.base_n, 0.0),
+                                ("Scale", 1.0 / ctx.ft_to_m, 1.0)):
+        got = getattr(c, attr)
+        got = default if got is None else float(got)
+        if abs(got - want) > 1e-6 * max(1.0, abs(want)):
+            out.append(f"{attr} {got!r} vs {want!r}")
+    xa, xo = c.XAxisAbscissa, c.XAxisOrdinate
+    if (xa is not None or xo is not None) and (abs(float(xo or 0.0)) > 1e-9):
+        out.append(f"map conversion rotated (XAxis {xa}, {xo})")
+    return "; ".join(out) or None
+
+
+def _open_sources(sources, ctx, unit_check: bool, georef_check: bool = True):
     """Open every source BEFORE anything is written, and refuse a federation
-    whose sources (or target ctx) disagree on the schema."""
+    whose sources (or target ctx) disagree on the schema or the
+    georeference."""
     import ifcopenshell
     opened = []
     for src_path, name in sources:
@@ -567,6 +670,14 @@ def _open_sources(sources, ctx, unit_check: bool):
             raise ValueError(
                 f"{src_path}: length unit is not SI metre — a federation cannot "
                 "silently rescale geometry")
+        if georef_check:
+            why = _georef_mismatch(src, ctx)
+            if why:
+                raise ValueError(
+                    f"{src_path}: georeference does not match the federation "
+                    f"ctx ({why}). federate does not reproject; re-emit the "
+                    "source on the shared base point, or pass "
+                    "georef_check=False if that is deliberate.")
         opened.append((Path(src_path), name, src))
     schemas = {_schema_of(src) for _p, _n, src in opened}
     if len(schemas) > 1:
@@ -582,6 +693,8 @@ def _open_sources(sources, ctx, unit_check: bool):
             f"federate: the sources are {schemas.pop()} but the federation "
             f"ctx.schema is {ctx.schema}; give the target ctx the sources' "
             "schema.")
+    if georef_check:
+        _check_georef(opened, ctx)
     return opened
 
 
@@ -661,7 +774,8 @@ def _merge_same_facilities(tgt, site) -> int:
 
 
 def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
-             merge_facilities: bool = False) -> FederationResult:
+             merge_facilities: bool = False,
+             georef_check: bool = True) -> FederationResult:
     """Merge co-registered source IFCs into one federated file at `out_path`.
 
     `sources` is a list of ``(ifc_path, storey_name)``; each source's products
@@ -681,7 +795,7 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
     from bimforge.author.emit_ifc import _pin_relationship_order, emit_ifc
     from bimforge.author.model import StructureModel
 
-    opened = _open_sources(sources, ctx, unit_check)
+    opened = _open_sources(sources, ctx, unit_check, georef_check)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     # the target opens as a plain Site > Building > Storey file: a ctx facility
@@ -733,6 +847,15 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
                                 if c.is_a("IfcFacility") and not c.is_a("IfcBuilding"))
     # the placeholder storey emit_ifc opened the file with holds nothing
     placeholder_pl = placeholder.ObjectPlacement
+    # the Building->storeys aggregation it sits in is shared with every real
+    # storey _storey() assigned since: unassign only the placeholder, and
+    # drop the rel only once it is empty (audit 0.2: WR41 orphaned storeys).
+    for rel in list(placeholder.Decomposes or ()):
+        rest = [o for o in rel.RelatedObjects if o != placeholder]
+        if rest:
+            rel.RelatedObjects = rest
+        else:
+            f.remove(rel)
     for rel in list(f.get_inverse(placeholder)):
         f.remove(rel)
     f.remove(placeholder)
@@ -767,6 +890,8 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
 
     _dedupe_nonproduct_globalids(f, ctx)
     _assert_products_unique(f)
+    # after the dedupe, so the declaration's id is not re-keyed with the rest
+    _declare_types(f)
     result.merged_contexts = _unify_contexts(f, model_ctx, body_ctx)
     # ifcopenshell.api's aggregate/containment usecases merge members through
     # Python set unions, so relationship member order is run-dependent; sort

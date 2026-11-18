@@ -1,4 +1,8 @@
+import pytest
+
 from bimforge.author.ifc_styles import resolve_surface, SURFACE_DEFAULTS, NEUTRAL
+from bimforge.author.ifc_styles import (MATERIAL_CATEGORIES, material_category,
+                                        sanitize_pack)
 
 
 def test_layer_hit_wins():
@@ -138,3 +142,127 @@ def test_pack_can_clear_a_builtin_finish():
     # clearing only one of the two leaves the other alone
     half = resolve_surface("S-CONC", None, pack_ifc={"S-CONC": {"reflectance": None}})
     assert half["reflectance"] is None and half["specular"] == 0.85
+
+
+# --- #65: IfcMaterial.Category ----------------------------------------------
+
+@pytest.mark.parametrize("name, category", [
+    ("Structural shotcrete", "concrete"),
+    ("Mortar", "concrete"),
+    ("Minor concrete", "concrete"),
+    ("Concrete Backfill", "concrete"),          # the first keyword decides
+    ("Steel pipe pile, Class 200 Alt W (Mod), concrete filled", "steel"),
+    ("#5 rebar", "steel"),
+    ("1/2 in coil rod + B13 coil nut + bevel washer", "steel"),
+    ("Galvanized pipe", "steel"),
+    ("C4x5.4 channel", "steel"),
+    ("Wire rope cable", "steel"),
+    ("Structure backfill (bridge)", "earth"),
+    ("Structure excavation (Type D)", "earth"),
+    ("Existing ground", "earth"),
+    ("Native earth", "earth"),
+    ("Earthwork", "earth"),
+    ("Compacted Fill", "earth"),
+    ("5/8 in Plyform + DF-L 2x4", "wood"),
+    ("Timber cribbing", "wood"),
+    ("Elastomeric bearing pad", "plastic"),
+    ("HDPE pipe", "plastic"),
+    ("Aluminum handrail", "aluminium"),
+    ("Rock slope protection", "stone"),
+    ("Construction Heart redwood, full dimension, resawn", "wood"),
+    ("Western red cedar lagging", "wood"),
+    ("3/4 in Baserock", "stone"),
+])
+def test_material_category_from_its_name(name, category):
+    assert material_category(name) == category
+
+
+def test_a_name_without_a_keyword_takes_the_surface_category_or_none():
+    assert material_category("Paving machine (rental)", surface="steel") == "steel"
+    assert material_category("Joint seal, Type A/B") is None
+    # "fill" is a word, not a prefix: "filled" alone says nothing
+    assert material_category("filled cells") is None
+
+
+def test_an_explicit_category_wins():
+    assert material_category("Concrete", explicit="stone") == "stone"
+
+
+def test_every_builtin_material_has_an_ifc_category():
+    for key, entry in SURFACE_DEFAULTS.items():
+        if entry["material"]:
+            assert entry["category"] in MATERIAL_CATEGORIES, key
+
+
+def test_the_resolved_surface_carries_its_category():
+    assert resolve_surface("S-REBAR", None)["category"] == "steel"
+    assert resolve_surface(None, "IfcEarthworksFill")["category"] == "earth"
+    assert resolve_surface("S-NOPE", "IfcWhatever")["category"] is None
+    pack = {"S-CONC": {"category": "stone"}}
+    assert resolve_surface("S-CONC", None, pack)["category"] == "stone"
+
+
+def test_a_pack_category_must_be_an_ifc_keyword(recwarn):
+    clean = sanitize_pack({"S-CONC": {"category": "rubber"}})
+    assert "category" not in clean["S-CONC"]
+    assert any("category" in str(w.message) for w in recwarn)
+
+
+# --- #65: palettes -----------------------------------------------------------
+
+def test_a_material_category_beats_the_class_but_not_the_layer():
+    steel = resolve_surface(None, "IfcWall", category="steel")
+    assert (steel["reflectance"], steel["material"]) == ("METAL", "Structural Steel")
+    assert resolve_surface("S-CONC", "IfcWall", category="steel")["material"] ==         "Concrete"
+    # no category: as before
+    assert resolve_surface(None, "IfcWall")["material"] == "Concrete"
+
+
+def test_a_material_name_key_beats_everything():
+    pack = {"material:Structural shotcrete": {"rgb": [0.1, 0.2, 0.3]}}
+    s = resolve_surface("S-CONC", "IfcWall", pack, "Structural shotcrete",
+                        category="concrete")
+    assert s["rgb"] == [0.1, 0.2, 0.3]
+    # a material key the table lacks keeps the finish of the next builtin
+    # hit (the layer's concrete)
+    assert s["reflectance"] == "MATT"
+    assert s["material"] == "Structural shotcrete"
+
+
+def test_a_palette_restyles_a_whole_category():
+    pack = {"category:steel": {"rgb": [0.9, 0.9, 0.9], "specular": 0.1}}
+    s = resolve_surface(None, "IfcWall", pack, "Galvanized pipe",
+                        category="steel")
+    assert s["rgb"] == [0.9, 0.9, 0.9]
+    assert (s["reflectance"], s["specular"]) == ("METAL", 0.1)
+
+
+def test_glass_is_written_glass_and_see_through():
+    s = resolve_surface(None, None, category="glass")
+    assert s["reflectance"] == "GLASS" and s["transparency"] > 0.5
+
+
+def test_every_ifc_category_has_a_builtin_look():
+    for cat in MATERIAL_CATEGORIES:
+        s = resolve_surface(None, None, category=cat)
+        assert s["category"] == cat and s["reflectance"], cat
+
+
+def test_diffuse_and_specular_colour_take_a_factor_or_an_rgb(recwarn):
+    clean = sanitize_pack({"category:steel": {
+        "diffuse": 0.8, "specular_colour": [0.9, 0.9, 1.0]},
+        "S-CONC": {"diffuse": 2.0, "specular_colour": "shiny"}})
+    assert clean["category:steel"] == {"diffuse": 0.8,
+                                       "specular_colour": [0.9, 0.9, 1.0]}
+    assert clean["S-CONC"] == {}
+    assert len([w for w in recwarn if "diffuse" in str(w.message)
+                or "specular_colour" in str(w.message)]) == 2
+    s = resolve_surface(None, None, clean, category="steel")
+    assert (s["diffuse"], s["specular_colour"]) == (0.8, [0.9, 0.9, 1.0])
+    assert resolve_surface(None, "IfcWall")["diffuse"] is None
+
+
+def test_a_texture_is_reserved_not_built(recwarn):
+    clean = sanitize_pack({"S-BARRIER-RELIEF": {"texture": "fin.png"}})
+    assert clean["S-BARRIER-RELIEF"] == {}
+    assert any("texture" in str(w.message) for w in recwarn)

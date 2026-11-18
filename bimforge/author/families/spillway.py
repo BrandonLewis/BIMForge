@@ -156,10 +156,11 @@ def _placed(geoms, world, zs: float) -> list[dict]:
     return [_xf_solid(d, world, zs) for g in geoms for d in g.body_solids()]
 
 
-def _add(m, name, geoms, world, zs, ifc, quantities, description=None):
+def _add(m, name, geoms, world, zs, ifc, quantities, description=None,
+         **kw):
     m.add(Element(name, ifc, geometry=_placed(geoms, world, zs),
                   quantities=quantities, layer="S-CONC-OTLN",
-                  description=description))
+                  description=description, **kw))
 
 
 # --------------------------------------------------------------- principal
@@ -267,7 +268,7 @@ def _build_principal(m: StructureModel, P: dict, common: dict, ctx) -> None:
                   [tuple(q) for q in b["plan"]],
                   float(b["bot_el"]) - el0, float(b["top_el"]) - el0)
         _add(m, p.name, p, world, zs, "IfcBuildingElementProxy",
-             {"volume_cf": p.volume_cf})
+             {"volume_cf": p.volume_cf}, object_type="APPURTENANCE")
 
 
 # --------------------------------------------------------------- auxiliary
@@ -372,7 +373,7 @@ def _build_auxiliary(m: StructureModel, A: dict, common: dict, ctx) -> None:
                  world, zs, "IfcFooting",
                  {"volume_cf": ftg.volume_cf + keyp.volume_cf},
                  f"{fw:g}' x {tf:g}' at top EL {base_el:.1f}, with a "
-                 f"{ct:g}' x {cd:g}' cutoff key")
+                 f"{ct:g}' x {cd:g}' cutoff key", predefined_type="STRIP_FOOTING")
 
 
 # -------------------------------------------------------------------- build

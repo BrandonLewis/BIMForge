@@ -142,7 +142,7 @@ def _dowel_elements(run_name: str, i: int) -> list:
             f"{run_name} dowel #4 x {length_ft} @{i}",
             "IfcReinforcingBar",
             quantities={"count": 2, "length_ft": 2 * length_ft, "weight_lb": w},
-            layer="S-REBAR", description="#4 pocket dowel"))
+            layer="S-REBAR", description="#4 pocket dowel", bar_size=4))
     return out
 
 

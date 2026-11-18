@@ -16,14 +16,15 @@ import json
 from pathlib import Path
 
 from bimforge.bim.schedule_model import (
-    CanonicalSchedule, Dependency, ScheduleTask,
+    CanonicalSchedule, Dependency, ScheduleTask, normalize_schedule_type,
 )
 
 
 def from_ganttwarrior(doc: dict) -> CanonicalSchedule:
     """A GanttWarrior export dict → validated CanonicalSchedule.
 
-    Field map: name/start_date verbatim; default_work_weekdays →
+    Field map: name/start_date verbatim; schedule_type (ACTUAL / BASELINE /
+    PLANNED, #37) when present; default_work_weekdays →
     work_weekdays; holidays verbatim; per task id/name/wbs verbatim,
     start_date→start, end_date→finish, duration_days, is_milestone,
     bid_item_codes (order preserved, duplicates removed), and
@@ -69,6 +70,7 @@ def from_ganttwarrior(doc: dict) -> CanonicalSchedule:
         work_weekdays=list(doc.get("default_work_weekdays", [0, 1, 2, 3, 4])),
         holidays=list(doc.get("holidays", [])),
         tasks=tasks,
+        schedule_type=normalize_schedule_type(doc.get("schedule_type")),
     )
     sched.validate()
     return sched
@@ -100,7 +102,13 @@ def from_xer(text: str) -> CanonicalSchedule:
     errored). Lag is ``lag_hr_cnt`` / 8 work-hours → days — approximate, but
     task Start/Finish dates (which drive the animation) are exact.
     P6 activity-code assignments (ACTVTYPE/ACTVCODE/TASKACTV) land on
-    ``task.activity_codes`` as ``"<type>: <name>"`` labels.
+    ``task.activity_codes`` as ``"<type>: <name>"`` labels. Start/finish
+    prefer the actual dates; ``act_start_date`` / ``act_end_date`` also land
+    on ``actual_start`` / ``actual_finish`` (IfcTaskTime ActualStart /
+    ActualFinish). ``schedule_type`` is left unset (embed: PLANNED): a
+    copied project (``orig_proj_id``) is not reliably a baseline, and a
+    BASELINE plan is never copied into a contractor update, so the type is
+    only ever set on purpose (``est-bim schedule --schedule-type``).
     """
     tables = _parse_xer_tables(text)
     task_rows = tables.get("TASK")
@@ -191,7 +199,11 @@ def from_xer(text: str) -> CanonicalSchedule:
             id=t["task_code"], name=t.get("task_name", ""), wbs=wbs_num,
             start=start, finish=finish, duration_days=round(dur, 4) or None,
             is_milestone=is_ms, dependencies=preds.get(t["task_code"], []),
-            activity_codes=list(actv_of.get(t["task_code"], []))))
+            activity_codes=list(actv_of.get(t["task_code"], [])),
+            # the actuals ride separately too (C.4), so the IFC says which
+            # of start/finish really happened
+            actual_start=_xer_date(t.get("act_start_date")),
+            actual_finish=_xer_date(t.get("act_end_date"))))
 
     sched = CanonicalSchedule(
         name=proj.get("proj_short_name") or "P6 schedule",

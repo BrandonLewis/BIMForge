@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from bimforge.bim.cost_categories import add_categories, categories_of
+from bimforge.bim.cost_categories import add_categories, categories_of, total_of
 
 
 def element_start_dates(model) -> dict[int, str]:
@@ -73,9 +73,12 @@ _BLACKOUT_PREFIX = "blackout "
 # quantities. DEMOLITION / DISMANTLE / REMOVAL / ... tasks never do.
 CONSTRUCTIVE_TYPES = frozenset({"CONSTRUCTION", "INSTALLATION", "NOTDEFINED"})
 
+# A leading "-" is the sign of a negative lag (-P1.5D, the ISO 8601 /
+# xs:duration form); a sign inside a part (P-1.5D) is what 0.1.119 and
+# earlier wrote, still read for those files.
 _ISO_DUR = re.compile(
-    r"^P(?:(?P<w>[\d.]+)W)?(?:(?P<d>[\d.]+)D)?"
-    r"(?:T(?:(?P<h>[\d.]+)H)?(?:(?P<m>[\d.]+)M)?(?:(?P<s>[\d.]+)S)?)?$")
+    r"^(?P<neg>-)?P(?:(?P<w>-?[\d.]+)W)?(?:(?P<d>-?[\d.]+)D)?"
+    r"(?:T(?:(?P<h>-?[\d.]+)H)?(?:(?P<m>-?[\d.]+)M)?(?:(?P<s>-?[\d.]+)S)?)?$")
 
 
 def _days(value, hours_per_day: float = 8.0) -> float | None:
@@ -85,11 +88,15 @@ def _days(value, hours_per_day: float = 8.0) -> float | None:
     embed writes work-time durations (DurationType WORKTIME).
     """
     m = _ISO_DUR.match(str(value or "").strip())
-    if not m or not any(m.groupdict().values()):
+    if not m:
         return None
-    g = {k: float(v) if v else 0.0 for k, v in m.groupdict().items()}
-    return (g["w"] * 5 + g["d"]
+    parts = {k: v for k, v in m.groupdict().items() if k != "neg"}
+    if not any(parts.values()):
+        return None
+    g = {k: float(v) if v else 0.0 for k, v in parts.items()}
+    days = (g["w"] * 5 + g["d"]
             + (g["h"] + g["m"] / 60 + g["s"] / 3600) / hours_per_day)
+    return -days if m.group("neg") else days
 
 
 def _pset(obj, *names: str) -> dict | None:
@@ -312,7 +319,9 @@ def read_schedule(model, name: str | None = None):
     Picks the schedule named `name`, or the only one in the file. Task ids
     and WBS come from the embed's Bimforge_Task (or 0.1.88-and-earlier Pset_BimforgeTask), or else from
     Identification and the nesting tree; dates, duration, milestone, type,
-    notes, calendar, owner bid items and GlobalId from the IfcTask;
+    notes, calendar, owner bid items, actual dates and GlobalId from the
+    IfcTask; the
+    schedule type from the IfcWorkSchedule's PredefinedType (#37);
     dependencies from IfcRelSequence (a predecessor outside the schedule
     becomes an external dependency). A model written before #335, or by
     another tool, reads with the newer fields empty — never an error.
@@ -322,7 +331,7 @@ def read_schedule(model, name: str | None = None):
     read back from Bimforge_Task (#365).
     """
     from bimforge.bim.schedule_model import (
-        Calendar, CanonicalSchedule, Dependency, ScheduleTask)
+        SCHEDULE_TYPES, Calendar, CanonicalSchedule, Dependency, ScheduleTask)
 
     ws = _work_schedule(model, name)
     sname = ws.Name or ""
@@ -372,6 +381,9 @@ def read_schedule(model, name: str | None = None):
             filter_ifc_class=ps.get("FilterIfcClass") or None,
             start=_day(getattr(tt, "ScheduleStart", None)) if tt else None,
             finish=_day(getattr(tt, "ScheduleFinish", None)) if tt else None,
+            actual_start=_day(getattr(tt, "ActualStart", None)) if tt else None,
+            actual_finish=(_day(getattr(tt, "ActualFinish", None)) if tt
+                           else None),
             duration_days=duration,
             is_milestone=bool(task.IsMilestone),
             dependencies=deps, external_dependencies=external,
@@ -390,11 +402,14 @@ def read_schedule(model, name: str | None = None):
     # with no work days stays empty (embed writes no weekly pattern for it)
     project = (_read_calendar(project_cal) if project_cal is not None
                else {"work_weekdays": [0, 1, 2, 3, 4], "holidays": []})
+    # PredefinedType (#37); NOTDEFINED (every file before it) says nothing
+    ws_type = str(ws.PredefinedType or "")
     return CanonicalSchedule(
         name=sname, start_date=_day(ws.StartTime),
         work_weekdays=project["work_weekdays"],
         holidays=project["holidays"], tasks=tasks,
-        calendars=dict(sorted(calendars.items())))
+        calendars=dict(sorted(calendars.items())),
+        schedule_type=ws_type if ws_type in SCHEDULE_TYPES else None)
 
 
 def task_elements(model, name: str | None = None) -> dict[str, list[dict]]:
@@ -534,6 +549,58 @@ def _leaf_cost_items(cs) -> list:
     return out
 
 
+def _nest_parent(ci):
+    """The cost item `ci` is nested under, else None."""
+    return next((rel.RelatingObject for rel in getattr(ci, "Nests", None) or []
+                 if rel.RelatingObject.is_a("IfcCostItem")), None)
+
+
+def _top_item(ci):
+    """The top-level cost item above `ci` (`ci` itself when it is one)."""
+    while (parent := _nest_parent(ci)) is not None:
+        ci = parent
+    return ci
+
+
+def _cost_key(ci) -> str:
+    """read_costs' key for a leaf: its bid item's CostKey (estimate_model5d
+    keeps the pre-0.1.118 key there, since the item's Identification is now
+    the pay item id), else the top-level item's Identification (a cost5d
+    item is its own top; an older estimate-model parent carried the key)."""
+    top = _top_item(ci)
+    ps = _pset(top, "BidSheet_EstimateItem") or {}
+    return str(ps.get("CostKey") or top.Identification or ci.Identification
+               or ci.Name or ci.GlobalId)
+
+
+def _cost_code(ci) -> str | None:
+    """The code node's Identification ("10.03-300"): the leaf's parent when
+    that parent is itself nested; or a top-level parent with no
+    BidSheet_EstimateItem (an estimate-model indirect, "01-500"); else None
+    (cost5d items have no parent, older files' parents carry the pset)."""
+    parent = _nest_parent(ci)
+    if parent is None:
+        return None
+    if _nest_parent(parent) is None \
+            and _pset(parent, "BidSheet_EstimateItem") is not None:
+        return None
+    return parent.Identification
+
+
+def cost_schedules_for(model, sname: str) -> list:
+    """The cost schedules of work schedule `sname`: those named
+    "<sname> cost", else the ESTIMATE ones whose BidSheet_EstimateModel
+    marker names it (a schedule renamed in another tool)."""
+    named = [c for c in model.by_type("IfcCostSchedule")
+             if c.Name == f"{sname} cost"]
+    if named:
+        return named
+    return [c for c in model.by_type("IfcCostSchedule")
+            if c.PredefinedType == "ESTIMATE"
+            and (_pset(c, "BidSheet_EstimateModel") or {}).get("WorkSchedule")
+            == sname]
+
+
 def read_costs(model, name: str | None = None) -> dict:
     """Read 5D back out of an IFC (issue #335 §7).
 
@@ -567,6 +634,12 @@ def read_costs(model, name: str | None = None) -> dict:
     (`estimate_model5d` nests share items under each bid item), so an
     item's children are never counted twice.
 
+    An estimate-model leaf (0.1.118+) is keyed by its bid item's CostKey,
+    the key earlier versions used, and its record also carries
+    `cost_code`, the "<item>.<code>" node it sits under. The cost schedule
+    is "<name> cost", else the ESTIMATE schedule whose
+    BidSheet_EstimateModel marker names the work schedule.
+
     Per-code hours come from each cost item's Bimforge_CostItem (0.1.88 and earlier: Pset_BimforgeCostItem). A model
     embedded before #335 has only the per-task crew: a single-code task's
     hours go to its code, and a multi-code task's are split by cost, with a
@@ -575,7 +648,7 @@ def read_costs(model, name: str | None = None) -> dict:
     ws = _work_schedule(model, name)
     sname = ws.Name or ""
     cost_name = f"{sname} cost"
-    css = [c for c in model.by_type("IfcCostSchedule") if c.Name == cost_name]
+    css = cost_schedules_for(model, sname)
     if not css:
         raise ValueError(f"no IfcCostSchedule named {cost_name!r} — is this "
                          f"the 5D IFC (est-bim cost5d)?")
@@ -592,9 +665,8 @@ def read_costs(model, name: str | None = None) -> dict:
                                       "labor_hours": None, "categories": {}})
 
     for ci in _leaf_cost_items(css[0]):
-        code = ci.Identification or ci.Name or ci.GlobalId
-        value = sum(_number(cv.AppliedValue) or 0.0
-                    for cv in ci.CostValues or [])
+        code = _cost_key(ci)
+        value = total_of(ci)               # an ADD composite included
         linked = [o for rel in getattr(ci, "Controls", None) or []
                   for o in rel.RelatedObjects or [] if o.is_a("IfcTask")]
         ps = _pset(ci, *_COST_ITEM_PSETS)
@@ -611,6 +683,9 @@ def read_costs(model, name: str | None = None) -> dict:
         rec = entry(tid)["costs"].setdefault(code, {"cost": 0.0,
                                                     "labor_hours": None,
                                                     "categories": {}})
+        cost_code = _cost_code(ci)
+        if cost_code and "cost_code" not in rec:
+            rec["cost_code"] = cost_code    # estimate-model: "<item>.<code>"
         rec["cost"] += value
         tasks[tid]["cost"] += value
         cats = categories_of(ci)             # {Labor: .., Material: ..}

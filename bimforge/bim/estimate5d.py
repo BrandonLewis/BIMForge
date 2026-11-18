@@ -5,8 +5,9 @@ TENDER, Status PLANNED; with `stage="awarded"` PRICEDBILLOFQUANTITIES /
 APPROVED) named "<name> bid" and declared to the IfcProject, with one parent
 IfcCostItem per BID ITEM and one nested child per contributing element.
 
-The parent's Identification is the map entry's `item_number` (the code when
-an entry has none), so every code a bid item takes off lands under ONE pay
+The parent's Identification is the bare item number of the map entry's
+`item_number` (`pay_item_id`: "Item # 2" is "2"; the code when an entry has
+none), so every code a bid item takes off lands under ONE pay
 item, and an internal ESTIMATE schedule can pair its parents with these by
 Identification alone. Each child's CostQuantities references the element's
 OWN Qto quantity entity — `ifcopenshell.api.cost.assign_cost_item_quantity`
@@ -21,8 +22,12 @@ RAW declared-unit values (the reader-side scaling of issue #109 never
 rewrites the file), so each child's AppliedValue is the bid unit rate per
 one raw quantity unit, and its UnitBasis says so: an IfcMeasureWithUnit of 1
 in the quantity's own Unit, else the project's declared unit for the
-dimension (EACH for a count; the SI base unit, valued at the raw unit's SI
-size, when the project declares none):
+dimension, else EACH for a count. When the project declares no unit for the
+dimension (an area in a file that declares only millimetres), it is 1 of a
+unit made the raw unit's size: the prefixed IfcSIUnit when one fits (MILLI
+SQUARE_METRE for mm2), else an IfcConversionBasedUnit ("raw area unit
+(0.09290304 m2)" for ft2). Every basis is therefore 1 raw unit, and a
+consumer's naive AppliedValue x quantity / ValueComponent is the money:
 
     AppliedValue = unit_price x CONVERT[dim][pay_unit] x scale
 
@@ -33,6 +38,21 @@ for LS, else `count_as` when set) over the elements' summed Count — so the
 children of a lump sum sum to the capped price (#366). Elements whose Count
 sums to 0 cannot carry a lump sum; the code is reported in
 `zero_count_lump_sums` and extends $0.
+
+When a code's extension is within float / unit-conversion residue of its
+costs.json `cost` (`RESIDUE_REL`, at least $0.01), its non-count rates are
+scaled so its children sum to the cost exactly (#49; reported in
+`snapped_to_cost`). A Count / LS entry is exact by construction and never
+moves; a code that is all count is never snapped. A larger gap is a real
+variance and stays in `by_code`.
+
+A bid item no element carries (mobilization) is listed in costs.json under
+"items" ({"<item_number>": {"cost", "description"?}}) and written as a
+top-level leaf with one total IfcCostValue and no CostQuantities. Before
+returning, the schedule is read back the way a consumer sums it; if that
+differs from the priced total by more than $0.01, embed_estimate raises.
+The read-back is unit-aware (each quantity and each basis taken to SI), so
+it also reads a basis that is not 1 raw unit correctly.
 
 THE GOVERNING CODE. A bid item is priced on one pay quantity, and the other
 codes it takes off are incidental to it: a fence item that pays by the
@@ -50,6 +70,7 @@ A file written by bimforge <= 0.1.110 carries this schedule as ESTIMATE,
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 import ifcopenshell.api.control as ctl
@@ -57,13 +78,16 @@ import ifcopenshell.api.cost as cost
 import ifcopenshell.api.unit as unit_api
 import ifcopenshell.util.unit as unit_util
 
+from bimforge.bim import stable_ids
 from bimforge.bim.cost5d import (_classification, _code_reference,
-                                 add_declared_cost_schedule,
-                                 remove_declared_cost_schedule)
+                                 add_declared_cost_schedule, check_currency,
+                                 ifc_datetime, remove_declared_cost_schedule)
+from bimforge.bim.costload import (ITEMS_KEY, code_costs, pay_item_id,
+                                   validate_costs)
 from bimforge.bim.ifc_takeoff import (
     DEFAULT_UNIT, MEASURE_DIM, classifications_of, convert, count_quantity,
-    normalize_map, quantities_of, quantity_entities, quantity_scale,
-    resolve_measure, _declared, _unit_scales)
+    QUANTITY_DIM, normalize_map, quantities_of, quantity_entities,
+    quantity_scale, resolve_measure, _declared, _unit_scales)
 
 #: stage -> (IfcCostScheduleTypeEnum, Status)
 STAGES = {"tender": ("TENDER", "PLANNED"),
@@ -75,8 +99,25 @@ _MEASURE_TYPE = {"length": "IfcLengthMeasure", "area": "IfcAreaMeasure",
                  "volume": "IfcVolumeMeasure", "mass": "IfcMassMeasure",
                  "count": "IfcCountMeasure"}
 _SI_PREFIX = {"mass": "KILO"}      # SI mass is the gram; quantity_scale is kg
+#: per dimension: the power of an SI prefix in the unit's size, the size of
+#: the unprefixed SI unit (the gram is 0.001 kg), and the symbol for sizes
+_SI_POWER = {"length": (1, 1.0, "m"), "area": (2, 1.0, "m2"),
+             "volume": (3, 1.0, "m3"), "mass": (1, 0.001, "kg")}
+_EXPONENTS = {"length": (1, 0), "area": (2, 0), "volume": (3, 0),
+              "mass": (0, 1)}                  # (length, mass)
+#: the name of a unit _UnitBasis makes for a raw size no SI prefix fits
+RAW_UNIT = "raw {dim} unit ({size:.12g} {symbol})"
 EACH = "EACH"
+#: a code's extension within this of its cost is float / unit-conversion
+#: residue, trimmed so its children sum to the cost exactly (#49); a larger
+#: gap is a real variance (model quantity is not the bid quantity), reported
+RESIDUE_REL = 1e-5
 LEGACY_MARKER = "BidSheet_EstimateModel"   # estimate_model5d's schedules
+
+
+def _is_residue(extended: float, cost: float) -> bool:
+    # rounded, so a gap of exactly a cent reads the same either way round
+    return round(abs(extended - cost), 6) <= max(0.01, RESIDUE_REL * abs(cost))
 
 
 @dataclass
@@ -99,6 +140,13 @@ class EstimateEmbedReport:
     # (code, pay quantity): a lump sum / count_as over elements whose Count
     # sums to 0 — nothing to spread the price over, so it extends $0
     zero_count_lump_sums: list = field(default_factory=list)
+    # {code: {"drift": extended - cost, "scale_pct", "cost"}}: residue
+    # trimmed off the code's non-count rates (scaled by scale_pct) so its
+    # children sum to its cost exactly
+    snapped_to_cost: dict = field(default_factory=dict)
+    # {pay item: cost}: costs.json "items" no element carries (mobilization),
+    # each written as a top-level total with no CostQuantities
+    items_without_elements: dict = field(default_factory=dict)
 
 
 def _rate_for(code: str, entry: dict, costs: dict, *, plural: bool,
@@ -142,8 +190,8 @@ def _rate_for(code: str, entry: dict, costs: dict, *, plural: bool,
 
 
 def _item_key(code: str, entry: dict) -> str:
-    """The pay item an entry prices: its item_number, else its code."""
-    return str(entry.get("item_number", "") or "") or code
+    """The pay item an entry prices: pay_item_id of its item_number."""
+    return pay_item_id(entry.get("item_number"), code)
 
 
 class _UnitBasis:
@@ -158,6 +206,30 @@ class _UnitBasis:
             self.made[key] = make()
         return self.made[key]
 
+    def _si(self, dim: str, prefix=None):
+        return self._once(("si", dim, prefix), lambda: unit_api.add_si_unit(
+            self.model, unit_type=_UNIT_TYPE[dim], prefix=prefix))
+
+    def _raw_unit(self, dim: str, size: float):
+        """A unit `size` SI (kg for mass) big: a prefixed IfcSIUnit when one
+        fits, else an IfcConversionBasedUnit of `size` SI base units."""
+        power, base, symbol = _SI_POWER[dim]
+        for prefix, mult in [(None, 1.0), *unit_util.prefixes.items()]:
+            if math.isclose(mult ** power * base, size, rel_tol=1e-9):
+                return self._si(dim, prefix)
+        m = self.model
+        length, mass = _EXPONENTS[dim]
+        return m.create_entity(
+            "IfcConversionBasedUnit",
+            Dimensions=m.create_entity("IfcDimensionalExponents",
+                                       length, mass, 0, 0, 0, 0, 0),
+            UnitType=_UNIT_TYPE[dim],
+            Name=RAW_UNIT.format(dim=dim, size=size, symbol=symbol),
+            ConversionFactor=m.create_entity(
+                "IfcMeasureWithUnit",
+                ValueComponent=m.create_entity(_MEASURE_TYPE[dim], size),
+                UnitComponent=self._si(dim, _SI_PREFIX.get(dim))))
+
     def __call__(self, q_ent, dim: str, q_scale: float):
         m = self.model
         unit, value = getattr(q_ent, "Unit", None), 1.0
@@ -168,10 +240,10 @@ class _UnitBasis:
             elif _declared(m, _UNIT_TYPE[dim]):
                 unit = unit_util.get_project_unit(m, _UNIT_TYPE[dim])
             else:
-                # no project unit: the SI base, valued at one raw unit's size
-                unit = self._once(("si", dim), lambda: unit_api.add_si_unit(
-                    m, unit_type=_UNIT_TYPE[dim], prefix=_SI_PREFIX.get(dim)))
-                value = q_scale
+                # no project unit: a unit the raw unit's size, so the basis
+                # is still 1 raw unit
+                unit = self._once(("raw", dim, q_scale),
+                                  lambda: self._raw_unit(dim, q_scale))
         if dim == "count":
             value = int(value)      # IfcCountMeasure is INTEGER in IFC4X3
         return self._once(("basis", dim, unit.id(), value), lambda: m.create_entity(
@@ -207,10 +279,22 @@ def _remove_basis(model, basis) -> None:
         return
     unit = basis.UnitComponent
     model.remove(basis)
-    if unit.is_a("IfcSIUnit") or (unit.is_a("IfcContextDependentUnit")
-                                  and unit.Name == EACH):
-        if not model.get_inverse(unit):
-            model.remove(unit)
+    if model.get_inverse(unit):
+        return
+    if (unit.is_a("IfcConversionBasedUnit")
+            and unit.Name.startswith(RAW_UNIT[:4])):
+        factor, dims = unit.ConversionFactor, unit.Dimensions
+        model.remove(unit)
+        if not model.get_inverse(dims):
+            model.remove(dims)
+        _remove_basis(model, factor)        # and its SI unit, if unused
+    elif unit.is_a("IfcSIUnit") or (unit.is_a("IfcContextDependentUnit")
+                                    and unit.Name == EACH):
+        # an SI unit's Dimensions is derived; EACH's is its own entity
+        dims = unit.Dimensions if unit.is_a("IfcContextDependentUnit") else None
+        model.remove(unit)
+        if dims is not None and not model.get_inverse(dims):
+            model.remove(dims)
 
 
 def _remove_named(model, cost_name: str, legacy_name: str) -> None:
@@ -254,21 +338,61 @@ def _remove_named(model, cost_name: str, legacy_name: str) -> None:
             _remove_basis(model, basis)
 
 
+def _size(unit, dim) -> float:
+    """One `unit` in SI base (kg for mass), as `quantity_scale` sizes a
+    quantity's own unit; 1 for EACH or any context-dependent unit."""
+    if unit is None or unit.is_a("IfcContextDependentUnit"):
+        return 1.0
+    scale = unit_util.get_unit_scale(unit)
+    return scale / 1000.0 if dim == "mass" else scale
+
+
+def _leaf_money(ci, scales: dict) -> float:
+    """What a leaf is worth, per IFC: AppliedValue x the quantity in the
+    basis's unit / the basis value, i.e. AppliedValue x q x size(q's unit) /
+    (basis value x size(basis unit)) per value; the AppliedValue itself when
+    there are no CostQuantities. `scales` is `_unit_scales(model)`."""
+    quantities = ci.CostQuantities or ()
+    dims = {QUANTITY_DIM.get(q.is_a()) for q in quantities}
+    dim = dims.pop() if len(dims) == 1 else None
+    q_si = sum(float(q[3]) * quantity_scale(q, scales, QUANTITY_DIM.get(
+        q.is_a())) for q in quantities)
+    total = 0.0
+    for cv in ci.CostValues or ():
+        v = float(cv.AppliedValue.wrappedValue) if cv.AppliedValue else 0.0
+        if quantities:
+            b = cv.UnitBasis
+            basis = 1.0 if b is None else (
+                float(b.ValueComponent.wrappedValue)
+                * _size(b.UnitComponent, dim))
+            v = v * q_si / basis
+        total += v
+    return total
+
+
 def embed_estimate(model, tmap: dict, costs: dict, *,
                    schedule_name: str | None = None,
-                   stage: str = "tender") -> EstimateEmbedReport:
+                   stage: str = "tender",
+                   currency: str | None = None,
+                   submitted_on: str | None = None) -> EstimateEmbedReport:
     """Author the TENDER (bill of quantities) schedule onto the open IFC in
-    place. `stage` is "tender" (at bid) or "awarded"."""
+    place. `stage` is "tender" (at bid) or "awarded"; `currency` is the
+    rates' (cost5d.ensure_currency: the file's, else USD); `submitted_on`
+    ('YYYY-MM-DD') is the bid's date, the schedule's SubmittedOn. Without
+    one SubmittedOn stays unset: the write time is not the bid date.
+
+    A bad stage or costs.json items raise before the model is touched. On
+    any later ValueError (a rate, or the read-back gate), the in-memory
+    model holds a partial schedule: callers must discard it (the CLI writes
+    nothing)."""
     if stage not in STAGES:
         raise ValueError(f"stage must be one of {sorted(STAGES)}, got {stage!r}")
     schedule_type, status = STAGES[stage]
+    check_currency(model, currency)
+    submitted = ifc_datetime(submitted_on, "submitted_on")
     codes_cfg, _defaults, entries_by_code = normalize_map(tmap)
-    name = schedule_name or tmap.get("project_ref") or "Estimate"
-    cost_name = f"{name} bid"
-    _remove_named(model, cost_name, legacy_name=f"{name} estimate")
-    scales = _unit_scales(model)
-    basis_of = _UnitBasis(model)
-
+    lumps = costs.get(ITEMS_KEY) or {}
+    costs = code_costs(costs)
     # elements per code (dedupe: the same code twice on one element counts once)
     elements_by_code: dict[str, list] = {}
     for el in model.by_type("IfcElement"):
@@ -278,9 +402,32 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
                 seen.add(c["code"])
                 elements_by_code.setdefault(c["code"], []).append(el)
 
+    if lumps:
+        # before anything is written: an items entry is a bid item no
+        # element carries, so no map entry may make the same pay item
+        validate_costs({ITEMS_KEY: lumps})
+        made: dict = {}                     # pay item -> map codes making it
+        for code, cfg in codes_cfg.items():
+            if code not in elements_by_code:
+                continue                    # no element here: no parent made
+            for entry in (entries_by_code.get(code) or [cfg or {}]):
+                made.setdefault(_item_key(code, entry), set()).add(code)
+        for number in lumps:
+            item = pay_item_id(number, number)
+            if item in made:
+                raise ValueError(
+                    f"costs.json items: '{number}' is pay item {item}, which "
+                    f"map code(s) {', '.join(sorted(made[item]))} make")
+    name = schedule_name or tmap.get("project_ref") or "Estimate"
+    cost_name = f"{name} bid"
+    _remove_named(model, cost_name, legacy_name=f"{name} estimate")
+    scales = _unit_scales(model)
+    basis_of = _UnitBasis(model)
+
     cs = add_declared_cost_schedule(model, name=cost_name,
                                     predefined_type=schedule_type,
-                                    status=status)
+                                    status=status, currency=currency,
+                                    submitted_on=submitted)
     classif = _classification(model)
     report = EstimateEmbedReport(schedule_name=cost_name,
                                  schedule_type=schedule_type)
@@ -300,6 +447,7 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
         entries = entries_by_code.get(code)
         plural = entries is not None
         code_extended = 0.0
+        code_values = []                    # (cost value, dim, money)
         code_authored = False
         for entry in (entries or [cfg]):
             measure = entry.get("measure")
@@ -391,6 +539,7 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
             for cv, rate, raw_qty, _ in priced:
                 cost.edit_cost_value(model, cv,
                                      attributes={"AppliedValue": rate * factor})
+                code_values.append((cv, dim, rate * factor * raw_qty))
                 entry_extended += rate * factor * raw_qty
             if not priced:
                 # every eligible element was type-level: nothing to price
@@ -402,6 +551,20 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
             code_authored = True
         if code_authored:
             bm = (costs.get(code) or {}).get("cost")
+            # a Count / LS entry is exact by construction: only the
+            # measured entries take the residue
+            fixed = sum(v for _, d, v in code_values if d == "count")
+            scaled = code_extended - fixed
+            if bm and scaled != 0 and _is_residue(scaled, bm - fixed):
+                k = (bm - fixed) / scaled
+                for cv, d, _ in code_values:
+                    if d != "count":
+                        cost.edit_cost_value(model, cv, attributes={
+                            "AppliedValue": cv.AppliedValue.wrappedValue * k})
+                report.snapped_to_cost[code] = {
+                    "drift": code_extended - bm,
+                    "scale_pct": (k - 1.0) * 100.0, "cost": float(bm)}
+                code_extended = float(bm)
             report.by_code[code] = {
                 "extended": code_extended,
                 "bm_cost": bm,
@@ -432,5 +595,32 @@ def embed_estimate(model, tmap: dict, costs: dict, *,
                                related_objects=els)
         _code_reference(model, parent, code, classif)
         report.covered_by_item[code] = item
+
+    # bid items no element carries (mobilization): a top-level total each,
+    # so the schedule totals the bid (#49)
+    for number, rec in lumps.items():
+        item = pay_item_id(number, number)
+        amount = float(rec["cost"])
+        lump = cost.add_cost_item(model, cost_schedule=cs)
+        cost.edit_cost_item(model, lump, attributes={
+            "Name": rec.get("description") or item, "Identification": item})
+        cv = cost.add_cost_value(model, parent=lump)
+        cost.edit_cost_value(model, cv, attributes={"AppliedValue": amount,
+                                                    "Name": "Total"})
+        parents[item] = lump
+        report.items_without_elements[item] = amount
+        report.extended_total += amount
     report.parents = len(parents)
+
+    # the gate: the schedule reads back, as a consumer sums it, at what it
+    # prices, to the cent, or it is not written
+    written = sum(_leaf_money(ci, scales) for ci in _walk_items(cs)
+                  if not any(rel.RelatedObjects
+                             for rel in (ci.IsNestedBy or [])))
+    if abs(written - report.extended_total) > 0.01:
+        raise ValueError(f"the {schedule_type} schedule reads "
+                         f"${written:,.2f} but prices "
+                         f"${report.extended_total:,.2f}: not written")
+    stable_ids.key_cost_items(model, cs)
+    stable_ids.key_relationships(model)
     return report

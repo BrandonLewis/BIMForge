@@ -100,6 +100,7 @@ def _main_leg(model: StructureModel, name: str, sec: HeadwallSection,
                  ifc="IfcFooting", layer="S-CONC")
     model.add(Element.from_geometry(
         foot.name, foot, ifc_class="IfcFooting", layer="S-CONC",
+        predefined_type="STRIP_FOOTING",
         quantities={"length_ft": length, "width_ft": sec.W,
                     "height_ft": sec.F, "volume_cf": foot.volume_cf}))
 
@@ -116,6 +117,7 @@ def _return_leg(model: StructureModel, name: str, sec: HeadwallSection,
                   dims_ft=(return_len, sec.T), ifc="IfcWall", layer="S-CONC")
     model.add(Element.from_geometry(
         rstem.name, rstem, ifc_class="IfcWall", layer="S-CONC",
+        predefined_type="RETAININGWALL",
         quantities={"length_ft": return_len, "width_ft": sec.T,
                     "height_ft": sec.stem_height, "volume_cf": rstem.volume_cf}))
     rfoot = Prism(f"{name} headwall return footing",
@@ -125,6 +127,7 @@ def _return_leg(model: StructureModel, name: str, sec: HeadwallSection,
                   ifc="IfcFooting", layer="S-CONC")
     model.add(Element.from_geometry(
         rfoot.name, rfoot, ifc_class="IfcFooting", layer="S-CONC",
+        predefined_type="STRIP_FOOTING",
         quantities={"length_ft": return_len, "width_ft": sec.W,
                     "height_ft": sec.F, "volume_cf": rfoot.volume_cf}))
 

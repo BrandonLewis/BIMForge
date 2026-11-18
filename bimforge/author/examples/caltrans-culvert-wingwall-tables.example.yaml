@@ -1,6 +1,6 @@
 # Caltrans culvert-wingwall reinforcement callouts (example fixture -- illustrative
-# rows; the real git-ignored catalog is transcribed by
-# scripts/dxf_build_wingwall_tables.py). Loaded via the build spec's
+# rows; the real catalog ships in bimforge.caltrans: tables_pack
+# caltrans/2025/d84-wingwall). Loaded via the build spec's
 # `tables_file` into params.tables, which the family reads at params.tables.steel.
 # Keyed as the sheets key: Type E by H, warped wall by H+slope, warped beam by an
 # L->H-breakpoint staircase. Weight is computed from a generated bar schedule

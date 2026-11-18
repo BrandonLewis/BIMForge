@@ -119,3 +119,51 @@ def test_ifc_surfaces_reach_the_written_ifc(tmp_path):
     rgbs = {(round(c.Red, 3), round(c.Green, 3), round(c.Blue, 3))
             for c in f.by_type("IfcColourRgb")}
     assert (0.1, 0.2, 0.3) in rgbs
+
+
+def _palette(tmp_path, name, rgb):
+    d = tmp_path / name
+    d.mkdir()
+    (d / "styles.yaml").write_text(yaml.safe_dump(
+        {"ifc": {"surfaces": {"S-CONC-OTLN": {"rgb": rgb}}}}), encoding="utf-8")
+    return d
+
+
+def _rgbs(path):
+    ifcopenshell = pytest.importorskip("ifcopenshell")
+    f = ifcopenshell.open(str(path))
+    return {(round(c.Red, 3), round(c.Green, 3), round(c.Blue, 3))
+            for c in f.by_type("IfcColourRgb")}
+
+
+def test_a_job_palette_from_the_spec_reaches_the_written_ifc(tmp_path):
+    # #65: one job restyled without touching model code
+    _palette(tmp_path, "palette", [0.2, 0.4, 0.6])
+    spec = _spec(tmp_path, family="demo-box", style_pack="palette")
+    assert registry.build_from_spec(spec) == 0
+    assert (0.2, 0.4, 0.6) in _rgbs(tmp_path / "out" / "demo-box.ifc")
+
+
+def test_spec_surfaces_still_merge_over_the_job_palette(tmp_path):
+    _palette(tmp_path, "palette", [0.2, 0.4, 0.6])
+    spec = _spec(tmp_path, family="demo-box", style_pack="palette",
+                 ifc_surfaces={"S-CONC-OTLN": {"rgb": [0.1, 0.2, 0.3]}})
+    assert registry.build_from_spec(spec) == 0
+    rgbs = _rgbs(tmp_path / "out" / "demo-box.ifc")
+    assert (0.1, 0.2, 0.3) in rgbs and (0.2, 0.4, 0.6) not in rgbs
+
+
+def test_the_cli_palette_wins_over_the_spec(tmp_path):
+    from bimforge.bim.cli import main
+    _palette(tmp_path, "palette", [0.2, 0.4, 0.6])
+    other = _palette(tmp_path, "other", [0.7, 0.1, 0.1])
+    spec = _spec(tmp_path, family="demo-box", style_pack="palette")
+    assert main(["build", str(spec), "--style-pack", str(other)]) == 0
+    rgbs = _rgbs(tmp_path / "out" / "demo-box.ifc")
+    assert (0.7, 0.1, 0.1) in rgbs and (0.2, 0.4, 0.6) not in rgbs
+
+
+def test_a_style_pack_must_be_a_name(tmp_path):
+    spec = _spec(tmp_path, family="demo-box", style_pack=["a", "list"])
+    with pytest.raises(ValueError, match="style_pack"):
+        registry.load_spec(spec)

@@ -49,6 +49,27 @@ WEIGHT_MEASURES = ("GrossWeight", "NetWeight", "Weight")
 #: must come out as GrossWeight or the takeoff never finds it.
 MEASURE_ALIASES = {"Weight": "GrossWeight"}
 
+#: IfcClassification.Source (its publisher) for the systems whose publisher
+#: is known, keyed by the lower-cased name with spaces dropped. The default
+#: BidSchedule is the bid's own pay-code table (this file).
+CLASSIFICATION_SOURCES = {
+    "bidschedule": "Project pay codes",
+    "masterformat": "CSI/CSC",
+    "uniformat": "CSI/CSC",
+    "omniclass": "CSI/CSC",
+    "uniformatii": "ASTM E1557",
+    "uniclass": "NBS",
+    "uniclass2015": "NBS",
+}
+
+
+def classification_source(system: str, explicit: str = "") -> str | None:
+    """IfcClassification.Source for `system`: `explicit` when given, else
+    the known publisher, else None (an agency's own list is not guessed)."""
+    if explicit:
+        return str(explicit)
+    return CLASSIFICATION_SOURCES.get(str(system).lower().replace(" ", ""))
+
 
 @dataclass(frozen=True)
 class Rule:
@@ -75,6 +96,8 @@ class PayCodes:
     # edition -> IfcClassification.Edition. Default "BidSchedule" keeps historical output.
     source_system: str = "BidSchedule"
     edition: str = ""
+    #: IfcClassification.Source; empty -> classification_source's default.
+    source: str = ""
     #: `spatial_parts:` rules (issue #318): element name regex -> IFC4X3
     #: facility part, applied by `apply` to elements with no spatial_part.
     spatial_parts: list[SpatialPartRule] = field(default_factory=list)
@@ -135,6 +158,8 @@ class PayCodes:
             doc["source_system"] = self.source_system
         if self.edition:
             doc["edition"] = self.edition
+        if self.source:
+            doc["source"] = self.source
         return doc
 
 
@@ -215,6 +240,7 @@ def from_dict(data: dict) -> PayCodes:
                     # which would otherwise leak into IfcClassification.Edition (a string)
                     source_system=str(data.get("source_system") or "BidSchedule"),
                     edition=str(data.get("edition") or ""),
+                    source=str(data.get("source") or ""),
                     spatial_parts=spatial_parts)
 
 

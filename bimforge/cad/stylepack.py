@@ -8,10 +8,14 @@ A style pack is a Python package or a directory that provides, by convention:
   a ``layers:`` mapping (DXF layer name -> ``{color, linetype}``) consumed by
   :mod:`bimforge.bim.ifc2dxf`, the ``kml:`` mapping (``colors:`` IFC class ->
   aabbggrr) consumed by :mod:`bimforge.bim.kml`, and an ``ifc:`` mapping
-  (``surfaces:`` layer-or-class ->
-  ``{rgb, transparency, material, reflectance, specular}``; the last two
-  are optional and promote the emitted style to IfcSurfaceStyleRendering)
-  consumed by :mod:`bimforge.author.emit_ifc` for IFC presentation colors.
+  (``surfaces:`` key -> ``{rgb, transparency, material, category,
+  reflectance, specular, diffuse, specular_colour}``, the key a layer, an
+  IFC class, ``category:<IfcMaterial.Category>`` or ``material:<name>``;
+  the finish fields are optional and promote the emitted style to
+  IfcSurfaceStyleRendering) consumed by :mod:`bimforge.author.emit_ifc`
+  for IFC presentation. That section is a palette: an org pack sets one per
+  company, a build spec's ``style_pack`` (or ``est-bim build --style-pack``)
+  one per job (#65); see :mod:`bimforge.author.ifc_styles`.
   Unknown sections are ignored, so packs can still carry future sections
   harmlessly.
 

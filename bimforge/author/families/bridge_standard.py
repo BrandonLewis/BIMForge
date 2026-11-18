@@ -97,7 +97,7 @@ def _plan_rect(x0: float, y0: float, dx: float, dy: float,
 
 
 def _box(name: str, x0, y0, dx, dy, length, width, z_bot, z_top, ifc,
-         quote=None):
+         quote=None, predefined_type=None):
     """A MODEL-frame rectangular concrete member + its Element quantities.
 
     Rectangular members declare the full L/W/H set on purpose: the gate's
@@ -120,6 +120,7 @@ def _box(name: str, x0, y0, dx, dy, length, width, z_bot, z_top, ifc,
               dims_ft=(length, width), ifc=ifc, layer="S-CONC-OTLN")
     return Element.from_geometry(
         p.name, p, ifc_class=ifc, layer="S-CONC-OTLN",
+        predefined_type=predefined_type,
         quantities={"length_ft": length, "width_ft": width,
                     "height_ft": z_top - z_bot, "volume_cf": p.volume_cf})
 
@@ -145,7 +146,7 @@ def bent_elements(tag: str, sup: dict, section, alignment, profile, roll,
     soffit = to_model_elev(origin, soffit_abs)
     out = [_box(f"{tag} bent cap", x0, y0, dx, dy, cap_len,
                 float(cap["width"]), soffit - float(cap["depth"]), soffit,
-                "IfcBeam",
+                "IfcBeam", predefined_type="PIERCAP",
                 quote=(soffit_abs - float(cap["depth"]), soffit_abs))]
     n_col, dia = int(cols["count"]), float(cols["dia"])
     base_abs = float(cols["base_el"])
@@ -166,7 +167,7 @@ def bent_elements(tag: str, sup: dict, section, alignment, profile, roll,
                     ifc="IfcColumn", layer="S-CONC-OTLN")
         out.append(Element.from_geometry(
             col.name, col, ifc_class="IfcColumn", layer="S-CONC-OTLN",
-            quantities={"height_ft": top - base,
+            predefined_type="PIERSTEM", quantities={"height_ft": top - base,
                         "volume_cf": col.volume_cf}))
     return out
 

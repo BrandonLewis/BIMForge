@@ -47,6 +47,7 @@ def test_emit_ifc_classifies_under_paycodes_identity(tmp_path):
     assert len(cls) == 1
     assert cls[0].Name == "MasterFormat"
     assert cls[0].Edition == "2020"
+    assert cls[0].Source == "CSI/CSC"      # the system's publisher
     # per-code references still emit under that classification
     refs = f.by_type("IfcClassificationReference")
     assert refs and all(r.ReferencedSource == cls[0] for r in refs)
@@ -81,6 +82,19 @@ def test_emit_ifc_defaults_to_bidschedule_without_identity(tmp_path):
     assert len(cls) == 1
     assert cls[0].Name == "BidSchedule"
     assert not cls[0].Edition  # unchanged from historical output
+    assert cls[0].Source == "Project pay codes"
+
+
+def test_emit_ifc_writes_an_explicit_classification_source(tmp_path):
+    import dataclasses
+
+    import ifcopenshell
+
+    out = tmp_path / "src.ifc"
+    emit_ifc(_fixture_model(), str(out),
+             dataclasses.replace(PC, source="Caltrans", edition="2024"))
+    (cls,) = ifcopenshell.open(str(out)).by_type("IfcClassification")
+    assert (cls.Name, cls.Source, cls.Edition) == ("BidSchedule", "Caltrans", "2024")
 
 
 def _fixture_model():
@@ -177,6 +191,12 @@ def test_emit_ifc_round_trips_through_build_takeoff(tmp_path):
     assert conv.Northings == pytest.approx(1_943_000.0)
     assert conv.Scale == pytest.approx(1.0 / m.ctx.ft_to_m)
     assert f.by_type("IfcProjectedCRS")[0].Name == "EPSG:2226"
+    # #58: the CRS states its unit, and its datum from the EPSG registry
+    # when the spec gives none
+    crs = f.by_type("IfcProjectedCRS")[0]
+    assert crs.MapUnit.Name == "US survey foot"
+    assert crs.GeodeticDatum == (m.ctx.geodetic_datum
+                                 or "North American Datum 1983")
     # L x W invariant on the emitted Qto (contract: L*W == GrossArea)
     from bimforge.bim.ifc_takeoff import quantities_of
     el = [e for e in f.by_type("IfcFooting")][0]
@@ -1517,7 +1537,8 @@ def test_emit_ifc_types_occurrences_and_hangs_parts_under_their_whole(tmp_path):
     for p in posts:
         assert ue.get_type(p) == types["B11-51 post HSS2x2x3/16"]
         assert ue.get_predefined_type(p) == "POST"
-        assert p.PredefinedType is None            # inherited, not doubled
+        # inherited, not doubled: NOTDEFINED ("Element Type Predefined Type", #77)
+        assert p.PredefinedType == "NOTDEFINED" and p.ObjectType is None
     # the whole
     (whole,) = [r for r in f.by_type("IfcRailing") if r.Name == "NB handrail run"]
     assert whole.Representation is None
@@ -1722,3 +1743,128 @@ def test_one_named_type_has_one_predefined_type(tmp_path):
     with pytest.raises(ValueError, match="more than one predefined type"):
         emit_ifc(m, str(tmp_path / "x.ifc"))
     assert not (tmp_path / "x.ifc").exists()
+
+
+def _slab(name, **kw):
+    p = Prism(name, [(-2, -2), (2, -2), (2, 2), (-2, 2)], z_bot=0.0, z_top=1.0)
+    return Element.from_geometry(name, p, ifc_class="IfcSlab", **kw)
+
+
+def test_each_material_states_its_ifc_category(tmp_path):
+    # #65: a reader styles by IfcMaterial.Category, never by the free Name
+    import ifcopenshell
+    m = _fixture_model()
+    m.add(_slab("facing", material="Structural shotcrete", x_ft=200.0))
+    m.add(_slab("pad", material="Joint seal, Type A", x_ft=300.0))
+    m.add(_slab("stone", material="Concrete", material_category="stone",
+                x_ft=400.0))
+    out = tmp_path / "cat.ifc"
+    with pytest.warns(UserWarning, match="Concrete.*stone"):
+        emit_ifc(m, str(out), PC)
+    cats = {mat.Name: mat.Category
+            for mat in ifcopenshell.open(str(out)).by_type("IfcMaterial")}
+    assert cats["Structural shotcrete"] == "concrete"
+    # no keyword and a slab with no surface entry: left unset, not guessed
+    assert cats["Joint seal, Type A"] is None
+    # one material, one Category: the first element that uses it decides
+    # (the footings' Concrete), and the clash is warned
+    assert cats["Concrete"] == "concrete"
+
+
+def _rendering_of(f, material_name):
+    """The IfcSurfaceStyleRendering on `material_name`'s IfcMaterial."""
+    mat = next(m for m in f.by_type("IfcMaterial") if m.Name == material_name)
+    styled = mat.HasRepresentation[0].Representations[0].Items[0]
+    return next(s for st in styled.Styles for s in st.Styles
+                if s.is_a("IfcSurfaceStyleRendering"))
+
+
+def test_a_palette_styles_materials_by_category(tmp_path):
+    # #65: a job's palette restyles every steel material, keyed by category,
+    # without touching model code; glass reads as glass out of the box
+    import ifcopenshell
+    from bimforge.cad.stylepack import StylePack
+    m = _fixture_model()
+    m.add(_slab("rail", material="Galvanized pipe", x_ft=200.0))
+    m.add(_slab("pane", material="Laminated glass", x_ft=300.0))
+    palette = StylePack(styles={"ifc": {"surfaces": {"category:steel": {
+        "rgb": [0.9, 0.9, 0.9], "specular": 0.1,
+        "specular_colour": [1.0, 1.0, 1.0], "diffuse": 0.7}}}})
+    out = tmp_path / "palette.ifc"
+    emit_ifc(m, str(out), PC, stylepack=palette)
+    f = ifcopenshell.open(str(out))
+    steel = _rendering_of(f, "Galvanized pipe")
+    assert steel.ReflectanceMethod == "METAL"
+    assert steel.SpecularHighlight.wrappedValue == pytest.approx(0.1)
+    assert (steel.SurfaceColour.Red, steel.SurfaceColour.Green) == \
+        pytest.approx((0.9, 0.9))
+    assert steel.SpecularColour.Red == pytest.approx(1.0)
+    assert steel.DiffuseColour.wrappedValue == pytest.approx(0.7)
+    glass = _rendering_of(f, "Laminated glass")
+    assert glass.ReflectanceMethod == "GLASS" and glass.Transparency > 0.5
+    # presentation only: the takeoff is untouched
+    from bimforge.bim.ifc_takeoff import build_takeoff
+    plain = tmp_path / "plain.ifc"
+    emit_ifc(m, str(plain), PC)
+    tmap = PC.takeoff_map(m.codes_used())
+    assert build_takeoff(str(out), tmap)[0] == build_takeoff(str(plain), tmap)[0]
+
+
+def test_the_project_is_keyed_not_numbered_by_file_order(tmp_path):
+    """#74: the IfcProject's id is what the embedders key under, so it holds
+    when the spec changes, and keeps the value it had before it was keyed."""
+    import ifcopenshell
+
+    from bimforge.author.emit_ifc import PROJECT_GUID_KEY
+
+    a, b = _fixture_model(), _fixture_model()
+    b.elements.insert(0, Element("PS-0 footing", ifc_class="IfcFooting"))
+    emit_ifc(a, str(tmp_path / "a.ifc"), PC)
+    emit_ifc(b, str(tmp_path / "b.ifc"), PC)
+    (pa,) = ifcopenshell.open(str(tmp_path / "a.ifc")).by_type("IfcProject")
+    (pb,) = ifcopenshell.open(str(tmp_path / "b.ifc")).by_type("IfcProject")
+    assert pa.GlobalId == pb.GlobalId == a.ctx.guid(PROJECT_GUID_KEY)
+
+
+def test_an_element_keyed_like_the_project_is_refused(tmp_path):
+    from bimforge.author.emit_ifc import PROJECT_GUID_KEY
+
+    m = _fixture_model()
+    m.add(Element("odd", ifc_class="IfcFooting", guid_key=PROJECT_GUID_KEY))
+    with pytest.raises(DuplicateGuidError, match="the project"):
+        emit_ifc(m, str(tmp_path / "dup.ifc"))
+
+
+def test_emit_ifc_names_both_datums_of_a_compound_crs(tmp_path):
+    # C.4: pyproj gives the geodetic datum of any CRS and the height datum
+    # of a compound one; the MapConversion keeps its Scale
+    import dataclasses
+    import ifcopenshell
+    m = _fixture_model()
+    m.ctx = dataclasses.replace(m.ctx, epsg=8700, ft_to_m=0.3048)
+    out = tmp_path / "compound.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    crs = f.by_type("IfcProjectedCRS")[0]
+    assert crs.GeodeticDatum == "North American Datum 1983"
+    assert crs.VerticalDatum == "North American Vertical Datum 1988"
+    assert float(f.by_type("IfcMapConversion")[0].Scale) == \
+        pytest.approx(1 / 0.3048)
+
+
+def test_emit_ifc_declares_kilograms_and_radians(tmp_path):
+    # C.4: rebar and fastener weights are written in kg, which a reader of a
+    # file with no MASSUNIT takes in IFC's SI default, the gram; alignment
+    # segments carry radians. Each unit type is declared exactly once.
+    import ifcopenshell
+    out = tmp_path / "units.ifc"
+    emit_ifc(_fixture_model(), str(out), PC)
+    f = ifcopenshell.open(str(out))
+    by_type: dict = {}
+    for u in f.by_type("IfcProject")[0].UnitsInContext.Units:
+        by_type.setdefault(u.UnitType, []).append(u)
+    assert all(len(v) == 1 for v in by_type.values())
+    (kg,) = by_type["MASSUNIT"]
+    assert (kg.Prefix, kg.Name) == ("KILO", "GRAM")
+    (rad,) = by_type["PLANEANGLEUNIT"]
+    assert (rad.Prefix, rad.Name) == (None, "RADIAN")

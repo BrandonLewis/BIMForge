@@ -25,5 +25,7 @@ outputs:
 project:
   name: "R28 732SW example"
   epsg: 2226
-  base: [0.0, 0.0]
+  # the fictitious base the other examples share (audit 0.7: [0, 0] put
+  # the model at the EPSG:2226 false origin)
+  base: [6594000.0, 1943000.0]
   guid_ns: "6f0e5a1a-0000-4000-8000-000000000002"

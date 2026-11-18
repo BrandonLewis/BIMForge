@@ -44,6 +44,20 @@ def _write_inputs(tmp_path):
     return tmap, costs
 
 
+def test_cli_estimate5d_dates_the_bid_and_names_its_currency(tmp_path):
+    ifc = tmp_path / "m.ifc"
+    _pile_ifc(ifc)
+    tmap, costs = _write_inputs(tmp_path)
+    rc = cli.main(["estimate5d", "--ifc", str(ifc), "--map", str(tmap),
+                   "--costs", str(costs), "--submitted-on", "2026-11-20",
+                   "--currency", "CAD"])
+    assert rc == 0
+    model = ifcopenshell.open(str(tmp_path / "m.est.ifc"))
+    (cs,) = model.by_type("IfcCostSchedule")
+    assert cs.SubmittedOn == "2026-11-20T00:00:00"
+    assert [u.Currency for u in model.by_type("IfcMonetaryUnit")] == ["CAD"]
+
+
 def test_cli_estimate5d_writes_est_ifc_and_prints_variance(tmp_path, capsys):
     ifc = tmp_path / "m.ifc"
     _pile_ifc(ifc)
@@ -59,6 +73,37 @@ def test_cli_estimate5d_writes_est_ifc_and_prints_variance(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "extended" in out.lower()
     assert "vs BM" in out                         # the variance line
+
+
+def test_cli_estimate5d_prints_items_no_element_carries(tmp_path, capsys):
+    ifc = tmp_path / "m.ifc"
+    _pile_ifc(ifc)
+    tmap, costs = _write_inputs(tmp_path)
+    data = json.loads(costs.read_text(encoding="utf-8"))
+    data["items"] = {"1": {"cost": 7670.0, "description": "Mobilization"}}
+    costs.write_text(json.dumps(data), encoding="utf-8")
+    rc = cli.main(["estimate5d", "--ifc", str(ifc), "--map", str(tmap),
+                   "--costs", str(costs)])
+    assert rc == 0
+    assert (tmp_path / "m.est.ifc").exists()
+    assert "item 1: $7,670.00, no elements" in capsys.readouterr().out
+
+
+def test_cli_estimate5d_prints_a_snap_to_cost(tmp_path, capsys):
+    # $10/LF x 12.5 m = $410.104987; the bid's cost is the rounded $410.10
+    ifc = tmp_path / "m.ifc"
+    _pile_ifc(ifc)
+    tmap, costs = _write_inputs(tmp_path)
+    data = json.loads(costs.read_text(encoding="utf-8"))
+    data["PILE-200W-FRN"]["cost"] = 410.10
+    costs.write_text(json.dumps(data), encoding="utf-8")
+    rc = cli.main(["estimate5d", "--ifc", str(ifc), "--map", str(tmap),
+                   "--costs", str(costs)])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "extended $410.10." in out             # the headline, to the cent
+    assert ("  PILE-200W-FRN: rates scaled -0.0012% so its children sum to "
+            "its cost $410.10") in out
 
 
 def test_cli_estimate5d_bad_inputs_are_one_line_errors(tmp_path, capsys):

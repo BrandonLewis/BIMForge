@@ -50,7 +50,7 @@ def sample_ifc(tmp_path_factory):
 def _full_schedule():
     """A schedule using every #335 field."""
     return CanonicalSchedule(
-        name="Bridge BL V.02", start_date="2026-06-01",
+        name="Bridge BL V.02", start_date="2026-06-01", schedule_type="BASELINE",
         work_weekdays=[0, 1, 2, 3], holidays=["2026-07-03", "2026-09-07"],
         calendars={
             "in-water": Calendar(work_weekdays=[0, 1, 2, 3, 4],
@@ -235,6 +235,15 @@ def test_model_from_before_335_reads_with_new_fields_empty(sample_ifc):
         assert t.task_type is None and t.bid_items == [] and t.notes == ""
         assert t.calendar is None and t.global_id
     assert got.work_weekdays == [0, 1, 2, 3, 4]
+
+
+def test_schedule_type_reads_back_and_notdefined_reads_as_unset(sample_ifc):
+    path, _ = _embed(sample_ifc, _full_schedule(), "typed.4d.ifc")
+    m = ifcopenshell.open(path)
+    assert read_schedule(m).schedule_type == "BASELINE"
+    # a file written before #37 says NOTDEFINED: the source never said
+    m.by_type("IfcWorkSchedule")[0].PredefinedType = "NOTDEFINED"
+    assert read_schedule(m).schedule_type is None
 
 
 def test_schedule_selection(sample_ifc):
@@ -529,3 +538,29 @@ def test_lump_sum_and_count_as_rows_split_to_the_capped_quantity(
     assert row["unassigned"] == 0.0
     assert sum(row["tasks"].values()) + row["unassigned"] == \
         pytest.approx(row["quantity"])
+
+
+@pytest.mark.parametrize("lag,written", [(-1.5, "-P1.5D"), (0.0, None),
+                                         (2.0, "P2D")])
+def test_lag_round_trips_with_its_sign(sample_ifc, lag, written):
+    # audit 0.5: a negative lag was written "P-1.5D" (not ISO 8601) and read
+    # back as 0; the sign leads the duration
+    sched = CanonicalSchedule(name="Lag", tasks=[
+        ScheduleTask(id="a", name="A", start="2026-06-01", finish="2026-06-05"),
+        ScheduleTask(id="b", name="B", start="2026-06-04", finish="2026-06-10",
+                     dependencies=[Dependency("a", "FS", lag)]),
+    ])
+    path, _ = _embed(sample_ifc, sched, f"lag{lag:g}.4d.ifc")
+    model = ifcopenshell.open(path)
+    lags = [r.TimeLag.LagValue.wrappedValue
+            for r in model.by_type("IfcRelSequence") if r.TimeLag]
+    assert lags == ([written] if written else [])
+    got = read_schedule(model)
+    assert got.tasks[1].dependencies[0].lag_days == lag
+
+
+def test_inner_sign_lag_from_older_files_still_reads():
+    from bimforge.bim.schedule_read import _days
+    assert _days("-P1.5D") == -1.5
+    assert _days("P-1.5D") == -1.5             # written by 0.1.119 or earlier
+    assert _days("-PT4H") == -0.5

@@ -15,7 +15,7 @@ from bimforge.author.approach_slab_rebar import (
     approach_dowel_bars, approach_slab_bars)
 from bimforge.author.approach_slab_section import ApproachSlabSection
 from bimforge.author.model import Element, StructureModel
-from bimforge.author.primitives import Prism
+from bimforge.author.primitives import Prism, bar_role
 
 REQUIRED = ("alignment", "tables", "slabs")
 
@@ -45,7 +45,8 @@ def _emit_bars(model, tag: str, label: str, bars: list) -> None:
             quantities={"count": len(bs),
                         "length_ft": sum(x.length for x in bs),
                         "weight_lb": sum(x.weight for x in bs)},
-            layer="S-REBAR", description=f"#{size} {mark}"))
+            layer="S-REBAR", description=f"#{size} {mark}",
+            predefined_type=bar_role(mark), bar_size=size))
 
 
 def _slab_corners(align, station: float, skew_deg: float, length_ft: float,
@@ -92,7 +93,7 @@ def _add_joint_and_drainage(model, tag, s, sec, width, skew):
         area = float(sec.length_ft) * float(width)
         model.add(Element(
             f"{tag} approach drainage TPB", "IfcBuildingElementProxy",
-            quantities={"area_sf": area},
+            object_type="TREATED_PERMEABLE_BASE", quantities={"area_sf": area},
             layer="S-DRAIN", description="treated permeable base (B9-6)"))
         model.add(Element(
             f"{tag} approach drainage pipe", "IfcPipeSegment",
@@ -129,6 +130,7 @@ def build(params: dict, ctx) -> StructureModel:
                   layer="S-CONC-OTLN")
         model.add(Element.from_geometry(
             p.name, p, ifc_class="IfcSlab", layer="S-CONC-OTLN",
+            predefined_type="APPROACH_SLAB",
             quantities={"length_ft": sec.length_ft, "width_ft": width,
                         "height_ft": sec.thickness_ft, "area_sf": p.area_sf,
                         "volume_cf": p.volume_cf}))
@@ -141,7 +143,8 @@ def build(params: dict, ctx) -> StructureModel:
                 quantities={"count": len(dowels),
                             "length_ft": sum(x.length for x in dowels),
                             "weight_lb": sum(x.weight for x in dowels)},
-                layer="S-REBAR", description=f"#{dowels[0].size} dowel"))
+                layer="S-REBAR", description=f"#{dowels[0].size} dowel",
+                bar_size=dowels[0].size))
         _add_joint_and_drainage(model, tag, s, sec, width, skew)
     model.checks.append(_check_length_vs_type_key(params))
     model.checks.append(_check_pay_isolation(params))
