@@ -806,14 +806,17 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
     from bimforge.author.model import StructureModel
 
     opened = _open_sources(sources, ctx, unit_check, georef_check)
+    identity = _identity(opened, merge_facilities)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     # the target opens as a plain Site > Building > Storey file: a ctx facility
     # is a property of the SOURCES' trees, not something to mint here.
     base_ctx = (dataclasses.replace(ctx, facility=None)
                 if getattr(ctx, "facility", None) is not None else ctx)
+    # no identity yet: it would shift the entity numbers the merged ids are
+    # deduped by (_dedupe_nonproduct_globalids); written once merged
     emit_ifc(StructureModel(name="Federated Model", ctx=base_ctx),
-             str(out_path))
+             str(out_path), identify=False)
     f = ifcopenshell.open(str(out_path))
     site = f.by_type("IfcSite")[0]
     building = f.by_type("IfcBuilding")[0]
@@ -909,5 +912,20 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
     # them by GlobalId exactly as emit_ifc does (#318: byte-deterministic).
     _pin_relationship_order(f)
     result.storeys = len(f.by_type("IfcBuildingStorey"))
+    from bimforge.bim import model_identity
+    model_identity.write(f, identity, " + ".join(p.name for p, _n, _s in opened))
     f.write(str(out_path))
     return result
+
+
+def _identity(opened, merge_facilities: bool) -> dict:
+    """The federation's canonical source (M.6): each source's label and
+    BuildId (a file without one, its sha256), and how they were merged."""
+    import hashlib
+
+    from bimforge.bim import model_identity
+    parts = []
+    for path, name, src in opened:
+        bid = (model_identity.read(src) or {}).get("BuildId")
+        parts.append([name, bid or hashlib.sha256(path.read_bytes()).hexdigest()])
+    return {"federate": parts, "merge_facilities": merge_facilities}

@@ -32,6 +32,7 @@ Every stable id is `uuid5(namespace, key)`, compressed to the IFC form.
 | `add-alignments` | horizontal, vertical layout | the file's IfcProject GlobalId | `alignment/<name>/horizontal`, `.../vertical` |
 | `add-alignments` | IfcAlignmentSegment | the file's IfcProject GlobalId | `alignment/<name>/<layout>/segment/<n>`, in layout order |
 | `add-alignments` | IfcReferent | the file's IfcProject GlobalId | `referent/<alignment>/<Pset_Stationing Station, metres, 4 places>` |
+| `build`, `dxf2bim`, `federate` | `BIMForge_Model` (the model's identity) and its IfcRelDefinesByProperties | the file's IfcProject GlobalId | `pset/<project id>/BIMForge_Model`, `rel/IfcRelDefinesByProperties/<its id>` |
 | the embedders, `add-alignments` | property set | the file's IfcProject GlobalId | `pset/<owner ids>/<pset name>` |
 | the embedders, `add-alignments` | IfcRelSequence | the file's IfcProject GlobalId | `rel/IfcRelSequence/<predecessor id>/<successor id>` |
 | the embedders, `add-alignments` | other relationships | the file's IfcProject GlobalId | `rel/<type>/<relating entity's id>` |

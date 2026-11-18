@@ -99,7 +99,8 @@ def _run_dxf2bim(args) -> int:
     features = extract_features(args.dxf, config.get("layers", {}), scale)
     print(f"Extracted {len(features)} features across "
           f"{len({f.layer for f in features})} layers.")
-    print(build_ifc(features, config, args.out))
+    print(build_ifc(features, config, args.out,
+                    source_name=os.path.basename(args.dxf)))
     return 0
 
 

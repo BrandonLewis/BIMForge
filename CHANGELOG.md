@@ -6,6 +6,16 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ### Added
 
+- **The model names itself (M.6).** Every file `est-bim build`, `dxf2bim`
+  and `federate` write carries `BIMForge_Model` on its IfcProject:
+  `BuildId` (sha256 over the canonical source, the bimforge version and the
+  schema), `BimforgeVersion`, `Schema` and `Source`. The source is what the
+  build reads, parsed: the spec and the files it names, without its output
+  paths; dxf2bim's layer map and the features read from the DXF; a
+  federation's sources' BuildIds. So the same source gets the same id on any
+  machine and after any rebuild, and the embedders leave it alone. A model
+  emitted with no source named is identified by the file itself
+  (`bimforge.bim.model_identity`).
 - **An inventory of what each command writes (C.9).** `docs/ifc-inventory.md`
   lists the entity types, property sets and quantity sets (with their
   properties and the classes they apply to) that `build`, `dxf2bim`,
@@ -30,6 +40,15 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   pin a MODIFIED update and a kept BASELINE beside the current one.
 
 ### Fixed
+
+- **An open mesh is a surface, and a mesh's near-duplicate corners are one
+  (#103).** A `mesh` that is not closed (terrain, a measured surface) was
+  written as a closed faceted brep, its rim edges each on one face
+  (buildingSMART's GEM001); it is now an IfcTriangulatedFaceSet with
+  `Closed=False`. A boolean's corners microns apart were written as two
+  points one loop holds (GEM111, under the context's 1e-5 m precision); they
+  are welded, and the slivers and flattened fins that leaves are dropped, so
+  a closed mesh stays closed.
 
 - **Linking a task to many elements is fast again** (follow-up to #60). The output
   links are written once per element by `schedule4d.link_outputs`, not once per

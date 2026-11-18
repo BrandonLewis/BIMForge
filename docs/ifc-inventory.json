@@ -24,6 +24,16 @@
    "build"
   ]
  },
+ "applies|pset|BIMForge_Model|IfcProject": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
  "applies|pset|BidSheet_Activity|IfcTask": {
   "IFC4": [
    "estimate-model"
@@ -854,10 +864,7 @@
  "entity|IfcPropertySet": {
   "IFC4": [
    "build",
-   "dxf2bim",
-   "estimate-model",
-   "schedule + cost5d",
-   "schedule --returned"
+   "dxf2bim"
   ],
   "IFC4X3": [
    "build",
@@ -867,10 +874,7 @@
  "entity|IfcPropertySingleValue": {
   "IFC4": [
    "build",
-   "dxf2bim",
-   "estimate-model",
-   "schedule + cost5d",
-   "schedule --returned"
+   "dxf2bim"
   ],
   "IFC4X3": [
    "build",
@@ -1359,6 +1363,56 @@
  "pset|BIMForge_LinearReference|StationUnit": {
   "IFC4X3": [
    "build"
+  ]
+ },
+ "pset|BIMForge_Model": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Model|BimforgeVersion": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Model|BuildId": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Model|Schema": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Model|Source": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
   ]
  },
  "pset|BidSheet_Activity": {
