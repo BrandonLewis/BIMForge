@@ -4,6 +4,16 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Fixed
+
+- **Folding one facility from several sources keeps the first source's.**
+  `federate(merge_facilities=True)` kept whichever facility came first among
+  the site's children, an order that follows entity numbers, so a source
+  that wrote fewer entities (0.1.127's mesh weld) could hand the fold to a
+  later source and give the facility and its parts new GlobalIds. It now
+  keeps the first source's, as documented; files federated on 0.1.126 get
+  their GlobalIds back.
+
 ## 0.1.127 — 2026-11-18
 
 Conformance as a standing gate on IFC4 too (C.7, #101), the inventory of what each command writes (C.9, #102), the model's identity (M.6, #103), mesh conformance (GEM001, GEM111) and fast output links (#64).
