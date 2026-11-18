@@ -43,7 +43,9 @@ def element_start_dates(model) -> dict[int, str]:
                 starts[eid] = day
 
     for rel in model.by_type("IfcRelAssignsToProcess"):
-        stamp(rel.RelatingProcess, rel.RelatedObjects or [])
+        # inputs are products, or (C.5) the crews the task uses
+        stamp(rel.RelatingProcess, [o for o in rel.RelatedObjects or []
+                                    if o.is_a("IfcProduct")])
     # outputs too (#335): models post-processed for Bonsai playback link
     # task -> element with IfcRelAssignsToProduct instead
     for rel in model.by_type("IfcRelAssignsToProduct"):
@@ -516,6 +518,25 @@ def _number(value) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+def crews_of(task) -> list:
+    """The resources assigned to `task`, each once, in file order: those it
+    relates by IfcRelAssignsToProcess (C.5: cost5d and estimate-model from
+    0.1.126), then IfcRelAssignsToResource ones (written before). A task's
+    process inputs can also be products; only resources are taken."""
+    found = [o for rel in getattr(task, "OperatesOn", None) or []
+             if rel.is_a("IfcRelAssignsToProcess")
+             for o in rel.RelatedObjects or []]
+    found += [rel.RelatingResource
+              for rel in getattr(task, "HasAssignments", None) or []
+              if rel.is_a("IfcRelAssignsToResource") and rel.RelatingResource]
+    out, seen = [], set()
+    for obj in found:
+        if obj.is_a("IfcResource") and obj.id() not in seen:
+            seen.add(obj.id())
+            out.append(obj)
+    return out
+
+
 def _crew_hours(crew) -> float | None:
     """A labor resource's hours: ScheduleWork usage, else StandardWork."""
     usage = getattr(crew, "Usage", None)
@@ -708,10 +729,8 @@ def read_costs(model, name: str | None = None) -> dict:
         if manhours is not None:
             entry(task_id(task))["labor_hours"] = manhours
             continue
-        for rel in getattr(task, "HasAssignments", None) or []:
-            crew = rel.RelatingResource if rel.is_a(
-                "IfcRelAssignsToResource") else None
-            if crew is None or not crew.is_a("IfcLaborResource") \
+        for crew in crews_of(task):
+            if not crew.is_a("IfcLaborResource") \
                     or not (crew.Name or "").startswith(crew_prefix):
                 continue
             hours = _crew_hours(crew)

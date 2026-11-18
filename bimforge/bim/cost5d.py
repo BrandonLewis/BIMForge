@@ -6,7 +6,8 @@ IfcCostSchedule with **one IfcCostItem per (task, cost code)** — its distribut
 cost as an IfcCostValue, classified with the cost code (IfcRelAssociatesClassification)
 and linked to the task via IfcRelAssignsToControl — plus one IfcLaborResource
 per loaded task carrying IfcResourceTime hours + a StandardWork IfcQuantityTime,
-assigned to the task via IfcRelAssignsToResource.
+assigned to the task with IfcRelAssignsToProcess, the task relating (C.5;
+IfcRelAssignsToResource before 0.1.126, which the readers still take).
 
 Per-(task, code) cost items keep the cost code on the item (groupable in cost
 accounting) and never blend a multi-code task into one uncoded figure; the crew
@@ -32,6 +33,7 @@ import ifcopenshell.api.cost as cost
 import ifcopenshell.api.project as project_api
 import ifcopenshell.api.pset as pset_api
 import ifcopenshell.api.resource as res
+import ifcopenshell.api.sequence as sq
 import ifcopenshell.guid
 
 from bimforge.bim.cost_categories import (normalize_split, split_amount,
@@ -116,7 +118,26 @@ def _remove_named(model, cost_name: str, crew_prefix: str) -> None:
         remove_declared_cost_schedule(model, cs)
     for r in list(model.by_type("IfcConstructionResource")):
         if r.Name and r.Name.startswith(crew_prefix):
-            res.remove_resource(model, r)
+            remove_crew(model, r)
+
+
+def assign_crew(model, crew, task) -> None:
+    """Assign the labor resource `crew` to `task` (C.5): IfcRelAssignsToProcess
+    with the task relating, IFC's resource assignment, so a tool that copies
+    a task's process assignments carries its crew along. Before 0.1.126 this
+    was IfcRelAssignsToResource; `schedule_read` reads both."""
+    sq.assign_process(model, relating_process=task, related_object=crew)
+
+
+def remove_crew(model, crew) -> None:
+    """Remove `crew` and its assignments. ifcopenshell's remove_resource
+    leaves an IfcRelAssignsToProcess naming the removed resource, so the
+    crew is taken out of those first."""
+    for rel in list(getattr(crew, "HasAssignments", None) or []):
+        if rel.is_a("IfcRelAssignsToProcess") and rel.RelatingProcess:
+            sq.unassign_process(model, relating_process=rel.RelatingProcess,
+                                related_object=crew)
+    res.remove_resource(model, crew)
 
 
 #: the currency a file that declares none is given
@@ -392,7 +413,7 @@ def embed_cost_and_resources(model, sched: CanonicalSchedule, costs: dict, *,
             "Name": "StandardWork", "TimeValue": float(load["labor_hours"])})
         if hour is not None:
             q.Unit = hour
-        res.assign_resource(model, relating_resource=crew, related_object=ent)
+        assign_crew(model, crew, ent)
         report.resources += 1
 
     report.tasks_without_entity = sorted(missing)

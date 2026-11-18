@@ -384,7 +384,7 @@ def test_estimate_model_roots_all_repeat():
         embed_estimate_model(f, _model_json(ftg.GlobalId, wall.GlobalId))
         return f
     a, b = build(), build()
-    assert {"IfcRelAssignsToProduct", "IfcRelAssignsToResource",
+    assert {"IfcRelAssignsToProduct", "IfcRelAssignsToProcess",
             "IfcPropertySet"} & set(_roots(a).values())
     assert _roots(a) == _roots(b)
 
