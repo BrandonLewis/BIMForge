@@ -8,6 +8,12 @@ IFC compliance audit Phase 2 (roadmap C.5): relationship semantics.
 
 ### Added
 
+- **Conformance on IFC4 too, and on a carried-forward rebuild (C.7).** The
+  conformance suite builds every example on IFC4 as well as IFC4X3, runs the
+  4D, cost, estimate, dxf2bim and federate writers on both, and checks a
+  schedule rebuild with a downstream update carried onto it. All pass the
+  schema's rules, and buildingSMART's rules find nothing beyond the three
+  listed kinds.
 - **The CI checks buildingSMART's normative rules (#94).** `validate`, the build
   gate and a new conformance suite check the schema's WHERE and global rules
   on every kind of file bimforge writes (`est-bim validate --no-rules`
