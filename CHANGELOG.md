@@ -4,6 +4,12 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.128 — 2026-11-18
+
+The retaining wall typed from the dictionary (X.4, X.6, #105), every typed element's family class (M.1, #106), material layer sets on the constant-thickness B3 stems (X.6, #108), and a fix to `federate(merge_facilities=True)`, which re-keyed a folded facility on 0.1.127.
+
+**For anyone who federated on 0.1.127 with `merge_facilities`:** rebuild on 0.1.128. A facility and its parts whose GlobalIds moved get their 0.1.126 GlobalIds back.
+
 **For ProjectCommand and BidSheet.ai:** typed elements now carry a second IfcClassificationReference, to their family class, under an IfcClassification named `bimforge families`. It is not a pay code: bimforge's pay readers skip it, and so should any reader that keys pay items on element classifications.
 
 ### Added
@@ -62,6 +68,16 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `bimforge.author.family_dictionary`, not from literals in each family.
   What is written is unchanged. `BarrierTemplate.standard_plan` is gone: the
   plan is the dictionary class's, by `family_id`.
+
+### Fixed
+
+- **Folding one facility from several sources keeps the first source's.**
+  `federate(merge_facilities=True)` kept whichever facility came first among
+  the site's children, an order that follows entity numbers, so a source
+  that wrote fewer entities (0.1.127's mesh weld) could hand the fold to a
+  later source and give the facility and its parts new GlobalIds. It now
+  keeps the first source's, as documented; files federated on 0.1.126 get
+  their GlobalIds back.
 
 ## 0.1.127 — 2026-11-18
 

@@ -125,3 +125,23 @@ def test_federate_merges_one_facility_modelled_in_two_sources(tmp_path):
     out2 = tmp_path / "fed2.ifc"
     federate([(br, "Bridge"), (ew, "Earthwork")], str(out2), _ctx())
     assert len(ifcopenshell.open(str(out2)).by_type("IfcBridge")) == 2
+
+
+def test_the_fold_keeps_the_first_sources_facility_whatever_the_site_order(
+        tmp_path, monkeypatch):
+    """The first source's facility is the one kept, so its GlobalIds survive
+    the fold. The site's children come back in entity order, which a source
+    writing fewer entities reshuffles; the fold must not follow it."""
+    from bimforge.author import federate as fed
+    br, ew = tmp_path / "bridge.ifc", tmp_path / "earthwork.ifc"
+    emit_ifc(_nested(), str(br))
+    emit_ifc(_earthwork(), str(ew))
+    src = ifcopenshell.open(str(br)).by_type("IfcBridge")[0].GlobalId
+    children = fed._spatial_children
+    monkeypatch.setattr(fed, "_spatial_children", lambda e: (
+        children(e)[::-1] if e.is_a("IfcSite") else children(e)))
+    out = tmp_path / "fed.ifc"
+    federate([(br, "Bridge"), (ew, "Earthwork")], str(out), _ctx(),
+             merge_facilities=True)
+    (bridge,) = ifcopenshell.open(str(out)).by_type("IfcBridge")
+    assert bridge.GlobalId == _ctx().guid(f"Bridge/{src}")
