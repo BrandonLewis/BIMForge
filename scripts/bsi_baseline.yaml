@@ -23,6 +23,8 @@ accepted:
       - bridge-standard-estimate-model-ifc4
       - caltrans-b3-retaining-wall
       - caltrans-b3-retaining-wall-ifc4
+      - caltrans-b3-wall-types
+      - caltrans-b3-wall-types-ifc4
       - caltrans-box-culvert
       - caltrans-box-culvert-ifc4
       - caltrans-culvert-wingwall
@@ -62,6 +64,8 @@ accepted:
       - bridge-standard-estimate-model-ifc4
       - caltrans-b3-retaining-wall
       - caltrans-b3-retaining-wall-ifc4
+      - caltrans-b3-wall-types
+      - caltrans-b3-wall-types-ifc4
       - caltrans-box-culvert
       - caltrans-box-culvert-ifc4
       - caltrans-culvert-wingwall

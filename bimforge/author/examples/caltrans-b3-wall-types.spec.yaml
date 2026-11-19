@@ -1,0 +1,66 @@
+# One B3 wall of every supported type (1, 1A, 5, 6A, 6B) on a skewed tangent,
+# the retained side alternating: the constant-thickness stems (1A, 6A,
+# 6B) are written with a material layer set, the battered ones without.
+family: standard-plan
+params:
+  tables_file: ./caltrans-b3-tables.example.yaml
+  alignment:
+    pob: {station: 0.0, northing: 0.0, easting: 0.0}
+    run:
+      - {kind: tangent, bearing: "N 37-30-0 E", length: 320.0}
+  walls:
+    - name: T1
+      wall_type: 1
+      front_side: Lt
+      beg: {station: 0.0}
+      end: {station: 64.0}
+      grid_ft: 8.0
+      design_h_segments: [{length_ft: 64.0, H_ft: 8}]
+      top_of_wall: {start_station: 0.0, grid_ft: 8.0, elevs: [108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0]}
+      footing_bottom: {steps: [{station: 0.0, elev: 100.0}]}
+    - name: T1a
+      wall_type: 1a
+      front_side: Rt
+      beg: {station: 64.0}
+      end: {station: 128.0}
+      grid_ft: 8.0
+      design_h_segments: [{length_ft: 64.0, H_ft: 8}]
+      top_of_wall: {start_station: 64.0, grid_ft: 8.0, elevs: [108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0]}
+      footing_bottom: {steps: [{station: 64.0, elev: 100.0}]}
+    - name: T5
+      wall_type: 5
+      front_side: Lt
+      beg: {station: 128.0}
+      end: {station: 192.0}
+      grid_ft: 8.0
+      design_h_segments: [{length_ft: 64.0, H_ft: 8}]
+      top_of_wall: {start_station: 128.0, grid_ft: 8.0, elevs: [108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0, 108.0]}
+      footing_bottom: {steps: [{station: 128.0, elev: 100.0}]}
+    - name: T6a
+      wall_type: 6a
+      front_side: Rt
+      beg: {station: 192.0}
+      end: {station: 256.0}
+      grid_ft: 8.0
+      design_h_segments: [{length_ft: 64.0, H_ft: 6}]
+      top_of_wall: {start_station: 192.0, grid_ft: 8.0, elevs: [106.0, 106.0, 106.0, 106.0, 106.0, 106.0, 106.0, 106.0, 106.0]}
+      footing_bottom: {steps: [{station: 192.0, elev: 100.0}]}
+    - name: T6b
+      wall_type: 6b
+      front_side: Lt
+      beg: {station: 256.0}
+      end: {station: 320.0}
+      grid_ft: 8.0
+      design_h_segments: [{length_ft: 64.0, H_ft: 6}]
+      top_of_wall: {start_station: 256.0, grid_ft: 8.0, elevs: [106.0, 106.0, 106.0, 106.0, 106.0, 106.0, 106.0, 106.0, 106.0]}
+      footing_bottom: {steps: [{station: 256.0, elev: 100.0}]}
+paycodes: ./caltrans-b3-retaining-wall.paycodes.yaml
+outputs:
+  dxf: out/caltrans-b3-wall-types.dxf
+  ifc: out/caltrans-b3-wall-types.ifc
+  takeoff_map: out/caltrans-b3-wall-types-takeoff-map.yaml
+project:
+  name: "Caltrans B3 Retaining Wall Types (example)"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 100.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-0000000013b3"

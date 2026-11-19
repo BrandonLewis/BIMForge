@@ -1944,3 +1944,45 @@ def test_emit_ifc_declares_kilograms_and_radians(tmp_path):
     assert (kg.Prefix, kg.Name) == ("KILO", "GRAM")
     (rad,) = by_type["PLANEANGLEUNIT"]
     assert (rad.Prefix, rad.Name) == (None, "RADIAN")
+
+
+def _layered_wall(base, geometry=True):
+    ctx = ProjectContext(name="Layer Fixture", schema="IFC4X3_ADD2", epsg=2226,
+                         base_e=6_594_000.0, base_n=1_943_000.0, base_h=200.0,
+                         guid_ns=uuid.UUID(int=4243))
+    m = StructureModel("layered", ctx)
+    if geometry:
+        p = Prism("Stem", base, z_bot=0.0, z_top=8.0, ifc="IfcWall")
+        m.add(Element.from_geometry(p.name, p, ifc_class="IfcWall",
+                                    material="Concrete", type_name="Stem 1 ft",
+                                    layer_thickness_ft=1.0))
+    else:
+        m.add(Element("Stem", "IfcWall", material="Concrete",
+                      type_name="Stem 1 ft", layer_thickness_ft=1.0))
+    return m
+
+
+def test_a_layered_walls_axis_is_its_bases_length_whatever_the_winding(tmp_path):
+    """The Axis runs the base's whole x-extent, not its first edge's: a base
+    that starts across the thickness still gets the wall's length (#108)."""
+    import ifcopenshell
+    out = tmp_path / "layered.ifc"
+    m = _layered_wall([(0, 0), (0, 1), (10, 1), (10, 0)])
+    emit_ifc(m, str(out))
+    (wall,) = ifcopenshell.open(str(out)).by_type("IfcWall")
+    (axis,) = [r for r in wall.Representation.Representations
+               if r.RepresentationIdentifier == "Axis"]
+    p0, p1 = axis.Items[0].Points
+    assert p0.Coordinates == (0.0, 0.0)
+    assert abs(p1.Coordinates[0] - 10 * m.ctx.ft_to_m) < 1e-9
+
+
+@pytest.mark.parametrize("kw, message", [
+    ({"base": [(5, 2), (15, 2), (15, 3), (5, 3)]}, "its own frame"),
+    ({"base": [(0, 0), (10, 0), (10, 2), (0, 2)]}, "y from 0 to 1.0"),
+    ({"base": None, "geometry": False}, "needs a prism geometry"),
+])
+def test_a_layered_element_outside_the_wall_concept_is_refused(tmp_path, kw,
+                                                                message):
+    with pytest.raises(ValueError, match=message):
+        emit_ifc(_layered_wall(**kw), str(tmp_path / "x.ifc"))

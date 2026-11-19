@@ -6,7 +6,7 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## 0.1.128 — 2026-11-18
 
-The retaining wall typed from the dictionary (X.4, X.6, #105), every typed element's family class (M.1, #106), and a fix to `federate(merge_facilities=True)`, which re-keyed a folded facility on 0.1.127.
+The retaining wall typed from the dictionary (X.4, X.6, #105), every typed element's family class (M.1, #106), material layer sets on the constant-thickness B3 stems (X.6, #108), and a fix to `federate(merge_facilities=True)`, which re-keyed a folded facility on 0.1.127.
 
 **For anyone who federated on 0.1.127 with `merge_facilities`:** rebuild on 0.1.128. A facility and its parts whose GlobalIds moved get their 0.1.126 GlobalIds back.
 
@@ -37,6 +37,22 @@ The retaining wall typed from the dictionary (X.4, X.6, #105), every typed eleme
   No GlobalId moves: the types and sets are written after the sweep that
   numbers the file's other roots, each keyed (`Element.typed_late`,
   docs/globalid-contract.md), as the bar types are.
+
+- **The constant-thickness B3 stems carry a material layer set (X.6).**
+  Types 1A, 6A and 6B, both stem faces vertical, are written as IFC's "wall
+  with material layer set usage": the wall type has a one-layer
+  IfcMaterialLayerSet of its concrete at the stem thickness, each slice an
+  IfcMaterialLayerSetUsage of it (AXIS2) and an 'Axis' polyline, and the
+  slice is placed in its own frame along that axis (where it sits is
+  unchanged, to the vertex). The battered stems (Types 1 and 5) and every
+  footing keep a plain IfcMaterial: IFC writes a battered or L-shaped
+  retaining wall without a layer set, and has no tapered wall layer
+  (IfcMaterialLayerWithOffsets offsets a layer's edges, not its thickness;
+  the tapering usage is for beams and columns). IfcFooting has no layer
+  set concept, and a Type 1 footing's thickness changes with its design H.
+  `Element.layer_thickness_ft` asks for it. New example
+  `caltrans-b3-wall-types`: one wall of every type on a skewed tangent, so
+  conformance and buildingSMART's rules see every wall class.
 
 ### Changed
 

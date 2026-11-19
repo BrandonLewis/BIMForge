@@ -1278,6 +1278,95 @@ def _family_classes(f, ctx, classed: list) -> None:
             RelatedObjects=by_code[code], RelatingClassification=ref)
 
 
+def _layer_axis_length(el, t_ft: float) -> float:
+    """The axis length of a layered element (`Element.layer_thickness_ft`),
+    checked against the wall concept the field promises: a prism whose base,
+    in its own frame, runs from x = 0 to the length and from y = 0 to the
+    layer's thickness. Anything else is refused by name, before any of it
+    is written."""
+    base = getattr(el.geometry, "base", None)
+    if not base:
+        raise ValueError(f"{el.name}: layer_thickness_ft needs a prism "
+                         f"geometry with a base, got {type(el.geometry).__name__}")
+    xs, ys = [x for x, _y in base], [y for _x, y in base]
+    tol = 1e-6 * max(1.0, max(xs) - min(xs), t_ft)
+    if (abs(min(xs)) > tol or max(xs) <= tol or abs(min(ys)) > tol
+            or abs(max(ys) - t_ft) > tol):
+        raise ValueError(
+            f"{el.name}: layer_thickness_ft needs its base in its own frame, "
+            f"x from 0 along the axis and y from 0 to {t_ft} ft; its base spans "
+            f"x {min(xs):.4f}..{max(xs):.4f}, y {min(ys):.4f}..{max(ys):.4f}")
+    return max(xs)
+
+
+def _material_layers(run, f, ctx, mctx, layered: list) -> None:
+    """Write each Element.layer_thickness_ft (X.6) as the IFC wall concept
+    "IfcWall with IfcMaterialLayerSetUsage": one single-layer
+    IfcMaterialLayerSet per type, its layer the element's own IfcMaterial,
+    associated to the type; on each element an IfcMaterialLayerSetUsage of
+    it in place of the plain material (LayerSetDirection AXIS2, the layer
+    from the axis toward +y) and an 'Axis' polyline along its local +x.
+    After the sweep, every relationship keyed, so nothing renumbers: the
+    type's by its layer set's name, an element's by the element."""
+    if not layered:
+        return
+    import ifcopenshell.util.element as ue
+    k = ctx.ft_to_m
+    axis_ctx = next((c for c in f.by_type("IfcGeometricRepresentationSubContext")
+                     if c.ContextIdentifier == "Axis"), None) or run(
+        "context.add_context", f, context_type="Model",
+        context_identifier="Axis", target_view="MODEL_VIEW", parent=mctx)
+    sets: dict = {}            # type GlobalId -> (thickness ft, layer set)
+    for product, el in layered:
+        el_type = ue.get_type(product)
+        material = ue.get_material(product)
+        if el_type is None or material is None or not material.is_a("IfcMaterial"):
+            raise ValueError(f"{el.name}: layer_thickness_ft needs a type and "
+                             f"a plain material, got {el_type} / {material}")
+        t_ft = float(el.layer_thickness_ft)
+        length_ft = _layer_axis_length(el, t_ft)
+        if el_type.GlobalId not in sets:
+            layer = f.create_entity("IfcMaterialLayer", Material=material,
+                                    LayerThickness=t_ft * k, Name=material.Name)
+            lset = f.create_entity("IfcMaterialLayerSet", MaterialLayers=[layer],
+                                   LayerSetName=el_type.Name)
+            f.create_entity(
+                "IfcRelAssociatesMaterial",
+                GlobalId=ctx.guid("rel/IfcRelAssociatesMaterial/"
+                                  f"IfcMaterialLayerSet:{el_type.Name}"),
+                RelatedObjects=[el_type], RelatingMaterial=lset)
+            sets[el_type.GlobalId] = (t_ft, lset)
+        t0, lset = sets[el_type.GlobalId]
+        if abs(t0 - t_ft) > 1e-9:
+            raise ValueError(f"{el.name}: layer {t_ft} ft, but its type "
+                             f"{el_type.Name!r} is a {t0} ft layer")
+        for rel in list(product.HasAssociations or ()):
+            if rel.is_a("IfcRelAssociatesMaterial"):
+                rest = [o for o in rel.RelatedObjects if o != product]
+                if rest:
+                    rel.RelatedObjects = rest
+                else:
+                    f.remove(rel)
+        usage = f.create_entity(
+            "IfcMaterialLayerSetUsage", ForLayerSet=lset,
+            LayerSetDirection="AXIS2", DirectionSense="POSITIVE",
+            OffsetFromReferenceLine=0.0)
+        f.create_entity(
+            "IfcRelAssociatesMaterial",
+            GlobalId=ctx.guid("rel/IfcRelAssociatesMaterial/"
+                              f"IfcMaterialLayerSetUsage/{product.GlobalId}"),
+            RelatedObjects=[product], RelatingMaterial=usage)
+        length = length_ft * k
+        axis = f.create_entity("IfcPolyline", Points=[
+            f.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0)),
+            f.create_entity("IfcCartesianPoint", Coordinates=(length, 0.0))])
+        shape = product.Representation
+        shape.Representations = [f.create_entity(
+            "IfcShapeRepresentation", ContextOfItems=axis_ctx,
+            RepresentationIdentifier="Axis", RepresentationType="Curve2D",
+            Items=[axis])] + list(shape.Representations)
+
+
 def _declare_types(run, f, project) -> None:
     """Declare every IfcTypeObject to the IfcProject (IfcRelDeclares, the
     Project Declaration concept): a type nothing declares sits outside the
@@ -1965,6 +2054,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     sized_bars: list = []      # (product, el): typed after the sweep
     late: list = []            # (product, el, ifc_class, typing): Element.typed_late
     classed: list = []         # (product, family class code): Element.family_class
+    layered: list = []         # (product, el): Element.layer_thickness_ft
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
@@ -2040,6 +2130,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 and product.is_a("IfcReinforcingBar") else None)
             if family:
                 classed.append((product, family))
+            if el.layer_thickness_ft is not None:
+                layered.append((product, el))
             if (el.bar_size is not None and not el.type_name
                     and product.is_a("IfcReinforcingBar")):
                 sized_bars.append((product, el))
@@ -2325,6 +2417,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     _bar_types(run, f, ctx, sized_bars)
     _late_typing(run, f, ctx, type_cache, late)
     _family_classes(f, ctx, classed)
+    _material_layers(run, f, ctx, mctx, layered)
     _declare_types(run, f, project)
 
     # then pin every relationship's member order (see _pin_relationship_order:

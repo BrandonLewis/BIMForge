@@ -68,6 +68,9 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcMappedItem | build | both |
 | IfcMaterial | build | both |
 | IfcMaterialDefinitionRepresentation | build | both |
+| IfcMaterialLayer | build | both |
+| IfcMaterialLayerSet | build | both |
+| IfcMaterialLayerSetUsage | build | both |
 | IfcMeasureWithUnit | build | both |
 | IfcMechanicalFastener | build | both |
 | IfcMember | build | both |

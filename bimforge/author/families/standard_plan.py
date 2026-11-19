@@ -20,6 +20,8 @@ bid-side):
 """
 from __future__ import annotations
 
+import math
+
 from bimforge.author import family_dictionary as fd
 from bimforge.author.alignment import Alignment, WallSection, _resolve_pob, sta
 from bimforge.author.model import Element, StructureModel
@@ -76,6 +78,30 @@ def _cuts(w):
     return sorted(cuts)
 
 
+#: The wall types whose stem is one constant thickness, both faces vertical
+#: (B3-3A, B3-7A): an IfcWall with a material layer set (X.6). Types 1 and 5
+#: are battered, a section IFC writes with a plain material, not layers.
+CONSTANT_STEM = ("1a", "6a", "6b")
+
+
+def _own_frame(ring):
+    """A stem slice's plan [front a, front b, back b, back a] in its own
+    frame, with the placement that puts it back where it was: the origin
+    at whichever face's start leaves the other face on +y, the x-axis along
+    that face. The layer-set wall concept reads the layer off that axis."""
+    fa, fb, bb, ba = ring
+    ux, uy = fb[0] - fa[0], fb[1] - fa[1]
+    n = math.hypot(ux, uy)
+    ux, uy = ux / n, uy / n
+    if (ba[0] - fa[0]) * -uy + (ba[1] - fa[1]) * ux < 0.0:
+        fa, fb, bb, ba = ba, bb, fb, fa      # start on the back face instead
+    ox, oy = fa
+    local = [((x - ox) * ux + (y - oy) * uy, (x - ox) * -uy + (y - oy) * ux)
+             for x, y in (fa, fb, bb, ba)]
+    return local, {"x_ft": ox, "y_ft": oy,
+                   "bearing_deg": math.degrees(math.atan2(uy, ux))}
+
+
 def wall_class(wall_type) -> str:
     """The dictionary class of a B3 wall type's stem ("retaining-wall-b3-
     type-1"); its footing's is the same code with "-footing"."""
@@ -128,6 +154,10 @@ def build(params: dict, ctx) -> StructureModel:
                     align.station_offset(b, 0.0, front),
                     align.station_offset(b, th, back),
                     align.station_offset(a, th, back)]
+            layered = ws.wall_type in CONSTANT_STEM
+            place = {}
+            if layered:
+                stem, place = _own_frame(stem)
             p = Prism(f"{tag} retaining wall stem {sta(a)}", stem, ft_top, z_top,
                       dims_ft=(b - a, th), ifc="IfcWall")
             model.add(Element.from_geometry(
@@ -136,6 +166,7 @@ def build(params: dict, ctx) -> StructureModel:
                 type_name=fd.type_name(stem_cls),
                 psets=fd.reference_psets(stem_cls), family_class=stem_cls,
                 typed_late=True,
+                layer_thickness_ft=th if layered else None, **place,
                 quantities={"length_ft": b - a, "width_ft": th,
                             "height_ft": h, "volume_cf": p.volume_cf}))
 

@@ -51,34 +51,14 @@ ifcopenshell = pytest.importorskip("ifcopenshell")
 yaml = pytest.importorskip("yaml")
 
 EXAMPLES = ("concrete-barrier-842", "concrete-barrier-732sw", "bridge-standard",
-            "caltrans-b3-retaining-wall", "b3-every-wall-type")
-#: B3 wall types, with a design H each one's example table tabulates
-B3_TYPES = {"1": 8, "1a": 8, "5": 8, "6a": 6, "6b": 6}
-
-
-def _b3_every_wall_type(tmp) -> None:
-    """The B3 example with one wall of every supported type, so each wall
-    class is exercised (the shipped example builds only Type 1)."""
-    spec = yaml.safe_load((tmp / "caltrans-b3-retaining-wall.spec.yaml")
-                          .read_text("utf-8"))
-    (base,) = spec["params"]["walls"]
-    spec["params"]["walls"] = [
-        {**base, "name": f"T{wt}", "wall_type": wt,
-         "design_h_segments": [{"length_ft": 64.0, "H_ft": h}],
-         "top_of_wall": {**base["top_of_wall"],
-                         "elevs": [100.0 + h] * len(base["top_of_wall"]["elevs"])}}
-        for wt, h in B3_TYPES.items()]
-    spec["outputs"] = {k: v.replace("caltrans-b3", "b3-every-wall-type")
-                       for k, v in spec["outputs"].items()}
-    (tmp / "b3-every-wall-type.spec.yaml").write_text(
-        yaml.safe_dump(spec, sort_keys=False), "utf-8")
+            "caltrans-b3-retaining-wall", "caltrans-b3-wall-types")
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory) -> list:
     """The shipped examples, built: the 732SW run carries a B11-51 handrail,
-    the bridge is stationed on its alignment, and the B3 walls are built
-    once in every wall type."""
+    the bridge is stationed on its alignment, and the B3 wall types example
+    builds one wall of every wall type."""
     import ifcopenshell.util.element  # noqa: F401
     from bimforge.author.families.registry import build_from_spec
     tmp = tmp_path_factory.mktemp("dictionary")
@@ -86,7 +66,6 @@ def built(tmp_path_factory) -> list:
     for entry in examples.iterdir():
         if entry.name.endswith(".yaml"):
             (tmp / entry.name).write_text(entry.read_text("utf-8"), "utf-8")
-    _b3_every_wall_type(tmp)
     models = []
     for name in EXAMPLES:
         spec = tmp / f"{name}.spec.yaml"
@@ -179,3 +158,38 @@ def test_every_typed_element_references_its_class(dictionary, built):
         for system in systems:
             assert system.Source == "bimforge" and system.Edition
     assert checked
+
+
+def test_constant_stems_are_layered_and_the_rest_plain(built):
+    """X.6: a B3 stem of constant thickness (Types 1A, 6A, 6B) is an IfcWall
+    with a material layer set usage, its type the one-layer set, the layer
+    its stem thickness, located by an 'Axis'; a battered stem (Types 1, 5)
+    and every footing keep a plain material (IFC's IfcWall: an L-shaped or
+    battered retaining wall carries no layer set usage)."""
+    from bimforge.author.families.standard_plan import CONSTANT_STEM
+    ue = ifcopenshell.util.element
+    model = built[EXAMPLES.index("caltrans-b3-wall-types")]
+    k = 0.3048
+    layered = set()
+    for el in model.by_type("IfcWall") + model.by_type("IfcFooting"):
+        mat = ue.get_material(el)
+        wall_type = el.Name.split()[0][1:].lower()           # "T1a ..." -> "1a"
+        if el.is_a("IfcWall") and wall_type in CONSTANT_STEM:
+            assert mat.is_a("IfcMaterialLayerSetUsage"), el.Name
+            assert mat.LayerSetDirection == "AXIS2"
+            assert ue.get_material(ue.get_type(el)) == mat.ForLayerSet
+            (layer,) = mat.ForLayerSet.MaterialLayers
+            assert layer.Material.Name == "Concrete"
+            width = ue.get_pset(el, "Qto_BaseQuantities")["Width"]
+            assert abs(layer.LayerThickness - width) < 1e-9
+            reps = {r.RepresentationIdentifier: r
+                    for r in el.Representation.Representations}
+            assert reps["Axis"].RepresentationType == "Curve2D"
+            length = ue.get_pset(el, "Qto_BaseQuantities")["Length"]
+            (p0, p1) = reps["Axis"].Items[0].Points
+            assert p0.Coordinates == (0.0, 0.0)
+            assert abs(p1.Coordinates[0] - length) < 1e-6 * max(1.0, length / k)
+            layered.add(wall_type)
+        else:
+            assert mat.is_a("IfcMaterial") and mat.Name == "Concrete", el.Name
+    assert layered == set(CONSTANT_STEM)

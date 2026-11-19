@@ -723,6 +723,30 @@
    "build"
   ]
  },
+ "entity|IfcMaterialLayer": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMaterialLayerSet": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMaterialLayerSetUsage": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "entity|IfcMeasureWithUnit": {
   "IFC4": [
    "build"

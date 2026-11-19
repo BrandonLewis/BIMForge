@@ -101,6 +101,14 @@ class Element:
     #: families"), never read as a pay code. A sized bar (`bar_size`) is a
     #: "reinforcing-bar" without saying so. None = no class.
     family_class: str | None = None
+    #: The thickness of the one constant-thickness layer of `material` this
+    #: element is (roadmap X.6), written as an IfcMaterialLayerSet on its
+    #: type and an IfcMaterialLayerSetUsage on it, with an 'Axis'. The IFC
+    #: wall concept: its geometry is a Prism authored in its own frame, the
+    #: axis along +x from the origin, the layer from y = 0 to the thickness.
+    #: Needs `type_name`; every element of one type has the same thickness.
+    #: None = a plain material (a battered or non-rectangular section).
+    layer_thickness_ft: float | None = None
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
