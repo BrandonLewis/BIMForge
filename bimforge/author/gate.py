@@ -29,6 +29,8 @@ Post-emit: reopen what was written and verify — IFC mesh volumes vs analytic
 meshes and must not be used — pipe-supports-pilot lesson), IFC spatial-decomposition
 reachability (Project -> Site -> Building -> Storey; the ONLY check that
 looks at the file the way a third-party importer does — issue #132),
+quantity formulas (every Formula recomputed over its own quantity set
+within FORMULA_TOLERANCE, roadmap M.3),
 takeoff-map <-> classification coverage (multi-code aware), DXF entity
 sanity, and solid bodies (each element's rendered mesh is one closed
 manifold body unless it declares `body="solids"` or `"surface"`; a warning
@@ -550,6 +552,59 @@ def _ifc_representation_type_check(model, ifc_path: str) -> list[str]:
     return fail
 
 
+#: How far a quantity may stray from its Formula recomputed over the
+#: quantity set it is in (relative): the formula and the values are written
+#: from one computation, so only float rounding separates them.
+FORMULA_TOLERANCE = 1e-6
+
+
+def formula_value(formula: str, values: dict) -> float:
+    """A quantity Formula evaluated over its set's {name: value}. Only the
+    product of names is read (`Length * Width * Height`); anything else, or
+    a name not in the set, raises ValueError."""
+    out = 1.0
+    for term in formula.split("*"):
+        name = term.strip()
+        if not name.isidentifier():
+            raise ValueError(f"formula {formula!r}: {term.strip()!r} is not "
+                             f"a quantity name")
+        if name not in values:
+            raise ValueError(f"formula {formula!r}: no quantity {name!r} in "
+                             f"the set")
+        out *= values[name]
+    return out
+
+
+def _ifc_formula_check(model, ifc_path: str,
+                       tol: float = FORMULA_TOLERANCE) -> list[str]:
+    """Every quantity written with a Formula (roadmap M.3) is that formula
+    over the quantities of its own set, as the file states them: a reader
+    that recomputes gets the number in the file."""
+    import ifcopenshell
+    f = ifcopenshell.open(str(ifc_path))
+    fail = []
+    for qset in f.by_type("IfcElementQuantity"):
+        # attribute 3 is every simple quantity's value (LengthValue, ...)
+        values = {q.Name: q[3] for q in qset.Quantities
+                  if q.is_a("IfcPhysicalSimpleQuantity")}
+        for q in qset.Quantities:
+            formula = getattr(q, "Formula", None)
+            if not formula:
+                continue
+            owners = ", ".join(o.Name for r in qset.DefinesOccurrence
+                               for o in r.RelatedObjects) or f"#{qset.id()}"
+            try:
+                got = formula_value(formula, values)
+            except ValueError as exc:
+                fail.append(f"{owners}: {q.Name} {exc}")
+                continue
+            want = q[3]
+            if abs(got - want) > tol * max(abs(want), 1e-12):
+                fail.append(f"{owners}: {q.Name} {want:.9g} is not its "
+                            f"formula {formula} = {got:.9g} (tol {tol:g})")
+    return fail
+
+
 def _ifc_spatial_chain_check(model, ifc_path: str) -> list[str]:
     """Every storey must be reachable from IfcProject through IfcRelAggregates.
 
@@ -854,6 +909,7 @@ def run_post(model, outputs: dict, paycodes=None,
         _run_contained(rep, _ifc_spatial_chain_check, model, outputs["ifc"])
         _run_contained(rep, _ifc_representation_type_check, model,
                        outputs["ifc"])
+        _run_contained(rep, _ifc_formula_check, model, outputs["ifc"])
         _run_contained(rep, _ifc_exact_sweep_check, model, outputs["ifc"],
                        mesh_tol)
         _run_contained(rep, _ifc_exact_revolution_check, model,

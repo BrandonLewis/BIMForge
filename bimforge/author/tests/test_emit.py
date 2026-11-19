@@ -1986,3 +1986,95 @@ def test_a_layered_element_outside_the_wall_concept_is_refused(tmp_path, kw,
                                                                 message):
     with pytest.raises(ValueError, match=message):
         emit_ifc(_layered_wall(**kw), str(tmp_path / "x.ifc"))
+
+
+def _formula_model(**els):
+    ctx = ProjectContext(name="formula", epsg=2226, base_e=6_594_000.0,
+                         base_n=1_943_000.0, guid_ns=uuid.UUID(int=31))
+    m = StructureModel("formula", ctx)
+    for name, (geom, grade, extra) in els.items():
+        m.add(Element.from_geometry(name, geom, ifc_class="IfcFooting",
+                                    volume_formula=grade,
+                                    quantities=extra))
+    return m
+
+
+def test_volume_formulas_are_written_and_recompute(tmp_path):
+    """M.3: GrossVolume carries the Formula its element declares, over names
+    in its own quantity set, and the post-emit gate recomputes it from the
+    file. A box is L x W x H; a section is CrossSectionArea x Length, with
+    the section area written beside it; a solid and an undeclared element
+    carry none."""
+    import ifcopenshell
+    from bimforge.author.gate import _ifc_formula_check
+    from bimforge.author.primitives import SectionPrism
+    box = Prism("box", [(0, 0), (12, 0), (12, 3), (0, 3)], 0.0, 2.0)
+    beam = SectionPrism("beam", [(-0.5, 0.0), (0.5, 0.0), (0.5, 1.5),
+                                 (-0.5, 1.5)], 36.0)
+    m = _formula_model(
+        box=(box, "box", {"length_ft": 12.0, "width_ft": 3.0}),
+        beam=(beam, "section", {"length_ft": 36.0, "width_ft": 1.0,
+                                "section_sf": 1.5}),
+        solid=(Prism("solid", [(0, 0), (4, 0), (4, 4)], 0.0, 1.0), "solid", {}),
+        plain=(Prism("plain", [(0, 0), (4, 0), (4, 4)], 0.0, 1.0), None, {}))
+    out = tmp_path / "formula.ifc"
+    emit_ifc(m, str(out))
+    f = ifcopenshell.open(str(out))
+    got = {}
+    for el in f.by_type("IfcFooting"):
+        for rel in el.IsDefinedBy:
+            qset = rel.RelatingPropertyDefinition
+            if qset.is_a("IfcElementQuantity"):
+                got[el.Name] = {q.Name: q for q in qset.Quantities}
+    assert got["box"]["GrossVolume"].Formula == "Length * Width * Height"
+    assert got["beam"]["GrossVolume"].Formula == "CrossSectionArea * Length"
+    assert got["beam"]["CrossSectionArea"].AreaValue == pytest.approx(
+        1.5 * m.ctx.ft_to_m ** 2)
+    assert got["solid"]["GrossVolume"].Formula is None
+    assert got["plain"]["GrossVolume"].Formula is None
+    assert "CrossSectionArea" not in got["box"]
+    assert _ifc_formula_check(m, str(out)) == []
+    assert run_post(m, {"ifc": str(out)}).passed
+
+
+def test_formula_gate_catches_a_quantity_that_does_not_recompute(tmp_path):
+    """A Formula the set does not reproduce, or one over a name the set does
+    not have, fails the gate and deletes the file."""
+    import ifcopenshell
+    from bimforge.author.gate import _ifc_formula_check
+    box = Prism("box", [(0, 0), (12, 0), (12, 3), (0, 3)], 0.0, 2.0)
+    m = _formula_model(box=(box, "box", {"length_ft": 12.0, "width_ft": 3.0}))
+    out = tmp_path / "formula.ifc"
+    emit_ifc(m, str(out))
+    f = ifcopenshell.open(str(out))
+    vol = next(q for q in f.by_type("IfcQuantityVolume")
+               if q.Name == "GrossVolume")
+    vol.VolumeValue *= 1.001
+    bad = tmp_path / "bad.ifc"
+    f.write(str(bad))
+    fails = _ifc_formula_check(m, str(bad))
+    assert len(fails) == 1 and "box: GrossVolume" in fails[0]
+    vol.VolumeValue /= 1.001
+    vol.Formula = "Length * Depth"
+    f.write(str(bad))
+    assert "no quantity 'Depth'" in _ifc_formula_check(m, str(bad))[0]
+    vol.Formula = "Length + Width"
+    f.write(str(bad))
+    assert "not a quantity name" in _ifc_formula_check(m, str(bad))[0]
+    rep = run_post(m, {"ifc": str(bad)})
+    assert not rep.passed and not bad.exists()
+
+
+@pytest.mark.parametrize("grade, quantities, why", [
+    ("cube", {"length_ft": 1.0}, "not one of"),
+    ("box", {"count": 3, "length_ft": 12.0, "width_ft": 3.0}, "count is 3"),
+    ("section", {"length_ft": 12.0}, "needs section_sf"),
+])
+def test_volume_formula_refuses_what_the_quantities_cannot_carry(
+        grade, quantities, why):
+    from bimforge.author.emit_ifc import volume_formula
+    box = Prism("box", [(0, 0), (12, 0), (12, 3), (0, 3)], 0.0, 2.0)
+    el = Element.from_geometry("box", box, volume_formula=grade,
+                               quantities=quantities)
+    with pytest.raises(ValueError, match=why):
+        volume_formula(el)

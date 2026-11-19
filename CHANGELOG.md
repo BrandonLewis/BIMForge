@@ -17,6 +17,18 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   one or carrying an undeclared one (`Element.dimensions`,
   `family_dictionary.dimensions`). Written after the GlobalId sweep, keyed,
   so no GlobalId moves.
+- **A quantity says how it was derived (M.3).** A family declares how an
+  element's volume was found (`Element.volume_formula`), and its
+  `GrossVolume` is written with that `Formula` over names in the same
+  quantity set: `box` is `Length * Width * Height`, `section` is
+  `CrossSectionArea * Length` (the section area is then written as
+  `CrossSectionArea`), and `solid` writes none. Every B3 stem and footing
+  slice is a box. A new post-build check recomputes every formula from the
+  written file and fails the build, deleting the outputs, when one is more
+  than 1e-6 (relative) off its quantity or names a quantity the set does
+  not have (`gate.FORMULA_TOLERANCE`, `gate.formula_value`). Elements of the
+  other families carry no formula until their family declares one. No
+  GlobalId moves.
 
 ## 0.1.128 — 2026-11-18
 

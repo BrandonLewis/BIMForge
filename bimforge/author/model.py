@@ -18,7 +18,8 @@ from typing import Any
 
 #: Quantity keys an Element may carry (feet/pounds domain; emit_ifc converts).
 QUANTITY_KEYS = ("count", "length_ft", "width_ft", "height_ft", "area_sf",
-                 "perimeter_ft", "volume_cf", "surface_sf", "weight_lb")
+                 "perimeter_ft", "volume_cf", "surface_sf", "weight_lb",
+                 "section_sf")
 
 #: geometry attribute -> element quantity key, for from_geometry delegation.
 _GEOM_QTY_ATTRS = {
@@ -114,6 +115,13 @@ class Element:
     #: ones its `family_class` declares, written as BIMForge_Dimensions with
     #: the measure the dictionary gives each ({"DesignHeight": 8.0}).
     dimensions: dict = field(default_factory=dict)
+    #: How the element's GrossVolume was derived (roadmap M.3), written as
+    #: its `Formula` over names in the same quantity set: "box" (Length *
+    #: Width * Height, a prism the family sized), "section" (CrossSectionArea
+    #: * Length, swept along a line; needs `section_sf` and `length_ft` in
+    #: `quantities`) or "solid" (no formula: the volume of the solid itself).
+    #: None = the family has not said, and no formula is written.
+    volume_formula: str | None = None
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
