@@ -1,4 +1,20 @@
 {
+ "applies|pset|BIMForge_Dimensions|IfcFooting": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_Dimensions|IfcWall": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "applies|pset|BIMForge_LinearReference|IfcBeam": {
   "IFC4X3": [
    "build"
@@ -1353,6 +1369,62 @@
    "estimate-model",
    "schedule + cost5d",
    "schedule --returned"
+  ]
+ },
+ "pset|BIMForge_Dimensions": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|Batter": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|DesignHeight": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|HeelWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|StemBaseThickness": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|StemThickness": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|ToeWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
   ]
  },
  "pset|BIMForge_LinearReference": {

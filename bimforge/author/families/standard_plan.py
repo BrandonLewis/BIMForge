@@ -102,6 +102,16 @@ def _own_frame(ring):
                    "bearing_deg": math.degrees(math.atan2(uy, ux))}
 
 
+def _dimensions(cls, ws) -> dict:
+    """The dimensions `cls` declares (M.2), from the slice's section: design
+    H, the stem's thickness at top and base and its batter, the footing's
+    toe and heel (its width and thickness are quantities)."""
+    have = {"DesignHeight": ws.H, "StemThickness": ws.T,
+            "StemBaseThickness": ws.stem_base_thickness, "Batter": ws.batter,
+            "ToeWidth": ws.C, "HeelWidth": ws.B}
+    return {code: have[code] for code in fd.dimensions(cls)}
+
+
 def wall_class(wall_type) -> str:
     """The dictionary class of a B3 wall type's stem ("retaining-wall-b3-
     type-1"); its footing's is the same code with "-footing"."""
@@ -146,6 +156,7 @@ def build(params: dict, ctx) -> StructureModel:
                 type_name=fd.type_name(foot_cls),
                 psets=fd.reference_psets(foot_cls), family_class=foot_cls,
                 typed_late=True,
+                dimensions=_dimensions(foot_cls, ws),
                 quantities={"length_ft": b - a, "width_ft": ws.W,
                             "height_ft": ws.F, "volume_cf": p.volume_cf}))
             # stem at MID-HEIGHT thickness: the prism volume IS the trapezoid's
@@ -166,6 +177,7 @@ def build(params: dict, ctx) -> StructureModel:
                 type_name=fd.type_name(stem_cls),
                 psets=fd.reference_psets(stem_cls), family_class=stem_cls,
                 typed_late=True,
+                dimensions=_dimensions(stem_cls, ws),
                 layer_thickness_ft=th if layered else None, **place,
                 quantities={"length_ft": b - a, "width_ft": th,
                             "height_ft": h, "volume_cf": p.volume_cf}))

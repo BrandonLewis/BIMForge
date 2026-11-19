@@ -4,6 +4,20 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **The B3 wall's sizing dimensions are written on each slice (M.2).** A
+  property set `BIMForge_Dimensions` whose properties and measures come from
+  the family dictionary, so "design height" is one property on every job:
+  every slice has `DesignHeight`; a stem has `StemThickness` (and, battered,
+  `StemBaseThickness` and `Batter`, a ratio); a footing has `ToeWidth` and
+  `HeelWidth`. Lengths are IfcLengthMeasure in the project unit. What is a
+  quantity (length, width, height, volume) stays in the quantity set. A
+  class declares its dimensions and the build fails on an element missing
+  one or carrying an undeclared one (`Element.dimensions`,
+  `family_dictionary.dimensions`). Written after the GlobalId sweep, keyed,
+  so no GlobalId moves.
+
 ## 0.1.128 — 2026-11-18
 
 The retaining wall typed from the dictionary (X.4, X.6, #105), every typed element's family class (M.1, #106), material layer sets on the constant-thickness B3 stems (X.6, #108), and a fix to `federate(merge_facilities=True)`, which re-keyed a folded facility on 0.1.127.

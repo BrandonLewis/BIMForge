@@ -1367,6 +1367,34 @@ def _material_layers(run, f, ctx, mctx, layered: list) -> None:
             Items=[axis])] + list(shape.Representations)
 
 
+def _dimensions(run, f, ctx, dimensioned: list) -> None:
+    """Write each element's Element.dimensions (M.2) as BIMForge_Dimensions,
+    each property the measure the family dictionary gives it, a length
+    scaled from feet. An element carries exactly what its class declares:
+    a class that declares a dimension the family did not size, or a
+    dimension no class declares, fails the build. After the sweep, the set
+    keyed by its owner and name, its IfcRelDefinesByProperties by the set."""
+    from bimforge.author import family_dictionary as fd
+    for product, el in dimensioned:
+        declared = fd.dimensions(el.family_class) if el.family_class else []
+        if set(el.dimensions) != set(declared):
+            raise ValueError(
+                f"{el.name}: dimensions {sorted(el.dimensions)}, but its class "
+                f"{el.family_class!r} declares {sorted(declared)}")
+        if not declared:
+            continue
+        props = {}
+        for code in declared:
+            ifc_type, scales = fd.measure(code)
+            value = float(el.dimensions[code]) * (ctx.ft_to_m if scales else 1.0)
+            props[code] = f.create_entity(ifc_type, round(value, 9))
+        pset = run("pset.add_pset", f, product=product, name=fd.DIMENSIONS)
+        run("pset.edit_pset", f, pset=pset, properties=props)
+        pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{fd.DIMENSIONS}")
+        for rel in pset.DefinesOccurrence or ():
+            rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByProperties/{pset.GlobalId}")
+
+
 def _declare_types(run, f, project) -> None:
     """Declare every IfcTypeObject to the IfcProject (IfcRelDeclares, the
     Project Declaration concept): a type nothing declares sits outside the
@@ -2055,6 +2083,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     late: list = []            # (product, el, ifc_class, typing): Element.typed_late
     classed: list = []         # (product, family class code): Element.family_class
     layered: list = []         # (product, el): Element.layer_thickness_ft
+    dimensioned: list = []     # (product, el): a family_class or dimensions
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
@@ -2132,6 +2161,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 classed.append((product, family))
             if el.layer_thickness_ft is not None:
                 layered.append((product, el))
+            if el.family_class or el.dimensions:
+                dimensioned.append((product, el))
             if (el.bar_size is not None and not el.type_name
                     and product.is_a("IfcReinforcingBar")):
                 sized_bars.append((product, el))
@@ -2418,6 +2449,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     _late_typing(run, f, ctx, type_cache, late)
     _family_classes(f, ctx, classed)
     _material_layers(run, f, ctx, mctx, layered)
+    _dimensions(run, f, ctx, dimensioned)
     _declare_types(run, f, project)
 
     # then pin every relationship's member order (see _pin_relationship_order:

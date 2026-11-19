@@ -19,6 +19,7 @@ Every stable id is `uuid5(namespace, key)`, compressed to the IFC form.
 | `est-bim build` | a late-typed element's (`Element.typed_late`: the B3 retaining wall) IfcRelDefinesByType, property sets and their IfcRelDefinesByProperties | `project.guid_ns` | `rel/IfcRelDefinesByType/<type id>`, `pset/<element id>/<pset name>`, `rel/IfcRelDefinesByProperties/<pset id>` |
 | `est-bim build` | a family class's (M.1) IfcRelAssociatesClassification | `project.guid_ns` | `rel/IfcRelAssociatesClassification/` + the reference's `stable_ids` name (its system and class code) |
 | `est-bim build` | a layered element's (`Element.layer_thickness_ft`, X.6) IfcRelAssociatesMaterial: its type's layer set, its own layer set usage | `project.guid_ns` | `rel/IfcRelAssociatesMaterial/IfcMaterialLayerSet:<type name>`, `rel/IfcRelAssociatesMaterial/IfcMaterialLayerSetUsage/<element id>` |
+| `est-bim build` | an element's `BIMForge_Dimensions` (M.2) and its IfcRelDefinesByProperties | `project.guid_ns` | `pset/<element id>/BIMForge_Dimensions`, `rel/IfcRelDefinesByProperties/<pset id>` |
 | `est-bim build` | the types' IfcRelDeclares | the file's IfcProject GlobalId | `rel/IfcRelDeclares/<project id>`, the key the embedders give it |
 | `author.federate` | aggregates, storeys | derived from the source ids | |
 | `est-bim schedule` | IfcWorkSchedule | the file's IfcProject GlobalId | `work-schedule/<name>` |

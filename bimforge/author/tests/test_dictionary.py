@@ -102,7 +102,7 @@ def test_every_emitted_type_is_a_dictionary_class(dictionary, built):
                 el_type.Name, names)
             for cp in cls.get("ClassProperties", []):
                 pset = ue.get_pset(el, cp["PropertySet"]) or {}
-                if cp["Code"] in pset:
+                if cp["Code"] in pset and "PredefinedValue" in cp:
                     assert pset[cp["Code"]] == cp["PredefinedValue"]
     # every class but the optional D90 guardrail is exercised by the examples
     assert seen == {c["Code"] for c in dictionary["Classes"]} - {"pipe-guardrail-d90"}
@@ -112,7 +112,8 @@ def test_every_standard_plan_reference_is_declared(dictionary, built):
     ue = ifcopenshell.util.element
     declared = {(cp["PropertySet"], cp["PredefinedValue"])
                 for c in dictionary["Classes"]
-                for cp in c.get("ClassProperties", [])}
+                for cp in c.get("ClassProperties", [])
+                if "PredefinedValue" in cp}
     emitted = set()
     for model in built:
         for el in model.by_type("IfcElement"):
@@ -193,3 +194,67 @@ def test_constant_stems_are_layered_and_the_rest_plain(built):
         else:
             assert mat.is_a("IfcMaterial") and mat.Name == "Concrete", el.Name
     assert layered == set(CONSTANT_STEM)
+
+
+def test_every_class_dimension_is_written(dictionary, built):
+    """M.2: an element of a class carries BIMForge_Dimensions with exactly
+    the dimensions the class declares, each the measure the dictionary
+    gives it; a class that declares none writes no set."""
+    from bimforge.author import family_dictionary as fd
+    from bimforge.bim.ifc_takeoff import family_class_of
+    measures = {"IfcLengthMeasure": float, "IfcRatioMeasure": float}
+    seen = set()
+    for model in built:
+        for el in model.by_type("IfcElement"):
+            cls = family_class_of(el)
+            declared = fd.dimensions(cls["code"]) if cls else []
+            pset = ue_pset(el, fd.DIMENSIONS)
+            if not declared:
+                assert pset is None, el.Name
+                continue
+            assert sorted(pset) == sorted(declared), el.Name
+            for code in declared:
+                prop = pset[code]
+                assert prop.NominalValue.is_a() == fd.measure(code)[0]
+                assert isinstance(prop.NominalValue.wrappedValue,
+                                  measures[prop.NominalValue.is_a()])
+            seen |= set(declared)
+    assert seen == {p["Code"] for p in dictionary["Properties"]
+                    if fd.DIMENSIONS in p.get("Description", "")}
+
+
+def ue_pset(el, name):
+    """{property name: IfcPropertySingleValue} of `el`'s set `name`."""
+    for rel in el.IsDefinedBy or ():
+        pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is not None and pset.is_a("IfcPropertySet") and pset.Name == name:
+            return {p.Name: p for p in pset.HasProperties}
+    return None
+
+
+def test_b3_dimensions_are_the_sections(built):
+    """The B3 values are the slice's section, lengths in metres: design H
+    as specified (8 ft or 6 ft in the wall types example), the batter a
+    plain ratio."""
+    from bimforge.author import family_dictionary as fd
+    from bimforge.author.alignment import parse_batter
+    import yaml as _yaml
+    tables = _yaml.safe_load(
+        (files("bimforge.author") / "examples" / "caltrans-b3-tables.example.yaml")
+        .read_text("utf-8"))
+    model = built[EXAMPLES.index("caltrans-b3-wall-types")]
+    k = 0.3048 * 1200 / 3937 / 0.3048            # us-survey-ft -> m
+    heights = {"T1": 8, "T1a": 8, "T5": 8, "T6a": 6, "T6b": 6}
+    for el in model.by_type("IfcWall") + model.by_type("IfcFooting"):
+        dims = {n: p.NominalValue.wrappedValue
+                for n, p in ue_pset(el, fd.DIMENSIONS).items()}
+        tag = el.Name.split()[0]
+        assert abs(dims["DesignHeight"] - heights[tag] * k) < 1e-9, el.Name
+        if tag == "T6a" and el.is_a("IfcWall"):
+            assert abs(dims["StemThickness"]
+                       - tables["type_6a_case_1"]["stem_thickness_ft"] * k) < 1e-9
+        if tag == "T5" and el.is_a("IfcWall"):
+            row = tables["type_5_case_1"]["table"]
+            assert dims["Batter"] > 0 and dims["StemBaseThickness"] > dims["StemThickness"]
+            assert any(abs(dims["Batter"] - parse_batter(r["batter"])) < 1e-9
+                       for r in (row.values() if isinstance(row, dict) else row))
