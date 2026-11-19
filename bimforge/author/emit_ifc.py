@@ -1278,6 +1278,27 @@ def _family_classes(f, ctx, classed: list) -> None:
             RelatedObjects=by_code[code], RelatingClassification=ref)
 
 
+def _layer_axis_length(el, t_ft: float) -> float:
+    """The axis length of a layered element (`Element.layer_thickness_ft`),
+    checked against the wall concept the field promises: a prism whose base,
+    in its own frame, runs from x = 0 to the length and from y = 0 to the
+    layer's thickness. Anything else is refused by name, before any of it
+    is written."""
+    base = getattr(el.geometry, "base", None)
+    if not base:
+        raise ValueError(f"{el.name}: layer_thickness_ft needs a prism "
+                         f"geometry with a base, got {type(el.geometry).__name__}")
+    xs, ys = [x for x, _y in base], [y for _x, y in base]
+    tol = 1e-6 * max(1.0, max(xs) - min(xs), t_ft)
+    if (abs(min(xs)) > tol or max(xs) <= tol or abs(min(ys)) > tol
+            or abs(max(ys) - t_ft) > tol):
+        raise ValueError(
+            f"{el.name}: layer_thickness_ft needs its base in its own frame, "
+            f"x from 0 along the axis and y from 0 to {t_ft} ft; its base spans "
+            f"x {min(xs):.4f}..{max(xs):.4f}, y {min(ys):.4f}..{max(ys):.4f}")
+    return max(xs)
+
+
 def _material_layers(run, f, ctx, mctx, layered: list) -> None:
     """Write each Element.layer_thickness_ft (X.6) as the IFC wall concept
     "IfcWall with IfcMaterialLayerSetUsage": one single-layer
@@ -1303,6 +1324,7 @@ def _material_layers(run, f, ctx, mctx, layered: list) -> None:
             raise ValueError(f"{el.name}: layer_thickness_ft needs a type and "
                              f"a plain material, got {el_type} / {material}")
         t_ft = float(el.layer_thickness_ft)
+        length_ft = _layer_axis_length(el, t_ft)
         if el_type.GlobalId not in sets:
             layer = f.create_entity("IfcMaterialLayer", Material=material,
                                     LayerThickness=t_ft * k, Name=material.Name)
@@ -1334,7 +1356,7 @@ def _material_layers(run, f, ctx, mctx, layered: list) -> None:
             GlobalId=ctx.guid("rel/IfcRelAssociatesMaterial/"
                               f"IfcMaterialLayerSetUsage/{product.GlobalId}"),
             RelatedObjects=[product], RelatingMaterial=usage)
-        length = max(x for x, _y in el.geometry.base[:2]) * k
+        length = length_ft * k
         axis = f.create_entity("IfcPolyline", Points=[
             f.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0)),
             f.create_entity("IfcCartesianPoint", Coordinates=(length, 0.0))])
