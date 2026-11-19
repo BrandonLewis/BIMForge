@@ -109,6 +109,11 @@ class Element:
     #: Needs `type_name`; every element of one type has the same thickness.
     #: None = a plain material (a battered or non-rectangular section).
     layer_thickness_ft: float | None = None
+    #: The dimensions that size the element and are not quantities (roadmap
+    #: M.2), {dictionary property Code: value}, lengths in feet: exactly the
+    #: ones its `family_class` declares, written as BIMForge_Dimensions with
+    #: the measure the dictionary gives each ({"DesignHeight": 8.0}).
+    dimensions: dict = field(default_factory=dict)
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.

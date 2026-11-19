@@ -239,6 +239,34 @@
           "PredefinedValue": "B3-1A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemBaseThickness",
+          "PropertyCode": "StemBaseThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "Batter",
+          "PropertyCode": "Batter",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ]
     },
@@ -261,6 +289,27 @@
           "PredefinedValue": "B3-1A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ],
       "ClassRelations": [
@@ -289,6 +338,20 @@
           "PredefinedValue": "B3-3A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ]
     },
@@ -311,6 +374,27 @@
           "PredefinedValue": "B3-3A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ],
       "ClassRelations": [
@@ -339,6 +423,34 @@
           "PredefinedValue": "B3-4A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemBaseThickness",
+          "PropertyCode": "StemBaseThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "Batter",
+          "PropertyCode": "Batter",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ]
     },
@@ -361,6 +473,27 @@
           "PredefinedValue": "B3-4A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ],
       "ClassRelations": [
@@ -389,6 +522,20 @@
           "PredefinedValue": "B3-7A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ]
     },
@@ -411,6 +558,27 @@
           "PredefinedValue": "B3-7A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ],
       "ClassRelations": [
@@ -439,6 +607,20 @@
           "PredefinedValue": "B3-7A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ]
     },
@@ -461,6 +643,27 @@
           "PredefinedValue": "B3-7A",
           "IsRequired": true,
           "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
         }
       ],
       "ClassRelations": [
@@ -575,6 +778,75 @@
       "DataType": "String",
       "Definition": "AnchorOffsetLeft as text, in StationUnit.",
       "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    },
+    {
+      "Code": "DesignHeight",
+      "Name": "DesignHeight",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Design H: the height a standard plan's table is entered with, top of footing to top of wall.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "StemThickness",
+      "Name": "StemThickness",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Stem thickness at the top of the wall (T); a constant stem's thickness throughout.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "StemBaseThickness",
+      "Name": "StemBaseThickness",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Stem thickness at the top of the footing: T plus the batter times the design height.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "Batter",
+      "Name": "Batter",
+      "DataType": "Real",
+      "Dimension": "0 0 0 0 0 0 0",
+      "PhysicalQuantity": "ratio",
+      "Definition": "Batter of the stem's sloped face, horizontal per unit of height.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities."
+    },
+    {
+      "Code": "ToeWidth",
+      "Name": "ToeWidth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Toe (C): from the footing's toe edge to the stem's front face.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "HeelWidth",
+      "Name": "HeelWidth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Heel (B): from the stem's front face to the footing's heel edge.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
     }
   ]
 }

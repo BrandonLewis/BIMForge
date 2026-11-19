@@ -80,3 +80,27 @@ def reference_psets(code: str) -> dict:
         if cp.get("PropertySet") and "PredefinedValue" in cp:
             out.setdefault(cp["PropertySet"], {})[cp["Code"]] = cp["PredefinedValue"]
     return out
+
+
+#: The property set an element's sizing dimensions are written in (M.2)
+DIMENSIONS = "BIMForge_Dimensions"
+
+#: A dictionary PhysicalQuantity -> the IFC measure it is written as, and
+#: whether a value (authored in feet) scales by the model's foot
+MEASURES = {"length": ("IfcLengthMeasure", True),
+            "ratio": ("IfcRatioMeasure", False)}
+
+
+def dimensions(code: str) -> list:
+    """The dimension properties a class declares, by Code, in order."""
+    return [cp["PropertyCode"] for cp in _class(code).get("ClassProperties", [])
+            if cp.get("PropertySet") == DIMENSIONS]
+
+
+def measure(prop: str) -> tuple:
+    """(IFC measure type, scales by the foot) of a dictionary property."""
+    for p in _document()["Properties"]:
+        if p["Code"] == prop:
+            return MEASURES[p["PhysicalQuantity"]]
+    raise KeyError(f"no property {prop!r} in the family dictionary "
+                   f"({DICTIONARY.name})")
