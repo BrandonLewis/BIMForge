@@ -50,13 +50,35 @@ def test_part_relations_point_at_classes_in_this_dictionary(dictionary):
 ifcopenshell = pytest.importorskip("ifcopenshell")
 yaml = pytest.importorskip("yaml")
 
-EXAMPLES = ("concrete-barrier-842", "concrete-barrier-732sw", "bridge-standard")
+EXAMPLES = ("concrete-barrier-842", "concrete-barrier-732sw", "bridge-standard",
+            "caltrans-b3-retaining-wall", "b3-every-wall-type")
+#: B3 wall types, with a design H each one's example table tabulates
+B3_TYPES = {"1": 8, "1a": 8, "5": 8, "6a": 6, "6b": 6}
+
+
+def _b3_every_wall_type(tmp) -> None:
+    """The B3 example with one wall of every supported type, so each wall
+    class is exercised (the shipped example builds only Type 1)."""
+    spec = yaml.safe_load((tmp / "caltrans-b3-retaining-wall.spec.yaml")
+                          .read_text("utf-8"))
+    (base,) = spec["params"]["walls"]
+    spec["params"]["walls"] = [
+        {**base, "name": f"T{wt}", "wall_type": wt,
+         "design_h_segments": [{"length_ft": 64.0, "H_ft": h}],
+         "top_of_wall": {**base["top_of_wall"],
+                         "elevs": [100.0 + h] * len(base["top_of_wall"]["elevs"])}}
+        for wt, h in B3_TYPES.items()]
+    spec["outputs"] = {k: v.replace("caltrans-b3", "b3-every-wall-type")
+                       for k, v in spec["outputs"].items()}
+    (tmp / "b3-every-wall-type.spec.yaml").write_text(
+        yaml.safe_dump(spec, sort_keys=False), "utf-8")
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory) -> list:
     """The shipped examples, built: the 732SW run carries a B11-51 handrail,
-    the bridge is stationed on its alignment."""
+    the bridge is stationed on its alignment, and the B3 walls are built
+    once in every wall type."""
     import ifcopenshell.util.element  # noqa: F401
     from bimforge.author.families.registry import build_from_spec
     tmp = tmp_path_factory.mktemp("dictionary")
@@ -64,6 +86,7 @@ def built(tmp_path_factory) -> list:
     for entry in examples.iterdir():
         if entry.name.endswith(".yaml"):
             (tmp / entry.name).write_text(entry.read_text("utf-8"), "utf-8")
+    _b3_every_wall_type(tmp)
     models = []
     for name in EXAMPLES:
         spec = tmp / f"{name}.spec.yaml"
@@ -128,3 +151,31 @@ def test_every_linear_reference_property_is_declared(dictionary, built):
         for el in model.by_type("IfcElement"):
             emitted |= set(ue.get_pset(el, LINEAR_PSET) or {}) - {"id"}
     assert emitted and emitted <= declared
+
+
+def test_every_typed_element_references_its_class(dictionary, built):
+    """M.1: an element of a dictionary type carries a class reference to
+    that class, under the dictionary's own system, which no pay reader
+    takes for a pay code."""
+    from bimforge.author import family_dictionary as fd
+    from bimforge.bim.ifc_takeoff import classifications_of, family_class_of
+    ue = ifcopenshell.util.element
+    checked = 0
+    for model in built:
+        for el in model.by_type("IfcElement"):
+            el_type = ue.get_type(el)
+            got = family_class_of(el)
+            if el_type is None:
+                assert got is None, el.Name
+                continue
+            cls = _class_for(dictionary, el_type.Name)
+            assert got == {"code": cls["Code"], "name": cls["Name"],
+                           "uri": fd.class_uri(cls["Code"])}, el.Name
+            assert all(c["code"] != cls["Code"] for c in classifications_of(el))
+            checked += 1
+        systems = [c for c in model.by_type("IfcClassification")
+                   if c.Name == fd.system()["name"]]
+        assert len(systems) <= 1
+        for system in systems:
+            assert system.Source == "bimforge" and system.Edition
+    assert checked
