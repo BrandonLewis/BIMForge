@@ -274,5 +274,5 @@ def test_b3_volumes_are_boxes_over_their_own_quantities(built):
         q = {x.Name: x for x in qset.Quantities}
         vol = q["GrossVolume"]
         assert vol.Formula == "Length * Width * Height", el.Name
-        got = formula_value(vol.Formula, {n: x[3] for n, x in q.items()})
+        got = formula_value(vol.Formula, {n: x[4] for n, x in q.items()})
         assert abs(got - vol.VolumeValue) <= FORMULA_TOLERANCE * vol.VolumeValue
