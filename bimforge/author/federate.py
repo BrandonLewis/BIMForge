@@ -427,8 +427,8 @@ def _repoint_to_site(tgt, spatial, site) -> None:
 
 
 def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey, seen=None):
-    """The IFC4X3 facility path (#318). Returns (products, facilities,
-    site_products)."""
+    """The IFC4X3 facility path (#318). Returns (products, the carried
+    facilities, site_products, alignments)."""
     import ifcopenshell.api
     subtree, fac_roots = _facility_subtree(src)
     spatial_ids = {s.id() for s in subtree}
@@ -482,8 +482,8 @@ def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey, seen=Non
 
     _namespace(roots, name, ctx)
 
-    for fac in fac_roots:
-        new = added[fac.id()]
+    facilities = [added[fac.id()] for fac in fac_roots]
+    for new in facilities:
         ifcopenshell.api.run("aggregate.assign_object", tgt, products=[new],
                              relating_object=site)
         _repoint_to_site(tgt, new, site)
@@ -493,7 +493,7 @@ def _merge_facility_source(tgt, src, name: str, ctx, site, make_storey, seen=Non
     if to_storey:
         _contain(tgt, [added[p.id()] for p in to_storey], make_storey(),
                  f"federated/contained/{name}", ctx)
-    return (len(keep), len(fac_roots), len(to_site),
+    return (len(keep), facilities, len(to_site),
             [added[a.id()] for a in tops])
 
 
@@ -768,11 +768,14 @@ def _fold_spatial(tgt, keep, dup) -> int:
     return removed + 1
 
 
-def _merge_same_facilities(tgt, site) -> int:
-    """Fold facilities of one class and name under the site into the first."""
+def _merge_same_facilities(tgt, facilities) -> int:
+    """Fold facilities of one class and name into the first, in source order.
+    Not the site's child order: that follows entity numbers, which any change
+    in what a source writes reshuffles, and the facility kept keeps its
+    GlobalIds."""
     first: dict = {}
     removed = 0
-    for fac in _spatial_children(site):
+    for fac in facilities:
         if not fac.is_a("IfcFacility") or fac.is_a("IfcBuilding"):
             continue
         key = (fac.is_a(), fac.Name)
@@ -806,14 +809,17 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
     from bimforge.author.model import StructureModel
 
     opened = _open_sources(sources, ctx, unit_check, georef_check)
+    identity = _identity(opened, merge_facilities)
 
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     # the target opens as a plain Site > Building > Storey file: a ctx facility
     # is a property of the SOURCES' trees, not something to mint here.
     base_ctx = (dataclasses.replace(ctx, facility=None)
                 if getattr(ctx, "facility", None) is not None else ctx)
+    # no identity yet: it would shift the entity numbers the merged ids are
+    # deduped by (_dedupe_nonproduct_globalids); written once merged
     emit_ifc(StructureModel(name="Federated Model", ctx=base_ctx),
-             str(out_path))
+             str(out_path), identify=False)
     f = ifcopenshell.open(str(out_path))
     site = f.by_type("IfcSite")[0]
     building = f.by_type("IfcBuilding")[0]
@@ -828,6 +834,7 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
     # one IfcAlignment per line: a source re-carrying a line an earlier one
     # carried (same name, frame and segments) is merged into it
     seen_alignments: dict = {}
+    carried: list = []      # the sources' facilities, in source order
     for src_path, name, src in opened:
         if _uses_facility_tree(src):
             used_facility_path = True
@@ -838,9 +845,10 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
                     storey.append(_storey(f, ctx, building, name))
                 return storey[0]
 
-            n, n_fac, n_site, als = _merge_facility_source(
+            n, facs, n_site, als = _merge_facility_source(
                 f, src, name, ctx, site, make_storey, seen_alignments)
-            result.facilities += n_fac
+            carried += facs
+            result.facilities += len(facs)
             result.site_products += n_site
         else:
             n, als = _merge_source(f, src, name,
@@ -852,7 +860,7 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
         result.products += n
 
     if merge_facilities and used_facility_path:
-        result.merged_facilities = _merge_same_facilities(f, site)
+        result.merged_facilities = _merge_same_facilities(f, carried)
         result.facilities = sum(1 for c in _spatial_children(site)
                                 if c.is_a("IfcFacility") and not c.is_a("IfcBuilding"))
     # the placeholder storey emit_ifc opened the file with holds nothing
@@ -909,5 +917,20 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
     # them by GlobalId exactly as emit_ifc does (#318: byte-deterministic).
     _pin_relationship_order(f)
     result.storeys = len(f.by_type("IfcBuildingStorey"))
+    from bimforge.bim import model_identity
+    model_identity.write(f, identity, " + ".join(p.name for p, _n, _s in opened))
     f.write(str(out_path))
     return result
+
+
+def _identity(opened, merge_facilities: bool) -> dict:
+    """The federation's canonical source (M.6): each source's label and
+    BuildId (a file without one, its sha256), and how they were merged."""
+    import hashlib
+
+    from bimforge.bim import model_identity
+    parts = []
+    for path, name, src in opened:
+        bid = (model_identity.read(src) or {}).get("BuildId")
+        parts.append([name, bid or hashlib.sha256(path.read_bytes()).hexdigest()])
+    return {"federate": parts, "merge_facilities": merge_facilities}

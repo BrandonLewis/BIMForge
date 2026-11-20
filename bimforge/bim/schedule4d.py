@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 import ifcopenshell.api.control as ctl
+import ifcopenshell.api.owner as owner
 import ifcopenshell.api.pset as pset_api
 import ifcopenshell.api.sequence as sq
 import ifcopenshell.guid
@@ -311,6 +312,46 @@ def _set_global_id(model, ent, gid: str, tid: str) -> None:
     ent.GlobalId = gid
 
 
+def link_outputs(model, pairs) -> None:
+    """Link tasks to the elements they output (#60): one
+    IfcRelAssignsToProduct per element, relating every task that builds it
+    or takes it away.
+
+    `pairs` is (element, task), in the order the links should read. This is
+    what `sequence.assign_product` writes, done once per element rather than
+    once per pair: the API looks through the task's assignments on every
+    call, which is quadratic in a task's elements (one task on 4,000
+    elements: 33 s there, well under a second here). An element another
+    schedule already links keeps that relationship, with the new tasks
+    added to it; a task the relationship already holds is not added twice.
+    """
+    elements: dict[int, object] = {}
+    tasks_of: dict[int, list] = {}
+    for el, task in pairs:
+        elements[el.id()] = el
+        tasks_of.setdefault(el.id(), []).append(task)
+    for eid, tasks in tasks_of.items():
+        el = elements[eid]
+        rel = next(iter(el.ReferencedBy or ()), None)
+        have = list(rel.RelatedObjects) if rel else []
+        held = {o.id() for o in have}
+        new = []
+        for task in tasks:
+            if task.id() not in held:
+                held.add(task.id())
+                new.append(task)
+        if not new:
+            continue
+        if rel:
+            rel.RelatedObjects = have + new
+            owner.update_owner_history(model, element=rel)
+        else:
+            model.create_entity(
+                "IfcRelAssignsToProduct", GlobalId=ifcopenshell.guid.new(),
+                OwnerHistory=owner.create_owner_history(model),
+                RelatedObjects=new, RelatingProduct=el)
+
+
 def embed_schedule(model, sched: CanonicalSchedule, *,
                    schedule_name: str | None = None,
                    schedule_type: str | None = None) -> EmbedReport:
@@ -486,6 +527,7 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
     # product assignment: code join (narrowed by the task's filters, #365)
     # OR name-regex OR IFC class (slice 5)
     assigned: set = set()
+    outputs: list = []               # (element, task), in link order
     missing_codes: set = set()
     missing_selectors: list = []
     for t in sched.tasks:
@@ -534,10 +576,10 @@ def embed_schedule(model, sched: CanonicalSchedule, *,
                 continue
             seen.add(el.id())
             # the element is the task's output (#60), not an input
-            sq.assign_product(model, relating_product=el,
-                              related_object=task_by_id[t.id])
+            outputs.append((el, task_by_id[t.id]))
             report.assignments += 1
             assigned.add(el.id())
+    link_outputs(model, outputs)
     report.assigned_elements = len(assigned)
     report.codes_without_elements = sorted(missing_codes)
     report.selectors_without_elements = missing_selectors

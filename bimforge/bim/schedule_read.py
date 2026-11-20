@@ -46,8 +46,8 @@ def element_start_dates(model) -> dict[int, str]:
         # inputs are products, or (C.5) the crews the task uses
         stamp(rel.RelatingProcess, [o for o in rel.RelatedObjects or []
                                     if o.is_a("IfcProduct")])
-    # outputs too (#335): models post-processed for Bonsai playback link
-    # task -> element with IfcRelAssignsToProduct instead
+    # outputs: what embed_schedule writes since #60 (and, before it, what
+    # models post-processed for Bonsai playback carried, #335)
     for rel in model.by_type("IfcRelAssignsToProduct"):
         if rel.RelatingProduct is not None:
             for task in rel.RelatedObjects or []:

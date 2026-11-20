@@ -367,6 +367,75 @@ def _extrude(f, profile, pos, depth_m):
         Depth=float(depth_m))
 
 
+#: the Body context's Precision (ifcopenshell's default, metres): two points
+#: closer than this are one point to a checker (bSI's GEM111)
+PRECISION_M = 1e-5
+
+
+def _weld(triangles, tol: float = PRECISION_M):
+    """`triangles` (metres) with each corner closer than `tol` to an earlier
+    one moved onto it, and the slivers that leaves with under three corners
+    dropped (#103). A boolean leaves corners microns apart; written as they
+    are, a loop holds two points a checker reads as one. Their neighbours
+    meet on the welded edge, so a closed mesh stays closed; a thin fin the
+    weld flattens into a triangle and its reverse goes too. Every corner
+    kept is `tol` or more from every other, and the order of `triangles`
+    alone decides which is kept, so the result is deterministic."""
+    grid: dict = {}
+    seen: dict = {}
+
+    def snap(p):
+        if p in seen:
+            return seen[p]
+        cell = tuple(math.floor(c / tol) for c in p)
+        q = next((q for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+                  for dz in (-1, 0, 1)
+                  for q in grid.get((cell[0] + dx, cell[1] + dy,
+                                     cell[2] + dz), ())
+                  if math.dist(p, q) < tol), None)
+        if q is None:
+            q = p
+            grid.setdefault(cell, []).append(p)
+        seen[p] = q
+        return q
+
+    def turn(t):            # one tuple per winding, whatever the start
+        i = t.index(min(t))
+        return t[i:] + t[:i]
+
+    out = []
+    for t in triangles:
+        w = tuple(snap(tuple(float(c) for c in p)) for p in t)
+        if len(set(w)) == 3:
+            out.append(w)
+    # a fin the weld flattened, one triangle and its reverse, bounds nothing
+    # and puts its edges on four faces: both go
+    have = {turn(t) for t in out}
+    return [t for t in out if turn(t[::-1]) not in have]
+
+
+def _is_closed(triangles) -> bool:
+    """Every edge is on exactly two triangles, as a closed shell's must be
+    (bSI's GEM001)."""
+    from collections import Counter
+    edges = Counter(frozenset(e) for a, b, c in triangles
+                    for e in ((a, b), (b, c), (c, a)))
+    return bool(edges) and set(edges.values()) == {2}
+
+
+def _face_set(f, triangles):
+    """An open surface: an IfcTriangulatedFaceSet with Closed=False, the
+    points in first-use order. CoordIndex is 1-based."""
+    index: dict = {}
+    for t in triangles:
+        for p in t:
+            index.setdefault(p, len(index) + 1)
+    plist = f.create_entity("IfcCartesianPointList3D", CoordList=list(index))
+    return f.create_entity(
+        "IfcTriangulatedFaceSet", Coordinates=plist, Closed=False,
+        CoordIndex=[tuple(index[p] for p in t) for t in triangles])
+
+
 def _faceted_brep(f, triangles, merge: bool = True):
     """An IfcFacetedBrep from explicit triangular facets (metres): the
     per-vertex-top Prism taper has no uniform sweep depth, so it cannot be
@@ -627,7 +696,7 @@ def solids_for(f, el, ft_to_m: float, curves=None):
                                 if d.get("bottom_z") is not None else None)
                     tris = taper_prism_triangles(
                         ring, [z * k for z in top_z], d["z_bot"] * k, bottom_z)
-                    out.append(_faceted_brep(f, tris))
+                    out.append(_faceted_brep(f, _weld(tris)))
             elif kind == "fill":
                 # backfill (bridge-pilot port): the gross prism chained-DIFFERENCEd
                 # by each cut. The result IS the backfill — the excavated
@@ -722,10 +791,15 @@ def solids_for(f, el, ft_to_m: float, curves=None):
                     # the absolute curve would not follow
                     out.append(_sectioned_solid(f, ex, k, curve))
                 else:
+                    # a closed mesh is a brep; an open one (terrain, a
+                    # measured surface) is a face set, its rim edges on one
+                    # face each (#103)
                     verts = [tuple(float(c) * k for c in v)
                              for v in d["verts"]]
-                    out.append(_faceted_brep(
-                        f, [tuple(verts[i] for i in tri) for tri in d["tris"]]))
+                    tris = _weld([tuple(verts[i] for i in tri)
+                                  for tri in d["tris"]])
+                    out.append(_faceted_brep(f, tris) if _is_closed(tris)
+                               else _face_set(f, tris))
             elif kind == "arc_band":
                 n = d["segments"]
                 wrap = math.radians(d["wrap_deg"])
@@ -1146,6 +1220,179 @@ def _bar_types(run, f, ctx, products: list) -> None:
         rel = run("type.assign_type", f, related_objects=by_size[size],
                   relating_type=t)
         rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByType/{t.GlobalId}")
+
+
+def _late_typing(run, f, ctx, cache: dict, late: list) -> None:
+    """Type and give property sets to the Element.typed_late elements, after
+    the sweep, every root keyed: the type as any type (`_assign_type`), its
+    IfcRelDefinesByType by the type, a property set by its owner and name,
+    its IfcRelDefinesByProperties by the set (the embedders' keys,
+    docs/globalid-contract.md)."""
+    for product, el, ifc_class, typing in late:
+        t = el.type_name and _assign_type(run, f, ctx, cache, product, el,
+                                          ifc_class, typing)
+        if t:
+            for rel in t.Types or ():
+                rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByType/{t.GlobalId}")
+        for pset_name, props in (el.psets or {}).items():
+            if not props:
+                continue
+            pset = run("pset.add_pset", f, product=product, name=pset_name)
+            run("pset.edit_pset", f, pset=pset, properties=dict(props))
+            pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{pset_name}")
+            for rel in pset.DefinesOccurrence or ():
+                rel.GlobalId = ctx.guid(
+                    f"rel/IfcRelDefinesByProperties/{pset.GlobalId}")
+
+
+def _family_classes(f, ctx, classed: list) -> None:
+    """Reference each Element.family_class (M.1): one IfcClassification for
+    the family dictionary (`family_dictionary.system`, its Name the one the
+    pay readers skip), one IfcClassificationReference per class, its Code
+    as Identification and its bSDD URI as Location, and one
+    IfcRelAssociatesClassification per class, keyed by the reference
+    (stable_ids' key for it). After the sweep, so nothing renumbers."""
+    if not classed:
+        return
+    from bimforge.author import family_dictionary as fd
+    from bimforge.bim.stable_ids import _ref
+    sysd = fd.system()
+    system = f.create_entity("IfcClassification", Name=sysd["name"],
+                             Source=sysd["source"], Edition=sysd["edition"])
+    # the system's URI: Location in IFC4, Specification in IFC4X3
+    for attr in ("Specification", "Location"):
+        if hasattr(system, attr):
+            setattr(system, attr, sysd["location"])
+            break
+    by_code: dict = {}
+    for product, code in classed:
+        by_code.setdefault(code, []).append(product)
+    for code in sorted(by_code):
+        ref = f.create_entity(
+            "IfcClassificationReference", Identification=code,
+            Name=fd.type_name(code), Location=fd.class_uri(code),
+            ReferencedSource=system)
+        rel = f.create_entity(
+            "IfcRelAssociatesClassification",
+            GlobalId=ctx.guid(f"rel/IfcRelAssociatesClassification/{_ref(ref)}"),
+            RelatedObjects=by_code[code], RelatingClassification=ref)
+
+
+def _layer_axis_length(el, t_ft: float) -> float:
+    """The axis length of a layered element (`Element.layer_thickness_ft`),
+    checked against the wall concept the field promises: a prism whose base,
+    in its own frame, runs from x = 0 to the length and from y = 0 to the
+    layer's thickness. Anything else is refused by name, before any of it
+    is written."""
+    base = getattr(el.geometry, "base", None)
+    if not base:
+        raise ValueError(f"{el.name}: layer_thickness_ft needs a prism "
+                         f"geometry with a base, got {type(el.geometry).__name__}")
+    xs, ys = [x for x, _y in base], [y for _x, y in base]
+    tol = 1e-6 * max(1.0, max(xs) - min(xs), t_ft)
+    if (abs(min(xs)) > tol or max(xs) <= tol or abs(min(ys)) > tol
+            or abs(max(ys) - t_ft) > tol):
+        raise ValueError(
+            f"{el.name}: layer_thickness_ft needs its base in its own frame, "
+            f"x from 0 along the axis and y from 0 to {t_ft} ft; its base spans "
+            f"x {min(xs):.4f}..{max(xs):.4f}, y {min(ys):.4f}..{max(ys):.4f}")
+    return max(xs)
+
+
+def _material_layers(run, f, ctx, mctx, layered: list) -> None:
+    """Write each Element.layer_thickness_ft (X.6) as the IFC wall concept
+    "IfcWall with IfcMaterialLayerSetUsage": one single-layer
+    IfcMaterialLayerSet per type, its layer the element's own IfcMaterial,
+    associated to the type; on each element an IfcMaterialLayerSetUsage of
+    it in place of the plain material (LayerSetDirection AXIS2, the layer
+    from the axis toward +y) and an 'Axis' polyline along its local +x.
+    After the sweep, every relationship keyed, so nothing renumbers: the
+    type's by its layer set's name, an element's by the element."""
+    if not layered:
+        return
+    import ifcopenshell.util.element as ue
+    k = ctx.ft_to_m
+    axis_ctx = next((c for c in f.by_type("IfcGeometricRepresentationSubContext")
+                     if c.ContextIdentifier == "Axis"), None) or run(
+        "context.add_context", f, context_type="Model",
+        context_identifier="Axis", target_view="MODEL_VIEW", parent=mctx)
+    sets: dict = {}            # type GlobalId -> (thickness ft, layer set)
+    for product, el in layered:
+        el_type = ue.get_type(product)
+        material = ue.get_material(product)
+        if el_type is None or material is None or not material.is_a("IfcMaterial"):
+            raise ValueError(f"{el.name}: layer_thickness_ft needs a type and "
+                             f"a plain material, got {el_type} / {material}")
+        t_ft = float(el.layer_thickness_ft)
+        length_ft = _layer_axis_length(el, t_ft)
+        if el_type.GlobalId not in sets:
+            layer = f.create_entity("IfcMaterialLayer", Material=material,
+                                    LayerThickness=t_ft * k, Name=material.Name)
+            lset = f.create_entity("IfcMaterialLayerSet", MaterialLayers=[layer],
+                                   LayerSetName=el_type.Name)
+            f.create_entity(
+                "IfcRelAssociatesMaterial",
+                GlobalId=ctx.guid("rel/IfcRelAssociatesMaterial/"
+                                  f"IfcMaterialLayerSet:{el_type.Name}"),
+                RelatedObjects=[el_type], RelatingMaterial=lset)
+            sets[el_type.GlobalId] = (t_ft, lset)
+        t0, lset = sets[el_type.GlobalId]
+        if abs(t0 - t_ft) > 1e-9:
+            raise ValueError(f"{el.name}: layer {t_ft} ft, but its type "
+                             f"{el_type.Name!r} is a {t0} ft layer")
+        for rel in list(product.HasAssociations or ()):
+            if rel.is_a("IfcRelAssociatesMaterial"):
+                rest = [o for o in rel.RelatedObjects if o != product]
+                if rest:
+                    rel.RelatedObjects = rest
+                else:
+                    f.remove(rel)
+        usage = f.create_entity(
+            "IfcMaterialLayerSetUsage", ForLayerSet=lset,
+            LayerSetDirection="AXIS2", DirectionSense="POSITIVE",
+            OffsetFromReferenceLine=0.0)
+        f.create_entity(
+            "IfcRelAssociatesMaterial",
+            GlobalId=ctx.guid("rel/IfcRelAssociatesMaterial/"
+                              f"IfcMaterialLayerSetUsage/{product.GlobalId}"),
+            RelatedObjects=[product], RelatingMaterial=usage)
+        length = length_ft * k
+        axis = f.create_entity("IfcPolyline", Points=[
+            f.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0)),
+            f.create_entity("IfcCartesianPoint", Coordinates=(length, 0.0))])
+        shape = product.Representation
+        shape.Representations = [f.create_entity(
+            "IfcShapeRepresentation", ContextOfItems=axis_ctx,
+            RepresentationIdentifier="Axis", RepresentationType="Curve2D",
+            Items=[axis])] + list(shape.Representations)
+
+
+def _dimensions(run, f, ctx, dimensioned: list) -> None:
+    """Write each element's Element.dimensions (M.2) as BIMForge_Dimensions,
+    each property the measure the family dictionary gives it, a length
+    scaled from feet. An element carries exactly what its class declares:
+    a class that declares a dimension the family did not size, or a
+    dimension no class declares, fails the build. After the sweep, the set
+    keyed by its owner and name, its IfcRelDefinesByProperties by the set."""
+    from bimforge.author import family_dictionary as fd
+    for product, el in dimensioned:
+        declared = fd.dimensions(el.family_class) if el.family_class else []
+        if set(el.dimensions) != set(declared):
+            raise ValueError(
+                f"{el.name}: dimensions {sorted(el.dimensions)}, but its class "
+                f"{el.family_class!r} declares {sorted(declared)}")
+        if not declared:
+            continue
+        props = {}
+        for code in declared:
+            ifc_type, scales = fd.measure(code)
+            value = float(el.dimensions[code]) * (ctx.ft_to_m if scales else 1.0)
+            props[code] = f.create_entity(ifc_type, round(value, 9))
+        pset = run("pset.add_pset", f, product=product, name=fd.DIMENSIONS)
+        run("pset.edit_pset", f, pset=pset, properties=props)
+        pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{fd.DIMENSIONS}")
+        for rel in pset.DefinesOccurrence or ():
+            rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByProperties/{pset.GlobalId}")
 
 
 def _declare_types(run, f, project) -> None:
@@ -1628,17 +1875,21 @@ def sweep_mode(model, override: str | None = None) -> str:
 
 
 def emit_ifc(model, path: str, paycodes=None, *, allow_local: bool = False,
-             stylepack=None, sweeps: str | None = None) -> str:
+             stylepack=None, sweeps: str | None = None, source=None,
+             source_name: str | None = None, identify: bool = True) -> str:
     """Emit one structure. A thin wrapper over emit_combined_ifc so the single-
     and multi-structure paths share one writer (issue #188)."""
     return emit_combined_ifc([model], path, paycodes,
                              allow_local=allow_local, stylepack=stylepack,
-                             sweeps=sweeps)
+                             sweeps=sweeps, source=source,
+                             source_name=source_name, identify=identify)
 
 
 def emit_combined_ifc(models, path: str, paycodes=None, *,
                       allow_local: bool = False, stylepack=None,
-                      sweeps: str | None = None) -> str:
+                      sweeps: str | None = None, source=None,
+                      source_name: str | None = None,
+                      identify: bool = True) -> str:
     """Emit one or more structures into a single IFC, each structure as its own
     named IfcBuilding under one shared IfcSite (issue #188, Lever A).
 
@@ -1651,7 +1902,13 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     Under IFC4X3, a model whose ctx carries a `facility` (#318) becomes its own
     IfcBridge/IfcRoad/... (or, kind `site`, is contained in the IfcSite) with
     one facility part per distinct `Element.spatial_part` — see
-    bimforge.author.spatial. Without one, or under IFC4, nothing changes."""
+    bimforge.author.spatial. Without one, or under IFC4, nothing changes.
+
+    `source` is the canonical source the models were built from, and
+    `source_name` its name, for the file's BIMForge_Model set
+    (bimforge.bim.model_identity, M.6); without a source the file as
+    emitted identifies itself. `identify=False` writes no set: federate's
+    target, which gets its own once the sources are in."""
     from ifcopenshell.api import run
 
     if not models:
@@ -1823,6 +2080,10 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     layer_cache: dict = {}     # layer name -> IfcPresentationLayerAssignment
     type_cache: dict = {}      # (type class, name, predefined) -> IfcTypeObject
     sized_bars: list = []      # (product, el): typed after the sweep
+    late: list = []            # (product, el, ifc_class, typing): Element.typed_late
+    classed: list = []         # (product, family class code): Element.family_class
+    layered: list = []         # (product, el): Element.layer_thickness_ft
+    dimensioned: list = []     # (product, el): a family_class or dimensions
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
@@ -1888,8 +2149,20 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
             product.GlobalId = ctx.guid(_gk(scope, el.guid_key))
             typing = _object_typing(ctx.schema, ifc_class, wanted, object_type,
                                     el)
-            typed = el.type_name and _assign_type(
-                run, f, ctx, type_cache, product, el, ifc_class, typing)
+            typed = (el.type_name and not el.typed_late
+                     and _assign_type(run, f, ctx, type_cache, product, el,
+                                      ifc_class, typing))
+            if el.typed_late:
+                late.append((product, el, ifc_class, typing))
+            family = el.family_class or (
+                "reinforcing-bar" if el.bar_size is not None
+                and product.is_a("IfcReinforcingBar") else None)
+            if family:
+                classed.append((product, family))
+            if el.layer_thickness_ft is not None:
+                layered.append((product, el))
+            if el.family_class or el.dimensions:
+                dimensioned.append((product, el))
             if (el.bar_size is not None and not el.type_name
                     and product.is_a("IfcReinforcingBar")):
                 sized_bars.append((product, el))
@@ -1899,7 +2172,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                     product.PredefinedType = pdt
                 product.ObjectType = custom
             for pset_name, props in (el.psets or {}).items():
-                if props:
+                if props and not el.typed_late:
                     pset = run("pset.add_pset", f, product=product,
                                name=pset_name)
                     run("pset.edit_pset", f, pset=pset,
@@ -1943,16 +2216,17 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                     None if direct else m_curves)
                          if el.geometry is not None else [])
             if items:
-                # an open surface (ribbon -> IfcTriangulatedFaceSet) cannot
-                # share ONE Body representation with solids — the RepresentationType
-                # can only name one, and a mixed list is invalid IFC. Author a
-                # ribbon as its own element rather than beside solid geometry.
+                # an open surface (a ribbon or an open mesh ->
+                # IfcTriangulatedFaceSet) cannot share ONE Body representation
+                # with solids — the RepresentationType can only name one, and
+                # a mixed list is invalid IFC. Author a surface as its own
+                # element rather than beside solid geometry.
                 face_sets = [i for i in items if i.is_a("IfcTriangulatedFaceSet")]
                 if face_sets and len(face_sets) != len(items):
                     raise ValueError(
-                        f"{el.name}: a ribbon (open surface) cannot share a "
-                        "representation with solid geometry — give it its own "
-                        "Element")
+                        f"{el.name}: an open surface (a ribbon, or a mesh "
+                        "that is not closed) cannot share a representation "
+                        "with solid geometry — give it its own Element")
                 # named from the items themselves (#329): CSG for booleans,
                 # Tessellation for a ribbon, Brep for a faceted mesh,
                 # SweptSolid / AdvancedSweptSolid for the sweeps,
@@ -2172,12 +2446,21 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     # roots added since the sweep was first written are keyed and come
     # after it, so they renumber nothing (test_example_globalids)
     _bar_types(run, f, ctx, sized_bars)
+    _late_typing(run, f, ctx, type_cache, late)
+    _family_classes(f, ctx, classed)
+    _material_layers(run, f, ctx, mctx, layered)
+    _dimensions(run, f, ctx, dimensioned)
     _declare_types(run, f, project)
 
     # then pin every relationship's member order (see _pin_relationship_order:
     # ifcopenshell.api set-unions reorder members nondeterministically) — after
     # the sweep, so the sort keys are the final GlobalIds.
     _pin_relationship_order(f)
+    # last, so a model without a named source is identified by all of it
+    if identify:
+        from bimforge.bim import model_identity
+        model_identity.write(f, source if source is not None
+                             else model_identity.file_source(f), source_name)
 
     try:
         # NOT os.path.basename(path): the header must depend only on the

@@ -89,6 +89,31 @@ class Element:
     #: NominalDiameter, CrossSectionArea and BarSurface. None = a bar total
     #: with no single size (a weight per foot), left untyped.
     bar_size: int | None = None
+    #: Write this element's type and property sets after emit_ifc's sweep
+    #: numbers the file's roots, each keyed (the type by class and name, a
+    #: set by its owner, a relationship by what it relates), so typing a
+    #: family that shipped untyped moves no GlobalId a consumer holds
+    #: (test_example_globalids). Families typed since 0.1.121 set it.
+    typed_late: bool = False
+    #: The family dictionary class this element is (roadmap M.1), by Code
+    #: ("retaining-wall-b3-type-1"): emit_ifc writes an IfcClassification-
+    #: Reference to it under the dictionary's own system ("bimforge
+    #: families"), never read as a pay code. A sized bar (`bar_size`) is a
+    #: "reinforcing-bar" without saying so. None = no class.
+    family_class: str | None = None
+    #: The thickness of the one constant-thickness layer of `material` this
+    #: element is (roadmap X.6), written as an IfcMaterialLayerSet on its
+    #: type and an IfcMaterialLayerSetUsage on it, with an 'Axis'. The IFC
+    #: wall concept: its geometry is a Prism authored in its own frame, the
+    #: axis along +x from the origin, the layer from y = 0 to the thickness.
+    #: Needs `type_name`; every element of one type has the same thickness.
+    #: None = a plain material (a battered or non-rectangular section).
+    layer_thickness_ft: float | None = None
+    #: The dimensions that size the element and are not quantities (roadmap
+    #: M.2), {dictionary property Code: value}, lengths in feet: exactly the
+    #: ones its `family_class` declares, written as BIMForge_Dimensions with
+    #: the measure the dictionary gives each ({"DesignHeight": 8.0}).
+    dimensions: dict = field(default_factory=dict)
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.

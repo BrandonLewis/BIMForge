@@ -16,6 +16,10 @@ Every stable id is `uuid5(namespace, key)`, compressed to the IFC form.
 | `est-bim build` | assembly, group | `project.guid_ns` | `assembly/<name>`, `group/<name>` |
 | `est-bim build` | spatial containers, types | `project.guid_ns` | `spatial/...`, the type's class and name |
 | `est-bim build` | a bar type's IfcRelDefinesByType | `project.guid_ns` | `rel/IfcRelDefinesByType/<type id>` |
+| `est-bim build` | a late-typed element's (`Element.typed_late`: the B3 retaining wall) IfcRelDefinesByType, property sets and their IfcRelDefinesByProperties | `project.guid_ns` | `rel/IfcRelDefinesByType/<type id>`, `pset/<element id>/<pset name>`, `rel/IfcRelDefinesByProperties/<pset id>` |
+| `est-bim build` | a family class's (M.1) IfcRelAssociatesClassification | `project.guid_ns` | `rel/IfcRelAssociatesClassification/` + the reference's `stable_ids` name (its system and class code) |
+| `est-bim build` | a layered element's (`Element.layer_thickness_ft`, X.6) IfcRelAssociatesMaterial: its type's layer set, its own layer set usage | `project.guid_ns` | `rel/IfcRelAssociatesMaterial/IfcMaterialLayerSet:<type name>`, `rel/IfcRelAssociatesMaterial/IfcMaterialLayerSetUsage/<element id>` |
+| `est-bim build` | an element's `BIMForge_Dimensions` (M.2) and its IfcRelDefinesByProperties | `project.guid_ns` | `pset/<element id>/BIMForge_Dimensions`, `rel/IfcRelDefinesByProperties/<pset id>` |
 | `est-bim build` | the types' IfcRelDeclares | the file's IfcProject GlobalId | `rel/IfcRelDeclares/<project id>`, the key the embedders give it |
 | `author.federate` | aggregates, storeys | derived from the source ids | |
 | `est-bim schedule` | IfcWorkSchedule | the file's IfcProject GlobalId | `work-schedule/<name>` |
@@ -32,6 +36,7 @@ Every stable id is `uuid5(namespace, key)`, compressed to the IFC form.
 | `add-alignments` | horizontal, vertical layout | the file's IfcProject GlobalId | `alignment/<name>/horizontal`, `.../vertical` |
 | `add-alignments` | IfcAlignmentSegment | the file's IfcProject GlobalId | `alignment/<name>/<layout>/segment/<n>`, in layout order |
 | `add-alignments` | IfcReferent | the file's IfcProject GlobalId | `referent/<alignment>/<Pset_Stationing Station, metres, 4 places>` |
+| `build`, `dxf2bim`, `federate` | `BIMForge_Model` (the model's identity) and its IfcRelDefinesByProperties | the file's IfcProject GlobalId | `pset/<project id>/BIMForge_Model`, `rel/IfcRelDefinesByProperties/<its id>` |
 | the embedders, `add-alignments` | property set | the file's IfcProject GlobalId | `pset/<owner ids>/<pset name>` |
 | the embedders, `add-alignments` | IfcRelSequence | the file's IfcProject GlobalId | `rel/IfcRelSequence/<predecessor id>/<successor id>` |
 | the embedders, `add-alignments` | other relationships | the file's IfcProject GlobalId | `rel/<type>/<relating entity's id>` |

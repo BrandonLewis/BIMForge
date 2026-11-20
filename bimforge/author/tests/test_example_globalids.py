@@ -10,7 +10,9 @@ change that inserts an IfcRoot ahead of them would renumber them all.
 Phase 1 typing work (C.4): every element's id by name, and every IfcRoot's
 id with its class. A writer change may ADD roots (a type, a declaration);
 it may not move or drop one. An element may change class (a proxy that
-becomes a virtual element), which the contract says keeps its id.
+becomes a virtual element), which the contract says keeps its id. An
+example added later is recorded as it first ships (caltrans-b3-wall-types
+at 0.1.128).
 
 Re-record only for a change that is meant to renumber, and say so in the
 changelog: a renumbered element is a new element to BidSheet.

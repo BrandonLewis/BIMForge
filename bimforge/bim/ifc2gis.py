@@ -61,6 +61,7 @@ from ifcopenshell.util.unit import calculate_unit_scale
 
 from bimforge.bim.georef import read_map_conversion
 from bimforge.bim.ifc2dxf import _chains_from_edges, _world_pts
+from bimforge.bim.ifc_takeoff import FAMILY_CLASSIFICATION
 
 _LEGACY_COORD_LIMIT_M = 1e6   # pre-0.1.11 broken-georef signature (same as kml.py)
 _AREA_EPS = 1e-9              # degenerate-triangle cutoff (true 3D area)
@@ -161,6 +162,9 @@ def _cost_code(prod) -> str:
     for rel in getattr(prod, "HasAssociations", []) or []:
         if rel.is_a("IfcRelAssociatesClassification"):
             ref = rel.RelatingClassification
+            src = getattr(ref, "ReferencedSource", None)
+            if getattr(src, "Name", None) == FAMILY_CLASSIFICATION:
+                continue                    # what it is, not a cost code (M.1)
             code = getattr(ref, "Identification", None) or getattr(ref, "ItemReference", None)
             if code:
                 codes.append(str(code))

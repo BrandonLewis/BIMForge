@@ -221,6 +221,459 @@
       ]
     },
     {
+      "Code": "retaining-wall-b3-type-1",
+      "Name": "Retaining wall Type 1",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 1 retaining wall: front face vertical, back face battered. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-1A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-1A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemBaseThickness",
+          "PropertyCode": "StemBaseThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "Batter",
+          "PropertyCode": "Batter",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-1-footing",
+      "Name": "Retaining wall Type 1 footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 1 retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-1A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-1A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-1"
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-1a",
+      "Name": "Retaining wall Type 1A",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 1A retaining wall: a constant-thickness vertical stem. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-3A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-3A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-1a-footing",
+      "Name": "Retaining wall Type 1A footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 1A retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-3A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-3A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-1a"
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-5",
+      "Name": "Retaining wall Type 5",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 5 retaining wall: front face battered, back face vertical. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-4A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-4A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemBaseThickness",
+          "PropertyCode": "StemBaseThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "Batter",
+          "PropertyCode": "Batter",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-5-footing",
+      "Name": "Retaining wall Type 5 footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 5 retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-4A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-4A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-5"
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-6a",
+      "Name": "Retaining wall Type 6A",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 6A retaining wall: a short vertical stem, at most 6 ft high. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-7A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-7A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-6a-footing",
+      "Name": "Retaining wall Type 6A footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 6A retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-7A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-7A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-6a"
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-6b",
+      "Name": "Retaining wall Type 6B",
+      "ClassType": "Class",
+      "Definition": "The stem of a Caltrans Type 6B retaining wall: a short vertical stem set near the toe, with a long heel. Each slice of the run between grid points and design-H breaks is one wall of this type.",
+      "RelatedIfcEntityNamesList": [
+        "IfcWall",
+        "IfcWallRETAININGWALL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-7A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_WallCommon",
+          "PredefinedValue": "B3-7A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StemThickness",
+          "PropertyCode": "StemThickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "retaining-wall-b3-type-6b-footing",
+      "Name": "Retaining wall Type 6B footing",
+      "ClassType": "Class",
+      "Definition": "The spread footing under a Caltrans Type 6B retaining wall's stem, sliced as the stem is.",
+      "RelatedIfcEntityNamesList": [
+        "IfcFooting",
+        "IfcFootingSTRIP_FOOTING"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan B3-7A",
+      "ClassProperties": [
+        {
+          "Code": "Reference",
+          "PropertyUri": "https://identifier.buildingsmart.org/uri/buildingsmart/ifc/4.3/prop/Reference",
+          "PropertySet": "Pset_FootingCommon",
+          "PredefinedValue": "B3-7A",
+          "IsRequired": true,
+          "Description": "The standard plan the element is built to."
+        },
+        {
+          "Code": "DesignHeight",
+          "PropertyCode": "DesignHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "ToeWidth",
+          "PropertyCode": "ToeWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "HeelWidth",
+          "PropertyCode": "HeelWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ],
+      "ClassRelations": [
+        {
+          "RelationType": "IsPartOf",
+          "RelatedClassUri": "https://identifier.buildingsmart.org/uri/bimforge/families/0.1/class/retaining-wall-b3-type-6b"
+        }
+      ]
+    },
+    {
       "Code": "reinforcing-bar",
       "Name": "Reinforcing bar",
       "ClassType": "Class",
@@ -325,6 +778,75 @@
       "DataType": "String",
       "Definition": "AnchorOffsetLeft as text, in StationUnit.",
       "Description": "Property set BIMForge_LinearReference, written on every element with a body."
+    },
+    {
+      "Code": "DesignHeight",
+      "Name": "DesignHeight",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Design H: the height a standard plan's table is entered with, top of footing to top of wall.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "StemThickness",
+      "Name": "StemThickness",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Stem thickness at the top of the wall (T); a constant stem's thickness throughout.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "StemBaseThickness",
+      "Name": "StemBaseThickness",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Stem thickness at the top of the footing: T plus the batter times the design height.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "Batter",
+      "Name": "Batter",
+      "DataType": "Real",
+      "Dimension": "0 0 0 0 0 0 0",
+      "PhysicalQuantity": "ratio",
+      "Definition": "Batter of the stem's sloped face, horizontal per unit of height.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities."
+    },
+    {
+      "Code": "ToeWidth",
+      "Name": "ToeWidth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Toe (C): from the footing's toe edge to the stem's front face.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "HeelWidth",
+      "Name": "HeelWidth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Heel (B): from the stem's front face to the footing's heel edge.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
     }
   ]
 }

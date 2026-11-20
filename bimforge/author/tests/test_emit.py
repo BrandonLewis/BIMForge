@@ -678,14 +678,14 @@ def _terrain_model():
 
 def test_emit_ifc_mesh_kind_terrain_reference_element(tmp_path):
     """The "mesh" geometry kind (terrain): an IfcGeographicElement/TERRAIN
-    whose representation is a faceted brep of the mesh's facets, verts
-    scaled by the dict's units factor; reference geometry (classifications
-    []) gets NO IfcElementQuantity and no classification association, and
-    the provenance dict on the mesh rides as Pset_BimforgeTerrain.
+    whose representation is the mesh's facets, verts scaled by the dict's
+    units factor; reference geometry (classifications []) gets NO
+    IfcElementQuantity and no classification association, and the
+    provenance dict on the mesh rides as Pset_BimforgeTerrain.
 
-    The fixture's two triangles lie in one plane (z = 100 + 0.1x + 0.2y),
-    so the brep writer merges them into ONE four-sided face: the quad's
-    four corners, no diagonal."""
+    The fixture is an open surface, so it is an IfcTriangulatedFaceSet with
+    Closed=False, not a brep: a closed shell's every edge is used by two
+    faces (bSI's GEM001), and a surface's rim edges are used by one."""
     import ifcopenshell
     import ifcopenshell.util.element
     m = _terrain_model()
@@ -695,18 +695,17 @@ def test_emit_ifc_mesh_kind_terrain_reference_element(tmp_path):
     geo = f.by_type("IfcGeographicElement")
     assert len(geo) == 1
     assert geo[0].PredefinedType == "TERRAIN"
-    breps = [i for r in geo[0].Representation.Representations
-             for i in r.Items if i.is_a("IfcFacetedBrep")]
-    assert len(breps) == 1
-    faces = breps[0].Outer.CfsFaces
-    assert len(faces) == 1                        # coplanar facets merged
-    assert len(faces[0].Bounds[0].Bound.Polygon) == 4
-    coords = {tuple(p.Coordinates)
-              for face in faces
-              for p in face.Bounds[0].Bound.Polygon}
+    (rep,) = geo[0].Representation.Representations
+    assert rep.RepresentationType == "Tessellation"
+    (face_set,) = rep.Items
+    assert face_set.is_a("IfcTriangulatedFaceSet")
+    assert face_set.Closed is False
+    assert len(face_set.CoordIndex) == 2
+    coords = {tuple(c) for c in face_set.Coordinates.CoordList}
     assert len(coords) == 4
     k = m.ctx.ft_to_m
     assert (10.0 * k, 10.0 * k, 103.0 * k) in coords
+    assert not f.by_type("IfcFacetedBrep")
     # reference geometry: never a pay quantity — no Qto, and no
     # classification reference on the product (the empty BidSchedule
     # IfcClassification itself is always declared, associated to the
@@ -719,6 +718,83 @@ def test_emit_ifc_mesh_kind_terrain_reference_element(tmp_path):
     psets = ifcopenshell.util.element.get_psets(geo[0])
     assert psets["Pset_BimforgeTerrain"]["Source"] == "USGS 3DEP DEM"
     assert psets["Pset_BimforgeTerrain"]["SurveyGrade"] is False
+
+
+def _tetra_with_a_sliver(gap_ft):
+    """A closed tetrahedron (ft) whose edge AB is split at E, `gap_ft` from
+    A, as a boolean leaves it: AEC and AED are slivers, and the faces in
+    ABC's and ABD's planes hold A and E both."""
+    a, b, c, d = (0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (0.0, 10.0, 0.0), (0.0, 0.0, 10.0)
+    e = (gap_ft, 0.0, 0.0)
+    verts = [a, b, c, d, e]
+    A, B, C, D, E = range(5)
+    tris = [(A, C, E), (E, C, B), (A, E, D), (E, B, D), (A, D, C), (B, C, D)]
+    return verts, tris
+
+
+def _loops(item):
+    return [[tuple(p.Coordinates) for p in bound.Bound.Polygon]
+            for face in item.Outer.CfsFaces for bound in face.Bounds]
+
+
+def _edge_use(loops):
+    from collections import Counter
+    return Counter(frozenset(e) for loop in loops
+                   for e in zip(loop, loop[1:] + loop[:1]))
+
+
+def test_emit_ifc_closed_mesh_welds_points_closer_than_the_precision(tmp_path):
+    """Two corners a boolean left 3 microns apart are one point to a
+    checker, whose Precision is 1e-5 m (bSI's GEM111: no two points of a
+    loop that close). The brep welds them, drops the slivers between them,
+    and stays closed: every edge on two faces (GEM001)."""
+    import math
+
+    import ifcopenshell
+    ctx = ProjectContext(name="sliver", epsg=2226, guid_ns=uuid.UUID(int=15))
+    m = StructureModel("sliver", ctx)
+    verts, tris = _tetra_with_a_sliver(1e-5)          # 3 microns
+    m.add(Element("Backfill", ifc_class="IfcEarthworksFill",
+                  geometry={"kind": "mesh", "units": "ft", "verts": verts,
+                            "tris": tris}))
+    out = tmp_path / "sliver.ifc"
+    emit_ifc(m, str(out))
+    (brep,) = ifcopenshell.open(str(out)).by_type("IfcFacetedBrep")
+    loops = _loops(brep)
+    assert len(loops) == 4                            # the tetrahedron's faces
+    for loop in loops:
+        assert all(math.dist(p, q) >= 1e-5
+                   for i, p in enumerate(loop) for q in loop[i + 1:])
+    assert set(_edge_use(loops).values()) == {2}
+
+
+def test_weld_drops_a_fin_it_flattens():
+    """A fin 3 microns thick welds into one triangle and its reverse: no
+    volume, and its edges on four faces (GEM001), so both go; the rest of
+    the mesh stays as it was, each triangle as it started."""
+    from bimforge.author.emit_ifc import _weld
+    a, b, c, d = (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
+    c2 = (0.0, 1.0, 3e-6)
+    keep = [(b, c, d), (a, d, c)]
+    assert _weld([(a, b, c), (a, c2, b)] + keep) == keep
+
+
+def test_emit_ifc_closed_mesh_keeps_points_the_precision_tells_apart(tmp_path):
+    """A gap above the precision is real geometry: E stays, the shell is
+    closed."""
+    import ifcopenshell
+    ctx = ProjectContext(name="gap", epsg=2226, guid_ns=uuid.UUID(int=16))
+    m = StructureModel("gap", ctx)
+    verts, tris = _tetra_with_a_sliver(1e-3)          # 0.3 mm
+    m.add(Element("Backfill", ifc_class="IfcEarthworksFill",
+                  geometry={"kind": "mesh", "units": "ft", "verts": verts,
+                            "tris": tris}))
+    out = tmp_path / "gap.ifc"
+    emit_ifc(m, str(out))
+    (brep,) = ifcopenshell.open(str(out)).by_type("IfcFacetedBrep")
+    loops = _loops(brep)
+    assert len({p for loop in loops for p in loop}) == 5
+    assert set(_edge_use(loops).values()) == {2}
 
 
 def test_emit_ifc_terrain_is_byte_deterministic(tmp_path):
@@ -1868,3 +1944,45 @@ def test_emit_ifc_declares_kilograms_and_radians(tmp_path):
     assert (kg.Prefix, kg.Name) == ("KILO", "GRAM")
     (rad,) = by_type["PLANEANGLEUNIT"]
     assert (rad.Prefix, rad.Name) == (None, "RADIAN")
+
+
+def _layered_wall(base, geometry=True):
+    ctx = ProjectContext(name="Layer Fixture", schema="IFC4X3_ADD2", epsg=2226,
+                         base_e=6_594_000.0, base_n=1_943_000.0, base_h=200.0,
+                         guid_ns=uuid.UUID(int=4243))
+    m = StructureModel("layered", ctx)
+    if geometry:
+        p = Prism("Stem", base, z_bot=0.0, z_top=8.0, ifc="IfcWall")
+        m.add(Element.from_geometry(p.name, p, ifc_class="IfcWall",
+                                    material="Concrete", type_name="Stem 1 ft",
+                                    layer_thickness_ft=1.0))
+    else:
+        m.add(Element("Stem", "IfcWall", material="Concrete",
+                      type_name="Stem 1 ft", layer_thickness_ft=1.0))
+    return m
+
+
+def test_a_layered_walls_axis_is_its_bases_length_whatever_the_winding(tmp_path):
+    """The Axis runs the base's whole x-extent, not its first edge's: a base
+    that starts across the thickness still gets the wall's length (#108)."""
+    import ifcopenshell
+    out = tmp_path / "layered.ifc"
+    m = _layered_wall([(0, 0), (0, 1), (10, 1), (10, 0)])
+    emit_ifc(m, str(out))
+    (wall,) = ifcopenshell.open(str(out)).by_type("IfcWall")
+    (axis,) = [r for r in wall.Representation.Representations
+               if r.RepresentationIdentifier == "Axis"]
+    p0, p1 = axis.Items[0].Points
+    assert p0.Coordinates == (0.0, 0.0)
+    assert abs(p1.Coordinates[0] - 10 * m.ctx.ft_to_m) < 1e-9
+
+
+@pytest.mark.parametrize("kw, message", [
+    ({"base": [(5, 2), (15, 2), (15, 3), (5, 3)]}, "its own frame"),
+    ({"base": [(0, 0), (10, 0), (10, 2), (0, 2)]}, "y from 0 to 1.0"),
+    ({"base": None, "geometry": False}, "needs a prism geometry"),
+])
+def test_a_layered_element_outside_the_wall_concept_is_refused(tmp_path, kw,
+                                                                message):
+    with pytest.raises(ValueError, match=message):
+        emit_ifc(_layered_wall(**kw), str(tmp_path / "x.ifc"))

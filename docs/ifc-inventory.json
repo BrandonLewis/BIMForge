@@ -1,0 +1,2192 @@
+{
+ "applies|pset|BIMForge_Dimensions|IfcFooting": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_Dimensions|IfcWall": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcBeam": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcColumn": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcPlate": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcSlab": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcWall": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_Model|IfcProject": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "applies|pset|BidSheet_Activity|IfcTask": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "applies|pset|BidSheet_Crew|IfcLaborResource": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "applies|pset|BidSheet_EstimateItem|IfcCostItem": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "applies|pset|BidSheet_EstimateModel|IfcCostSchedule": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "applies|pset|BidSheet_EstimateModel|IfcWorkSchedule": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "applies|pset|Bimforge_CostItem|IfcCostItem": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "applies|pset|Bimforge_Task|IfcTask": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "applies|pset|Pset_FootingCommon|IfcFooting": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|Pset_RailingCommon|IfcRailing": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|Pset_Stationing|IfcReferent": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|Pset_WallCommon|IfcWall": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "applies|pset|_Block|IfcColumn": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcBeam": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcBuildingElementProxy": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcColumn": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcFooting": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcMechanicalFastener": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcMember": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcPlate": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcRailing": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcReinforcingBar": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcSlab": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcWall": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_SlabBaseQuantities|IfcSlab": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "applies|qset|Qto_TakeoffBaseQuantities|IfcBuildingElementProxy": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "applies|qset|Qto_TakeoffBaseQuantities|IfcColumn": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "applies|qset|Qto_TakeoffBaseQuantities|IfcCovering": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "applies|qset|Qto_WallBaseQuantities|IfcWall": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcAlignment": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcAlignmentHorizontal": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcAlignmentHorizontalSegment": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcAlignmentSegment": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcAlignmentVertical": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcAlignmentVerticalSegment": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcApplication": {
+  "IFC4": [
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcApproval": {
+  "IFC4": [
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcArbitraryClosedProfileDef": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcArbitraryProfileDefWithVoids": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcAxis1Placement": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcAxis2Placement2D": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcAxis2Placement3D": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcAxis2PlacementLinear": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcBeam": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcBuilding": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcBuildingElementProxy": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcBuildingElementProxyType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcBuildingStorey": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcCartesianPoint": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcCartesianPointList2D": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcCartesianTransformationOperator3D": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcCircle": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcClassification": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcClassificationReference": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcClosedShell": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcColourRgb": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcColumn": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcCompositeCurve": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcConversionBasedUnit": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcCostItem": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "entity|IfcCostSchedule": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "entity|IfcCostValue": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "entity|IfcCovering": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcCurveSegment": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcDimensionalExponents": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcDirection": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcElementQuantity": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcExtrudedAreaSolid": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcFace": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcFaceBound": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcFaceOuterBound": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcFacetedBrep": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcFooting": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcFootingType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcGeometricRepresentationContext": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcGeometricRepresentationSubContext": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcGradientCurve": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcIndexedPolyCurve": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcLaborResource": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "entity|IfcLine": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcLinearPlacement": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcLocalPlacement": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcMapConversion": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcMappedItem": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMaterial": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMaterialDefinitionRepresentation": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMaterialLayer": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMaterialLayerSet": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMaterialLayerSetUsage": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMeasureWithUnit": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMechanicalFastener": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMember": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMemberType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcMonetaryUnit": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "entity|IfcOrganization": {
+  "IFC4": [
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcOwnerHistory": {
+  "IFC4": [
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcPerson": {
+  "IFC4": [
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcPersonAndOrganization": {
+  "IFC4": [
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcPlate": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcPlateType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcPointByDistanceExpression": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcPolyLoop": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcPolyline": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcPolynomialCurve": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcPresentationLayerAssignment": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcProductDefinitionShape": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcProject": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcProjectedCRS": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcPropertySet": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcPropertySingleValue": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcQuantityArea": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcQuantityCount": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcQuantityLength": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcQuantityTime": {
+  "IFC4": [
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "schedule + cost5d"
+  ]
+ },
+ "entity|IfcQuantityVolume": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcQuantityWeight": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRailing": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRailingType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRecurrencePattern": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcReferent": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcReinforcingBar": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcReinforcingBarType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRelAggregates": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcRelAssignsToControl": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcRelAssignsToProcess": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "entity|IfcRelAssignsToProduct": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcRelAssociatesApproval": {
+  "IFC4": [
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcRelAssociatesClassification": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcRelAssociatesMaterial": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRelContainedInSpatialStructure": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcRelDeclares": {
+  "IFC4": [
+   "build",
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "build",
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcRelDefinesByObject": {
+  "IFC4": [
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcRelDefinesByProperties": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcRelDefinesByType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRelNests": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRelPositions": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRelReferencedInSpatialStructure": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRepresentationMap": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcResourceTime": {
+  "IFC4": [
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "schedule + cost5d"
+  ]
+ },
+ "entity|IfcRevolvedAreaSolid": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcSIUnit": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcShapeRepresentation": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcSite": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcSlab": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcStyledItem": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcStyledRepresentation": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcSurfaceStyle": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcSurfaceStyleRendering": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcTask": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcTaskTime": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcUnitAssignment": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcVector": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcWall": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "entity|IfcWallType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcWorkCalendar": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcWorkSchedule": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "entity|IfcWorkTime": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "pset|BIMForge_Dimensions": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|Batter": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|DesignHeight": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|HeelWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|StemBaseThickness": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|StemThickness": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|ToeWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|Alignment": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|OffsetLeftMax": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|OffsetLeftMin": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|OffsetText": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|StationEnd": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|StationEndText": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|StationStart": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|StationStartText": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_LinearReference|StationUnit": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Model": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Model|BimforgeVersion": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Model|BuildId": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Model|Schema": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Model|Source": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|BidSheet_Activity": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Activity|ActivityId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Activity|Cost": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Activity|CostCode": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Activity|HomeItemId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Activity|Kind": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Activity|Manhours": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Crew": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Crew|CrewId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Crew|Headcount": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Crew|Members": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_Crew|Writer": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|AllocatedTotal": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|CostKey": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|ItemCode": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|ItemId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|ItemNumber": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|PricingSource": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|Quantity": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|Schedule": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|Total": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|Unit": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateItem|UnitPrice": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateModel": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateModel|EstimateId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateModel|WorkSchedule": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|BidSheet_EstimateModel|Writer": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|Bimforge_CostItem": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "pset|Bimforge_CostItem|ActivityId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|Bimforge_CostItem|ElementGlobalId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|Bimforge_CostItem|ElementId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|Bimforge_CostItem|ExactCost": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|Bimforge_CostItem|Fraction": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|Bimforge_CostItem|ItemId": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|Bimforge_CostItem|LaborHours": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "pset|Bimforge_CostItem|Reason": {
+  "IFC4": [
+   "estimate-model"
+  ],
+  "IFC4X3": [
+   "estimate-model"
+  ]
+ },
+ "pset|Bimforge_CostItem|TaskId": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d"
+  ]
+ },
+ "pset|Bimforge_Task": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "pset|Bimforge_Task|MatchIfcClass": {
+  "IFC4": [
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "pset|Bimforge_Task|TaskId": {
+  "IFC4": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "estimate-model",
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "pset|Bimforge_Task|Wbs": {
+  "IFC4": [
+   "schedule + cost5d",
+   "schedule --returned"
+  ],
+  "IFC4X3": [
+   "schedule + cost5d",
+   "schedule --returned"
+  ]
+ },
+ "pset|Pset_FootingCommon": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_FootingCommon|Reference": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_RailingCommon": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_RailingCommon|Reference": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_Stationing": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_Stationing|Station": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_WallCommon": {
+  "IFC4": [
+   "build",
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "build",
+   "dxf2bim"
+  ]
+ },
+ "pset|Pset_WallCommon|IsExternal": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "pset|Pset_WallCommon|LoadBearing": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "pset|Pset_WallCommon|Reference": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|_Block": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "pset|_Block|Name": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_BaseQuantities": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_BaseQuantities|Count|IfcQuantityCount": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_BaseQuantities|GrossArea|IfcQuantityArea": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_BaseQuantities|GrossVolume|IfcQuantityVolume": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_BaseQuantities|GrossWeight|IfcQuantityWeight": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_BaseQuantities|Height|IfcQuantityLength": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_BaseQuantities|Length|IfcQuantityLength": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_BaseQuantities|Perimeter|IfcQuantityLength": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_BaseQuantities|Width|IfcQuantityLength": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_SlabBaseQuantities": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_SlabBaseQuantities|GrossArea|IfcQuantityArea": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_SlabBaseQuantities|GrossVolume|IfcQuantityVolume": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_SlabBaseQuantities|Perimeter|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_SlabBaseQuantities|Width|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_TakeoffBaseQuantities": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_TakeoffBaseQuantities|Count|IfcQuantityCount": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_TakeoffBaseQuantities|GrossArea|IfcQuantityArea": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_TakeoffBaseQuantities|GrossVolume|IfcQuantityVolume": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_TakeoffBaseQuantities|Height|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_TakeoffBaseQuantities|Length|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_TakeoffBaseQuantities|Perimeter|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_TakeoffBaseQuantities|Width|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_WallBaseQuantities": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_WallBaseQuantities|GrossVolume|IfcQuantityVolume": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_WallBaseQuantities|Height|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_WallBaseQuantities|Length|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ },
+ "qset|Qto_WallBaseQuantities|Width|IfcQuantityLength": {
+  "IFC4": [
+   "dxf2bim"
+  ],
+  "IFC4X3": [
+   "dxf2bim"
+  ]
+ }
+}

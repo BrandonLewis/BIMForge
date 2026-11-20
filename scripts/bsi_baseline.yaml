@@ -2,29 +2,49 @@
 #
 # scripts/bsi_rules.py fails on any finding not listed here, and on any
 # entry listed here that is no longer found: fix a finding, delete its line.
-# Outputs are the names test_conformance.py writes. Rules run at the
-# ifc-gherkin-rules commit pinned in .github/workflows/ci.yml.
+# Outputs are the names test_conformance.py writes (-ifc4: the same writer
+# on IFC4). Rules run at the ifc-gherkin-rules commit pinned in
+# .github/workflows/ci.yml.
 accepted:
   QTY001:
     why: >-
-      Every element carries one generic Qto_BaseQuantities set; the standard
-      names are per class (Qto_WallBaseQuantities, Qto_FootingBaseQuantities,
-      ...). Audit phase 3 / C.6 writes the standard sets.
+      Every element carries one generic quantity set, Qto_BaseQuantities
+      (dxf2bim's Qto_TakeoffBaseQuantities); the standard names are per
+      class (Qto_WallBaseQuantities, Qto_FootingBaseQuantities, ...). Audit
+      phase 3 / C.6 writes the standard sets.
     outputs:
       - bridge-standard
+      - bridge-standard-ifc4
       - bridge-standard-4d-cost5d
+      - bridge-standard-4d-cost5d-ifc4
+      - bridge-standard-carried
+      - bridge-standard-carried-ifc4
       - bridge-standard-estimate-model
+      - bridge-standard-estimate-model-ifc4
       - caltrans-b3-retaining-wall
+      - caltrans-b3-retaining-wall-ifc4
+      - caltrans-b3-wall-types
+      - caltrans-b3-wall-types-ifc4
       - caltrans-box-culvert
+      - caltrans-box-culvert-ifc4
       - caltrans-culvert-wingwall
+      - caltrans-culvert-wingwall-ifc4
       - caltrans-d90-headwall
+      - caltrans-d90-headwall-ifc4
       - caltrans-pipe-headwall
+      - caltrans-pipe-headwall-ifc4
       - concrete-barrier-732sw
+      - concrete-barrier-732sw-ifc4
       - concrete-barrier-842
+      - concrete-barrier-842-ifc4
       - demo-box
+      - demo-box-ifc4
       - dxf2bim-sample
+      - dxf2bim-sample-ifc4
       - federated-headwalls
+      - federated-headwalls-ifc4
       - tubular-handrail
+      - tubular-handrail-ifc4
   GRF005:
     why: >-
       The rule inverts IfcMapConversion.Scale. The schema scales local
@@ -35,26 +55,45 @@ accepted:
       the target units"). Ours stays; the rule's is the bug.
     outputs:
       - bridge-standard
+      - bridge-standard-ifc4
       - bridge-standard-4d-cost5d
+      - bridge-standard-4d-cost5d-ifc4
+      - bridge-standard-carried
+      - bridge-standard-carried-ifc4
       - bridge-standard-estimate-model
+      - bridge-standard-estimate-model-ifc4
       - caltrans-b3-retaining-wall
+      - caltrans-b3-retaining-wall-ifc4
+      - caltrans-b3-wall-types
+      - caltrans-b3-wall-types-ifc4
       - caltrans-box-culvert
+      - caltrans-box-culvert-ifc4
       - caltrans-culvert-wingwall
+      - caltrans-culvert-wingwall-ifc4
       - caltrans-d90-headwall
+      - caltrans-d90-headwall-ifc4
       - caltrans-pipe-headwall
+      - caltrans-pipe-headwall-ifc4
       - concrete-barrier-732sw
+      - concrete-barrier-732sw-ifc4
       - concrete-barrier-842
+      - concrete-barrier-842-ifc4
       - demo-box
+      - demo-box-ifc4
       - federated-headwalls
+      - federated-headwalls-ifc4
       - tubular-handrail
+      - tubular-handrail-ifc4
   ALS016:
     why: >-
       A warning: segments meet within 0.9 mm, against a 0.01 mm tolerance.
       The example's plan rounds the arc lengths (174.53 ft for 500 ft x 20
       deg = 174.5329). bimforge places each curve's end by its delta, while
       IFC evaluates SegmentLength / R. Writing R x delta as the length would
-      close the gap but shift IFC distances off the plan's stations.
+      close the gap but shift IFC distances off the plan's stations. IFC4
+      has no IfcAlignment, so only the IFC4X3 files carry it.
     outputs:
       - bridge-standard
       - bridge-standard-4d-cost5d
+      - bridge-standard-carried
       - bridge-standard-estimate-model

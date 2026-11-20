@@ -4,6 +4,153 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **The B3 wall's sizing dimensions are written on each slice (M.2).** A
+  property set `BIMForge_Dimensions` whose properties and measures come from
+  the family dictionary, so "design height" is one property on every job:
+  every slice has `DesignHeight`; a stem has `StemThickness` (and, battered,
+  `StemBaseThickness` and `Batter`, a ratio); a footing has `ToeWidth` and
+  `HeelWidth`. Lengths are IfcLengthMeasure in the project unit. What is a
+  quantity (length, width, height, volume) stays in the quantity set. A
+  class declares its dimensions and the build fails on an element missing
+  one or carrying an undeclared one (`Element.dimensions`,
+  `family_dictionary.dimensions`). Written after the GlobalId sweep, keyed,
+  so no GlobalId moves.
+
+## 0.1.128 — 2026-11-18
+
+The retaining wall typed from the dictionary (X.4, X.6, #105), every typed element's family class (M.1, #106), material layer sets on the constant-thickness B3 stems (X.6, #108), and a fix to `federate(merge_facilities=True)`, which re-keyed a folded facility on 0.1.127.
+
+**For anyone who federated on 0.1.127 with `merge_facilities`:** rebuild on 0.1.128. A facility and its parts whose GlobalIds moved get their 0.1.126 GlobalIds back.
+
+**For ProjectCommand and BidSheet.ai:** typed elements now carry a second IfcClassificationReference, to their family class, under an IfcClassification named `bimforge families`. It is not a pay code: bimforge's pay readers skip it, and so should any reader that keys pay items on element classifications.
+
+### Added
+
+- **Every element of a typed family references its dictionary class
+  (M.1).** An IfcClassificationReference with the class's Code as
+  Identification ("retaining-wall-b3-type-1"), its Name, and its bSDD URI
+  as Location, under one IfcClassification `bimforge families` (Source
+  `bimforge`, Edition the dictionary version, the dictionary URI as its
+  Location/Specification): the B3 walls and footings, the barrier runs and
+  bodies, the B11-51 handrailing and its parts, the D90 guardrail, and
+  every sized reinforcing bar. A reader gets the class without matching a
+  type name's prefix: `ifc_takeoff.family_class_of(element)`. Written after
+  the GlobalId sweep, the relationship keyed by its reference, so no
+  GlobalId moves.
+
+- **The B3 retaining wall is typed (X.6).** Every stem slice is an
+  IfcWall/RETAININGWALL of an IfcWallType named for its wall type
+  ("Retaining wall Type 1"), every footing slice an IfcFooting/STRIP_FOOTING
+  of an IfcFootingType ("Retaining wall Type 1 footing"), and both carry the
+  B3 sheet they are built to as `Pset_WallCommon.Reference` /
+  `Pset_FootingCommon.Reference` (B3-1A, B3-3A, B3-4A, B3-7A). The family
+  dictionary has a class for each of the five wall types and its footing.
+  A reader groups a run's slices by type instead of by name.
+  No GlobalId moves: the types and sets are written after the sweep that
+  numbers the file's other roots, each keyed (`Element.typed_late`,
+  docs/globalid-contract.md), as the bar types are.
+
+- **The constant-thickness B3 stems carry a material layer set (X.6).**
+  Types 1A, 6A and 6B, both stem faces vertical, are written as IFC's "wall
+  with material layer set usage": the wall type has a one-layer
+  IfcMaterialLayerSet of its concrete at the stem thickness, each slice an
+  IfcMaterialLayerSetUsage of it (AXIS2) and an 'Axis' polyline, and the
+  slice is placed in its own frame along that axis (where it sits is
+  unchanged, to the vertex). The battered stems (Types 1 and 5) and every
+  footing keep a plain IfcMaterial: IFC writes a battered or L-shaped
+  retaining wall without a layer set, and has no tapered wall layer
+  (IfcMaterialLayerWithOffsets offsets a layer's edges, not its thickness;
+  the tapering usage is for beams and columns). IfcFooting has no layer
+  set concept, and a Type 1 footing's thickness changes with its design H.
+  `Element.layer_thickness_ft` asks for it. New example
+  `caltrans-b3-wall-types`: one wall of every type on a skewed tangent, so
+  conformance and buildingSMART's rules see every wall class.
+
+### Changed
+
+- **Pay readers skip the family class.** `classifications_of` (the
+  takeoff, `estimate5d`, `model-elements`, the takeoff workbook, the web
+  contract, the 4D schedule) and the GIS export's cost code leave out
+  references under `bimforge families`. The takeoff IDS applies its
+  classified-element rules to every system but that one.
+
+- **Families read their names from the dictionary (X.4).** The type names
+  and standard-plan references of the barriers, the B11-51 handrailing and
+  the D90 pipe guardrail come from `bimforge-families.bsdd.json` through
+  `bimforge.author.family_dictionary`, not from literals in each family.
+  What is written is unchanged. `BarrierTemplate.standard_plan` is gone: the
+  plan is the dictionary class's, by `family_id`.
+
+### Fixed
+
+- **Folding one facility from several sources keeps the first source's.**
+  `federate(merge_facilities=True)` kept whichever facility came first among
+  the site's children, an order that follows entity numbers, so a source
+  that wrote fewer entities (0.1.127's mesh weld) could hand the fold to a
+  later source and give the facility and its parts new GlobalIds. It now
+  keeps the first source's, as documented; files federated on 0.1.126 get
+  their GlobalIds back.
+
+## 0.1.127 — 2026-11-18
+
+Conformance as a standing gate on IFC4 too (C.7, #101), the inventory of what each command writes (C.9, #102), the model's identity (M.6, #103), mesh conformance (GEM001, GEM111) and fast output links (#64).
+
+**For ProjectCommand and BidSheet.ai:** this is the first release that writes `BIMForge_Model.BuildId` on the IfcProject. Models built earlier have no set. The estimating plugin's floor need not move.
+
+### Added
+
+- **The model names itself (M.6).** Every file `est-bim build`, `dxf2bim`
+  and `federate` write carries `BIMForge_Model` on its IfcProject:
+  `BuildId` (sha256 over the canonical source, the bimforge version and the
+  schema), `BimforgeVersion`, `Schema` and `Source`. The source is what the
+  build reads, parsed: the spec and the files it names, without its output
+  paths; dxf2bim's layer map and the features read from the DXF; a
+  federation's sources' BuildIds. So the same source gets the same id on any
+  machine and after any rebuild, and the embedders leave it alone. A model
+  emitted with no source named is identified by the file itself
+  (`bimforge.bim.model_identity`).
+- **An inventory of what each command writes (C.9).** `docs/ifc-inventory.md`
+  lists the entity types, property sets and quantity sets (with their
+  properties and the classes they apply to) that `build`, `dxf2bim`,
+  `schedule`, `cost5d`, `estimate-model`, a carried rebuild and `federate`
+  write, on IFC4X3 and IFC4, generated from the conformance suite's files by
+  `scripts/ifc_inventory.py`. CI fails when a writer starts writing something
+  the inventory does not hold.
+- **Conformance on IFC4 too, and on a carried-forward rebuild (C.7).** The
+  conformance suite builds every example on IFC4 as well as IFC4X3, runs the
+  4D, cost, estimate, dxf2bim and federate writers on both, and checks a
+  schedule rebuild with a downstream update carried onto it. All pass the
+  schema's rules, and buildingSMART's rules find nothing beyond the three
+  listed kinds.
+
+### Changed
+
+- **A downstream tool may rewrite what it added itself.** The returned-files
+  contract (`docs/globalid-contract.md`) keeps "never modifies an entity of
+  ours" and now lets the tool replace or remove its own additions: one
+  update instead of a pile, a kept update retyped BASELINE, approvals changed
+  or withdrawn. `carry_forward` already carried these unchanged; tests now
+  pin a MODIFIED update and a kept BASELINE beside the current one.
+
+### Fixed
+
+- **An open mesh is a surface, and a mesh's near-duplicate corners are one
+  (#103).** A `mesh` that is not closed (terrain, a measured surface) was
+  written as a closed faceted brep, its rim edges each on one face
+  (buildingSMART's GEM001); it is now an IfcTriangulatedFaceSet with
+  `Closed=False`. A boolean's corners microns apart were written as two
+  points one loop holds (GEM111, under the context's 1e-5 m precision); they
+  are welded, and the slivers and flattened fins that leaves are dropped, so
+  a closed mesh stays closed.
+
+- **Linking a task to many elements is fast again** (follow-up to #60). The output
+  links are written once per element by `schedule4d.link_outputs`, not once per
+  task-element pair through `sequence.assign_product`, which looked through the
+  task's assignments on every call. One task on 4,000 elements took 33 s after #60
+  (3.4 s before it) and now takes 0.2 s. The relationships written are the same.
+
 ## 0.1.126 — 2026-11-17
 
 IFC compliance audit Phase 2 (roadmap C.5): relationship semantics; and buildingSMART's normative rules in CI (#94).
@@ -26,12 +173,6 @@ IFC compliance audit Phase 2 (roadmap C.5): relationship semantics; and building
 
 ### Changed
 
-- **A downstream tool may rewrite what it added itself.** The returned-files
-  contract (`docs/globalid-contract.md`) keeps "never modifies an entity of
-  ours" and now lets the tool replace or remove its own additions: one
-  update instead of a pile, a kept update retyped BASELINE, approvals changed
-  or withdrawn. `carry_forward` already carried these unchanged; tests now
-  pin a MODIFIED update and a kept BASELINE beside the current one.
 - **Crews are assigned to tasks with IfcRelAssignsToProcess**, the task relating, in `cost5d` and `estimate-model`; it was IfcRelAssignsToResource (the crew relating). `read_costs` reads both, so earlier files read the same hours. A tool that copies a task's process assignments (ProjectCommand's schedule update) now carries the crew along. A re-embed removes the old crews' assignments with them (ifcopenshell's `remove_resource` leaves process assignments behind). The 4D readers (`task_elements`, element start dates, appear and vanish spans) skip resources among a task's process inputs.
 - `read_costs` and the web contract find a work schedule's cost schedule by type and link: a BUDGET or ESTIMATE schedule declared to the project whose cost items control its tasks, whatever it is named. The name "<ws> cost" and the estimate-model marker remain the fallbacks. The error for none or several now says which.
 - The web contract reads bid items (`BidSheet_EstimateItem`) only from ESTIMATE cost schedules.
