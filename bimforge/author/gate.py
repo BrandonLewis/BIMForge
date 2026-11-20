@@ -584,8 +584,9 @@ def _ifc_formula_check(model, ifc_path: str,
     f = ifcopenshell.open(str(ifc_path))
     fail = []
     for qset in f.by_type("IfcElementQuantity"):
-        # attribute 3 is every simple quantity's value (LengthValue, ...)
-        values = {q.Name: q[3] for q in qset.Quantities
+        # attribute 2 is every simple quantity's Value (index 3 is the
+        # OPTIONAL NominalValue, usually unset)
+        values = {q.Name: q.Value for q in qset.Quantities
                   if q.is_a("IfcPhysicalSimpleQuantity")}
         for q in qset.Quantities:
             formula = getattr(q, "Formula", None)
@@ -598,7 +599,7 @@ def _ifc_formula_check(model, ifc_path: str,
             except ValueError as exc:
                 fail.append(f"{owners}: {q.Name} {exc}")
                 continue
-            want = q[3]
+            want = q.Value
             if abs(got - want) > tol * max(abs(want), 1e-12):
                 fail.append(f"{owners}: {q.Name} {want:.9g} is not its "
                             f"formula {formula} = {got:.9g} (tol {tol:g})")
