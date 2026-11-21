@@ -75,6 +75,26 @@ project takeoff instead of an estimate. A takeoff has no pay items, so pay-item
 matching is dropped — no entry carries a `pay_items` key and `items` is refused.
 Element selection, GlobalId validation and unit conversion are unchanged.
 
+What the model says about an element (roadmap M.6), each key present only
+when the file has it, all in the units BidSheet.ai stores (never m):
+
+- `family_class` and `class_uri`: the family dictionary class (M.1);
+- `type_name`: its IFC type's Name; `standard_plan`: the class's
+  Pset_*Common.Reference;
+- `parameters`: `BIMForge_Dimensions` (M.2), {dictionary Code: {"value",
+  "unit"}}, lengths in FT (the project's foot, as its stations read) and
+  ratios as RATIO. Not `dimensions`, which a
+  BidSheet.ai takeoff element already uses for "measured from dimensions";
+- `linear_reference`: `BIMForge_LinearReference`, {"alignment",
+  "station_start", "station_end", "offset_left_min", "offset_left_max",
+  "unit": "FT"};
+- `formula` on a quantity: the source quantity's Formula (M.3), over names
+  in the source's set.
+
+and once per call, `model`: the file's `BIMForge_Model` identity,
+{"build_id", "bimforge_version", "ifc_schema", "source"}. BidSheet.ai
+ignores keys it does not store, so a payload with them is valid either way.
+
 Pure: reads the IFC, writes nothing.
 """
 from __future__ import annotations
@@ -86,8 +106,8 @@ from typing import Optional
 import ifcopenshell
 
 from bimforge.bim.ifc_takeoff import (
-    QUANTITY_DIM, classifications_of, quantity_scale, quantity_sets,
-    _unit_scales)
+    QUANTITY_DIM, classifications_of, family_class_of, quantity_scale,
+    quantity_sets, _unit_scales)
 
 CY_M3 = 0.764554857984         # one cubic yard in m3
 SF_M2 = 0.09290304             # one square foot in m2
@@ -297,13 +317,115 @@ def _pay_key(quantities: dict, unit: Optional[str], vkey: str) -> Optional[str]:
 
 
 def _quantity(value: float, unit: str, set_name: str, name: str,
-              warnings: list, label: str) -> dict:
+              warnings: list, label: str, formulas: dict | None = None) -> dict:
     rounded = round(value, 4)
     if value and not rounded:
         warnings.append(f"{label}: {set_name}.{name} is {value:.3g} {unit} — "
                         f"rounds to 0 at 4 places; check the file's unit "
                         f"declarations")
-    return {"value": rounded, "unit": unit, "source": f"{set_name}.{name}"}
+    out = {"value": rounded, "unit": unit, "source": f"{set_name}.{name}"}
+    formula = (formulas or {}).get((set_name, name))
+    if formula:
+        out["formula"] = formula
+    return out
+
+
+def _formulas(element) -> dict:
+    """{(set, name): Formula} of the element's quantities that have one."""
+    return {(qto.Name or "", q.Name): q.Formula
+            for qto in quantity_sets(element) for q in qto.Quantities or []
+            if getattr(q, "Formula", None)}
+
+
+#: an IFC measure of a BIMForge_Dimensions property -> (unit sent, scaled
+#: by the file's length unit to feet)
+PARAMETER_UNITS = {"IfcLengthMeasure": ("FT", True),
+                   "IfcPositiveLengthMeasure": ("FT", True),
+                   "IfcRatioMeasure": ("RATIO", False),
+                   "IfcPositiveRatioMeasure": ("RATIO", False)}
+
+_LINEAR_KEYS = (("StationStart", "station_start"),
+                ("StationEnd", "station_end"),
+                ("OffsetLeftMin", "offset_left_min"),
+                ("OffsetLeftMax", "offset_left_max"))
+
+
+def model_record(model) -> dict | None:
+    """The file's `BIMForge_Model` identity as the call-level `model`."""
+    from bimforge.bim import model_identity
+    ident = model_identity.read(model)
+    if not ident or not ident.get("BuildId"):
+        return None
+    out = {"build_id": ident["BuildId"]}
+    for prop, key in (("BimforgeVersion", "bimforge_version"),
+                      ("Schema", "ifc_schema"), ("Source", "source")):
+        if ident.get(prop):
+            out[key] = ident[prop]
+    return out
+
+
+def described(element, ft: float, linear: dict, warnings: list,
+              label: str) -> dict:
+    """What the model says about `element` (M.6): family class, type,
+    standard plan, parameters and linear reference, in BidSheet.ai's units.
+    Only the keys the file has. `ft` takes the file's length unit to the
+    project's foot (`alignment_station.foot_m`), so an 8 ft design height
+    authored in US survey feet reads 8.0, not 8.000016."""
+    import ifcopenshell.util.element as ue
+
+    from bimforge.author.family_dictionary import DIMENSIONS
+    out: dict = {}
+    fam = family_class_of(element)
+    if fam and fam["code"]:
+        out["family_class"] = fam["code"]
+        if fam["uri"]:
+            out["class_uri"] = fam["uri"]
+    el_type = ue.get_type(element)
+    if el_type is not None and el_type.Name:
+        out["type_name"] = el_type.Name
+    if fam:
+        plan = next((ps["Reference"] for n, ps in ue.get_psets(element).items()
+                     if n.startswith("Pset_") and n.endswith("Common")
+                     and ps.get("Reference")), None)
+        if plan:
+            out["standard_plan"] = plan
+    params = {}
+    for rel in getattr(element, "IsDefinedBy", None) or []:
+        pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is None or not pset.is_a("IfcPropertySet") \
+                or pset.Name != DIMENSIONS:
+            continue
+        for prop in pset.HasProperties:
+            nv = getattr(prop, "NominalValue", None)
+            unit = PARAMETER_UNITS.get(nv.is_a()) if nv is not None else None
+            if unit is None:
+                warnings.append(f"{label}: {DIMENSIONS}.{prop.Name} is "
+                                f"{nv.is_a() if nv is not None else 'empty'}"
+                                f" — not a length or a ratio; not sent")
+                continue
+            value = float(nv.wrappedValue) * (ft if unit[1] else 1.0)
+            if not math.isfinite(value):
+                warnings.append(f"{label}: {DIMENSIONS}.{prop.Name} is "
+                                f"{value} — a broken export; not sent")
+                continue
+            params[prop.Name] = {"value": round(value, 6), "unit": unit[0]}
+    if params:
+        out["parameters"] = params
+    ref = linear.get(element.GlobalId)
+    if ref and ref.get("Alignment"):
+        lr = {"alignment": ref["Alignment"]}
+        for prop, key in _LINEAR_KEYS:
+            if ref.get(prop) is None:
+                continue
+            value = float(ref[prop]) * ft
+            if not math.isfinite(value):
+                warnings.append(f"{label}: BIMForge_LinearReference.{prop} is "
+                                f"{value} — a broken export; not sent")
+                continue
+            lr[key] = round(value, 4)
+        lr["unit"] = "FT"
+        out["linear_reference"] = lr
+    return out
 
 
 def _parts(element) -> list:
@@ -337,8 +459,12 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
     if takeoff and (items or schedule is not None):
         raise ValueError("a takeoff has no pay items — items and schedule "
                          "do not apply to a takeoff target")
+    from bimforge.bim import linear_ref
+    from bimforge.bim.alignment_station import foot_m
     model = ifcopenshell.open(ifc) if isinstance(ifc, str) else ifc
     scales = _unit_scales(model)
+    linear = linear_ref.read(model)
+    ft = scales["length"] / foot_m(model)
     index, ambiguous = _item_index(items, schedule)
     structure_ids = {str(k): v for k, v in (structure_ids or {}).items()}
     skipped, warnings = [], []
@@ -409,12 +535,13 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
         label = f"{name} ({gid})"
         vkey = volume_key(etype)
 
+        formulas = _formulas(el)
         quantities: dict[str, dict] = {}
         vol = _pick(values, VOLUME_NAMES[vkey], "volume")
         if vol is not None:
             s, n, v = vol
             quantities[vkey] = _quantity(v / CY_M3, "CY", s, n, warnings,
-                                         label)
+                                         label, formulas)
         if etype == "pile":
             length = _pick(values, ("Length",), "length")
             if length is not None:
@@ -436,6 +563,7 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
                    structure_id)
         if sid:
             entry["structure_id"] = str(sid)[:STRUCTURE_ID_MAX]
+        entry.update(described(el, ft, linear, warnings, label))
         entry["quantities"] = quantities
         if not quantities:
             without.append({"global_id": gid, "name": name})
@@ -482,5 +610,9 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
         warnings.append(f"{len(without)} element(s) are sent with no "
                         f"quantities (no Qto BidSheet.ai stores): a re-import "
                         f"clears the model values an earlier one stored")
-    return {"elements": elements, "skipped": skipped,
-            "without_quantities": without, "warnings": warnings}
+    out = {"elements": elements, "skipped": skipped,
+           "without_quantities": without, "warnings": warnings}
+    record = model_record(model)
+    if record:
+        out["model"] = record
+    return out

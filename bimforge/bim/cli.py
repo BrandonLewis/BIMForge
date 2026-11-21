@@ -6,6 +6,7 @@
   est-bim ifc2dxf --ifc model.ifc [--out model.plan.dxf] [--include IfcSlab,IfcFooting] [--exclude IfcRailing] [--simplify-ft 0.05]
   est-bim ifc2gis --ifc model.ifc [model2.ifc ...] [--out model.gpkg] [--index structures.ifc] [--tin]
   est-bim takeoff --ifc model.ifc [--map takeoff_map.yaml] [--out takeoff.json] [--csv takeoff.csv]
+  est-bim takeoff-check --takeoff takeoff.json --ifc model.ifc [--out checked.json]
   est-bim takeoff-workbook --ifc model.ifc [--ifc more.ifc ...] --map takeoff_map.yaml [--official bid_items.json] --out takeoff.xlsx
   est-bim schedule-read --ifc model.4d.ifc [--schedule NAME] --out schedule.json [--takeoff-map map.yaml --takeoff-out takeoff.json] [--costs-out costs.json]
   est-bim sfca    model.ifc [--flat 0.85] [--split-el EL] [--skip-class IfcPipeSegment,...]
@@ -249,6 +250,36 @@ def _run_takeoff(args) -> int:
     print("\nNext: hand this JSON to the estimating-core push-takeoff skill "
           "(or `est-takeoff plan` for a dry-run push plan).")
     return 0
+
+
+def _run_takeoff_check(args) -> int:
+    """Re-check a takeoff written earlier against a model (M.5): exit 1
+    when its rows no longer add up to the model's elements."""
+    import ifcopenshell
+
+    from bimforge.bim.ifc_takeoff import print_warnings
+    from bimforge.bim.takeoff_check import check_takeoff, failures
+
+    try:
+        with open(args.takeoff, encoding="utf-8") as fh:
+            takeoff = json.load(fh)
+        model = ifcopenshell.open(args.ifc)
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    record = check_takeoff(model, takeoff)
+    prior = (takeoff.get("check") or {}).get("build_id")
+    takeoff["check"] = record
+    if args.out:
+        with open(args.out, "w", encoding="utf-8") as fh:
+            json.dump(takeoff, fh, indent=2)
+    print(f"Check: {record['result']} — {len(record['rows'])} rows, "
+          f"{record['elements']} elements against {args.ifc}")
+    if prior and record.get("build_id") and prior != record["build_id"]:
+        print(f"  the model was rebuilt since the takeoff "
+              f"({prior[:12]} -> {record['build_id'][:12]})")
+    print_warnings(failures(record))
+    return 0 if record["result"] == "pass" else 1
 
 
 def _run_web(args) -> int:
@@ -2493,6 +2524,13 @@ def main(argv=None) -> int:
     t.add_argument("--out", default="takeoff.json", help="output JSON path")
     t.add_argument("--csv", help="also write a CSV for eyeballing")
 
+    tc = sub.add_parser("takeoff-check",
+                        help="re-check a takeoff's sum against a model "
+                             "(exit 1 when it no longer adds up)")
+    tc.add_argument("--takeoff", required=True, help="takeoff JSON")
+    tc.add_argument("--ifc", required=True, help="the model to check it on")
+    tc.add_argument("--out", help="write the takeoff with the new check")
+
     w = sub.add_parser("web", help="write the web pages (takeoff, 4D/5D "
                                    "dashboard) and their JSON bundle for an "
                                    "IFC, and optionally serve them")
@@ -3156,6 +3194,8 @@ def main(argv=None) -> int:
             return _run_validate(args)
         if args.cmd == "takeoff":
             return _run_takeoff(args)
+        if args.cmd == "takeoff-check":
+            return _run_takeoff_check(args)
         if args.cmd == "web":
             return _run_web(args)
         if args.cmd == "takeoff-workbook":

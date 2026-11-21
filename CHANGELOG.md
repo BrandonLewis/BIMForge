@@ -33,20 +33,26 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   written beside `Qto_BaseQuantities` and only on the class it belongs to
   (M.17's first step). Where a name is in both, takeoff keeps reading
   `Qto_BaseQuantities`, so no takeoff number changes.
-
-- **buildingSMART's alignment checks run in CI (C.12).**
-  `gate.alignment_issues` holds a file to the checks buildingSMART's IFC4.3
-  sample models pass:
-  - every alignment layout ends with a zero-length segment;
-  - every IfcAlignment is aggregated to the IfcProject;
-  - every distance along a curve is an IfcLengthMeasure.
-
-  The conformance suite runs it on every file it writes, beside the schema
-  check, and the `add-alignments` tests run it on what that command writes.
-  The examples' alignment already passed; nothing written changes.
+- **Every takeoff records its sum, checked against the model (M.5).**
+  `est-bim takeoff` writes a top-level `check` into the takeoff JSON
+  (CanonicalTakeoff readers ignore it): the model's `build_id`, each row's
+  quantity beside its elements' sum (`basis` "sum", or "stated" for a lump
+  sum or `count_as` row), and the result. It fails when a row does not add
+  up to its elements, an element is in a row twice, or a classified element
+  with quantities is in no row; each failure is a review line.
+  `est-bim takeoff-check --takeoff t.json --ifc model.ifc` re-checks a
+  takeoff written earlier against a rebuilt model, by GlobalId: an element
+  whose value moved or that is gone fails the rows it backs, and the
+  command exits 1.
 
 ### Fixed
 
+- **A measurement check carried through a rebuild keeps its link (M.5).**
+  `carry_forward` dropped the IfcResourceApprovalRelationship that ties
+  ProjectCommand's check approval to its objective (the sheet value, model
+  value and tolerance), since nothing references it. It is now copied when
+  both ends come across, so a carried check reads whole and a reader can
+  call it lapsed.
 - **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
   and grid spacing to 3DEP in the CRS's own unit but scaled plan and height
   by one factor, so it only worked on a metric CRS. `grid_to_mesh` and
@@ -59,6 +65,40 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   log gives the spacing in it, not always "m".
 - **A facility on an alignment is positioned on it.** `IfcRelPositions`
   now lists the `IfcRoad` (or other facility) as well as its elements.
+
+## 0.1.130 — 2026-11-21
+
+What the model says about each element now goes to BidSheet.ai with its quantities (M.6, #114), and buildingSMART's alignment checks run in CI (C.12, #113). No file BIMForge writes changes.
+
+**For BidSheet.ai:** `upsert_modelled_elements` payloads from `est-bim model-elements` gain optional keys: per element `family_class`, `class_uri`, `type_name`, `standard_plan`, `parameters` and `linear_reference`, per quantity `formula`, and per call `model` (keyed on `build_id`). All are additive; they are ignored until BidSheet.ai stores them (its rows 5.16 to 5.19).
+
+### Added
+
+- **buildingSMART's alignment checks run in CI (C.12).**
+  `gate.alignment_issues` holds a file to the checks buildingSMART's IFC4.3
+  sample models pass:
+  - every alignment layout ends with a zero-length segment;
+  - every IfcAlignment is aggregated to the IfcProject;
+  - every distance along a curve is an IfcLengthMeasure.
+
+  The conformance suite runs it on every file it writes, beside the schema
+  check, and the `add-alignments` tests run it on what that command writes.
+  The examples' alignment already passed; nothing written changes.
+- **`est-bim model-elements` sends what the model says about each element
+  (M.6).** Beside its quantities, an entry now carries, when the file has
+  them: `family_class` and `class_uri` (the dictionary class, M.1),
+  `type_name`, `standard_plan`, `parameters` (`BIMForge_Dimensions`, M.2,
+  {Code: {value, unit}}, lengths in FT of the project's foot, ratios as
+  RATIO) and `linear_reference` (alignment, stations and offsets in FT); a
+  quantity carries its `formula` (M.3). The call carries `model`, the
+  file's identity (`build_id`, `bimforge_version`, `ifc_schema`, `source`).
+  Every key is optional and BidSheet.ai ignores keys it does not store, so
+  old and new payloads are both valid; BidSheet.ai storing them is its own
+  change (its rows 5.16 to 5.19). Named `parameters`, not `dimensions`,
+  which a BidSheet.ai takeoff element already uses for "measured from
+  dimensions". A parameter, station or offset that is not finite in feet
+  (a broken export) is left out with a warning, so the payload stays valid
+  JSON.
 
 ## 0.1.129 — 2026-11-20
 

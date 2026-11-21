@@ -14,7 +14,10 @@ returned file alone (nothing of an earlier carry is read):
 - what it references of ours is re-pointed onto the rebuilt entity by
   GlobalId (our ids are stable: #74, #80);
 - what it references that is not rooted (an IfcApproval, its organizations,
-  a task's IfcTaskTime) is copied with it.
+  a task's IfcTaskTime) is copied with it;
+- a resource relationship between what it carried, which nothing references
+  (a measurement check's IfcResourceApprovalRelationship from its approval
+  to its objective, M.5), is copied too.
 
 Nothing is merged field by field. The report says, both ways, what no longer
 lines up: additions whose target is gone (dropped, or the whole relationship
@@ -36,6 +39,7 @@ _OURS = ("IfcProcess", "IfcControl", "IfcResource")
 class CarryReport:
     carried: int = 0                         # rooted additions copied
     already_present: int = 0                 # additions the rebuilt file has
+    links: int = 0                           # resource relationships copied
     applications: list[str] = field(default_factory=list)
     vanished: list[dict] = field(default_factory=list)
     dropped: list[dict] = field(default_factory=list)
@@ -205,6 +209,7 @@ def carry_forward(returned, rebuilt) -> CarryReport:
         if gone:
             report.vanished.append({**_label(rel), "missing": [
                 _label(e) for e in gone]})
+    report.links = _resource_links(returned, copier)
     for gid, ent in copier.missing.items():
         if not any(gid in [m["global_id"] for m in r["missing"]]
                    for r in report.vanished + report.dropped):
@@ -213,6 +218,24 @@ def carry_forward(returned, rebuilt) -> CarryReport:
     _modified(returned, rebuilt, report)
     _uncovered(rebuilt, report)
     return report
+
+
+def _resource_links(returned, copier) -> int:
+    """Copy the resource relationships between what was just carried (a
+    check's IfcResourceApprovalRelationship from its approval to its
+    objective): nothing references one, so no addition reaches it, and it
+    has no OwnerHistory to be stamped with. Carried when every entity it
+    names came across in this carry; how many were."""
+    import ifcopenshell
+    n = 0
+    for rel in returned.by_type("IfcResourceLevelRelationship"):
+        ends = [v for i in range(len(rel))
+                for v in (rel[i] if isinstance(rel[i], tuple) else (rel[i],))
+                if isinstance(v, ifcopenshell.entity_instance)]
+        if ends and all(copier.memo.get(e.id()) is not None for e in ends):
+            copier.entity(rel)
+            n += 1
+    return n
 
 
 def _modified(returned, rebuilt, report: CarryReport) -> None:
