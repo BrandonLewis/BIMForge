@@ -323,11 +323,16 @@ def volume_formula(el) -> str | None:
     if grade == "box" and (q.get("count", 1) or 1) != 1:
         raise ValueError(f"{el.name}: a box formula is one element's volume; "
                          f"count is {q['count']}")
-    if grade == "section" and (q.get("section_sf") is None
-                               or q.get("length_ft") is None):
-        raise ValueError(f"{el.name}: a section formula needs section_sf and "
-                         f"length_ft")
-    return VOLUME_FORMULAS[grade]
+    formula = VOLUME_FORMULAS[grade]
+    if formula:
+        written = {name for _ent, name, _v in base_quantities(el, 1.0)}
+        missing = [n.strip() for n in formula.split("*")
+                   if n.strip() not in written]
+        if missing:
+            raise ValueError(f"{el.name}: a {grade} formula needs "
+                             f"{', '.join(missing)}, which its quantities "
+                             f"do not give")
+    return formula
 
 
 # ------------------------------------------------------------------ geometry

@@ -2068,7 +2068,8 @@ def test_formula_gate_catches_a_quantity_that_does_not_recompute(tmp_path):
 @pytest.mark.parametrize("grade, quantities, why", [
     ("cube", {"length_ft": 1.0}, "not one of"),
     ("box", {"count": 3, "length_ft": 12.0, "width_ft": 3.0}, "count is 3"),
-    ("section", {"length_ft": 12.0}, "needs section_sf"),
+    ("section", {"length_ft": 12.0}, "needs CrossSectionArea"),
+    ("box", {"length_ft": 12.0, "height_ft": 2.0, "area_sf": 0.0}, "needs Width"),
 ])
 def test_volume_formula_refuses_what_the_quantities_cannot_carry(
         grade, quantities, why):

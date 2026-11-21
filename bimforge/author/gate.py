@@ -558,6 +558,13 @@ def _ifc_representation_type_check(model, ifc_path: str) -> list[str]:
 FORMULA_TOLERANCE = 1e-6
 
 
+def quantity_value(q):
+    """A simple quantity's value: its LengthValue, AreaValue, VolumeValue,
+    CountValue, ... by name. IFC4 and IFC4X3 alike put it fourth, after
+    Name, Description and Unit; there is no attribute called `Value`."""
+    return getattr(q, q.attribute_name(3))
+
+
 def formula_value(formula: str, values: dict) -> float:
     """A quantity Formula evaluated over its set's {name: value}. Only the
     product of names is read (`Length * Width * Height`); anything else, or
@@ -584,9 +591,7 @@ def _ifc_formula_check(model, ifc_path: str,
     f = ifcopenshell.open(str(ifc_path))
     fail = []
     for qset in f.by_type("IfcElementQuantity"):
-        # attribute 2 is every simple quantity's Value (index 3 is the
-        # OPTIONAL NominalValue, usually unset)
-        values = {q.Name: q.Value for q in qset.Quantities
+        values = {q.Name: quantity_value(q) for q in qset.Quantities
                   if q.is_a("IfcPhysicalSimpleQuantity")}
         for q in qset.Quantities:
             formula = getattr(q, "Formula", None)
@@ -599,7 +604,7 @@ def _ifc_formula_check(model, ifc_path: str,
             except ValueError as exc:
                 fail.append(f"{owners}: {q.Name} {exc}")
                 continue
-            want = q.Value
+            want = quantity_value(q)
             if abs(got - want) > tol * max(abs(want), 1e-12):
                 fail.append(f"{owners}: {q.Name} {want:.9g} is not its "
                             f"formula {formula} = {got:.9g} (tol {tol:g})")
