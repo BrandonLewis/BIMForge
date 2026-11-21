@@ -4,6 +4,12 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.129 — 2026-11-20
+
+The B3 wall's sizing dimensions (M.2, #109) and how each of its volumes was derived, checked on the written file (M.3, #110). With M.1 in 0.1.128, the B3 wall's part of Stage 1 is done.
+
+**For ProjectCommand and BidSheet.ai:** each B3 stem and footing slice now carries a `BIMForge_Dimensions` property set (`DesignHeight`, `StemThickness`, `StemBaseThickness`, `Batter`, `ToeWidth`, `HeelWidth`, as its class declares), whose names are the family dictionary's Codes and stable; and its `GrossVolume` has `Formula = "Length * Width * Height"` over its own quantity set. No GlobalId moves.
+
 ### Added
 
 - **The B3 wall's sizing dimensions are written on each slice (M.2).** A
@@ -26,9 +32,10 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   slice is a box. A new post-build check recomputes every formula from the
   written file and fails the build, deleting the outputs, when one is more
   than 1e-6 (relative) off its quantity or names a quantity the set does
-  not have (`gate.FORMULA_TOLERANCE`, `gate.formula_value`). Elements of the
-  other families carry no formula until their family declares one. No
-  GlobalId moves.
+  not have (`gate.FORMULA_TOLERANCE`, `gate.formula_value`); a formula over a
+  quantity the element will not have is refused at build time, naming it.
+  Elements of the other families carry no formula until their family
+  declares one. No GlobalId moves.
 
 ## 0.1.128 — 2026-11-18
 
