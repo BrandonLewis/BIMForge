@@ -331,9 +331,15 @@ def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
         if not (el.Name or "").startswith(("Cut ", "Fill ")):
             continue
         qtos = E.get_psets(el, qtos_only=True)
-        want = ("Qto_EarthworksCutBaseQuantities" if el.Name.startswith("Cut ")
-                else "Qto_EarthworksFillBaseQuantities")
-        assert want in qtos
+        assert "Qto_BaseQuantities" in qtos
+        if el.Name.startswith("Cut "):
+            # an unhosted cut is written as IfcEarthworksElement (#364), for
+            # which Qto_EarthworksCutBaseQuantities is not defined (QTY001)
+            assert el.is_a() == "IfcEarthworksElement"
+            assert "Qto_EarthworksCutBaseQuantities" not in qtos
+        else:
+            assert el.is_a("IfcEarthworksFill")
+            assert "Qto_EarthworksFillBaseQuantities" in qtos
         ps = E.get_psets(el, psets_only=True)["BIMForge_MassHaul"]
         key = (ps["StartStation"], ps["EndStation"])
         assert ps["CumulativeCY"] == pytest.approx(rows[key], abs=1e-3)
@@ -345,6 +351,10 @@ def test_the_ifc4_file_passes_the_schema_and_its_bodies_are_solid(tmp_path, mode
     from bimforge.author.gate import _ifc_solid_body_check, _quiet_stdout, schema_issues
     f, out = _built(tmp_path, "IFC4")
     assert not schema_issues(f)
+    # every product is a proxy here, so no class's standard set applies
+    import ifcopenshell.util.element as E
+    for prod in f.by_type("IfcBuildingElementProxy"):
+        assert set(E.get_psets(prod, qtos_only=True)) <= {"Qto_BaseQuantities"}, prod.Name
     with _quiet_stdout():
         assert _only_point_contacts(
             _ifc_solid_body_check(model, str(out / "rc.ifc"))) == []
@@ -401,6 +411,9 @@ def test_on_3dep_ground_the_cut_voids_the_terrain(on_3dep, tmp_path):
     assert all(r.RelatingBuildingElement.Name == terrain.name
                for r in f.by_type("IfcRelVoidsElement"))
     assert not f.by_type("IfcEarthworksElement", include_subtypes=False)
+    import ifcopenshell.util.element as E
+    for cut in f.by_type("IfcEarthworksCut"):
+        assert "Qto_EarthworksCutBaseQuantities" in E.get_psets(cut, qtos_only=True)
 
 
 def test_on_ifc4_a_cut_voids_nothing(on_3dep):

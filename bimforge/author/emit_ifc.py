@@ -2333,9 +2333,13 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                     quantities.append(qq)
                 qto.Quantities = tuple(quantities)
 
-            # the class's standard set (roadmap M.17), beside the base set
+            # the class's standard set (roadmap M.17), beside the base set;
+            # it is defined for the class the model asked for only, so an
+            # element written as another (the #364 cut rewrite, the IFC4
+            # proxy fallback) carries none (bSI QTY001)
+            own_class = ifc_class == el.ifc_class
             for qset, values in (el.standard_qto or {}).items():
-                if not values:
+                if not values or not own_class:
                     continue        # a set needs at least one quantity
                 sq = run("pset.add_qto", f, product=product, name=qset)
                 sq.Quantities = tuple(

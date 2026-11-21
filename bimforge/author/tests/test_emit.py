@@ -2101,6 +2101,30 @@ def test_standard_qto_is_written_beside_the_base_set(tmp_path):
     assert std["GrossVolume"] == pytest.approx(32.0 * k ** 3)
 
 
+def test_standard_qto_is_written_only_on_the_class_it_is_for(tmp_path):
+    # a standard set is defined for its own class (bSI QTY001): an element
+    # written as another class (IFC4's proxy fallback here) carries none,
+    # though it keeps Qto_BaseQuantities
+    import dataclasses
+
+    import ifcopenshell
+    import ifcopenshell.util.element
+
+    m = _fixture_model()
+    m.ctx = dataclasses.replace(m.ctx, schema="IFC4")
+    el = m.element("PS-1 footing")
+    el.ifc_class = "IfcEarthworksFill"           # not in IFC4: a proxy
+    el.standard_qto = {"Qto_EarthworksFillBaseQuantities": {
+        "Length": ("length", 4.0)}}
+    out = tmp_path / "std4.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    (prod,) = [e for e in f.by_type("IfcBuildingElementProxy") if e.Name == "PS-1 footing"]
+    qtos = ifcopenshell.util.element.get_psets(prod, qtos_only=True)
+    assert "Qto_BaseQuantities" in qtos
+    assert "Qto_EarthworksFillBaseQuantities" not in qtos
+
+
 def test_standard_qto_refuses_an_unknown_measure(tmp_path):
     m = _fixture_model()
     m.element("PS-1 footing").standard_qto = {
