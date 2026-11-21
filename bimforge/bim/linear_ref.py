@@ -63,19 +63,23 @@ def _bodies(f) -> dict:
     s = geom.settings()
     s.set("use-world-coords", True)
     s.set("weld-vertices", False)
+    from bimforge.author.gate import _quiet_stdout
     out = {}
-    it = geom.iterator(s, f)
-    if not it.initialize():
-        return out
-    while True:
-        sh = it.get()
-        el = f.by_id(sh.id)
-        if el.is_a("IfcElement"):
-            v = np.asarray(sh.geometry.verts, dtype=float).reshape(-1, 3)
-            if len(v):
-                out[sh.id] = (np.vstack([out[sh.id], v]) if sh.id in out else v)
-        if not it.next():
-            break
+    # ifcopenshell 0.9 dumps the topology of every IfcSectionedSolidHorizontal
+    # it draws to fd 1 (IfcOpenShell#9820): thousands of lines for a corridor
+    with _quiet_stdout():
+        it = geom.iterator(s, f)
+        if not it.initialize():
+            return out
+        while True:
+            sh = it.get()
+            el = f.by_id(sh.id)
+            if el.is_a("IfcElement"):
+                v = np.asarray(sh.geometry.verts, dtype=float).reshape(-1, 3)
+                if len(v):
+                    out[sh.id] = (np.vstack([out[sh.id], v]) if sh.id in out else v)
+            if not it.next():
+                break
     return out
 
 

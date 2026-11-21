@@ -157,21 +157,69 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
     return Side(kind, pts + [day])
 
 
+def _grade(c, s: float, side: str) -> list:
+    """Finished grade on `side` at station s, crown outward, one point per
+    component edge."""
+    sign = 1.0 if side == "L" else -1.0
+    u = v = 0.0
+    pts = [(0.0, 0.0)]
+    for comp in c.components:
+        w = c.width(comp, side, s)
+        slope = (comp.slope if comp.slope is not None
+                 else c.cross_slope(side, s))
+        u += sign * w
+        v += w * slope
+        pts.append((u, v))
+    return pts
+
+
+#: how close the station a side turns at is found, feet
+_TURN_FT = 1e-9
+
+
+def kind_changes(c, a: Section, b: Section, ground_dz) -> list:
+    """Stations strictly between sections `a` and `b` where a side turns
+    from cut to fill or back: where its hinge meets the ground.
+
+    A side's earthwork line is lofted point to point between stations, so
+    across a turn the ditch and backslope at one station run onto the fill
+    slope at the next: long twisted slivers whose ground crossing is a comb.
+    Cut a section where it turns and the side there is a point on the
+    ground (the hinge, as fill), so each strip either side is all one kind
+    fanning from that point. The station returned is the fill side of the
+    turn, within _TURN_FT."""
+    depth = c.depth()
+    out = []
+    for side in SIDES:
+        kinds = {a.sides[side].kind, b.sides[side].kind}
+        if kinds != {"cut", "fill"}:
+            continue
+
+        def above(s):
+            u, v = _grade(c, s, side)[-1]
+            return ground_dz(s, u, v - depth) > 0.0
+
+        lo, hi = a.s, b.s                 # `above` differs at the two ends
+        cut_lo = above(lo)
+        while hi - lo > _TURN_FT:
+            mid = 0.5 * (lo + hi)
+            if above(mid) == cut_lo:
+                lo = mid
+            else:
+                hi = mid
+        s = hi if cut_lo else lo          # the end where the side is fill
+        if a.s < s < b.s:
+            out.append(s)
+    return sorted(set(out))
+
+
 def resolve(c, s: float, ground_dz) -> Section:
     """The section of corridor `c` at station `s` (params.Corridor)."""
     depth = c.depth()
     grade, subgrade, courses, sides = {}, {}, {}, {}
     for side in SIDES:
         sign = 1.0 if side == "L" else -1.0
-        u = v = 0.0
-        pts = [(0.0, 0.0)]
-        for comp in c.components:
-            w = c.width(comp, side, s)
-            slope = (comp.slope if comp.slope is not None
-                     else c.cross_slope(side, s))
-            u += sign * w
-            v += w * slope
-            pts.append((u, v))
+        pts = _grade(c, s, side)
         grade[side] = pts
         subgrade[side] = [(pu, pv - depth) for pu, pv in pts]
         above = 0.0

@@ -21,6 +21,9 @@ REQUIRED = ("alignment", "profile", "ground", "section")
 LAYER = "C-ROAD"
 #: how far a course's mesh volume may stray from its average end area
 AEA_TOL = 0.005
+#: no section is added where a side turns closer than this to a station,
+#: feet: the strip either side would be a sliver
+TURN_GAP_FT = 0.01
 
 
 def bands(stations: list, s_start: float, band: float) -> list:
@@ -106,7 +109,7 @@ def build(params: dict, ctx) -> "StructureModel":
     from bimforge.author.corridor.ground import from_params
     from bimforge.author.corridor.loft import StationLoft
     from bimforge.author.corridor.params import SIDES, parse
-    from bimforge.author.corridor.section import resolve
+    from bimforge.author.corridor.section import kind_changes, resolve
     from bimforge.author.model import Element, StructureModel
 
     missing = [k for k in REQUIRED if params.get(k) is None]
@@ -140,6 +143,15 @@ def build(params: dict, ctx) -> "StructureModel":
         stations = densify(al, prof, c.stations(
             s0, s1, geometry_stations(al, prof, s0, s1)))
         secs = [resolve(c, s, ground_dz) for s in stations]
+        # a section where a side turns between cut and fill
+        # (section.kind_changes), unless a station is already that close
+        turns = [t for a, b in zip(secs, secs[1:])
+                 for t in kind_changes(c, a, b, ground_dz)
+                 if min(t - a.s, b.s - t) > TURN_GAP_FT]
+        if turns:
+            stations = sorted(stations + turns)
+            known = {sec.s: sec for sec in secs}
+            secs = [known.get(s) or resolve(c, s, ground_dz) for s in stations]
         for i0, i1 in bands(stations, al.s_start, c.band):
             b0, b1 = stations[i0], stations[i1]
             ss, bs = stations[i0:i1 + 1], secs[i0:i1 + 1]

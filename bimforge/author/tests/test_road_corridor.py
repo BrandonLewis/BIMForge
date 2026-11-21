@@ -187,6 +187,71 @@ def test_each_element_carries_its_standard_set(model):
     assert "IfcEarthworksCut" in sets or "IfcEarthworksFill" in sets
 
 
+#: a sag through a cut: the left side turns from cut (ditch and backslope)
+#: to fill between 15+50 and 15+75, during the superelevation run-up
+TURNING = {
+    "alignment": {"name": "ML", "pob": {"station": 1000.0, "northing": N0, "easting": E0},
+                  "run": [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 600.0}]},
+    "profile": {"curves": [{"bvc_station": 1000.0, "bvc_elev": 298.0, "g_in_pct": 3.0,
+                            "g_out_pct": 5.6, "length_ft": 1549.07,
+                            "evc_station": 2549.07, "evc_elev": 364.61}]},
+    "ground": {"source": "plane", "elevation": 300.0, "slope_n": 0.03, "slope_e": 0.04},
+    "section": copy.deepcopy(PARAMS["section"]),
+    "superelevation": [[1000.0, -0.02, -0.02], [1500.0, -0.02, -0.02],
+                       [1600.0, 0.04, -0.04]],
+    "stations": {"interval": 25, "band": 100},
+}
+
+
+def test_a_side_turning_from_cut_to_fill_gets_a_section_where_it_turns():
+    from bimforge.author.alignment import Alignment, Profile
+    from bimforge.author.corridor.frame import survey_point
+    from bimforge.author.corridor.ground import PlaneGround
+    from bimforge.author.corridor.params import parse
+    from bimforge.author.corridor.section import kind_changes, resolve
+    al_p = TURNING["alignment"]
+    al, prof = Alignment(al_p["pob"], al_p["run"]), Profile(TURNING["profile"]["curves"])
+    c = parse(TURNING, al.s_start, al.s_end)
+    g = PlaneGround(300.0, n0=N0, e0=E0, slope_n=0.03, slope_e=0.04)
+
+    def dz(s, u, v):
+        n, e, z = survey_point(al, prof, s, u, v)
+        return g.z(n, e) - z
+
+    a, b = resolve(c, 1550.0, dz), resolve(c, 1575.0, dz)
+    assert (a.sides["L"].kind, b.sides["L"].kind) == ("cut", "fill")
+    (s,) = kind_changes(c, a, b, dz)
+    assert 1550.0 < s < 1575.0
+    turn = resolve(c, s, dz)
+    # there the hinge is on the ground: the fill side is no more than a point
+    assert turn.sides["L"].kind == "fill"
+    assert abs(dz(s, *turn.subgrade["L"][-1])) < 1e-6
+    assert turn.sides["L"].line[-1] == pytest.approx(turn.subgrade["L"][-1], abs=1e-6)
+    assert kind_changes(c, b, resolve(c, 1600.0, dz), dz) == []
+
+
+def test_the_band_where_a_side_turns_is_written_as_closed_bodies(tmp_path):
+    # Fill 15+00 to 16+00 lofted the left side's ditch straight onto the
+    # fill slope, a comb of slivers along the ground crossing; merged into
+    # one ground-plane face, the engine drew it with 4 open edges
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.families.road_corridor import build
+    from bimforge.author.gate import _quiet_stdout
+    from bimforge.author.model import StructureModel
+    from bimforge.bim.ifc_mesh import solid_bodies
+    m = build(copy.deepcopy(TURNING), CTX)
+    one = StructureModel("one", CTX)
+    for name in ("Fill STA 15+00.00 to 16+00.00", "Cut STA 15+00.00 to 16+00.00"):
+        one.add(m.element(name))
+    out = tmp_path / "turn.ifc"
+    emit_ifc(one, str(out))
+    with _quiet_stdout():
+        bodies = solid_bodies(str(out)).values()
+    for info in bodies:
+        t = info["topology"]
+        assert (t["open_edges"], t["nonmanifold_edges"], t.get("nonmanifold_vertices", 0))             == (0, 0, 0), (info["name"], t)
+
+
 def test_a_slope_that_finds_no_ground_is_refused():
     from bimforge.author.families.road_corridor import build
     p = copy.deepcopy(PARAMS)
@@ -264,6 +329,20 @@ def test_the_road_is_positioned_on_its_alignment(x3):
     assert rel.RelatingPositioningElement.Name == "ML"
     assert [p for p in rel.RelatedProducts if p.is_a("IfcRoad")] == list(f.by_type("IfcRoad"))
     assert any(p.is_a("IfcCourse") for p in rel.RelatedProducts)
+
+
+def test_stationing_the_file_prints_nothing(x3, tmp_path, capfd):
+    # ifcopenshell 0.9 dumps the topology of every sectioned solid it draws
+    # to fd 1 (IfcOpenShell#9820); linear_ref draws them all to station them
+    import shutil
+
+    from bimforge.bim.linear_ref import annotate
+    _f, out = x3
+    copy_ = tmp_path / "rc.ifc"
+    shutil.copy(out / "rc.ifc", copy_)
+    capfd.readouterr()
+    annotate(str(copy_))
+    assert capfd.readouterr().out == ""
 
 
 def test_the_tree_is_road_segment_lateral_part(x3):
