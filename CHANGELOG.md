@@ -17,7 +17,11 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
     band; on IFC4X3 every cut voids the TERRAIN element;
   - superelevation, width transitions, and gaps for bridges and walls;
   - a mass-haul table, in a `BIMForge_MassHaul` property set on each band's
-    earthwork and as a CSV (`outputs.masshaul`), with shrink and swell;
+    earthwork and as a CSV (`outputs.masshaul`, in CY), with shrink and
+    swell; the set's `StartStation` / `EndStation` are `IfcLengthMeasure`
+    and `CumulativeVolume` an `IfcVolumeMeasure`, in the file's metres as
+    `BIMForge_LinearReference` writes stations, with `StartStationText` /
+    `EndStationText` ("14+00.00");
   - ground is a plane (tests and CI, which write a TERRAIN surface too) or
     3DEP over the corridor's footprint, cached.
 
@@ -50,6 +54,9 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   unchanged.
 - **An uncarved terrain is declared a surface,** so the solid-body check no
   longer reports its rim as open edges.
+- **The terrain's mesh spacing names its unit.** `Pset_BimforgeTerrain`
+  gains `MeshSpacingUnit` (the CRS's: `ftUS`, `ft` or `m`), and the build
+  log gives the spacing in it, not always "m".
 - **A facility on an alignment is positioned on it.** `IfcRelPositions`
   now lists the `IfcRoad` (or other facility) as well as its elements.
 

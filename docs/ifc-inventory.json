@@ -1630,7 +1630,7 @@
    "build"
   ]
  },
- "pset|BIMForge_MassHaul|CumulativeCY": {
+ "pset|BIMForge_MassHaul|CumulativeVolume": {
   "IFC4": [
    "build"
   ],
@@ -1646,7 +1646,23 @@
    "build"
   ]
  },
+ "pset|BIMForge_MassHaul|EndStationText": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "pset|BIMForge_MassHaul|StartStation": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_MassHaul|StartStationText": {
   "IFC4": [
    "build"
   ],
