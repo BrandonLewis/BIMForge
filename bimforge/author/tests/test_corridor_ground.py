@@ -62,3 +62,52 @@ def test_a_grid_is_read_bilinearly_in_feet():
 def test_bad_ground_is_refused(gp, ctx, match):
     with pytest.raises(ValueError, match=match):
         from_params(gp, line(), ctx, 50.0, None)
+
+
+US_FT = 0.30480060960121924
+
+
+@pytest.mark.parametrize("epsg, crs_m", [(2226, US_FT), (26942, 1.0)])
+def test_3dep_fetches_in_crs_units_and_reads_back_in_feet(monkeypatch, tmp_path,
+                                                          epsg, crs_m):
+    """A ftUS CRS gets its bbox in ft and 1 m spacing as ~3.28 ftUS; a metric
+    CRS gets metres. Either way the ground and the TERRAIN mesh come back in
+    model ft, with vshift_m taken off in metres. The fetch is stubbed."""
+    import bimforge.terrain as T
+    import bimforge.terrain.attach as A
+    from bimforge.author.model import StructureModel
+    calls = []
+
+    def fake_fetch(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
+        calls.append((bbox_m, spacing_m, crs_epsg, str(cache_path)))
+        xmin, ymin, xmax, ymax = bbox_m
+        cols = max(2, int(round((xmax - xmin) / spacing_m)))
+        rows = max(2, int(round((ymax - ymin) / spacing_m)))
+        e = xmin + (np.arange(cols) + 0.5) * (xmax - xmin) / cols
+        z = np.tile(30.48 + 0.01 * e, (rows, 1))      # rises 0.01 m per CRS unit east
+        return TerrainGrid(z=z, bbox_m=bbox_m, spacing_m=spacing_m, crs_epsg=crs_epsg)
+
+    monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
+    monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
+    ctx = ProjectContext(name="g", epsg=epsg, guid_ns=uuid.UUID(int=5))
+    model = StructureModel("g", ctx)
+    stem = str(tmp_path / "ml")
+    g = from_params({"source": "3dep", "cache": stem, "margin_ft": 10.0,
+                     "vshift_m": 0.5}, line(), ctx, 40.0, model, log=lambda *_: None)
+
+    c = US_FT / crs_m                                  # CRS units per model ft
+    bbox, spacing, got_epsg, cache = calls[0]
+    assert bbox == pytest.approx((-50 * c, -50 * c, 50 * c, 150 * c))
+    assert spacing == pytest.approx(1.0 / crs_m)       # 3.2808 ftUS, or 1 m
+    assert (got_epsg, cache) == (epsg, stem + "-3DEP-DEM.tif")
+
+    # E 10 ft is 10 c CRS units: z_m = 30.48 + 0.1 c, less 0.5 m, in ft
+    assert g.z(50.0, 10.0) == pytest.approx((30.48 + 0.1 * c - 0.5) / US_FT)
+    with pytest.raises(ValueError, match="N 5000.0 E 0.0.*does not cover"):
+        g.z(5000.0, 0.0)
+
+    (terrain,) = [el for el in model.elements if el.predefined_type == "TERRAIN"]
+    # 100 x 200 ft at 1 m: 30 cols x 61 rows; vertex 0 is the NW pixel centre
+    n0, e0 = 150.0 - 0.5 * 200.0 / 61, -50.0 + 0.5 * 100.0 / 30
+    assert terrain.geometry["verts"][0] == pytest.approx(
+        (n0, e0, (30.48 + 0.01 * e0 * c - 0.5) / US_FT))

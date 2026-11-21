@@ -2,12 +2,15 @@
 
 `plane`: a plane through the alignment's point of beginning, for tests and
 the shipped example, so CI never touches the network. `3dep`: the USGS 3DEP
-1 m DEM over the corridor's footprint, read through bimforge.terrain. A
-ground answers `z(northing, easting)` in the project's vertical datum, feet.
+1 m DEM over the corridor's footprint, cached under a path stem as
+bimforge.terrain caches it (rebuilds are offline), with the TERRAIN element
+added from the same cache. A ground answers `z(northing, easting)` in the
+project's vertical datum, feet.
 """
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 
 class PlaneGround:
@@ -24,18 +27,22 @@ class PlaneGround:
 
 
 class GridGround:
-    """A bimforge.terrain TerrainGrid (metres, NAVD88), read in feet in the
-    project datum. Where the grid has no ground (outside its pixel centres,
-    or a nodata pixel) `z` raises, naming the point: the corridor is never
-    measured against invented ground."""
+    """A bimforge.terrain TerrainGrid (plan in CRS units, z in NAVD88
+    metres), read in feet in the project datum. `crs_per_ft` is CRS units
+    per model foot: 1.0 for a ftUS CRS under a ftUS model, `ft_to_m` (the
+    default) for a metric CRS. Where the grid has no ground (outside its
+    pixel centres, or a nodata pixel) `z` raises, naming the point: the
+    corridor is never measured against invented ground."""
 
-    def __init__(self, grid, ft_to_m: float, vshift_m: float = 0.0) -> None:
+    def __init__(self, grid, ft_to_m: float, vshift_m: float = 0.0,
+                 crs_per_ft: float | None = None) -> None:
         self.grid, self.ft_to_m, self.vshift_m = grid, float(ft_to_m), float(vshift_m)
+        self.crs_per_ft = self.ft_to_m if crs_per_ft is None else float(crs_per_ft)
 
     def z(self, n: float, e: float) -> float:
         from bimforge.terrain.diff import sample_grid
         zm = float(sample_grid(self.grid.z, self.grid.bbox_m,
-                               e * self.ft_to_m, n * self.ft_to_m)[0])
+                               e * self.crs_per_ft, n * self.crs_per_ft)[0])
         if math.isnan(zm):
             raise ValueError(f"ground: no ground at N {n:.1f} E {e:.1f}: the "
                              f"DEM does not cover it")
@@ -69,9 +76,24 @@ def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
                              "its downloads are kept under")
         if ctx is None or ctx.epsg is None:
             raise ValueError("ground: source 3dep needs project.epsg")
-        # The fetch is pending a decision: bimforge.terrain passes its bbox
-        # to 3DEP in the CRS's own units and scales the mesh by one factor
-        # for plan and height alike, which holds only for a metric CRS.
-        raise NotImplementedError("ground: source 3dep is not wired yet")
+        import bimforge.terrain as terrain
+        from bimforge.bim.georef import crs_unit
+        # 3DEP reads the bbox and spacing in the CRS's own unit (ftUS for a
+        # State Plane zone in feet); elevations come back in metres. The
+        # model is in feet, so plan and height convert apart.
+        ft = ctx.ft_to_m
+        _unit, crs_m = crs_unit(ctx.epsg)
+        c = ft / crs_m                                 # CRS units per model ft
+        spacing = float(gp.get("spacing_m", 1.0)) / crs_m
+        vshift = float(gp.get("vshift_m", 0.0))
+        e0, n0, e1, n1 = footprint(alignment, reach + float(gp.get("margin_ft", 200.0)))
+        bbox = (e0 * c, n0 * c, e1 * c, n1 * c)
+        stem = str(gp["cache"])
+        grid = terrain.fetch_3dep_dem(bbox, spacing, ctx.epsg,
+                                      Path(stem + "-3DEP-DEM.tif"), log=log)
+        terrain.attach_terrain(model, bbox, crs_epsg=ctx.epsg, cache_stem=stem,
+                               unit_scale=1.0 / ft, plan_scale=1.0 / c,
+                               spacing_m=spacing, vshift_m=vshift, log=log)
+        return GridGround(grid, ft, vshift, crs_per_ft=c)
     raise ValueError(f"ground: source {gp.get('source') if gp else None!r} is "
                      f"not plane or 3dep")
