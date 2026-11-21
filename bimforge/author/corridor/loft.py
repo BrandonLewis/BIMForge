@@ -12,17 +12,22 @@ chords stay on the curve the IFC solid follows.
 """
 from __future__ import annotations
 
+import bisect
 import math
 
 from bimforge.author.alignment import poly_area
 from bimforge.author.corridor.frame import survey_point
 from bimforge.author.primitives import (_outward_tris, _signed_area2,
                                         clean_ring, ear_clip, face_volume)
-from bimforge.author.sweep import ring_centroid, to_model
+from bimforge.author.sweep import SweptSection, _seg_dist, ring_centroid, to_model
 
 
 class StationLoft:
     """Rings `rings[i]` at `stations[i]`, lofted point to point and capped."""
+
+    #: the sweep engine's frame, which the borrowed measures below read
+    frame = "normal"
+    camber = None
 
     def __init__(self, name: str, alignment, profile, origin, stations: list,
                  rings: list, ifc: str = "IfcBuildingElementProxy",
@@ -127,6 +132,46 @@ class StationLoft:
         """Whether `verts` are still this loft's own mesh (primitives.exact_of):
         anything that edits them is written as the mesh it made."""
         return self._verts is not None and [tuple(p) for p in verts] == self._verts
+
+    # ------------------------------------------------- exact-solid residual
+    # What gate._ifc_exact_sweep_check measures a drawn IFC solid with. The
+    # station lookup, the section-plane mapping and the cap and wall
+    # measures read only the alignment, profile, origin, s0/s1 and the frame,
+    # which a loft shares with a "normal" sweep, so they are SweptSection's
+    # own rather than copies; only the ring a point is measured against
+    # differs (it changes with station here).
+    _station_of = SweptSection._station_of
+    _survey = SweptSection._survey
+    _section_coords = SweptSection._section_coords
+    wall_area_sf = SweptSection.wall_area_sf
+    cap_station_error_ft = SweptSection.cap_station_error_ft
+    CAP_WINDOW_FT = SweptSection.CAP_WINDOW_FT
+
+    def ring_at(self, s: float) -> list:
+        """The (u, v) ring at station s: blended linearly, vertex for vertex,
+        between the stations either side, as IFC blends an
+        IfcSectionedSolidHorizontal's profiles; the end ring past either end."""
+        ss = self.stations
+        i = min(max(bisect.bisect_right(ss, s) - 1, 0), len(ss) - 2)
+        t = min(max((s - ss[i]) / (ss[i + 1] - ss[i]), 0.0), 1.0)
+        return [(ua + t * (ub - ua), va + t * (vb - va))
+                for (ua, va), (ub, vb) in zip(self.rings[i], self.rings[i + 1])]
+
+    def surface_residual_ft(self, points,
+                            margin: float = 1.0) -> tuple[float, float, float]:
+        """(max distance to the lofted surface, min station, max station) over
+        model-frame points (feet), as SweptSection.surface_residual_ft: each
+        point is taken to its section plane, then measured in (u, v) against
+        the ring blended at its station. An engine draws the caps from the
+        rings' own vertices, so those lie on the boundary too."""
+        worst, s_min, s_max = 0.0, math.inf, -math.inf
+        for x, y, z in points:
+            s, u, v = self._section_coords(x, y, z, margin)
+            s_min, s_max = min(s_min, s), max(s_max, s)
+            r = self.ring_at(s)
+            worst = max(worst, min(_seg_dist(u, v, a, b)
+                                   for a, b in zip(r, r[1:] + r[:1])))
+        return worst, s_min, s_max
 
     # ----------------------------------------------------------- quantities
     @property

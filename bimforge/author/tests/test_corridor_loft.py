@@ -89,3 +89,106 @@ def test_its_exact_form_is_one_section_per_station():
 def test_bad_lofts_are_refused(stations, rings, match):
     with pytest.raises(ValueError, match=match):
         StationLoft("x", line(), level(), None, stations, rings)
+
+
+# ---------------------------------------------------- the gate's interface
+# gate._ifc_exact_sweep_check holds a drawn IfcSectionedSolidHorizontal to
+# the loft it came from: these are the four legs it measures with.
+
+def _ring(s, grow=0.0):
+    """Left of the line, widening 0.02 ft per foot of station."""
+    w = 12.0 + 0.02 * s
+    return [(w + grow, 0.0), (2.0 - grow, 0.0), (2.0 - grow, -1.0),
+            (w + grow, -1.0)]
+
+
+def _lofts():
+    al, prof = curve(), level()
+    ss = densify(al, prof, [0.0, 10.0, 110.0, 120.0])
+    return [StationLoft("slab", line(), level(), None, [0.0, 50.0, 100.0],
+                        [RECT] * 3),
+            StationLoft("outer", al, prof, None, ss, [_ring(s) for s in ss])]
+
+
+def _ring_points(lf):
+    """Every ring vertex at every station: the loft's mesh, less the fan
+    centres, which sit a chord's sag inside the surface."""
+    return [p for i in range(len(lf.stations)) for p in lf._world(i)]
+
+
+@pytest.mark.parametrize("i", [0, 1])
+def test_its_own_mesh_lies_on_its_surface_and_spans_its_stations(i):
+    lf = _lofts()[i]
+    res, lo, hi = lf.surface_residual_ft(_ring_points(lf))
+    assert res == pytest.approx(0.0, abs=1e-6)
+    assert lo == pytest.approx(lf.s0, abs=1e-6)
+    assert hi == pytest.approx(lf.s1, abs=1e-6)
+
+
+@pytest.mark.parametrize("i", [0, 1])
+def test_a_mesh_pushed_out_strays_by_the_push(i):
+    lf = _lofts()[i]
+    grown = [[(u + (0.1 if u > 0 else -0.1), v) for u, v in r] for r in lf.rings]
+    if i == 1:
+        grown = [_ring(s, grow=0.1) for s in lf.stations]
+    big = StationLoft("big", lf.alignment, lf.profile, None, lf.stations, grown)
+    res, _lo, _hi = lf.surface_residual_ft(_ring_points(big))
+    assert res == pytest.approx(0.1, abs=1e-6)
+
+
+@pytest.mark.parametrize("i", [0, 1])
+def test_its_own_caps_sit_in_their_end_sections(i):
+    lf = _lofts()[i]
+    d = lf.body_solids()[0]
+    assert lf.cap_station_error_ft(d["verts"], d["tris"]) == pytest.approx(
+        0.0, abs=1e-6)
+
+
+def test_a_leaned_end_cap_is_seen():
+    lf = _lofts()[0]
+    d = lf.body_solids()[0]
+    # shear the far cap along travel (+y, north) by 0.04 ft per foot left
+    verts = [(x, y + 0.04 * -x, z) if abs(y - lf.s1) < 1e-9 else (x, y, z)
+             for x, y, z in d["verts"]]
+    assert lf.cap_station_error_ft(verts, d["tris"]) == pytest.approx(0.2,
+                                                                      abs=1e-6)
+
+
+@pytest.mark.parametrize("i", [0, 1])
+def test_its_wall_area_is_its_own_and_a_missing_wall_shows(i):
+    lf = _lofts()[i]
+    d = lf.body_solids()[0]
+    want = lf.wall_area_sf(d["verts"], d["tris"])
+    assert want > 0.0
+    assert lf.wall_area_sf(d["verts"], d["tris"]) == want
+    # drop the top surface (v = 0, at elevation 100)
+    tris = [t for t in d["tris"]
+            if not all(abs(d["verts"][j][2] - 100.0) < 1e-9 for j in t)]
+    assert lf.wall_area_sf(d["verts"], tris) < 0.9 * want
+
+
+def test_a_drawn_loft_passes_the_exact_sweep_check(tmp_path):
+    pytest.importorskip("ifcopenshell")
+    import uuid
+
+    from bimforge.author import gate
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.model import Element, StructureModel
+    from bimforge.author.project import ProjectContext
+    ctx = ProjectContext(name="Loft Fixture", schema="IFC4X3_ADD2", epsg=2226,
+                         base_e=0.0, base_n=0.0, base_h=0.0,
+                         guid_ns=uuid.UUID(int=6004))
+    al = curve()
+    prof = Profile([{"bvc_station": 20.0, "bvc_elev": 100.0, "g_in_pct": 3.0,
+                     "g_out_pct": -2.0, "length_ft": 80.0, "evc_station": 100.0,
+                     "evc_elev": 100.0 + 2.4 - 0.05 / 160.0 * 80.0 ** 2}])
+    ss = densify(al, prof, [0.0, 10.0, 20.0, 100.0, 110.0, 120.0])
+    lf = StationLoft("course", al, prof, ctx, ss, [_ring(s) for s in ss],
+                     ifc="IfcCourse")
+    m = StructureModel("loft", ctx)
+    m.add(Element.from_geometry("course", lf, ifc_class="IfcCourse",
+                                quantities={"volume_cf": lf.volume_cf}))
+    out = tmp_path / "loft.ifc"
+    emit_ifc(m, str(out))
+    assert gate._exact_sweep_names(out) == {"course"}
+    assert gate._ifc_exact_sweep_check(m, out) == []
