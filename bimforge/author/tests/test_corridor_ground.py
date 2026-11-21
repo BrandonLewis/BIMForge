@@ -111,3 +111,38 @@ def test_3dep_fetches_in_crs_units_and_reads_back_in_feet(monkeypatch, tmp_path,
     n0, e0 = 150.0 - 0.5 * 200.0 / 61, -50.0 + 0.5 * 100.0 / 30
     assert terrain.geometry["verts"][0] == pytest.approx(
         (n0, e0, (30.48 + 0.01 * e0 * c - 0.5) / US_FT))
+
+
+@pytest.mark.parametrize("nodata", [np.nan, -3.4e38])
+def test_a_nodata_cell_inside_the_grid_is_no_ground(nodata):
+    # 4 x 4 over 0..4 m; the cell at row 1, col 1 (N 2.5 m, E 1.5 m) is a hole
+    z = np.full((4, 4), 10.0)
+    z[1, 1] = nodata
+    grid = TerrainGrid(z=z, bbox_m=(0.0, 0.0, 4.0, 4.0), spacing_m=1.0,
+                       crs_epsg=26942)
+    g = GridGround(grid, 1.0)                          # 1 CRS unit per model ft
+    assert g.z(1.0, 3.0) == pytest.approx(10.0)        # clear of the hole
+    with pytest.raises(ValueError, match=r"N 2\.0 E 2\.0.*does not cover"):
+        g.z(2.0, 2.0)                                  # its 2x2 holds the hole
+
+
+def test_the_fetch_margin_is_at_least_two_dem_cells(monkeypatch, tmp_path):
+    # margin_ft 0 at 1 m spacing is floored to 2 m = 6.5617 ft, so a daylight
+    # at the reach still has pixel centres around it
+    import bimforge.terrain as T
+    import bimforge.terrain.attach as A
+    from bimforge.author.model import StructureModel
+    calls = []
+
+    def fake_fetch(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
+        calls.append(bbox_m)
+        return TerrainGrid(z=np.full((4, 4), 30.0), bbox_m=bbox_m,
+                           spacing_m=spacing_m, crs_epsg=crs_epsg)
+
+    monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
+    monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
+    ctx = ProjectContext(name="g", epsg=2226, guid_ns=uuid.UUID(int=5))
+    from_params({"source": "3dep", "cache": str(tmp_path / "ml"), "margin_ft": 0.0},
+                line(), ctx, 40.0, StructureModel("g", ctx), log=lambda *_: None)
+    r = 40.0 + 2.0 / US_FT
+    assert calls[0] == pytest.approx((-r, -r, r, 100.0 + r))
