@@ -18,6 +18,8 @@ from bimforge.author.corridor.params import SIDES
 SIDE_SAMPLES = 12
 #: the daylight search's step along a slope, horizontal feet
 _SCAN_FT = 1.0
+#: how far a daylight point may sit off the ground, feet
+_ON_GROUND_FT = 0.01
 
 
 @dataclass(frozen=True)
@@ -103,16 +105,26 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
         if sl.ditch is not None:
             p1 = (hu + sign * sl.cut_ratio * sl.ditch.depth, hv - sl.ditch.depth)
             pts += [p1, (p1[0] + sign * sl.ditch.width, p1[1])]
-        rise = 1.0 / sl.cut_ratio
     else:
-        kind, pts, rise = "fill", [hinge], -1.0 / sl.fill_ratio
+        kind, pts = "fill", [hinge]
+    # up the backslope while the ground is above the slope's start; on a side
+    # hill the ditch's outer edge can stand above the ground, and the side
+    # then runs down at the fill ratio from there
+    up = ground_dz(s, *pts[-1]) > 0.0
+    rise = 1.0 / sl.cut_ratio if up else -1.0 / sl.fill_ratio
     used = abs(pts[-1][0] - hu)
     day = _daylight(s, pts[-1], sign, rise, ground_dz,
-                    sl.daylight_limit - used, cut=(kind == "cut"))
+                    sl.daylight_limit - used, cut=up)
     if day is None:
         raise ValueError(
             f"station {sta(s)}: the {side} {kind} slope finds no ground within "
             f"{sl.daylight_limit:g} ft of the hinge")
+    off = ground_dz(s, *day)
+    if abs(off) > _ON_GROUND_FT:
+        raise ValueError(
+            f"station {sta(s)}: the {side} {kind} slope ends {abs(off):.2f} ft "
+            f"off the ground at offset {abs(day[0]):.2f} ft (is the ground "
+            f"continuous there?)")
     return Side(kind, pts + [day])
 
 

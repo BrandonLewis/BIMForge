@@ -45,6 +45,16 @@ def test_full_super_tilts_the_lanes_and_keeps_the_shoulder_slope():
     assert flat(sec.grade["R"]) == pytest.approx(flat([(0, 0), (-12, -0.72), (-17, -0.97)]))
 
 
+def test_halfway_through_a_super_transition():
+    # at 12+00, halfway from 10+00 (-0.02, -0.02) to 14+00 (0.06, -0.06):
+    # left 0.02, right -0.04; the shoulders keep -0.05
+    sec = resolve(corridor(superelevation=[[0, -0.02, -0.02], [1000, -0.02, -0.02],
+                                           [1400, 0.06, -0.06], [2000, 0.06, -0.06]]),
+                  1200.0, level(-5.0))
+    assert flat(sec.grade["L"]) == pytest.approx(flat([(0, 0), (12, 0.24), (17, -0.01)]))
+    assert flat(sec.grade["R"]) == pytest.approx(flat([(0, 0), (-12, -0.48), (-17, -0.73)]))
+
+
 def test_course_rings_split_by_component_and_side():
     sec = resolve(corridor(), 500.0, level(-5.0))
     assert flat(sec.courses[0, 0, "L"]) == pytest.approx(
@@ -67,6 +77,38 @@ def test_cut_runs_through_the_ditch_then_up_the_backslope():
     assert side.kind == "cut"
     assert flat(side.line) == pytest.approx(
         flat([(17, -1.89), (20, -3.39), (24, -3.39), (36.78, 3.0)]))
+
+
+def side_hill(s, u, v):
+    """Ground 0.5 ft above the hinge (17, -1.89), falling 1 on 3 outward on
+    the left; level at that height on the right."""
+    if u <= 17.0:
+        return -1.39 - v
+    return -1.39 - (u - 17.0) / 3.0 - v
+
+
+def test_a_side_hill_cut_whose_ditch_edge_is_above_ground_runs_fill_down():
+    # the ditch edge (24, -3.39) sits 1/3 ft above the ground there
+    # (-1.39 - 7/3 = -3.7233); the 2:1 fill slope gains 1/2 - 1/3 = 1/6 ft per
+    # ft on the ground, so it meets it 2 ft out: (26, -4.39), where the ground
+    # is -1.39 - 9/3 = -4.39
+    sec = resolve(corridor(), 500.0, side_hill)
+    side = sec.sides["L"]
+    assert side.kind == "cut"
+    assert flat(side.line) == pytest.approx(
+        flat([(17, -1.89), (20, -3.39), (24, -3.39), (26, -4.39)]))
+    u, v = side.line[-1]
+    assert side_hill(500.0, u, v) == pytest.approx(0.0, abs=1e-6)
+    assert len(sec.earthwork_line()) == 2 * SIDE_SAMPLES - 1 + 2 * 2
+
+
+def test_a_daylight_off_the_ground_is_refused():
+    # a cliff at 30 ft: the backslope reaches it below the ground beyond, so
+    # the search stops at the step, 10+ ft off the ground
+    def cliff(s, u, v):
+        return (3.0 if abs(u) < 30.0 else -10.0) - v
+    with pytest.raises(ValueError, match=r"5\+00.*L cut slope.*off the ground"):
+        resolve(corridor(), 500.0, cliff)
 
 
 def test_a_width_taper_moves_the_hinge():
