@@ -17,6 +17,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   takeoff written earlier against a rebuilt model, by GlobalId: an element
   whose value moved or that is gone fails the rows it backs, and the
   command exits 1.
+- **`est-bim check` records a measurement made in Bonsai in the model
+  (M.5),** in the shape ProjectCommand writes and reads (its `check.rs`):
+  an IfcObjective of `SheetValue`, `ModelValue` and `Tolerance` metrics
+  naming what was measured by set and name, an IfcApproval with Level
+  `measurement` and Status `agrees` or `differs`, and the sheet as
+  IfcDocumentInformation, stamped with the application the check was made
+  in so a rebuild carries it. `--what` is a quantity
+  (`Qto_BaseQuantities.GrossVolume`) or a property
+  (`BIMForge_Dimensions.DesignHeight`); values are given in `--unit` (a
+  foot is the project's foot) and written in the file's units; without
+  `--measured` the file's own value is checked. Recording the same thing
+  again replaces the check under its ids, whoever recorded it. `--list`
+  lists every check a model carries.
 
 ### Fixed
 
