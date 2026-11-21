@@ -2335,6 +2335,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
 
             # the class's standard set (roadmap M.17), beside the base set
             for qset, values in (el.standard_qto or {}).items():
+                if not values:
+                    continue        # a set needs at least one quantity
                 sq = run("pset.add_qto", f, product=product, name=qset)
                 sq.Quantities = tuple(
                     _standard_quantity(f, qname, measure, value, ctx.ft_to_m)

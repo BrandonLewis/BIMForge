@@ -314,6 +314,9 @@ def quantity_sets(element) -> list:
     for rel in getattr(element, "IsDefinedBy", None) or []:
         if rel.is_a("IfcRelDefinesByProperties") and                 rel.RelatingPropertyDefinition.is_a("IfcElementQuantity"):
             sets.append(rel.RelatingPropertyDefinition)
+    # Qto_BaseQuantities last, so it wins a repeated name over a class's
+    # standard set (Element.standard_qto) until M.17 moves consumers over
+    sets.sort(key=lambda s: s.Name == "Qto_BaseQuantities")
     return sets
 
 

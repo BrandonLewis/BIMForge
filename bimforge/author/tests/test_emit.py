@@ -2107,3 +2107,36 @@ def test_standard_qto_refuses_an_unknown_measure(tmp_path):
         "Qto_FootingBaseQuantities": {"Length": ("furlong", 1.0)}}
     with pytest.raises(ValueError, match="furlong"):
         emit_ifc(m, str(tmp_path / "bad.ifc"), PC)
+
+
+def test_standard_qto_never_overrides_the_base_quantities(tmp_path):
+    import ifcopenshell
+    from bimforge.bim.ifc_takeoff import quantities_of
+
+    m = _fixture_model()
+    el = m.element("PS-1 footing")
+    out0 = tmp_path / "base.ifc"
+    emit_ifc(m, str(out0), PC)
+    f0 = ifcopenshell.open(str(out0))
+    e0 = next(e for e in f0.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    base = quantities_of(e0)["Length"]
+    el.standard_qto = {"Qto_FootingBaseQuantities": {"Length": ("length", 999.0)}}
+    out = tmp_path / "clash.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    e = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    assert quantities_of(e)["Length"] == pytest.approx(base)
+
+
+def test_standard_qto_skips_an_empty_set(tmp_path):
+    import ifcopenshell
+    import ifcopenshell.util.element
+
+    m = _fixture_model()
+    m.element("PS-1 footing").standard_qto = {"Qto_FootingBaseQuantities": {}}
+    out = tmp_path / "empty.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    el = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    assert "Qto_FootingBaseQuantities" not in ifcopenshell.util.element.get_psets(
+        el, qtos_only=True)
