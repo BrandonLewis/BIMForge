@@ -125,6 +125,8 @@ class Element:
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
+    #: A ("length" | "area" | "volume", value) pair, the value in the feet
+    #: domain, is written as that IFC measure in the file's metres.
     psets: dict = field(default_factory=dict)
     #: The class's standard quantity set (roadmap M.17), {set name:
     #: {quantity name: (measure, value)}}, measure one of "length", "area",

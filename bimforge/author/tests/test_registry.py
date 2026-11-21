@@ -177,3 +177,12 @@ def test_tables_file_missing_raises_with_spec_name(tmp_path):
         encoding="utf-8")
     with pytest.raises(ValueError, match="tables_file"):
         load_spec(tmp_path / "s.yaml")
+
+
+def test_a_mass_haul_output_needs_a_family_that_makes_one(tmp_path):
+    spec = _stage_example(tmp_path)
+    text = spec.read_text(encoding="utf-8")
+    spec.write_text(text.replace("outputs:\n", "outputs:\n  masshaul: out/x.csv\n", 1),
+                    encoding="utf-8")
+    with pytest.raises(ValueError, match=r"outputs\.masshaul.*demo-box.*no mass haul"):
+        registry.build_from_spec(spec, check_only=True)

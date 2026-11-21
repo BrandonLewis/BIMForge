@@ -213,6 +213,18 @@ def kind_changes(c, a: Section, b: Section, ground_dz) -> list:
     return sorted(set(out))
 
 
+def _named(ground_dz, side: str):
+    """`ground_dz`, its errors (a DEM with no ground there) naming the
+    station and side they were read for."""
+    def dz(s, u, v):
+        try:
+            return ground_dz(s, u, v)
+        except ValueError as exc:
+            raise ValueError(f"station {sta(s)}, {side} side, offset "
+                             f"{abs(u):.2f} ft: {exc}") from None
+    return dz
+
+
 def resolve(c, s: float, ground_dz) -> Section:
     """The section of corridor `c` at station `s` (params.Corridor)."""
     depth = c.depth()
@@ -230,5 +242,6 @@ def resolve(c, s: float, ground_dz) -> Section:
                 courses[k, j, side] = [(u0, v0 - above), (u1, v1 - above),
                                        (u1, v1 - above - t), (u0, v0 - above - t)]
             above += t
-        sides[side] = _side(c, s, side, sign, subgrade[side][-1], ground_dz)
+        sides[side] = _side(c, s, side, sign, subgrade[side][-1],
+                            _named(ground_dz, side))
     return Section(s, grade, courses, subgrade, sides)

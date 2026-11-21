@@ -14,7 +14,7 @@ from pathlib import Path
 from .datum import ncat_vertshift
 from .fetch import fetch_3dep_dem, fetch_3dep_lpc, workunit_meta
 from .grid import grid_to_mesh
-from .provenance import build_provenance
+from .provenance import build_provenance, spacing_unit
 from .solid import carve
 
 
@@ -98,7 +98,8 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
         log("  terrain: no lon/lat available; work-unit vintage skipped")
 
     verts, tris = grid_to_mesh(grid, unit_scale, shift, plan_scale)
-    log(f"  terrain: {len(verts)} {source.upper()} verts @ {spacing_m:g} m, "
+    unit = spacing_unit(crs_epsg) or "CRS units"
+    log(f"  terrain: {len(verts)} {source.upper()} verts @ {spacing_m:g} {unit}, "
         f"shift -{shift:.3f} m")
 
     closed = False

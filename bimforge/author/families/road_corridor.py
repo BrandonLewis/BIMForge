@@ -234,7 +234,13 @@ def build(params: dict, ctx) -> "StructureModel":
     model.mass_haul = masshaul.mass_haul(hauls, c.shrink)
     for els, row in zip(haul_elements, model.mass_haul):
         for el in els:
+            # stations as BIMForge_LinearReference writes them: lengths,
+            # with their texts; the ordinate a volume (the CSV keeps CY)
             el.psets["BIMForge_MassHaul"] = {
-                "StartStation": row.start, "EndStation": row.station,
-                "CumulativeCY": round(row.cumulative_cy, 3)}
+                "StartStation": ("length", row.start),
+                "EndStation": ("length", row.station),
+                "StartStationText": sta(row.start),
+                "EndStationText": sta(row.station),
+                "CumulativeVolume": ("volume",
+                                     row.cumulative_cy * masshaul.CF_PER_CY)}
     return model

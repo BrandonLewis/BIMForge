@@ -193,3 +193,12 @@ def test_a_subgrade_with_unequal_sides_is_refused():
     sec.subgrade["R"].append(sec.subgrade["R"][-1])
     with pytest.raises(ValueError, match="2 components left, 3 right"):
         sec.earthwork_line()
+
+
+def test_ground_missing_under_a_side_names_the_station_and_side():
+    def dem(s, u, v):
+        if u > 20.0:
+            raise ValueError("ground: no ground at N 1.0 E 2.0: the DEM does not cover it")
+        return 3.0 - v
+    with pytest.raises(ValueError, match=r"station 5\+00\.00, L side.*no ground at N 1\.0 E 2\.0"):
+        resolve(corridor(), 500.0, dem)

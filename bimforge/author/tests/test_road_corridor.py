@@ -63,7 +63,7 @@ def test_nothing_is_built_inside_the_structure_gap(model):
     for el in model.elements:
         if "BIMForge_MassHaul" in el.psets:
             ps = el.psets["BIMForge_MassHaul"]
-            assert ps["EndStation"] <= 1350.0 + 1e-6 or ps["StartStation"] >= 1400.0 - 1e-6
+            assert ps["EndStation"][1] <= 1350.0 + 1e-6 or ps["StartStation"][1] >= 1400.0 - 1e-6
 
 
 def test_the_structure_gap_ends_on_a_closed_face(model):
@@ -173,8 +173,13 @@ def test_mass_haul_rows_follow_the_bands(model):
     last = [e for e in model.elements if e.name.endswith("15+00.00")
             and "BIMForge_MassHaul" in e.psets]
     assert last
-    assert last[0].psets["BIMForge_MassHaul"]["CumulativeCY"] == pytest.approx(
-        rows[-1].cumulative_cy, abs=1e-3)
+    ps = last[0].psets["BIMForge_MassHaul"]
+    # stations as lengths, the ordinate as a volume, both converted to the
+    # file's metres by emit_ifc; the texts in station form
+    assert ps["StartStation"] == ("length", 1400.0)
+    assert ps["EndStation"] == ("length", 1500.0)
+    assert (ps["StartStationText"], ps["EndStationText"]) == ("14+00.00", "15+00.00")
+    assert ps["CumulativeVolume"] == ("volume", pytest.approx(rows[-1].cumulative_cy * 27.0))
 
 
 def test_each_element_carries_its_standard_set(model):
@@ -448,6 +453,8 @@ def test_the_terrain_leaves_the_volumes_and_the_haul_as_they_were(model):
 
 def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
     import ifcopenshell.util.element as E
+
+    from bimforge.author.alignment import sta
     f, out = x3
     rows = {(float(r["start"]), float(r["station"])): float(r["cumulative_cy"])
             for r in csv.DictReader(io.StringIO((out / "rc.masshaul.csv").read_text("utf-8")))}
@@ -466,8 +473,11 @@ def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
             assert el.is_a("IfcEarthworksFill")
             assert "Qto_EarthworksFillBaseQuantities" in qtos
         ps = E.get_psets(el, psets_only=True)["BIMForge_MassHaul"]
-        key = (ps["StartStation"], ps["EndStation"])
-        assert ps["CumulativeCY"] == pytest.approx(rows[key], abs=1e-3)
+        k = 0.3048006096012192
+        key = (round(ps["StartStation"] / k, 6), round(ps["EndStation"] / k, 6))
+        # the CSV rounds to 0.001 CY (0.0008 m3)
+        assert ps["CumulativeVolume"] == pytest.approx(rows[key] * 27.0 * k ** 3, abs=8e-4)
+        assert ps["StartStationText"] == sta(key[0]) and ps["EndStationText"] == sta(key[1])
         seen.add(key)
     assert seen == set(rows)
 

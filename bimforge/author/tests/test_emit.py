@@ -2183,3 +2183,26 @@ def test_standard_qto_never_overrides_base_in_ifc2gis(tmp_path):
     f = ifcopenshell.open(str(out))
     e = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
     assert _quantities(e, 1.0)["Length"] == pytest.approx(base)
+
+
+def test_a_pset_measure_is_written_typed_in_project_units(tmp_path):
+    import ifcopenshell
+    import ifcopenshell.util.element
+
+    m = _fixture_model()
+    m.element("PS-1 footing").psets["Pset_Fixture"] = {
+        "Run": ("length", 10.0), "Bulk": ("volume", 27.0), "Note": "plain"}
+    out = tmp_path / "pm.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    el = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    (ps,) = [r.RelatingPropertyDefinition for r in el.IsDefinedBy
+             if r.is_a("IfcRelDefinesByProperties")
+             and r.RelatingPropertyDefinition.Name == "Pset_Fixture"]
+    props = {p.Name: p.NominalValue for p in ps.HasProperties}
+    k = m.ctx.ft_to_m
+    assert props["Run"].is_a("IfcLengthMeasure")
+    assert props["Run"].wrappedValue == pytest.approx(10.0 * k)
+    assert props["Bulk"].is_a("IfcVolumeMeasure")
+    assert props["Bulk"].wrappedValue == pytest.approx(27.0 * k ** 3)
+    assert props["Note"].is_a("IfcLabel")

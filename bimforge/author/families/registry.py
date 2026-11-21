@@ -366,6 +366,10 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
     if unread != "off":
         params = TrackedParams(params)
     model = builder(params, ctx)
+    if spec["outputs"].get("masshaul") and not model.mass_haul:
+        raise ValueError(f"{Path(spec_path).name}: outputs.masshaul is set, but "
+                         f"family {spec['family']!r} makes no mass haul (only a "
+                         f"road corridor does)")
     place_from_spec(model, spec, alignments,
                     log=lambda m: print(m, file=sys.stderr))
     if spec.get("spatial_parts"):

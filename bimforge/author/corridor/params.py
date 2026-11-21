@@ -325,6 +325,10 @@ def parse(params: dict, s_start: float, s_end: float) -> Corridor:
         raise ValueError(f"alignment: ends at {sta(s_end)}, not past its "
                          f"start {sta(s_start)}")
     sec = params.get("section") or {}
+    crown = sec.get("crown", "centerline")
+    if crown != "centerline":
+        raise ValueError(f"section.crown: {crown!r} is not supported; the "
+                         f"crown is the centerline (crown: centerline)")
     comps = _components(sec)
     st = params.get("stations") or {}
     mh = params.get("mass_haul") or {}

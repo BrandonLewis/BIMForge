@@ -106,7 +106,8 @@ def _plane_terrain(ground, alignment, ctx, reach: float, margin: float,
     prov = {"Source": "Design plane (ground: plane)",
             "PlaneElevation": ground.elevation, "PlaneSlopeN": ground.slope_n,
             "PlaneSlopeE": ground.slope_e, "MeshSpacing": cell,
-            "MeshSpacingUnit": "ft", "Carved": False, "SurveyGrade": False}
+            "MeshSpacingUnit": "ftUS" if abs(k - 1200.0 / 3937.0) < 1e-12 else "ft",
+            "Carved": False, "SurveyGrade": False}
     _to_model_frame(add_terrain(model, "Existing ground - design plane",
                                 verts, tris, prov), ctx)
 

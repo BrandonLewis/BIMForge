@@ -317,6 +317,29 @@ def _standard_quantity(f, name: str, measure: str, value: float,
     setattr(q, _QTY_ATTR[ent], float(value) * ft_to_m ** power)
     return q
 
+#: Element.psets measure -> (IFC measure type, power of ft_to_m)
+_PSET_MEASURES = {"length": ("IfcLengthMeasure", 1),
+                  "area": ("IfcAreaMeasure", 2),
+                  "volume": ("IfcVolumeMeasure", 3)}
+
+
+def _pset_properties(f, props: dict, ft_to_m: float) -> dict:
+    """An Element.psets set as pset.edit_pset takes it: a (measure, value)
+    pair, the value in the feet domain, becomes that typed measure in the
+    file's metres; anything else is passed as it is."""
+    out = {}
+    for name, value in props.items():
+        if isinstance(value, tuple):
+            measure, x = value
+            if measure not in _PSET_MEASURES:
+                raise ValueError(f"property {name}: measure {measure!r} is "
+                                 f"not one of {sorted(_PSET_MEASURES)}")
+            ent, power = _PSET_MEASURES[measure]
+            value = f.create_entity(ent, round(float(x) * ft_to_m ** power, 9))
+        out[name] = value
+    return out
+
+
 #: An element's `volume_formula` -> the Formula its GrossVolume is written
 #: with (roadmap M.3), over names in the same quantity set
 VOLUME_FORMULAS = {"box": "Length * Width * Height",
@@ -1292,7 +1315,8 @@ def _late_typing(run, f, ctx, cache: dict, late: list) -> None:
             if not props:
                 continue
             pset = run("pset.add_pset", f, product=product, name=pset_name)
-            run("pset.edit_pset", f, pset=pset, properties=dict(props))
+            run("pset.edit_pset", f, pset=pset,
+                properties=_pset_properties(f, props, ctx.ft_to_m))
             pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{pset_name}")
             for rel in pset.DefinesOccurrence or ():
                 rel.GlobalId = ctx.guid(
@@ -2230,7 +2254,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                     pset = run("pset.add_pset", f, product=product,
                                name=pset_name)
                     run("pset.edit_pset", f, pset=pset,
-                        properties=dict(props))
+                        properties=_pset_properties(f, props, ctx.ft_to_m))
             # Issue #190: carry the estimator's per-element note (assumptions,
             # placement-honesty notes, sheet cites) onto IfcRoot.Description.
             # `or None` keeps an unset description a true null, not "".

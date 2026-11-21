@@ -204,3 +204,14 @@ def test_attach_passes_plan_scale_to_the_mesh(tmp_path, monkeypatch):
                           spacing_m=1.0, vshift_m=0.0, plan_scale=1.0,
                           log=lambda *_: None)
     assert el.geometry["verts"][0] == pytest.approx((3.5, 0.5, 10.0 * FT))
+
+
+@pytest.mark.parametrize("epsg, unit", [(2226, "ftUS"), (26942, "m")])
+def test_the_log_gives_the_spacing_in_the_crs_unit(tmp_path, monkeypatch, epsg, unit):
+    monkeypatch.setattr(A, "fetch_3dep_dem", lambda *a, **k: _grid(crs_epsg=epsg))
+    logs = []
+    el = A.attach_terrain(_model(), (0.0, 0.0, 4.0, 4.0), crs_epsg=epsg,
+                          cache_stem=str(tmp_path / "site"), unit_scale=FT,
+                          spacing_m=3.0, vshift_m=0.0, log=logs.append)
+    assert el.geometry["provenance"]["MeshSpacingUnit"] == unit
+    assert any(f"@ 3 {unit}," in line for line in logs), logs

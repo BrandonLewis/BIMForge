@@ -142,3 +142,15 @@ def test_a_missing_field_names_the_field():
     del p["section"]["courses"][0]["thickness"]
     with pytest.raises(ValueError, match=r"courses\[0\].thickness"):
         parse(p, 1000.0, 2000.0)
+
+
+@pytest.mark.parametrize("crown", ["centerline", None])
+def test_the_crown_is_the_centreline(crown):
+    sec = dict(BASE["section"], crown=crown) if crown else BASE["section"]
+    parse({"section": sec}, 1000.0, 2000.0)
+
+
+@pytest.mark.parametrize("crown", ["offset", "left edge", 3.0])
+def test_another_crown_is_refused(crown):
+    with pytest.raises(ValueError, match=r"section\.crown.*centerline"):
+        parse({"section": dict(BASE["section"], crown=crown)}, 1000.0, 2000.0)
