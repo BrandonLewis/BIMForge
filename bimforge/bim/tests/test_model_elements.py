@@ -502,3 +502,98 @@ def test_cli_model_elements_takeoff_refuses_estimate_options(tmp_path, capsys):
         assert cli.main(["model-elements", str(ifc), "--takeoff",
                          *extra]) == 1
         assert capsys.readouterr().err.startswith("error: --takeoff")
+
+
+# ------------------------------------------------- what the model says (M.6)
+def test_an_untyped_element_carries_no_m6_keys():
+    """An element the file says nothing more about keys exactly as before,
+    and a file with no BIMForge_Model sends no `model`."""
+    f = _file()
+    _element(f, "IfcFooting", "F-1", "Qto_FootingBaseQuantities",
+             {"NetVolume": 10.0})
+    plan = plan_modelled_elements(f)
+    (entry,) = plan["elements"]
+    assert set(entry) == {"global_id", "name", "ifc_class", "element_type",
+                          "quantities"}
+    assert set(entry["quantities"]["concrete_cy"]) == {"value", "unit",
+                                                       "source"}
+    assert "model" not in plan
+
+
+def test_parameters_and_linear_reference_read_in_the_projects_foot():
+    """BIMForge_Dimensions lengths go in FT of the project's foot (a metre
+    file with no feet grid: the US survey foot, as its stations), ratios as
+    RATIO; a measure that is neither is warned and not sent. The linear
+    reference's stations and offsets go in the same foot."""
+    from bimforge.bim.alignment_station import US_SURVEY_FT_M
+    f = _file()
+    wall = _element(f, "IfcWall", "W-1", "Qto_WallBaseQuantities",
+                    {"NetVolume": 1.0})
+    dims = ifcopenshell.api.pset.add_pset(f, product=wall,
+                                          name="BIMForge_Dimensions")
+    dims.HasProperties = [
+        f.createIfcPropertySingleValue(
+            "DesignHeight", None, f.createIfcLengthMeasure(8 * US_SURVEY_FT_M)),
+        f.createIfcPropertySingleValue(
+            "Batter", None, f.createIfcRatioMeasure(0.25 / 12)),
+        f.createIfcPropertySingleValue(
+            "Note", None, f.createIfcLabel("x"))]
+    ref = ifcopenshell.api.pset.add_pset(f, product=wall,
+                                         name="BIMForge_LinearReference")
+    ifcopenshell.api.pset.edit_pset(f, pset=ref, properties={
+        "Alignment": "LINE A", "StationStart": 1000 * US_SURVEY_FT_M,
+        "StationEnd": 1064 * US_SURVEY_FT_M,
+        "OffsetLeftMin": -1 * US_SURVEY_FT_M, "OffsetLeftMax": 0.0})
+    plan = plan_modelled_elements(f)
+    (entry,) = plan["elements"]
+    assert entry["parameters"] == {
+        "DesignHeight": {"value": 8.0, "unit": "FT"},
+        "Batter": {"value": round(0.25 / 12, 6), "unit": "RATIO"}}
+    assert entry["linear_reference"] == {
+        "alignment": "LINE A", "station_start": 1000.0,
+        "station_end": 1064.0, "offset_left_min": -1.0,
+        "offset_left_max": 0.0, "unit": "FT"}
+    assert any("Note" in w and "not sent" in w for w in plan["warnings"])
+    assert "family_class" not in entry
+
+
+def test_b3_wall_sends_class_type_plan_parameters_formula_and_model(
+        tmp_path):
+    """The B3 example as BidSheet.ai gets it: every slice with its family
+    class and URI, type, standard plan, BIMForge_Dimensions as parameters
+    in feet, the volume's Formula, and the call's model identity."""
+    import contextlib
+    import io
+    from importlib.resources import files
+
+    import yaml
+
+    from bimforge.author import family_dictionary as fd
+    from bimforge.author.families.registry import build_from_spec
+    for entry in (files("bimforge.author") / "examples").iterdir():
+        if entry.name.endswith(".yaml"):
+            (tmp_path / entry.name).write_text(entry.read_text("utf-8"),
+                                               "utf-8")
+    spec = tmp_path / "caltrans-b3-wall-types.spec.yaml"
+    with contextlib.redirect_stderr(io.StringIO()):
+        assert build_from_spec(str(spec)) == 0
+    ifc = tmp_path / yaml.safe_load(spec.read_text("utf-8"))["outputs"]["ifc"]
+    plan = plan_modelled_elements(str(ifc))
+    assert plan["model"]["ifc_schema"] == "IFC4X3_ADD2"
+    assert len(plan["model"]["build_id"]) == 64
+    assert plan["model"]["source"] == spec.name
+    assert len(plan["elements"]) == 80
+    for e in plan["elements"]:
+        code = e["family_class"]
+        assert e["class_uri"] == fd.class_uri(code)
+        assert e["type_name"] == fd.type_name(code)
+        assert e["standard_plan"] == fd.standard_plan(code)
+        assert set(e["parameters"]) == set(fd.dimensions(code))
+        assert e["quantities"]["concrete_cy"]["formula"] ==             "Length * Width * Height"
+    t6a = next(e for e in plan["elements"]
+               if e["name"].startswith("T6a retaining wall stem"))
+    assert t6a["parameters"]["DesignHeight"] == {"value": 6.0, "unit": "FT"}
+    t5 = next(e for e in plan["elements"]
+              if e["name"].startswith("T5 retaining wall stem"))
+    assert t5["parameters"]["Batter"]["unit"] == "RATIO"
+    assert plan["warnings"] == []
