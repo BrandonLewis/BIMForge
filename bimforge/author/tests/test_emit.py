@@ -1883,7 +1883,10 @@ def test_a_palette_styles_materials_by_category(tmp_path):
     plain = tmp_path / "plain.ifc"
     emit_ifc(m, str(plain), PC)
     tmap = PC.takeoff_map(m.codes_used())
-    assert build_takeoff(str(out), tmap)[0] == build_takeoff(str(plain), tmap)[0]
+    styled, unstyled = (build_takeoff(str(p), tmap)[0] for p in (out, plain))
+    # the palette is part of the source, so only the build id differs
+    assert styled["check"].pop("build_id") != unstyled["check"].pop("build_id")
+    assert styled == unstyled
 
 
 def test_the_project_is_keyed_not_numbered_by_file_order(tmp_path):
