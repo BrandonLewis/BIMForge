@@ -148,6 +148,17 @@ def test_attach_with_cuts_carves_and_stamps_provenance(tmp_path, monkeypatch):
     assert list(seen["cuts"]) == [cut]
     assert el.geometry["provenance"]["Carved"] is True
     assert el.name.endswith("(excavation carved)")
+    assert el.body == "solid"                          # carved: closed
+
+
+def test_an_uncarved_terrain_is_declared_a_surface(tmp_path, monkeypatch):
+    # an open sheet of ground: the solid-body check must not read its rim as
+    # open edges of a broken solid
+    monkeypatch.setattr(A, "fetch_3dep_dem", lambda *a, **k: _grid())
+    el = A.attach_terrain(_model(), (0.0, 0.0, 4.0, 4.0), crs_epsg=26942,
+                          cache_stem=str(tmp_path / "site"), unit_scale=FT,
+                          vshift_m=0.5, log=lambda s: None)
+    assert el.body == "surface"
 
 
 # --------------------------------------------------------------------- LPC

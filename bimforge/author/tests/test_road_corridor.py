@@ -241,13 +241,16 @@ def test_the_band_where_a_side_turns_is_written_as_closed_bodies(tmp_path):
     from bimforge.bim.ifc_mesh import solid_bodies
     m = build(copy.deepcopy(TURNING), CTX)
     one = StructureModel("one", CTX)
-    for name in ("Fill STA 15+00.00 to 16+00.00", "Cut STA 15+00.00 to 16+00.00"):
+    for name in ("Fill STA 15+00.00 to 16+00.00", "Cut STA 15+00.00 to 16+00.00",
+                 "Existing ground - design plane"):
         one.add(m.element(name))
     out = tmp_path / "turn.ifc"
     emit_ifc(one, str(out))
     with _quiet_stdout():
         bodies = solid_bodies(str(out)).values()
     for info in bodies:
+        if info["name"] == "Existing ground - design plane":
+            continue                               # a surface (body="surface")
         t = info["topology"]
         assert (t["open_edges"], t["nonmanifold_edges"], t.get("nonmanifold_vertices", 0))             == (0, 0, 0), (info["name"], t)
 
@@ -292,7 +295,11 @@ def _built(tmp_path, schema):
     path = tmp_path / "rc.spec.yaml"
     path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
     # 0: the pre gate (the stated volumes) and the post gate both passed
-    assert build_from_spec(str(path)) == 0
+    import contextlib
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        assert build_from_spec(str(path)) == 0
+    (tmp_path / "out" / "build.log").write_text(err.getvalue(), "utf-8")
     return ifcopenshell.open(str(tmp_path / "out" / "rc.ifc")), tmp_path / "out"
 
 
@@ -363,10 +370,16 @@ def test_the_tree_is_road_segment_lateral_part(x3):
     for course in f.by_type("IfcCourse"):
         home = E.get_container(course)
         assert home.is_a("IfcRoadPart") and home.UsageType == "LATERAL"
-    earth = [p for p in f.by_type("IfcProduct") if p.Name and p.Name.startswith(("Cut ", "Fill "))]
-    assert earth
-    for el in earth:
+    fills = [p for p in f.by_type("IfcProduct") if (p.Name or "").startswith("Fill ")]
+    assert fills
+    for el in fills:
         assert E.get_container(el).PredefinedType == "ROADSEGMENT"
+    # a cut is a feature of the ground it voids: it hangs off the TERRAIN
+    # (IfcRelVoidsElement), not in the spatial tree
+    for cut in f.by_type("IfcEarthworksCut"):
+        assert not cut.ContainedInStructure
+        (rel,) = cut.VoidsElements
+        assert rel.RelatingBuildingElement.PredefinedType == "TERRAIN"
 
 
 def _only_point_contacts(found: list) -> list:
@@ -399,6 +412,40 @@ def test_every_body_is_solid_but_the_engine_s_sectioned_caps(x3, model):
         assert "(IfcCourse)" in msg and msg.endswith(want), msg
 
 
+def test_on_ifc4x3_every_cut_voids_the_plane_s_terrain(x3, model):
+    import ifcopenshell.util.element as E
+    f, out = x3
+    (terrain,) = [g for g in f.by_type("IfcGeographicElement")
+                  if g.PredefinedType == "TERRAIN"]
+    assert terrain.Name == "Existing ground - design plane"
+    cuts = f.by_type("IfcEarthworksCut")
+    assert {c.Name for c in cuts} == {e.name for e in model.elements
+                                      if e.ifc_class == "IfcEarthworksCut"}
+    assert not f.by_type("IfcEarthworksElement", include_subtypes=False)
+    voids = {r.RelatedOpeningElement.Name: r.RelatingBuildingElement
+             for r in f.by_type("IfcRelVoidsElement")}
+    assert all(voids[c.Name] == terrain for c in cuts)
+    assert "unhosted" not in (out / "build.log").read_text("utf-8")
+    # the void is the viewer's to draw: the declared volumes are the model's
+    k = 0.3048006096012192
+    for c in cuts:
+        gross = E.get_psets(c, qtos_only=True)["Qto_BaseQuantities"]["GrossVolume"]
+        assert gross == pytest.approx(model.element(c.Name).quantities["volume_cf"] * k ** 3)
+
+
+def test_the_terrain_leaves_the_volumes_and_the_haul_as_they_were(model):
+    # as built before the plane wrote its terrain
+    assert [round(r.cumulative_cy, 3) for r in model.mass_haul] == [
+        328.116, 439.509, 366.388, 320.249, 239.668]
+    assert {e.name: round(e.quantities["volume_cf"], 3) for e in model.elements
+            if e.name.startswith("Cut ")} == {
+        "Cut STA 10+00.00 to 11+00.00": 8942.793,
+        "Cut STA 11+00.00 to 12+00.00": 4005.584,
+        "Cut STA 12+00.00 to 13+00.00": 2212.546,
+        "Cut STA 13+00.00 to 13+50.00": 886.26,
+        "Cut STA 14+00.00 to 15+00.00": 1583.731}
+
+
 def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
     import ifcopenshell.util.element as E
     f, out = x3
@@ -412,10 +459,9 @@ def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
         qtos = E.get_psets(el, qtos_only=True)
         assert "Qto_BaseQuantities" in qtos
         if el.Name.startswith("Cut "):
-            # an unhosted cut is written as IfcEarthworksElement (#364), for
-            # which Qto_EarthworksCutBaseQuantities is not defined (QTY001)
-            assert el.is_a() == "IfcEarthworksElement"
-            assert "Qto_EarthworksCutBaseQuantities" not in qtos
+            # it voids the plane's TERRAIN, so it is the cut its set is for
+            assert el.is_a("IfcEarthworksCut")
+            assert "Qto_EarthworksCutBaseQuantities" in qtos
         else:
             assert el.is_a("IfcEarthworksFill")
             assert "Qto_EarthworksFillBaseQuantities" in qtos

@@ -68,16 +68,64 @@ def footprint(alignment, reach: float) -> tuple:
     return (min(es) - reach, min(ns) - reach, max(es) + reach, max(ns) + reach)
 
 
+#: the plane's TERRAIN mesh cell, feet: a plane needs no density
+PLANE_CELL_FT = 50.0
+
+
+def _to_model_frame(terrain, ctx) -> None:
+    """The TERRAIN mesh, (northing, easting, elevation) as bimforge.terrain
+    meshes it, moved into the model frame every other body is in."""
+    from bimforge.author.sweep import to_model
+    d = terrain.geometry
+    d["verts"] = [to_model(ctx, n, e, z) for n, e, z in d["verts"]]
+
+
+def _plane_terrain(ground, alignment, ctx, reach: float, margin: float,
+                   model) -> None:
+    """The plane as a TERRAIN element over the footprint a 3DEP fetch would
+    cover: a coarse grid of the plane, meshed by bimforge.terrain as a DEM
+    is, so a cut voids it exactly as it voids 3DEP ground."""
+    import numpy as np
+
+    from bimforge.terrain.attach import add_terrain
+    from bimforge.terrain.grid import TerrainGrid, grid_to_mesh
+    cell = PLANE_CELL_FT
+    margin = max(margin, 2.0 * cell)
+    e0, n0, e1, n1 = footprint(alignment, reach + margin)
+    cols = max(2, math.ceil((e1 - e0) / cell))
+    rows = max(2, math.ceil((n1 - n0) / cell))
+    e1, n1 = e0 + cols * cell, n0 + rows * cell
+    # pixel centres, row 0 north (TerrainGrid); z in metres, as a DEM's
+    es = e0 + (np.arange(cols) + 0.5) * cell
+    ns = n1 - (np.arange(rows) + 0.5) * cell
+    k = ctx.ft_to_m
+    z = np.array([[ground.z(n, e) * k for e in es] for n in ns])
+    grid = TerrainGrid(z=z, bbox_m=(e0, n0, e1, n1), spacing_m=cell,
+                       crs_epsg=ctx.epsg)
+    verts, tris = grid_to_mesh(grid, 1.0 / k, 0.0, plan_scale=1.0)
+    prov = {"Source": "Design plane (ground: plane)",
+            "PlaneElevation": ground.elevation, "PlaneSlopeN": ground.slope_n,
+            "PlaneSlopeE": ground.slope_e, "MeshSpacing": cell,
+            "MeshSpacingUnit": "ft", "Carved": False, "SurveyGrade": False}
+    _to_model_frame(add_terrain(model, "Existing ground - design plane",
+                                verts, tris, prov), ctx)
+
+
 def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
     """The ground `gp` (the spec's `ground:`) names. `reach` is how far from
-    the line the corridor can reach, feet; a 3DEP ground adds the TERRAIN
-    element to `model`."""
+    the line the corridor can reach, feet. Either ground adds its TERRAIN
+    element to `model` (when there is one), in the model frame: 3DEP's DEM,
+    or the plane meshed over the same footprint."""
     source = str((gp or {}).get("source", "")).lower()
     if source == "plane":
         n0, e0, _az = alignment.point_az(alignment.s_start)
-        return PlaneGround(float(gp["elevation"]), n0=n0, e0=e0,
-                           slope_n=float(gp.get("slope_n", 0.0)),
-                           slope_e=float(gp.get("slope_e", 0.0)))
+        ground = PlaneGround(float(gp["elevation"]), n0=n0, e0=e0,
+                             slope_n=float(gp.get("slope_n", 0.0)),
+                             slope_e=float(gp.get("slope_e", 0.0)))
+        if model is not None and ctx is not None:
+            _plane_terrain(ground, alignment, ctx, reach,
+                           float(gp.get("margin_ft", 200.0)), model)
+        return ground
     if source == "3dep":
         if not gp.get("cache"):
             raise ValueError("ground: source 3dep needs `cache`, the path stem "
@@ -103,9 +151,10 @@ def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
         stem = str(gp["cache"])
         grid = terrain.fetch_3dep_dem(bbox, spacing, ctx.epsg,
                                       Path(stem + "-3DEP-DEM.tif"), log=log)
-        terrain.attach_terrain(model, bbox, crs_epsg=ctx.epsg, cache_stem=stem,
-                               unit_scale=1.0 / ft, plan_scale=1.0 / c,
-                               spacing_m=spacing, vshift_m=vshift, log=log)
+        _to_model_frame(terrain.attach_terrain(
+            model, bbox, crs_epsg=ctx.epsg, cache_stem=stem,
+            unit_scale=1.0 / ft, plan_scale=1.0 / c, spacing_m=spacing,
+            vshift_m=vshift, log=log), ctx)
         return GridGround(grid, ft, vshift, crs_per_ft=c)
     raise ValueError(f"ground: source {gp.get('source') if gp else None!r} is "
                      f"not plane or 3dep")

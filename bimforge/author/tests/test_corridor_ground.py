@@ -109,10 +109,12 @@ def test_3dep_fetches_in_crs_units_and_reads_back_in_feet(monkeypatch, tmp_path,
         g.z(5000.0, 0.0)
 
     (terrain,) = [el for el in model.elements if el.predefined_type == "TERRAIN"]
-    # 100 x 200 ft at 1 m: 30 cols x 61 rows; vertex 0 is the NW pixel centre
+    # 100 x 200 ft at 1 m: 30 cols x 61 rows; vertex 0 is the NW pixel centre,
+    # in the model frame (x east, y north) as every other body is
     n0, e0 = 150.0 - 0.5 * 200.0 / 61, -50.0 + 0.5 * 100.0 / 30
     assert terrain.geometry["verts"][0] == pytest.approx(
-        (n0, e0, (30.48 + 0.01 * e0 * c - 0.5) / US_FT))
+        (e0, n0, (30.48 + 0.01 * e0 * c - 0.5) / US_FT))
+    assert terrain.body == "surface"
 
 
 @pytest.mark.parametrize("nodata", [np.nan, -3.4e38])
@@ -148,3 +150,37 @@ def test_the_fetch_margin_is_at_least_two_dem_cells(monkeypatch, tmp_path):
                 line(), ctx, 40.0, StructureModel("g", ctx), log=lambda *_: None)
     r = 40.0 + 2.0 / US_FT
     assert calls[0] == pytest.approx((-r, -r, r, 100.0 + r))
+
+
+def test_a_plane_adds_its_terrain_as_3dep_would():
+    from bimforge.author.model import StructureModel
+    from bimforge.author.sweep import to_model
+    ctx = ProjectContext(name="g", epsg=2226, base_e=300.0, base_n=500.0,
+                         base_h=90.0, guid_ns=uuid.UUID(int=5))
+    al = Alignment({"station": 0.0, "northing": 500.0, "easting": 300.0},
+                   [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 100.0}])
+    model = StructureModel("g", ctx)
+    g = from_params({"source": "plane", "elevation": 95.0, "slope_n": 0.02,
+                     "slope_e": 0.1, "margin_ft": 10.0}, al, ctx, 40.0, model)
+    (terrain,) = model.elements
+    assert (terrain.ifc_class, terrain.predefined_type) == ("IfcGeographicElement", "TERRAIN")
+    assert terrain.name == "Existing ground - design plane"
+    assert terrain.body == "surface" and terrain.classifications == []
+    d = terrain.geometry
+    assert d["kind"] == "mesh" and d["units"] == "ft" and d["tris"]
+    assert "plane" in d["provenance"]["Source"].lower()
+    assert d["provenance"]["SurveyGrade"] is False
+    # every vertex on the plane, in the model frame
+    for x, y, z in d["verts"]:
+        n, e = y + 500.0, x + 300.0
+        assert to_model(ctx, n, e, g.z(n, e))[2] == pytest.approx(z, abs=1e-9)
+    # over the footprint grown by the reach and the margin, as 3DEP fetches
+    e0, n0, e1, n1 = footprint(al, 40.0 + 10.0)
+    xs, ys = [v[0] for v in d["verts"]], [v[1] for v in d["verts"]]
+    assert min(xs) <= e0 - 300.0 + 40.0 and max(xs) >= e1 - 300.0 - 40.0
+    assert min(ys) <= n0 - 500.0 + 40.0 and max(ys) >= n1 - 500.0 - 40.0
+
+
+def test_a_plane_with_no_model_adds_nothing():
+    g = from_params({"source": "plane", "elevation": 95.0}, line(), None, 50.0, None)
+    assert g.z(0.0, 0.0) == pytest.approx(95.0)
