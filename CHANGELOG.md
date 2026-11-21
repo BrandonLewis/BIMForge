@@ -4,6 +4,12 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+## 0.1.130 — 2026-11-21
+
+What the model says about each element now goes to BidSheet.ai with its quantities (M.6, #114), and buildingSMART's alignment checks run in CI (C.12, #113). No file BIMForge writes changes.
+
+**For BidSheet.ai:** `upsert_modelled_elements` payloads from `est-bim model-elements` gain optional keys: per element `family_class`, `class_uri`, `type_name`, `standard_plan`, `parameters` and `linear_reference`, per quantity `formula`, and per call `model` (keyed on `build_id`). All are additive; they are ignored until BidSheet.ai stores them (its rows 5.16 to 5.19).
+
 ### Added
 
 - **buildingSMART's alignment checks run in CI (C.12).**
@@ -28,7 +34,9 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   old and new payloads are both valid; BidSheet.ai storing them is its own
   change (its rows 5.16 to 5.19). Named `parameters`, not `dimensions`,
   which a BidSheet.ai takeoff element already uses for "measured from
-  dimensions".
+  dimensions". A parameter, station or offset that is not finite in feet
+  (a broken export) is left out with a warning, so the payload stays valid
+  JSON.
 
 ## 0.1.129 — 2026-11-20
 
