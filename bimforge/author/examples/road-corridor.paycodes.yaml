@@ -1,0 +1,40 @@
+# Road corridor: pavement courses and earthwork (CY).
+rules:
+  - match: "(?i)^HMA "
+    group: rc_hma
+  - match: "(?i)^AB "
+    group: rc_ab
+  - match: "(?i)^Cut "
+    group: rc_cut
+  - match: "(?i)^Fill "
+    group: rc_fill
+groups:
+  rc_hma: {measure: GrossVolume}
+  rc_ab: {measure: GrossVolume}
+  rc_cut: {measure: GrossVolume}
+  rc_fill: {measure: GrossVolume}
+codes:
+  PAVE-HMA:
+    group: rc_hma
+    measure: GrossVolume
+    unit: CY
+    item_number: "390132"
+    description: "Hot mix asphalt"
+  PAVE-AB:
+    group: rc_ab
+    measure: GrossVolume
+    unit: CY
+    item_number: "260203"
+    description: "Class 2 aggregate base"
+  EARTH-CUT:
+    group: rc_cut
+    measure: GrossVolume
+    unit: CY
+    item_number: "190101"
+    description: "Roadway excavation"
+  EARTH-FILL:
+    group: rc_fill
+    measure: GrossVolume
+    unit: CY
+    item_number: "198010"
+    description: "Imported borrow"

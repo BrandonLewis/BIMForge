@@ -25,6 +25,26 @@
    "build"
   ]
  },
+ "applies|pset|BIMForge_LinearReference|IfcCourse": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcEarthworksCut": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcEarthworksFill": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcGeographicElement": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "applies|pset|BIMForge_LinearReference|IfcPlate": {
   "IFC4X3": [
    "build"
@@ -36,6 +56,21 @@
   ]
  },
  "applies|pset|BIMForge_LinearReference|IfcWall": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_MassHaul|IfcBuildingElementProxy": {
+  "IFC4": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_MassHaul|IfcEarthworksCut": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_MassHaul|IfcEarthworksFill": {
   "IFC4X3": [
    "build"
   ]
@@ -112,6 +147,14 @@
    "schedule --returned"
   ]
  },
+ "applies|pset|Pset_BimforgeTerrain|IfcGeographicElement": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "applies|pset|Pset_FootingCommon|IfcFooting": {
   "IFC4": [
    "build"
@@ -171,6 +214,21 @@
   "IFC4": [
    "build"
   ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcCourse": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcEarthworksCut": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_BaseQuantities|IfcEarthworksFill": {
   "IFC4X3": [
    "build"
   ]
@@ -235,6 +293,21 @@
   "IFC4": [
    "build"
   ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_CourseBaseQuantities|IfcCourse": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_EarthworksCutBaseQuantities|IfcEarthworksCut": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_EarthworksFillBaseQuantities|IfcEarthworksFill": {
   "IFC4X3": [
    "build"
   ]
@@ -438,6 +511,14 @@
    "dxf2bim"
   ]
  },
+ "entity|IfcCartesianPointList3D": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "entity|IfcCartesianTransformationOperator3D": {
   "IFC4": [
    "build"
@@ -543,6 +624,16 @@
    "schedule + cost5d"
   ]
  },
+ "entity|IfcCourse": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcCourseType": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "entity|IfcCovering": {
   "IFC4": [
    "dxf2bim"
@@ -572,6 +663,16 @@
   "IFC4X3": [
    "build",
    "dxf2bim"
+  ]
+ },
+ "entity|IfcEarthworksCut": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcEarthworksFill": {
+  "IFC4X3": [
+   "build"
   ]
  },
  "entity|IfcElementQuantity": {
@@ -635,6 +736,14 @@
   ]
  },
  "entity|IfcFootingType": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcGeographicElement": {
   "IFC4": [
    "build"
   ],
@@ -1182,6 +1291,11 @@
    "build"
   ]
  },
+ "entity|IfcRelVoidsElement": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "entity|IfcRepresentationMap": {
   "IFC4": [
    "build"
@@ -1206,6 +1320,16 @@
    "build"
   ]
  },
+ "entity|IfcRoad": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcRoadPart": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "entity|IfcSIUnit": {
   "IFC4": [
    "build",
@@ -1214,6 +1338,11 @@
   "IFC4X3": [
    "build",
    "dxf2bim"
+  ]
+ },
+ "entity|IfcSectionedSolidHorizontal": {
+  "IFC4X3": [
+   "build"
   ]
  },
  "entity|IfcShapeRepresentation": {
@@ -1278,6 +1407,14 @@
    "build"
   ]
  },
+ "entity|IfcSurfaceStyleShading": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "entity|IfcTask": {
   "IFC4": [
    "estimate-model",
@@ -1300,6 +1437,14 @@
    "estimate-model",
    "schedule + cost5d",
    "schedule --returned"
+  ]
+ },
+ "entity|IfcTriangulatedFaceSet": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
   ]
  },
  "entity|IfcUnitAssignment": {
@@ -1473,6 +1618,38 @@
   ]
  },
  "pset|BIMForge_LinearReference|StationUnit": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_MassHaul": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_MassHaul|CumulativeCY": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_MassHaul|EndStation": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_MassHaul|StartStation": {
+  "IFC4": [
+   "build"
+  ],
   "IFC4X3": [
    "build"
   ]
@@ -1881,6 +2058,78 @@
    "schedule --returned"
   ]
  },
+ "pset|Pset_BimforgeTerrain": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_BimforgeTerrain|Carved": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_BimforgeTerrain|MeshSpacing": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_BimforgeTerrain|MeshSpacingUnit": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_BimforgeTerrain|PlaneElevation": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_BimforgeTerrain|PlaneSlopeE": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_BimforgeTerrain|PlaneSlopeN": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_BimforgeTerrain|Source": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|Pset_BimforgeTerrain|SurveyGrade": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "pset|Pset_FootingCommon": {
   "IFC4": [
    "build"
@@ -2041,6 +2290,91 @@
   "IFC4": [
    "build"
   ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_CourseBaseQuantities": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_CourseBaseQuantities|Length|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_CourseBaseQuantities|Thickness|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_CourseBaseQuantities|Volume|IfcQuantityVolume": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_CourseBaseQuantities|Width|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksCutBaseQuantities": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksCutBaseQuantities|Depth|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksCutBaseQuantities|Length|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksCutBaseQuantities|LooseVolume|IfcQuantityVolume": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksCutBaseQuantities|UndisturbedVolume|IfcQuantityVolume": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksCutBaseQuantities|Width|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksFillBaseQuantities": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksFillBaseQuantities|CompactedVolume|IfcQuantityVolume": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksFillBaseQuantities|Depth|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksFillBaseQuantities|Length|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksFillBaseQuantities|LooseVolume|IfcQuantityVolume": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_EarthworksFillBaseQuantities|Width|IfcQuantityLength": {
   "IFC4X3": [
    "build"
   ]
