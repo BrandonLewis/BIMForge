@@ -84,9 +84,13 @@ def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
         ft = ctx.ft_to_m
         _unit, crs_m = crs_unit(ctx.epsg)
         c = ft / crs_m                                 # CRS units per model ft
-        spacing = float(gp.get("spacing_m", 1.0)) / crs_m
+        spacing_m = float(gp.get("spacing_m", 1.0))
+        spacing = spacing_m / crs_m
         vshift = float(gp.get("vshift_m", 0.0))
-        e0, n0, e1, n1 = footprint(alignment, reach + float(gp.get("margin_ft", 200.0)))
+        # at least two DEM cells past the reach: a daylight in the grid's
+        # last half pixel would have no pixel centre beyond it to read
+        margin = max(float(gp.get("margin_ft", 200.0)), 2.0 * spacing_m / ft)
+        e0, n0, e1, n1 = footprint(alignment, reach + margin)
         bbox = (e0 * c, n0 * c, e1 * c, n1 * c)
         stem = str(gp["cache"])
         grid = terrain.fetch_3dep_dem(bbox, spacing, ctx.epsg,
