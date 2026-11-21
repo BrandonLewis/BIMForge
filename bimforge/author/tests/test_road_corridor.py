@@ -241,7 +241,7 @@ def test_the_band_where_a_side_turns_is_written_as_closed_bodies(tmp_path):
     # one ground-plane face, the engine drew it with 4 open edges
     from bimforge.author.emit_ifc import emit_ifc
     from bimforge.author.families.road_corridor import build
-    from bimforge.author.gate import _quiet_stdout
+    from bimforge.bim.ifc_mesh import quiet_stdout
     from bimforge.author.model import StructureModel
     from bimforge.bim.ifc_mesh import solid_bodies
     m = build(copy.deepcopy(TURNING), CTX)
@@ -251,7 +251,7 @@ def test_the_band_where_a_side_turns_is_written_as_closed_bodies(tmp_path):
         one.add(m.element(name))
     out = tmp_path / "turn.ifc"
     emit_ifc(one, str(out))
-    with _quiet_stdout():
+    with quiet_stdout():
         bodies = solid_bodies(str(out)).values()
     for info in bodies:
         if info["name"] == "Existing ground - design plane":
@@ -405,9 +405,10 @@ def test_every_body_is_solid_but_the_engine_s_sectioned_caps(x3, model):
     # does a SweptSection's (measured: 9 on a 4-point ring, 15 on the
     # 6-point lane ring, either way). A lane body is one 6-point ring; the
     # shoulders are two 4-point rings. Nothing else may be reported.
-    from bimforge.author.gate import _ifc_solid_body_check, _quiet_stdout
+    from bimforge.author.gate import _ifc_solid_body_check
+    from bimforge.bim.ifc_mesh import quiet_stdout
     _f, out = x3
-    with _quiet_stdout():
+    with quiet_stdout():
         found = _only_point_contacts(
             _ifc_solid_body_check(model, str(out / "rc.ifc")))
     assert found
@@ -483,14 +484,15 @@ def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
 
 
 def test_the_ifc4_file_passes_the_schema_and_its_bodies_are_solid(tmp_path, model):
-    from bimforge.author.gate import _ifc_solid_body_check, _quiet_stdout, schema_issues
+    from bimforge.author.gate import _ifc_solid_body_check, schema_issues
+    from bimforge.bim.ifc_mesh import quiet_stdout
     f, out = _built(tmp_path, "IFC4")
     assert not schema_issues(f)
     # every product is a proxy here, so no class's standard set applies
     import ifcopenshell.util.element as E
     for prod in f.by_type("IfcBuildingElementProxy"):
         assert set(E.get_psets(prod, qtos_only=True)) <= {"Qto_BaseQuantities"}, prod.Name
-    with _quiet_stdout():
+    with quiet_stdout():
         assert _only_point_contacts(
             _ifc_solid_body_check(model, str(out / "rc.ifc"))) == []
 

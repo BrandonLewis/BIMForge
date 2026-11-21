@@ -9,9 +9,37 @@ representation (a Qto-only IFC) are simply absent from the result —
 legitimate authoring, not an error.
 
 Consumed by the est-takeoff audit's mesh leg and by
-bimforge.author.gate._ifc_mesh_check — one home for the iterator discipline.
+bimforge.author.gate._ifc_mesh_check — one home for the iterator discipline,
+and for `quiet_stdout`, which silences the engine while it draws.
 """
 from __future__ import annotations
+
+
+def quiet_stdout():
+    """Silence C++ writes to fd 1 for the duration: ifcopenshell 0.9 dumps
+    debug topology for every IfcSectionedSolidHorizontal it draws
+    (IfcOpenShell#9820), pages of it per sweep. Wrap any tessellation of a
+    file that may hold one (the gate's checks, linear_ref's stationing)."""
+    import contextlib
+    import os
+    import sys
+
+    @contextlib.contextmanager
+    def quiet():
+        sys.stdout.flush()
+        try:
+            saved = os.dup(1)
+        except OSError:                     # no real fd 1 (embedded host)
+            yield
+            return
+        try:
+            with open(os.devnull, "w") as null:
+                os.dup2(null.fileno(), 1)
+                yield
+        finally:
+            os.dup2(saved, 1)
+            os.close(saved)
+    return quiet()
 
 
 def mesh_volume(verts, faces) -> float:

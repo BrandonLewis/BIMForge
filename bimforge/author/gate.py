@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from bimforge.author.primitives import FACET_TOLERANCE
+from bimforge.bim.ifc_mesh import quiet_stdout
 
 #: Post-emit mesh-vs-analytic tolerance (tessellation is the only slack).
 MESH_TOLERANCE = 0.005
@@ -335,32 +336,6 @@ EXACT_SWEEP_TOL_FT = 0.005 / 0.3048
 EXACT_SWEEP_AREA_TOL = 0.005
 
 
-def _quiet_stdout():
-    """Silence C++ writes to fd 1 for the duration: ifcopenshell 0.9 dumps
-    debug topology for every IfcSectionedSolidHorizontal it draws
-    (IfcOpenShell#9820), pages of it per sweep."""
-    import contextlib
-    import os
-    import sys
-
-    @contextlib.contextmanager
-    def quiet():
-        sys.stdout.flush()
-        try:
-            saved = os.dup(1)
-        except OSError:                     # no real fd 1 (embedded host)
-            yield
-            return
-        try:
-            with open(os.devnull, "w") as null:
-                os.dup2(null.fileno(), 1)
-                yield
-        finally:
-            os.dup2(saved, 1)
-            os.close(saved)
-    return quiet()
-
-
 def _tessellate_item(st, item, matrix, k):
     """(verts in model feet, tris) of one representation item, moved by its
     product's placement `matrix` (metres)."""
@@ -427,7 +402,7 @@ def _ifc_exact_sweep_check(model, ifc_path: str,
             continue
         matrix = up.get_local_placement(prod.ObjectPlacement)
         volume = 0.0
-        with _quiet_stdout():
+        with quiet_stdout():
             for i, (sw, item) in enumerate(zip(sweeps, drawn)):
                 tag = el.name if len(sweeps) == 1 else f"{el.name} sweep {i + 1}"
                 verts, tris = _tessellate_item(st, item, matrix, k)
@@ -512,7 +487,7 @@ def _ifc_exact_revolution_check(model, ifc_path: str) -> list[str]:
         # relative to the element's placement), so the drawn solid is held
         # to them in that frame, not moved by the product's placement
         matrix = np.eye(4)
-        with _quiet_stdout():
+        with quiet_stdout():
             for i, (ex, item) in enumerate(zip(revs, drawn)):
                 verts, _tris = _tessellate_item(st, item, matrix, k)
                 if not _on_revolution(verts, ex, EXACT_REVOLUTION_TOL_FT):
@@ -964,7 +939,7 @@ def run_post(model, outputs: dict, paycodes=None,
     """
     rep = GateReport()
     if outputs.get("ifc"):
-        with _quiet_stdout():
+        with quiet_stdout():
             _run_contained(rep, _ifc_mesh_check, model, outputs["ifc"],
                            mesh_tol)
         _run_contained(rep, _ifc_spatial_chain_check, model, outputs["ifc"])
@@ -981,7 +956,7 @@ def run_post(model, outputs: dict, paycodes=None,
             _run_contained(rep, _ifc_alignment_check, model, outputs["ifc"])
         mode = getattr(model, "solid_body_gate", "warn")
         if mode != "off":
-            with _quiet_stdout():
+            with quiet_stdout():
                 probe = GateReport()
                 _run_contained(probe, _ifc_solid_body_check, model,
                                outputs["ifc"])
