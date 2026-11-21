@@ -51,7 +51,7 @@ New package `bimforge/author/corridor/`, plus the family module.
 
 - `kind: structure` stops the corridor between two stations. No course or earthwork element lies inside the range, and both ends close with a vertical face. The bridge is a separate model, federated by shared GlobalIds.
 - `kind: wall` with `side` and `offset` replaces that side's slope with a level line at subgrade out to the offset; the earthwork closes on a vertical face there. Stations are cut 1 ft outside each end of a wall gap, so the change from slope to wall happens within 1 ft. The wall itself is a separate family.
-- Gaps may not overlap and must lie on the alignment.
+- Gaps must lie on the alignment. A structure gap may not overlap any other gap, and two walls on the same side may not overlap; walls on opposite sides may.
 
 ### Spatial tree and quantities
 

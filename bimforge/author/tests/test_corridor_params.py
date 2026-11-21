@@ -65,6 +65,29 @@ def test_stations_take_every_interval_band_table_and_wall_end():
 @pytest.mark.parametrize("over, match", [
     ({"gaps": [{"from": 1100, "to": 1300, "kind": "structure"},
                {"from": 1200, "to": 1400, "kind": "structure"}]}, "overlaps"),
+    ({"gaps": [{"from": 1100, "to": 1300, "kind": "wall", "side": "L", "offset": 30},
+               {"from": 1200, "to": 1400, "kind": "wall", "side": "L", "offset": 30}]},
+     "overlaps"),
+    ({"gaps": [{"from": 1100, "to": 1300, "kind": "wall", "side": "L", "offset": 30},
+               {"from": 1200, "to": 1400, "kind": "structure"}]}, "overlaps"),
+    ({"gaps": [{"from": 1100, "to": 1500, "kind": "wall", "side": "L", "offset": 30},
+               {"from": 1200, "to": 1300, "kind": "wall", "side": "L", "offset": 30}]},
+     "overlaps"),
+    ({"gaps": [{"from": 1100, "to": float("nan"), "kind": "structure"}]}, "gaps.*finite"),
+    ({"section": {**BASE["section"], "components": [{"kind": "carriageway", "width": 12}]}},
+     r"components\[0\].name"),
+    ({"widths": [{"component": "shoulder", "side": "R", "at": [[1200]]}]},
+     r"\[station, width\]"),
+    ({"widths": [{"component": "shoulder", "side": "R",
+                  "at": [[3000, 5.0], [3100, 6.0]]}]}, "off the alignment"),
+    ({"widths": [{"component": "shoulder", "side": "R",
+                  "at": [[1200, 0.0], [1300, 5.0]]}]}, "must be positive"),
+    ({"section": {**BASE["section"], "components": [
+        {"name": "lane", "kind": "carriageway", "width": 0.0}]}}, "must be positive"),
+    ({"section": {**BASE["section"], "courses": [
+        {"name": "HMA", "type": "PAVEMENT", "thickness": 0.0}]}}, "must be positive"),
+    ({"superelevation": [[1000, -0.02, float("inf")]]}, "finite"),
+    ({"superelevation": [[1000, -0.02, -0.02, 0.0]]}, r"\[station, left, right\]"),
     ({"gaps": [{"from": 1900, "to": 2100, "kind": "structure"}]}, "off the alignment"),
     ({"gaps": [{"from": 1100, "to": 1200, "kind": "wall", "offset": 30}]}, "side L or R"),
     ({"superelevation": [[900, -0.02, -0.02]]}, "off the alignment"),
@@ -92,4 +115,30 @@ def test_a_corridor_needs_components_and_courses():
     p = params()
     p["section"]["courses"] = []
     with pytest.raises(ValueError, match="at least one course"):
+        parse(p, 1000.0, 2000.0)
+
+
+def test_walls_on_opposite_sides_may_overlap():
+    c = parse(params(gaps=[
+        {"from": 1100, "to": 1300, "kind": "wall", "side": "L", "offset": 30},
+        {"from": 1200, "to": 1400, "kind": "wall", "side": "R", "offset": 25}]),
+        1000.0, 2000.0)
+    assert c.wall("L", 1250.0).offset == 30.0
+    assert c.wall("R", 1250.0).offset == 25.0
+    assert c.wall("L", 1350.0) is None
+    assert c.stations(1000.0, 1500.0) == [
+        1000.0, 1025.0, 1050.0, 1075.0, 1099.0, 1100.0, 1125.0, 1150.0, 1175.0,
+        1199.0, 1200.0, 1225.0, 1250.0, 1275.0, 1300.0, 1301.0, 1325.0,
+        1350.0, 1375.0, 1400.0, 1401.0, 1425.0, 1450.0, 1475.0, 1500.0]
+
+
+def test_an_alignment_must_have_length():
+    with pytest.raises(ValueError, match="alignment"):
+        parse(params(), 1000.0, 1000.0)
+
+
+def test_a_missing_field_names_the_field():
+    p = params()
+    del p["section"]["courses"][0]["thickness"]
+    with pytest.raises(ValueError, match=r"courses\[0\].thickness"):
         parse(p, 1000.0, 2000.0)

@@ -163,6 +163,8 @@ def _num(value, where: str, positive: bool = True) -> float:
         x = float(value)
     except (TypeError, ValueError):
         raise ValueError(f"{where}: expected a number, got {value!r}") from None
+    if not math.isfinite(x):
+        raise ValueError(f"{where}: expected a finite number, got {x:g}")
     if positive and not x > 0.0:
         raise ValueError(f"{where}: must be positive, got {x:g}")
     return x
@@ -174,6 +176,18 @@ def _on_alignment(s, where: str, s_start: float, s_end: float) -> float:
         raise ValueError(f"{where}: station {sta(s)} is off the alignment "
                          f"({sta(s_start)} to {sta(s_end)})")
     return s
+
+
+def _name(c: dict, where: str) -> str:
+    if not isinstance(c, dict) or not str(c.get("name") or "").strip():
+        raise ValueError(f"{where}.name: a name is required")
+    return str(c["name"])
+
+
+def _row(r, n: int, where: str, form: str) -> list:
+    if not isinstance(r, (list, tuple)) or len(r) != n:
+        raise ValueError(f"{where}: rows are {form}, got {r!r}")
+    return list(r)
 
 
 def _ascending(stations: list, where: str) -> None:
@@ -191,7 +205,7 @@ def _components(sec: dict) -> list:
                              f"{sorted(PART_TYPES)}")
         slope = c.get("slope")
         out.append(Component(
-            str(c["name"]), kind, _num(c.get("width"), f"{where}.width"),
+            _name(c, where), kind, _num(c.get("width"), f"{where}.width"),
             None if slope is None else _num(slope, f"{where}.slope",
                                             positive=False)))
     if not out:
@@ -211,7 +225,7 @@ def _courses(sec: dict) -> list:
         if ctype not in COURSE_TYPES:
             raise ValueError(f"{where}: type {c.get('type')!r} is not one of "
                              f"{COURSE_TYPES}")
-        out.append(Course(str(c["name"]), ctype,
+        out.append(Course(_name(c, where), ctype,
                           _num(c.get("thickness"), f"{where}.thickness")))
     if not out:
         raise ValueError("section.courses: a corridor needs at least one course")
@@ -246,7 +260,8 @@ def _widths(params: dict, names: list, s_start: float, s_end: float) -> dict:
             raise ValueError(f"{where}: side must be L or R")
         rows = [(_on_alignment(s, where, s_start, s_end),
                  _num(v, f"{where} width", positive=False))
-                for s, v in w.get("at") or []]
+                for s, v in (_row(r, 2, where, "[station, width]")
+                             for r in w.get("at") or [])]
         if not rows:
             raise ValueError(f"{where}: 'at' needs [station, width] rows")
         _ascending([s for s, _v in rows], where)
@@ -264,8 +279,7 @@ def _superelevation(params: dict, s_start: float, s_end: float) -> list:
     out = []
     for i, r in enumerate(params.get("superelevation") or []):
         where = f"superelevation[{i}]"
-        if len(r) != 3:
-            raise ValueError(f"{where}: rows are [station, left, right]")
+        r = _row(r, 3, where, "[station, left, right]")
         out.append((_on_alignment(r[0], where, s_start, s_end),
                     _num(r[1], where, positive=False),
                     _num(r[2], where, positive=False)))
@@ -293,16 +307,23 @@ def _gaps(params: dict, s_start: float, s_end: float) -> list:
             raise ValueError(f"{where}: kind {g.get('kind')!r} is not "
                              f"'structure' or 'wall'")
     out.sort(key=lambda g: g.start)
-    for p, q in zip(out, out[1:]):
-        if q.start < p.end - _EPS:
-            raise ValueError(f"gaps: {sta(p.start)} to {sta(p.end)} overlaps "
-                             f"{sta(q.start)} to {sta(q.end)}")
+    for i, p in enumerate(out):
+        for q in out[i + 1:]:
+            # walls on opposite sides may share stations; nothing else may
+            if (q.start < p.end - _EPS
+                    and (p.kind == "structure" or q.kind == "structure"
+                         or p.side == q.side)):
+                raise ValueError(f"gaps: {sta(p.start)} to {sta(p.end)} "
+                                 f"overlaps {sta(q.start)} to {sta(q.end)}")
     return out
 
 
 def parse(params: dict, s_start: float, s_end: float) -> Corridor:
     """The corridor `params` describe on an alignment from `s_start` to
     `s_end`; ValueError names the first field that is wrong."""
+    if not float(s_end) > float(s_start):
+        raise ValueError(f"alignment: ends at {sta(s_end)}, not past its "
+                         f"start {sta(s_start)}")
     sec = params.get("section") or {}
     comps = _components(sec)
     st = params.get("stations") or {}
