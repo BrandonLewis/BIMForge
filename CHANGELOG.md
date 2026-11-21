@@ -4,6 +4,29 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **Every takeoff records its sum, checked against the model (M.5).**
+  `est-bim takeoff` writes a top-level `check` into the takeoff JSON
+  (CanonicalTakeoff readers ignore it): the model's `build_id`, each row's
+  quantity beside its elements' sum (`basis` "sum", or "stated" for a lump
+  sum or `count_as` row), and the result. It fails when a row does not add
+  up to its elements, an element is in a row twice, or a classified element
+  with quantities is in no row; each failure is a review line.
+  `est-bim takeoff-check --takeoff t.json --ifc model.ifc` re-checks a
+  takeoff written earlier against a rebuilt model, by GlobalId: an element
+  whose value moved or that is gone fails the rows it backs, and the
+  command exits 1.
+
+### Fixed
+
+- **A measurement check carried through a rebuild keeps its link (M.5).**
+  `carry_forward` dropped the IfcResourceApprovalRelationship that ties
+  ProjectCommand's check approval to its objective (the sheet value, model
+  value and tolerance), since nothing references it. It is now copied when
+  both ends come across, so a carried check reads whole and a reader can
+  call it lapsed.
+
 ## 0.1.130 — 2026-11-21
 
 What the model says about each element now goes to BidSheet.ai with its quantities (M.6, #114), and buildingSMART's alignment checks run in CI (C.12, #113). No file BIMForge writes changes.

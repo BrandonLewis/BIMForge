@@ -432,3 +432,121 @@ def test_ifc2x3_is_refused_by_name(tmp_path):
         build_takeoff(path, {})
     with pytest.raises(ValueError, match="IFC2X3 is not supported"):
         classifications_of(wall)
+
+# ----------------------------------------------------------------------------
+# M.5: the takeoff's sum, checked against the model and recorded
+# ----------------------------------------------------------------------------
+def test_a_takeoff_records_its_sum_checked_against_the_model():
+    from bimforge.bim.ifc_takeoff import _build_takeoff
+    f, _ftg = _footing_file(volume=10.0)
+    takeoff, warnings = _build_takeoff(f, VOLUME_MAP)
+    check = takeoff["check"]
+    assert check["kind"] == "takeoff-sum" and check["result"] == "pass"
+    assert check["checked_by"].startswith("bimforge ")
+    (row,) = check["rows"]
+    assert row["basis"] == "sum" and row["agrees"]
+    assert row["elements_sum"] == takeoff["rows"][0]["quantity"]
+    assert check["elements"] == 1
+    assert not (check["missing"] or check["changed"] or check["repeated"]
+                or check["not_in_any_row"])
+    assert not warnings
+
+
+def test_a_rebuilt_model_whose_value_moved_fails_the_row():
+    import ifcopenshell.util.element as ue
+
+    from bimforge.bim.ifc_takeoff import _build_takeoff
+    from bimforge.bim.takeoff_check import check_takeoff, failures
+    f, ftg = _footing_file(volume=10.0)
+    takeoff, _ = _build_takeoff(f, VOLUME_MAP)
+    qto = ue.get_psets(ftg, qtos_only=True)["Qto_FootingBaseQuantities"]
+    ifcopenshell.api.pset.edit_qto(f, qto=f.by_id(qto["id"]),
+                                   properties={"NetVolume": 11.0})
+    record = check_takeoff(f, takeoff)
+    assert record["result"] == "fail"
+    assert record["changed"] == [ftg.GlobalId]
+    assert not record["rows"][0]["agrees"]
+    assert any("changed in the model" in w for w in failures(record))
+
+
+def test_an_element_gone_from_the_model_is_missing():
+    from bimforge.bim.ifc_takeoff import _build_takeoff
+    from bimforge.bim.takeoff_check import check_takeoff
+    f, ftg = _footing_file()
+    takeoff, _ = _build_takeoff(f, VOLUME_MAP)
+    gid = ftg.GlobalId
+    ifcopenshell.api.root.remove_product(f, product=ftg)
+    record = check_takeoff(f, takeoff)
+    assert record["result"] == "fail" and record["missing"] == [gid]
+
+
+def test_a_row_edited_by_hand_no_longer_agrees():
+    from bimforge.bim.ifc_takeoff import _build_takeoff
+    from bimforge.bim.takeoff_check import check_takeoff
+    f, ftg = _footing_file()
+    takeoff, _ = _build_takeoff(f, VOLUME_MAP)
+    row = takeoff["rows"][0]
+    row["quantity"] += 1
+    row["elements"].append(dict(row["elements"][0]))
+    record = check_takeoff(f, takeoff)
+    assert record["result"] == "fail"
+    assert not record["rows"][0]["agrees"]
+    assert record["repeated"] == [ftg.GlobalId]
+
+
+def test_a_classified_element_no_row_pays_fails_the_check():
+    from bimforge.bim.ifc_takeoff import _build_takeoff
+    f, _ftg = _footing_file()
+    other = ifcopenshell.api.root.create_entity(f, ifc_class="IfcFooting",
+                                                name="F-2")
+    qto = ifcopenshell.api.pset.add_qto(f, product=other,
+                                        name="Qto_FootingBaseQuantities")
+    ifcopenshell.api.pset.edit_qto(f, qto=qto, properties={"Width": 1.0})
+    (system,) = f.by_type("IfcClassification")
+    ifcopenshell.api.classification.add_reference(
+        f, products=[other], identification="51", name="Concrete",
+        classification=system)
+    takeoff, warnings = _build_takeoff(f, VOLUME_MAP)
+    assert takeoff["check"]["result"] == "fail"
+    assert takeoff["check"]["not_in_any_row"] == [other.GlobalId]
+    assert any("in no row" in w for w in warnings)
+
+
+def test_a_stated_row_keeps_its_basis_on_a_recheck(tmp_path):
+    import ifcopenshell
+
+    from bimforge.bim.ifc_takeoff import build_takeoff
+    from bimforge.bim.takeoff_check import check_takeoff
+    path = _three_counted_ifc(tmp_path / "ca.ifc")
+    tmap = {"codes": {"MOB": {"measure": "Count", "unit": "EA",
+                              "count_as": 2}}}
+    takeoff, _ = build_takeoff(str(path), tmap)
+    assert takeoff["check"]["rows"][0]["basis"] == "stated"
+    assert takeoff["check"]["result"] == "pass"
+    assert check_takeoff(ifcopenshell.open(str(path)),
+                         takeoff)["result"] == "pass"
+
+
+def test_takeoff_check_cli_exits_1_when_the_sum_no_longer_holds(tmp_path,
+                                                                capsys):
+    import json
+
+    from bimforge.bim.cli import main
+    from bimforge.bim.ifc_takeoff import _build_takeoff
+    f, _ftg = _footing_file()
+    ifc = tmp_path / "m.ifc"
+    f.write(str(ifc))
+    takeoff, _ = _build_takeoff(f, VOLUME_MAP)
+    good = tmp_path / "t.json"
+    good.write_text(json.dumps(takeoff), encoding="utf-8")
+    assert main(["takeoff-check", "--takeoff", str(good), "--ifc",
+                 str(ifc)]) == 0
+    takeoff["rows"][0]["quantity"] += 1
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps(takeoff), encoding="utf-8")
+    out = tmp_path / "checked.json"
+    assert main(["takeoff-check", "--takeoff", str(bad), "--ifc", str(ifc),
+                 "--out", str(out)]) == 1
+    checked = json.loads(out.read_text(encoding="utf-8"))
+    assert checked["check"]["result"] == "fail"
+    assert "Check: fail" in capsys.readouterr().out

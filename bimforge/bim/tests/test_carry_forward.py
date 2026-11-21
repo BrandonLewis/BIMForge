@@ -115,6 +115,77 @@ def test_uncovered_tasks_and_elements_are_reported():
     assert {e["name"] for e in report.uncovered_elements} == {"wall 1", "wall 2"}
 
 
+def _measurement_check(f, wall, model_value=2.4384):
+    """ProjectCommand's measurement check (M.5, its check.rs): a dimension
+    measured on `wall` against sheet S-3, as metrics named by reference,
+    an objective on the element, and an approval tied to the objective by
+    an IfcResourceApprovalRelationship that nothing references."""
+    oh = _stamp(f)
+    inner = f.createIfcReference("IfcPropertySingleValue", "HasProperties",
+                                 "DesignHeight", None, None)
+    path = f.createIfcReference("IfcPropertySet", None, "BIMForge_Dimensions",
+                                None, inner)
+    sheet = f.createIfcMetric(
+        "SheetValue", None, "ADVISORY", "Add. 2", None, None, None,
+        "EQUALTO", "S-3", f.createIfcLengthMeasure(2.4384), path)
+    model = f.createIfcMetric(
+        "ModelValue", None, "ADVISORY", "build:abc; sha256:def", None, None,
+        None, "EQUALTO", "stated", f.createIfcLengthMeasure(model_value),
+        path)
+    tol = f.createIfcMetric(
+        "Tolerance", None, "ADVISORY", None, None, None, None,
+        "LESSTHANOREQUALTO", "relative", f.createIfcRatioMeasure(0.01), None)
+    objective = f.createIfcObjective(
+        "Check: DesignHeight", None, "ADVISORY", None, None, None, None,
+        (sheet, model, tol), None, "USERDEFINED", "measurement")
+    f.createIfcRelAssociatesConstraint("1PCconstraint000000000", oh,
+                                       "Check: DesignHeight", None, [wall],
+                                       None, objective)
+    approval = f.createIfcApproval(
+        f"{wall.GlobalId}/BIMForge_Dimensions/DesignHeight",
+        "Check: DesignHeight", None, "2026-11-21T00:00:00", "agrees",
+        "measurement", "within 1%", None, None)
+    f.createIfcResourceApprovalRelationship("Checked", None, (objective,),
+                                            approval)
+    f.createIfcRelAssociatesApproval("1PCcheck00000000000000", oh,
+                                     "Check: DesignHeight", None, [wall],
+                                     approval)
+    doc = f.createIfcDocumentInformation("S-3", "S-3")
+    doc.Revision = "Add. 2"
+    f.createIfcRelAssociatesDocument("1PCsheet00000000000000", oh, None,
+                                     None, [wall], doc)
+
+
+def test_a_measurement_check_is_carried_whole_through_a_rebuild():
+    """M.5: a check ProjectCommand recorded on an element comes across a
+    rebuild as written, the approval still tied to its objective, so a
+    reader can tell it lapsed (the values are carried, never dropped)."""
+    returned = _linked_file()
+    _measurement_check(returned, _one(returned, "IfcWall",
+                                      lambda e: e.Name == "wall 0"))
+    rebuilt = _rebuilt()
+    report = carry_forward(returned, rebuilt)
+    assert report.carried == 3 and report.links == 1
+    assert not (report.dropped or report.vanished)
+    wall = _one(rebuilt, "IfcWall", lambda e: e.Name == "wall 0")
+    (link,) = rebuilt.by_type("IfcResourceApprovalRelationship")
+    assert link.Name == "Checked"
+    assert link.RelatingApproval == _by(
+        rebuilt, "1PCcheck00000000000000").RelatingApproval
+    objective = _by(rebuilt, "1PCconstraint000000000").RelatingConstraint
+    assert link.RelatedResourceObjects == (objective,)
+    assert link.RelatingApproval.Identifier == \
+        f"{wall.GlobalId}/BIMForge_Dimensions/DesignHeight"
+    values = {m.Name: m.DataValue.wrappedValue
+              for m in objective.BenchmarkValues}
+    assert values["ModelValue"] == pytest.approx(2.4384)
+    assert objective.BenchmarkValues[0].ReferencePath.InnerReference \
+        .InstanceName == "DesignHeight"
+    again = carry_forward(returned, rebuilt)
+    assert again.links == 0
+    assert len(rebuilt.by_type("IfcResourceApprovalRelationship")) == 1
+
+
 def test_without_a_downstream_schedule_nothing_is_uncovered():
     returned = _linked_file()
     oh = _stamp(returned)

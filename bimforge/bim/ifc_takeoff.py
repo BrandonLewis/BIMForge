@@ -577,7 +577,7 @@ def _build_takeoff(model, tmap: dict) -> tuple[dict, list[str]]:
         warnings.append(f"{unclassified} element(s) had no classification code — "
                         f"add one in the layer map to include them")
 
-    rows = []
+    rows, bases = [], []
     for (code, idx), a in sorted(acc.items()):
         cfg = codes_cfg.get(code, {}) or {}
         entries = entries_by_code.get(code)
@@ -587,6 +587,9 @@ def _build_takeoff(model, tmap: dict) -> tuple[dict, list[str]]:
             warnings.append(f"code {code}: no map entry — used natural unit "
                             f"'{unit}' and no item number")
         qty = round(convert(a["si_total"], a["dim"], unit), 4)
+        stated = a["dim"] == "count" and (
+            entry.get("count_as") is not None or str(unit).upper() == "LS")
+        bases.append("stated" if stated else "sum")
         if a["dim"] == "count":
             # a lump sum is 1 LS however many elements back it, and
             # `count_as` states the pay count outright (#366); the elements
@@ -624,6 +627,10 @@ def _build_takeoff(model, tmap: dict) -> tuple[dict, list[str]]:
         "project_ref": tmap.get("project_ref"),
         "rows": rows,
     }
+    # M.5: the sum, checked against the model and recorded with the takeoff
+    from bimforge.bim.takeoff_check import check_takeoff, failures
+    takeoff["check"] = check_takeoff(model, takeoff, bases)
+    warnings += failures(takeoff["check"])
     return takeoff, warnings
 
 
@@ -743,6 +750,11 @@ def print_summary(takeoff: dict):
         print(f"{(r['item_number'] or '-'):6} {r['cost_code']:12} "
               f"{r['description'][:26]:26} {r['quantity']:>12,.2f} {r['unit']:5} "
               f"{str(r['schedule'] or '-'):6}")
+    check = takeoff.get("check")
+    if check:
+        print(f"\nCheck: {check['result']} — {len(check['rows'])} rows, "
+              f"{check['elements']} elements against the model"
+              f"{' ' + check['build_id'][:12] if check.get('build_id') else ''}")
     print()
 
 
