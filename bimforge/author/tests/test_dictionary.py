@@ -258,3 +258,22 @@ def test_b3_dimensions_are_the_sections(built):
             assert dims["Batter"] > 0 and dims["StemBaseThickness"] > dims["StemThickness"]
             assert any(abs(dims["Batter"] - parse_batter(r["batter"])) < 1e-9
                        for r in (row.values() if isinstance(row, dict) else row))
+
+
+def test_b3_volumes_are_boxes_over_their_own_quantities(built):
+    """M.3: every B3 stem and footing slice is a prism the family sized, so
+    its GrossVolume says `Length * Width * Height`, and that product of the
+    set's own Length, Width and Height is the volume in the file."""
+    from bimforge.author.gate import (FORMULA_TOLERANCE, formula_value,
+                                      quantity_value)
+    model = built[EXAMPLES.index("caltrans-b3-wall-types")]
+    els = model.by_type("IfcWall") + model.by_type("IfcFooting")
+    assert els
+    for el in els:
+        qset = next(r.RelatingPropertyDefinition for r in el.IsDefinedBy
+                    if r.RelatingPropertyDefinition.is_a("IfcElementQuantity"))
+        q = {x.Name: x for x in qset.Quantities}
+        vol = q["GrossVolume"]
+        assert vol.Formula == "Length * Width * Height", el.Name
+        got = formula_value(vol.Formula, {n: quantity_value(x) for n, x in q.items()})
+        assert abs(got - vol.VolumeValue) <= FORMULA_TOLERANCE * vol.VolumeValue

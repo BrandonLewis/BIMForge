@@ -156,7 +156,7 @@ def build(params: dict, ctx) -> StructureModel:
                 type_name=fd.type_name(foot_cls),
                 psets=fd.reference_psets(foot_cls), family_class=foot_cls,
                 typed_late=True,
-                dimensions=_dimensions(foot_cls, ws),
+                dimensions=_dimensions(foot_cls, ws), volume_formula="box",
                 quantities={"length_ft": b - a, "width_ft": ws.W,
                             "height_ft": ws.F, "volume_cf": p.volume_cf}))
             # stem at MID-HEIGHT thickness: the prism volume IS the trapezoid's
@@ -177,7 +177,7 @@ def build(params: dict, ctx) -> StructureModel:
                 type_name=fd.type_name(stem_cls),
                 psets=fd.reference_psets(stem_cls), family_class=stem_cls,
                 typed_late=True,
-                dimensions=_dimensions(stem_cls, ws),
+                dimensions=_dimensions(stem_cls, ws), volume_formula="box",
                 layer_thickness_ft=th if layered else None, **place,
                 quantities={"length_ft": b - a, "width_ft": th,
                             "height_ft": h, "volume_cf": p.volume_cf}))

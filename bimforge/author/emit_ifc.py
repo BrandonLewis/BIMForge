@@ -284,6 +284,9 @@ def base_quantities(el, ft_to_m: float):
                           ("Height", "height_ft")):
             if q.get(key) is not None:
                 out.append(("IfcQuantityLength", name, q[key] * ft_to_m))
+    if q.get("section_sf") is not None:
+        out.append(("IfcQuantityArea", "CrossSectionArea",
+                    q["section_sf"] * ft_to_m ** 2))
     if q.get("surface_sf") is not None:
         out.append(("IfcQuantityArea", "OuterSurfaceArea",
                     q["surface_sf"] * ft_to_m ** 2))
@@ -296,6 +299,40 @@ def base_quantities(el, ft_to_m: float):
 _QTY_ATTR = {"IfcQuantityArea": "AreaValue", "IfcQuantityLength": "LengthValue",
              "IfcQuantityVolume": "VolumeValue", "IfcQuantityCount": "CountValue",
              "IfcQuantityWeight": "WeightValue"}
+
+#: An element's `volume_formula` -> the Formula its GrossVolume is written
+#: with (roadmap M.3), over names in the same quantity set
+VOLUME_FORMULAS = {"box": "Length * Width * Height",
+                   "section": "CrossSectionArea * Length",
+                   "solid": None}
+
+
+def volume_formula(el) -> str | None:
+    """The Formula of `el`'s GrossVolume, or None. Raises when the element
+    names a grade its quantities cannot carry."""
+    grade = el.volume_formula
+    if grade is None:
+        return None
+    if grade not in VOLUME_FORMULAS:
+        raise ValueError(f"{el.name}: volume_formula {grade!r} is not one of "
+                         f"{sorted(VOLUME_FORMULAS)}")
+    q = el.quantities
+    if grade != "solid" and q.get("volume_cf") is None:
+        raise ValueError(f"{el.name}: volume_formula {grade!r} without a "
+                         f"volume_cf")
+    if grade == "box" and (q.get("count", 1) or 1) != 1:
+        raise ValueError(f"{el.name}: a box formula is one element's volume; "
+                         f"count is {q['count']}")
+    formula = VOLUME_FORMULAS[grade]
+    if formula:
+        written = {name for _ent, name, _v in base_quantities(el, 1.0)}
+        missing = [n.strip() for n in formula.split("*")
+                   if n.strip() not in written]
+        if missing:
+            raise ValueError(f"{el.name}: a {grade} formula needs "
+                             f"{', '.join(missing)}, which its quantities "
+                             f"do not give")
+    return formula
 
 
 # ------------------------------------------------------------------ geometry
@@ -2268,11 +2305,14 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 qto = run("pset.add_qto", f, product=product,
                           name="Qto_BaseQuantities")
                 quantities = []
+                formula = volume_formula(el)
                 for ent, qname, value in base_quantities(el, ctx.ft_to_m):
                     qq = f.create_entity(ent, Name=qname)
                     setattr(qq, _QTY_ATTR[ent],
                             int(value) if ent == "IfcQuantityCount"
                             else float(value))
+                    if formula and qname == "GrossVolume":
+                        qq.Formula = formula
                     quantities.append(qq)
                 qto.Quantities = tuple(quantities)
 
