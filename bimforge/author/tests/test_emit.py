@@ -2140,3 +2140,22 @@ def test_standard_qto_skips_an_empty_set(tmp_path):
     el = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
     assert "Qto_FootingBaseQuantities" not in ifcopenshell.util.element.get_psets(
         el, qtos_only=True)
+
+
+def test_standard_qto_never_overrides_base_in_ifc2gis(tmp_path):
+    import ifcopenshell
+    from bimforge.bim.ifc2gis import _quantities
+
+    m = _fixture_model()
+    base_out = tmp_path / "base.ifc"
+    emit_ifc(m, str(base_out), PC)
+    f0 = ifcopenshell.open(str(base_out))
+    e0 = next(e for e in f0.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    base = _quantities(e0, 1.0)["Length"]
+    m.element("PS-1 footing").standard_qto = {
+        "Qto_FootingBaseQuantities": {"Length": ("length", 999.0)}}
+    out = tmp_path / "clash.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    e = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    assert _quantities(e, 1.0)["Length"] == pytest.approx(base)

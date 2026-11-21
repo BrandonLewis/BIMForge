@@ -307,17 +307,19 @@ def quantity_sets(element) -> list:
     own (which win on a repeated name, as `util.element.get_psets` merges
     them)."""
     sets = []
+    own = []
     el_type = ue.get_type(element)
     if el_type is not None:
         sets += [p for p in (getattr(el_type, "HasPropertySets", None) or [])
                  if p.is_a("IfcElementQuantity")]
     for rel in getattr(element, "IsDefinedBy", None) or []:
         if rel.is_a("IfcRelDefinesByProperties") and                 rel.RelatingPropertyDefinition.is_a("IfcElementQuantity"):
-            sets.append(rel.RelatingPropertyDefinition)
-    # Qto_BaseQuantities last, so it wins a repeated name over a class's
-    # standard set (Element.standard_qto) until M.17 moves consumers over
-    sets.sort(key=lambda s: s.Name == "Qto_BaseQuantities")
-    return sets
+            own.append(rel.RelatingPropertyDefinition)
+    # The element's own sets stay after its type's; among them
+    # Qto_BaseQuantities goes last, so it wins a repeated name over a
+    # class's standard set (Element.standard_qto) until M.17 moves
+    # consumers over.
+    return sets + sorted(own, key=lambda q: q.Name == "Qto_BaseQuantities")
 
 
 def quantity_entities(element) -> dict:
