@@ -257,6 +257,15 @@ def test_the_ifc4x3_file_is_a_road(x3):
     assert text.startswith("start,station,")
 
 
+def test_the_road_is_positioned_on_its_alignment(x3):
+    from bimforge.bim.linear_ref import REL_NAME
+    f, _out = x3
+    (rel,) = [r for r in f.by_type("IfcRelPositions") if r.Name == REL_NAME]
+    assert rel.RelatingPositioningElement.Name == "ML"
+    assert [p for p in rel.RelatedProducts if p.is_a("IfcRoad")] == list(f.by_type("IfcRoad"))
+    assert any(p.is_a("IfcCourse") for p in rel.RelatedProducts)
+
+
 def test_the_tree_is_road_segment_lateral_part(x3):
     import ifcopenshell.util.element as E
     f, _out = x3

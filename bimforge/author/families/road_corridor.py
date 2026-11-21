@@ -42,6 +42,7 @@ def geometry_stations(al, prof, s0: float, s1: float) -> list:
     vertical curve's BVC, PVI and EVC. frame.densify steps between the
     stations it is given and does not add these, so a section must be cut
     at each one."""
+    # alignment.Profile's vertical curves are symmetric: the PVI is mid-curve
     pvis = [c["bvc_station"] + 0.5 * c["length_ft"] for c in prof.curves]
     out = set(al.seg_breaks(s0, s1)) | set(prof.breaks(s0, s1))
     out.update(s for s in pvis if s0 + 1e-9 < s < s1 - 1e-9)

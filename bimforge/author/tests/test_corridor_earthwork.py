@@ -181,3 +181,33 @@ def test_sections_with_different_counts_are_refused():
         b.subgrade[side].append(b.subgrade[side][-1])
     with pytest.raises(ValueError, match="point counts"):
         earthwork.strip("t", a, b, survey, ground.z, None)
+
+
+def _rotations(loop):
+    return {tuple(loop[k:] + loop[:k]) for k in range(len(loop))}
+
+
+@pytest.mark.parametrize("faces", [
+    [[0, 1, 2], [2, 1, 0], [0, 1, 2]],
+    [[0, 1, 2], [0, 1, 2], [2, 1, 0]],
+    # same corners, a third face neither the first nor its reverse
+    [[0, 1, 2, 3], [3, 2, 1, 0], [0, 2, 1, 3]],
+])
+def test_a_shared_face_is_dropped_in_pairs_whatever_else_coincides(faces):
+    from bimforge.author.corridor.earthwork import _shared_faces
+    dropped = _shared_faces(faces)
+    assert len(dropped) == 2
+    a, b = sorted(dropped)
+    assert tuple(faces[a]) in _rotations(faces[b][::-1])
+
+
+def test_bases_meeting_at_a_point_have_two_outlines():
+    from bimforge.author.corridor.earthwork import _plan_loops
+    # two CCW triangles touching only at point 2, and a square of two
+    # triangles sharing a diagonal
+    loops = _plan_loops([[0, 1, 2], [2, 3, 4], [5, 6, 7], [5, 7, 8]])
+    got = sorted(loops, key=min)
+    assert len(got) == 3
+    assert tuple(got[0]) in _rotations([0, 1, 2])
+    assert tuple(got[1]) in _rotations([2, 3, 4])
+    assert tuple(got[2]) in _rotations([5, 6, 7, 8])

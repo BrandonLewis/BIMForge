@@ -137,27 +137,36 @@ def _column_faces(p: Prismatoid, vid) -> list:
 
 def _plan_loops(columns: list) -> list:
     """The outline of the columns' bases in plan: base edges no other base
-    shares, chained into loops."""
-    nxt, seen = {}, {}
+    shares, chained into loops. Where two loops meet at a point (a vertex
+    with two outline edges out of it), the walk runs through both; it is
+    cut there into simple loops, so no outline visits a point twice."""
+    seen = set()
     for base in columns:
-        for a, b in zip(base, base[1:] + base[:1]):
-            seen[a, b] = True
-    for (a, b) in seen:
+        seen.update(zip(base, base[1:] + base[:1]))
+    nxt: dict = {}
+    for (a, b) in sorted(seen):
         if (b, a) not in seen:
             nxt.setdefault(a, []).append(b)
     loops = []
     while nxt:
         start = next(iter(nxt))
-        loop, a = [start], start
-        while True:
+        walk, a = [start], start
+        while a in nxt:
             b = nxt[a].pop()
             if not nxt[a]:
                 del nxt[a]
-            if b == start or b not in nxt:
-                break
-            loop.append(b)
+            walk.append(b)
             a = b
-        loops.append(loop)
+        # walk returns to start; peel off a loop each time a point repeats
+        stack = []
+        for v in walk[:-1]:
+            if v in stack:
+                k = stack.index(v)
+                loops.append(stack[k:])
+                del stack[k + 1:]
+            else:
+                stack.append(v)
+        loops.append(stack)
     return loops
 
 
@@ -189,20 +198,7 @@ def merge(name: str, kind: str, columns: list) -> list:
             key = (round(x, _WELD), round(y, _WELD))
             base.append(plan_id.setdefault(key, (len(plan_id), (x, y))))
         bases.append([i for i, _xy in base])
-    # a shared face appears once each way round: the same corners, reversed
-    by_corners: dict = {}
-    for i, f in enumerate(faces):
-        by_corners.setdefault(frozenset(f), []).append(i)
-    dropped = set()
-    for group in by_corners.values():
-        left = list(group)
-        while len(left) >= 2:
-            a = left.pop()
-            twin = next((b for b in left if _reversed(faces[a], faces[b])), None)
-            if twin is None:
-                break
-            left.remove(twin)
-            dropped.update((a, twin))
+    dropped = _shared_faces(faces)
     skin = [f for i, f in enumerate(faces) if i not in dropped]
     # regions: faces joined through an edge two of them share
     parent = list(range(len(skin)))
@@ -236,6 +232,25 @@ def merge(name: str, kind: str, columns: list) -> list:
         out.append(EarthMesh(f"{name} {k + 1}", kind, vs,
                              _outward_tris(vs, tris), plan if k == 0 else []))
     return out
+
+
+def _shared_faces(faces: list) -> set:
+    """Indices of the faces two neighbours share: a shared face appears
+    once each way round, the same corners reversed. Each face pairs with
+    at most one other; one with no reversed partner stays."""
+    by_corners: dict = {}
+    for i, f in enumerate(faces):
+        by_corners.setdefault(frozenset(f), []).append(i)
+    dropped = set()
+    for group in by_corners.values():
+        for n, a in enumerate(group):
+            if a in dropped:
+                continue
+            twin = next((b for b in group[n + 1:] if b not in dropped
+                         and _reversed(faces[a], faces[b])), None)
+            if twin is not None:
+                dropped.update((a, twin))
+    return dropped
 
 
 def _reversed(f: list, g: list) -> bool:

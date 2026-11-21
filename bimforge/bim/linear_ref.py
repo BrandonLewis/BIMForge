@@ -20,7 +20,8 @@ and, for an element a spec `placement:` put on the line (its anchor; see
 bimforge.author.placement), also AnchorStation / AnchorStationText /
 AnchorOffsetLeft / AnchorOffsetText: the exact authored values, not a
 measurement. One `IfcRelPositions` per alignment links the elements to it
-(IFC4X3: the positioning element positions the products).
+(IFC4X3: the positioning element positions the products), and with them
+each facility (IfcRoad, IfcBridge ...) whose elements are mostly on it.
 
 Ranges are measured on the file's own bodies (the geometry iterator, world
 coordinates), stationed with `AlignmentStationer.locate_many` - exact on
@@ -240,6 +241,8 @@ def annotate(path_or_file, out: str | None = None, *, anchors: dict | None = Non
         by_al.setdefault(st.alignment.id(), []).append(el)
         rep["elements"] += 1
         rep["alignments"][st.name] = rep["alignments"].get(st.name, 0) + 1
+    for fac, aid in _facilities_on(f, by_al):
+        by_al[aid].append(fac)
     for aid, els in sorted(by_al.items()):
         al = f.by_id(aid)
         f.create_entity("IfcRelPositions", GlobalId=_guid(al.GlobalId, "positions"),
@@ -248,6 +251,35 @@ def annotate(path_or_file, out: str | None = None, *, anchors: dict | None = Non
     if f is not path_or_file:
         f.write(str(out or path_or_file))
     return rep
+
+
+def _facilities_on(f, by_al: dict) -> list:
+    """[(facility, alignment id)]: each IFC4X3 facility (an IfcRoad, an
+    IfcBridge ...; not an IfcBuilding) with the alignment that positions
+    most of the elements contained in it or its parts, so the facility is
+    positioned on its alignment as its elements are. Ties go to the
+    alignment first in the file."""
+    if not f.schema.upper().startswith("IFC4X3"):
+        return []
+    on = {el.id(): aid for aid, els in by_al.items() for el in els}
+    out = []
+    for fac in f.by_type("IfcFacility"):
+        if fac.is_a("IfcBuilding"):
+            continue
+        counts: dict = {}
+        frontier = [fac]
+        while frontier:
+            node = frontier.pop()
+            for rel in node.ContainsElements or ():
+                for el in rel.RelatedElements:
+                    if el.id() in on:
+                        counts[on[el.id()]] = counts.get(on[el.id()], 0) + 1
+            for rel in node.IsDecomposedBy or ():
+                frontier += [x for x in rel.RelatedObjects
+                             if x.is_a("IfcSpatialElement")]
+        if counts:
+            out.append((fac, min(counts, key=lambda a: (-counts[a], a))))
+    return out
 
 
 def anchors_from_model(model) -> dict:
