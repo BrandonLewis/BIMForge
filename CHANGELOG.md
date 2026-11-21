@@ -16,6 +16,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   The conformance suite runs it on every file it writes, beside the schema
   check, and the `add-alignments` tests run it on what that command writes.
   The examples' alignment already passed; nothing written changes.
+- **`est-bim model-elements` sends what the model says about each element
+  (M.6).** Beside its quantities, an entry now carries, when the file has
+  them: `family_class` and `class_uri` (the dictionary class, M.1),
+  `type_name`, `standard_plan`, `parameters` (`BIMForge_Dimensions`, M.2,
+  {Code: {value, unit}}, lengths in FT of the project's foot, ratios as
+  RATIO) and `linear_reference` (alignment, stations and offsets in FT); a
+  quantity carries its `formula` (M.3). The call carries `model`, the
+  file's identity (`build_id`, `bimforge_version`, `ifc_schema`, `source`).
+  Every key is optional and BidSheet.ai ignores keys it does not store, so
+  old and new payloads are both valid; BidSheet.ai storing them is its own
+  change (its rows 5.16 to 5.19). Named `parameters`, not `dimensions`,
+  which a BidSheet.ai takeoff element already uses for "measured from
+  dimensions".
 
 ## 0.1.129 — 2026-11-20
 
