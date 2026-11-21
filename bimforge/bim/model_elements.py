@@ -404,6 +404,10 @@ def described(element, ft: float, linear: dict, warnings: list,
                                 f" — not a length or a ratio; not sent")
                 continue
             value = float(nv.wrappedValue) * (ft if unit[1] else 1.0)
+            if not math.isfinite(value):
+                warnings.append(f"{label}: {DIMENSIONS}.{prop.Name} is "
+                                f"{value} — a broken export; not sent")
+                continue
             params[prop.Name] = {"value": round(value, 6), "unit": unit[0]}
     if params:
         out["parameters"] = params
@@ -411,8 +415,14 @@ def described(element, ft: float, linear: dict, warnings: list,
     if ref and ref.get("Alignment"):
         lr = {"alignment": ref["Alignment"]}
         for prop, key in _LINEAR_KEYS:
-            if ref.get(prop) is not None:
-                lr[key] = round(float(ref[prop]) * ft, 4)
+            if ref.get(prop) is None:
+                continue
+            value = float(ref[prop]) * ft
+            if not math.isfinite(value):
+                warnings.append(f"{label}: BIMForge_LinearReference.{prop} is "
+                                f"{value} — a broken export; not sent")
+                continue
+            lr[key] = round(value, 4)
         lr["unit"] = "FT"
         out["linear_reference"] = lr
     return out

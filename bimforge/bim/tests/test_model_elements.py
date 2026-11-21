@@ -557,6 +557,38 @@ def test_parameters_and_linear_reference_read_in_the_projects_foot():
     assert "family_class" not in entry
 
 
+def test_a_non_finite_parameter_or_station_is_warned_and_not_sent():
+    """A BIMForge_Dimensions or linear-reference value that is not finite in
+    feet (here 1e308 m, which overflows) is a broken export: it is left out
+    with a warning, so the payload stays valid JSON, and the element still
+    goes with its quantities."""
+    import json
+    f = _file()
+    wall = _element(f, "IfcWall", "W-1", "Qto_WallBaseQuantities",
+                    {"NetVolume": 1.0})
+    dims = ifcopenshell.api.pset.add_pset(f, product=wall,
+                                          name="BIMForge_Dimensions")
+    dims.HasProperties = [
+        f.createIfcPropertySingleValue(
+            "DesignHeight", None, f.createIfcLengthMeasure(1e308)),
+        f.createIfcPropertySingleValue(
+            "Batter", None, f.createIfcRatioMeasure(0.25))]
+    ref = ifcopenshell.api.pset.add_pset(f, product=wall,
+                                         name="BIMForge_LinearReference")
+    ifcopenshell.api.pset.edit_pset(f, pset=ref, properties={
+        "Alignment": "LINE A", "StationStart": 1e308,
+        "StationEnd": 10.0})
+    plan = plan_modelled_elements(f)
+    (entry,) = plan["elements"]
+    assert entry["parameters"] == {"Batter": {"value": 0.25, "unit": "RATIO"}}
+    assert entry["quantities"]
+    assert "station_start" not in entry["linear_reference"]
+    assert "station_end" in entry["linear_reference"]
+    json.dumps(plan, allow_nan=False)
+    broken = [w for w in plan["warnings"] if "broken export" in w]
+    assert len(broken) == 2
+
+
 def test_b3_wall_sends_class_type_plan_parameters_formula_and_model(
         tmp_path):
     """The B3 example as BidSheet.ai gets it: every slice with its family
