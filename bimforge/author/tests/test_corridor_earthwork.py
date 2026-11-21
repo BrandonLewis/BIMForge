@@ -73,7 +73,27 @@ def test_cut_less_fill_is_the_signed_section_area_on_a_side_hill():
     assert cut and fill
     assert all(p.ifc == "IfcEarthworksCut" for p in cut)
     net = sum(p.volume_cf for p in cut) - sum(p.volume_cf for p in fill)
-    assert net == pytest.approx(100.0 * signed_area(a, ground), rel=1e-9)
+    # symmetric about the centreline, so cut and fill cancel
+    assert net == pytest.approx(100.0 * signed_area(a, ground), abs=1e-6)
+    assert_closed(cut + fill)
+
+
+def test_an_asymmetric_side_hill_splits_cut_from_fill_where_ground_crosses_grade():
+    # depth = -1 - 0.2u under the road: grade crossed at u -5. Left fill is 3
+    # ft at the hinge and daylights 10 ft out (1/2 down less 0.2 down per
+    # ft): 1/2 x 15 x 3 + 1/2 x 10 x 3 = 37.5 sf. Right cut is 1 ft at the
+    # hinge, daylight 3.33 ft out (1/2 up less 0.2 up): 1/2 x 5 x 1 + 1/2 x
+    # 10/3 x 1 = 4.1667 sf
+    ground = PlaneGround(98.0, slope_e=0.2)
+    a, b = sections(ground)
+    assert a.sides["L"].line[-1][0] == pytest.approx(20.0)
+    assert a.sides["R"].line[-1][0] == pytest.approx(-40.0 / 3.0)
+    cut, fill, cut_depth, fill_depth = earthwork.strip("t", a, b, survey,
+                                                       ground.z, None)
+    assert sum(p.volume_cf for p in cut) == pytest.approx(1250.0 / 3.0, rel=1e-6)
+    assert sum(p.volume_cf for p in fill) == pytest.approx(3750.0, rel=1e-6)
+    assert cut_depth == pytest.approx(1.0)
+    assert fill_depth == pytest.approx(3.0)
     assert_closed(cut + fill)
 
 
@@ -121,9 +141,43 @@ def test_a_wall_at_the_hinge_offset_adds_nothing_past_the_hinge():
     assert_closed(fill)
 
 
+class Bump:
+    """Level ground at 95 with a 1 ft tent between the right lane's edges,
+    peaking at e 5 (u -5): zero at e 0 and e 10."""
+
+    def z(self, n, e):
+        return 95.0 + max(0.0, 1.0 - abs(e - 5.0) / 5.0)
+
+
+def test_dividing_the_subgrade_changes_nothing_on_a_plane():
+    ground = PlaneGround(98.0, slope_e=0.2)
+    a, b = sections(ground)
+    whole = earthwork.strip("t", a, b, survey, ground.z, None)
+    split = earthwork.strip("t", a, b, survey, ground.z, None, per_component=3)
+    for k in (0, 1):
+        assert (sum(p.volume_cf for p in split[k])
+                == pytest.approx(sum(p.volume_cf for p in whole[k]), rel=1e-9))
+    assert len(split[0]) + len(split[1]) > len(whole[0]) + len(whole[1])
+
+
+def test_dividing_the_subgrade_reads_relief_between_component_edges():
+    # undivided, the ground is read at u 0 and -10 only, both 95: 11,200 cf.
+    # In two, it is read at the tent's peak too (96, 3 ft of fill), and the
+    # fill under the right lane loses 1/2 x 10 x 1 = 5 sf: 10,700 cf
+    ground = Bump()
+    a, b = sections(ground)
+    whole = earthwork.strip("t", a, b, survey, ground.z, None)
+    split = earthwork.strip("t", a, b, survey, ground.z, None, per_component=2)
+    assert sum(p.volume_cf for p in whole[1]) == pytest.approx(11200.0, rel=1e-9)
+    assert sum(p.volume_cf for p in split[1]) == pytest.approx(10700.0, rel=1e-9)
+    assert split[0] == []
+    assert_closed(split[1])
+
+
 def test_sections_with_different_counts_are_refused():
     ground = PlaneGround(95.0)
     a, b = sections(ground)
-    b.subgrade["R"].append(b.subgrade["R"][-1])
+    for side in ("L", "R"):                     # one more component at b
+        b.subgrade[side].append(b.subgrade[side][-1])
     with pytest.raises(ValueError, match="point counts"):
         earthwork.strip("t", a, b, survey, ground.z, None)

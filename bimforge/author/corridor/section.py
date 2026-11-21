@@ -36,18 +36,47 @@ class Section:
     subgrade: dict      # side -> [(u, v)], crown outward; its last is the hinge
     sides: dict         # side -> Side
 
-    def earthwork_line(self) -> list:
+    def earthwork_line(self, per_component=1) -> list:
         """Left daylight to right daylight across the subgrade, with the same
-        number of points at every station."""
+        number of points at every station.
+
+        `per_component` cuts each component's subgrade segment, both sides,
+        into that many equal parts (an int for all, or one count per
+        component), so the ground is read across a wide lane and not only
+        at its edges. The points lie on the subgrade, so the geometry is
+        unchanged; the caller must pass the same counts at every station."""
+        n = len(self.subgrade["L"]) - 1
+        if len(self.subgrade["R"]) - 1 != n:
+            raise ValueError(f"station {sta(self.s)}: the subgrade has "
+                             f"{n} components left, {len(self.subgrade['R']) - 1} right")
+        counts = ([per_component] * n if isinstance(per_component, int)
+                  else list(per_component))
+        if len(counts) != n:
+            raise ValueError(f"per_component: {len(counts)} counts for {n} "
+                             f"components; give one count per component")
+        if any(not isinstance(k, int) or k < 1 for k in counts):
+            raise ValueError(f"per_component: each count must be an int of "
+                             f"at least 1, not {counts}")
+        sub = {side: _divided(self.subgrade[side], counts) for side in SIDES}
         left = list(reversed(_samples(self.sides["L"].line)))
-        under_left = list(reversed(self.subgrade["L"][:-1]))
-        under_right = self.subgrade["R"][1:]
+        under_left = list(reversed(sub["L"][:-1]))
+        under_right = sub["R"][1:]
         right = _samples(self.sides["R"].line)[1:]
         return left + under_left + under_right + right
 
     def width(self) -> float:
         """Daylight to daylight, feet."""
         return abs(self.sides["L"].line[-1][0] - self.sides["R"].line[-1][0])
+
+
+def _divided(pts: list, counts: list) -> list:
+    """`pts` with segment j cut evenly into counts[j] parts."""
+    out = []
+    for ((u0, v0), (u1, v1)), k in zip(zip(pts, pts[1:]), counts):
+        out.append((u0, v0))
+        out += [(u0 + (u1 - u0) * i / k, v0 + (v1 - v0) * i / k)
+                for i in range(1, k)]
+    return out + [pts[-1]]
 
 
 def _samples(line: list) -> list:

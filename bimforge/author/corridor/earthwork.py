@@ -62,11 +62,13 @@ def _column(name: str, kind: str, tri: list, origin):
     return Prismatoid(name, bottom, top, ifc=IFC[kind], layer=LAYER)
 
 
-def strip(tag: str, a, b, survey, ground_z, origin) -> tuple:
+def strip(tag: str, a, b, survey, ground_z, origin, per_component=1) -> tuple:
     """(cut prismatoids, fill prismatoids, max cut depth, max fill depth)
     between sections `a` and `b` (section.Section). `survey(s, u, v)` places
-    a section point (frame.survey_point); `ground_z(n, e)` is the ground."""
-    la, lb = a.earthwork_line(), b.earthwork_line()
+    a section point (frame.survey_point); `ground_z(n, e)` is the ground;
+    `per_component` divides the subgrade (Section.earthwork_line)."""
+    la = a.earthwork_line(per_component)
+    lb = b.earthwork_line(per_component)
     if len(la) != len(lb):
         raise ValueError(f"{tag}: earthwork lines at {a.s:g} and {b.s:g} have "
                          f"different point counts ({len(la)}, {len(lb)})")

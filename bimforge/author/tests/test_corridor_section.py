@@ -158,3 +158,38 @@ def test_the_earthwork_line_has_one_count_in_cut_and_in_fill():
     assert line[0] == pytest.approx((23.22, -5.0))
     assert line[-1] == pytest.approx((-23.22, -5.0))
     assert a.width() == pytest.approx(46.44)
+
+
+def test_the_earthwork_line_divides_each_component_under_the_road():
+    sec = resolve(corridor(), 500.0, level(-5.0))
+    base = sec.earthwork_line()
+    assert sec.earthwork_line(per_component=1) == base
+    # lane in 3, shoulder in 2: 2 extra under the lane and 1 under the
+    # shoulder, each side
+    line = sec.earthwork_line(per_component=(3, 2))
+    assert len(line) == 2 * SIDE_SAMPLES - 1 + 2 * (3 + 2)
+    assert len(sec.earthwork_line(per_component=4)) == 2 * SIDE_SAMPLES - 1 + 2 * 8
+    # the added points lie on the subgrade, evenly between its edges, and
+    # every original point is kept in order
+    assert [p for p in line if p in base] == base
+    i = line.index(base[SIDE_SAMPLES])                  # left lane edge, u 12
+    assert flat(line[i:i + 4]) == pytest.approx(
+        flat([(12, -1.64), (8, -1.56), (4, -1.48), (0, -1.4)]))
+    j = line.index(base[SIDE_SAMPLES + 2])              # right lane edge
+    assert flat(line[j:j + 3]) == pytest.approx(
+        flat([(-12, -1.64), (-14.5, -1.765), (-17, -1.89)]))
+
+
+def test_a_bad_division_count_is_refused():
+    sec = resolve(corridor(), 500.0, level(-5.0))
+    with pytest.raises(ValueError, match="one count per component"):
+        sec.earthwork_line(per_component=(2,))
+    with pytest.raises(ValueError, match="at least 1"):
+        sec.earthwork_line(per_component=0)
+
+
+def test_a_subgrade_with_unequal_sides_is_refused():
+    sec = resolve(corridor(), 500.0, level(-5.0))
+    sec.subgrade["R"].append(sec.subgrade["R"][-1])
+    with pytest.raises(ValueError, match="2 components left, 3 right"):
+        sec.earthwork_line()
