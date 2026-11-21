@@ -4,6 +4,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+### Added
+
+- **buildingSMART's alignment checks run in CI (C.12).**
+  `gate.alignment_issues` holds a file to the checks buildingSMART's IFC4.3
+  sample models pass:
+  - every alignment layout ends with a zero-length segment;
+  - every IfcAlignment is aggregated to the IfcProject;
+  - every distance along a curve is an IfcLengthMeasure.
+
+  The conformance suite runs it on every file it writes, beside the schema
+  check, and the `add-alignments` tests run it on what that command writes.
+  The examples' alignment already passed; nothing written changes.
+
 ## 0.1.129 — 2026-11-20
 
 The B3 wall's sizing dimensions (M.2, #109) and how each of its volumes was derived, checked on the written file (M.3, #110). With M.1 in 0.1.128, the B3 wall's part of Stage 1 is done.

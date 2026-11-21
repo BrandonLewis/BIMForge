@@ -15,6 +15,7 @@ import ifcopenshell.api.alignment as alapi  # noqa: E402
 import yaml  # noqa: E402
 
 from bimforge.author.alignment import M_PER_FT  # noqa: E402
+from bimforge.author.gate import alignment_issues  # noqa: E402
 from bimforge.bim.add_alignment import (  # noqa: E402
     AlignmentGateError, add_alignments, map_conversion, to_model)
 from bimforge.bim.cli import main as cli_main  # noqa: E402
@@ -115,6 +116,55 @@ def test_a_vertical_profile_is_written_and_gated():
     assert vl.Description == "invert"
     first = alapi.get_layout_segments(vl)[0].DesignParameters
     assert first.StartHeight * (1.0 / M_PER_FT) == pytest.approx(90.0)
+
+
+def _with_profile(block):
+    return dict(block, profile={"pvis": [{"station": 1000.0, "elevation": 90.0},
+                                         {"station": 1200.0, "elevation": 92.0},
+                                         {"station": 1000.0 + 450.0,
+                                          "elevation": 91.0}],
+                                "vc_length_ft": 0.0})
+
+
+@pytest.mark.parametrize("block", [ZIGZAG, CURVED], ids=["zigzag", "curved"])
+def test_what_add_alignments_writes_passes_buildingsmarts_alignment_checks(block):
+    f = _model()
+    add_alignments(f, [_with_profile(block) if block is ZIGZAG else block])
+    assert not alignment_issues(f)
+
+
+def _break_final_segment(f):
+    (al,) = f.by_type("IfcAlignment")
+    last = alapi.get_layout_segments(alapi.get_horizontal_layout(al))[-1]
+    last.DesignParameters.SegmentLength = 1.0
+
+
+def _break_aggregation(f):
+    (al,) = f.by_type("IfcAlignment")
+    for rel in al.Decomposes:
+        f.remove(rel)
+
+
+def _break_measure(f):
+    seg = f.by_type("IfcCurveSegment")[0]
+    seg.SegmentLength = f.createIfcParameterValue(1.0)
+
+
+@pytest.mark.parametrize("brk, finding", [
+    (_break_final_segment, "IfcAlignmentHorizontal ends with a segment of length 1.0"),
+    (_break_aggregation, "not aggregated to the IfcProject (decomposes nothing)"),
+    (_break_measure, "IfcCurveSegment.SegmentLength: "),
+], ids=["final-segment", "aggregation", "measure"])
+def test_the_alignment_checks_find_each_break(brk, finding):
+    f = _model()
+    add_alignments(f, [ZIGZAG])
+    brk(f)
+    issues = alignment_issues(f)
+    assert any(finding in i for i in issues), issues
+
+
+def test_the_alignment_checks_have_nothing_to_say_on_ifc4():
+    assert alignment_issues(_model(schema="IFC4", georef=False)) == []
 
 
 def test_a_profile_that_does_not_span_the_horizontal_is_refused():

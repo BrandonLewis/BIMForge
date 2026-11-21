@@ -689,6 +689,61 @@ def schema_issues(f, rules: bool = True) -> list[str]:
     return out
 
 
+#: (entity, attribute) holding a distance along a curve, which
+#: buildingSMART's alignment checks require as IfcLengthMeasure, never
+#: IfcParameterValue
+_CURVE_MEASURES = (("IfcCurveSegment", "SegmentStart"),
+                   ("IfcCurveSegment", "SegmentLength"),
+                   ("IfcDirectrixCurveSweptAreaSolid", "StartParam"),
+                   ("IfcDirectrixCurveSweptAreaSolid", "EndParam"),
+                   ("IfcPointByDistanceExpression", "DistanceAlong"))
+
+
+def alignment_issues(f) -> list[str]:
+    """buildingSMART's alignment checks, one line each: the ones its IFC4.3
+    sample models are held to (IFC4.3.x-sample-models, test/alignment_tests.py).
+    Every layout of an IfcAlignment ends with a zero-length segment (the
+    samples' test looks at the horizontal; their files end the vertical and
+    cant the same way), every alignment is aggregated to the IfcProject,
+    directly or through a parent alignment, and every distance along a curve
+    is an IfcLengthMeasure. IFC4 has no IfcAlignment: nothing to find."""
+    if f.schema != "IFC4X3":
+        return []
+    out = []
+    for al in f.by_type("IfcAlignment"):
+        label = f"IfcAlignment '{al.Name}'"
+        for layout in (x for rel in al.IsNestedBy for x in rel.RelatedObjects):
+            if not layout.is_a("IfcLinearElement"):
+                continue      # an IfcReferent
+            segments = [s for rel in layout.IsNestedBy
+                        for s in rel.RelatedObjects
+                        if s.is_a("IfcAlignmentSegment")]
+            if not segments:
+                continue
+            dp = segments[-1].DesignParameters
+            length = (dp.SegmentLength if layout.is_a("IfcAlignmentHorizontal")
+                      else dp.HorizontalLength)
+            if length != 0.0:
+                out.append(f"{label}: {layout.is_a()} ends with a segment of "
+                           f"length {length}, not a zero-length one")
+        parent, chain = al, []
+        while parent.Decomposes:
+            parent = parent.Decomposes[0].RelatingObject
+            chain.append(parent.is_a())
+            if not parent.is_a("IfcAlignment"):
+                break
+        if not chain or chain[-1] != "IfcProject":
+            out.append(f"{label}: not aggregated to the IfcProject "
+                       f"(decomposes {' > '.join(chain) or 'nothing'})")
+    for entity, attr in _CURVE_MEASURES:
+        for inst in f.by_type(entity):
+            value = getattr(inst, attr)
+            if value is not None and not value.is_a("IfcLengthMeasure"):
+                out.append(f"{entity}.{attr}: #{inst.id()} is "
+                           f"{value.is_a()}, not IfcLengthMeasure")
+    return out
+
+
 def _ifc4x3_facility_check(f, reached) -> list[str]:
     """The IFC4X3 facility tree (#318): every facility hangs off the IfcSite,
     every facility part off a facility, and no part is empty — then the file
