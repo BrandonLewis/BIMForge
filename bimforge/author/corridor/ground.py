@@ -16,6 +16,9 @@ from pathlib import Path
 class PlaneGround:
     """z = elevation + slope_n (n - n0) + slope_e (e - e0)."""
 
+    #: a plane has no cells: one ground reading per subgrade segment is exact
+    spacing_ft = None
+
     def __init__(self, elevation: float, n0: float = 0.0, e0: float = 0.0,
                  slope_n: float = 0.0, slope_e: float = 0.0) -> None:
         self.elevation, self.n0, self.e0 = float(elevation), float(n0), float(e0)
@@ -47,6 +50,11 @@ class GridGround:
             raise ValueError(f"ground: no ground at N {n:.1f} E {e:.1f}: the "
                              f"DEM does not cover it")
         return (zm - self.vshift_m) / self.ft_to_m
+
+    @property
+    def spacing_ft(self) -> float:
+        """The grid's cell size, model feet."""
+        return self.grid.spacing_m / self.crs_per_ft
 
 
 def footprint(alignment, reach: float) -> tuple:

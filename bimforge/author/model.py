@@ -272,6 +272,9 @@ class StructureModel:
     #: `ifc: {sweeps: mesh}`; `emit_ifc(sweeps=)` / `outputs.ifc_sweeps`
     #: override it for one emit (emit_ifc.SWEEP_MODES).
     ifc_sweeps: str = "exact"
+    #: A road corridor's mass-haul table (corridor.masshaul.HaulRow per
+    #: station band), written to `outputs.masshaul` as a CSV; [] otherwise.
+    mass_haul: list = field(default_factory=list)
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

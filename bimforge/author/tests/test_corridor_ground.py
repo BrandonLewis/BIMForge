@@ -49,6 +49,8 @@ def test_a_grid_is_read_bilinearly_in_feet():
     assert g.z(1.5 / k, 1.0 / k) == pytest.approx((10.5 - 0.5) / k)
     with pytest.raises(ValueError, match=r"N 0\.0 E 0\.0.*does not cover"):
         g.z(0.0, 0.0)                                  # outside the centres
+    assert g.spacing_ft == pytest.approx(1.0 / k)      # 1 m cells, in feet
+    assert PlaneGround(0.0).spacing_ft is None
 
 
 @pytest.mark.parametrize("gp, ctx, match", [
