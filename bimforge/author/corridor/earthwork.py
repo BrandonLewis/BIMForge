@@ -17,13 +17,15 @@ make have no plan area and are dropped, as are pieces with no depth.
 """
 from __future__ import annotations
 
-from bimforge.author.primitives import Prismatoid
+from bimforge.author.primitives import Prismatoid, _outward_tris, _signed_volume
 from bimforge.author.sweep import to_model
 
 LAYER = "C-ROAD"
 IFC = {"cut": "IfcEarthworksCut", "fill": "IfcEarthworksFill"}
 #: plan area (sf) and depth (ft) below which a piece is no solid
 _TINY = 1e-6
+#: decimal places the columns' corners are welded at when merged, feet
+_WELD = 7
 
 
 def _signed_area(pts: list) -> float:
@@ -95,3 +97,151 @@ def strip(tag: str, a, b, survey, ground_z, origin, per_component=1) -> tuple:
                     depth[kind] = max(depth[kind],
                                       max(abs(q[3] - q[2]) for q in piece))
     return out["cut"], out["fill"], depth["cut"], depth["fill"]
+
+
+class EarthMesh:
+    """One closed body of earthwork: a connected region of columns, merged
+    (see `merge`)."""
+
+    def __init__(self, name: str, kind: str, verts: list, tris: list,
+                 plan: list) -> None:
+        self.name, self.ifc, self.layer = name, IFC[kind], LAYER
+        self.verts, self.tris, self.plan = verts, tris, plan
+
+    @property
+    def volume_cf(self) -> float:
+        v = self.verts
+        return abs(_signed_volume([(v[a], v[b], v[c]) for a, b, c in self.tris]))
+
+    def body_solids(self) -> list[dict]:
+        return [{"kind": "mesh", "units": "ft", "verts": list(self.verts),
+                 "tris": list(self.tris), "plan": self.plan}]
+
+
+def _column_faces(p: Prismatoid, vid) -> list:
+    """A triangular column's outward faces as vertex-id polygons: its base,
+    its top and three vertical sides. A side with no height at a corner
+    loses that corner; one with none at all is no face."""
+    b, t = [vid(q) for q in p.bottom], [vid(q) for q in p.top]
+    faces = [b[::-1], t]                      # the base is wound CCW in plan
+    for i in range(3):
+        j = (i + 1) % 3
+        faces.append([b[i], b[j], t[j], t[i]])
+    out = []
+    for f in faces:
+        ring = [x for k, x in enumerate(f) if x != f[k - 1]]
+        if len(set(ring)) >= 3:
+            out.append(ring)
+    return out
+
+
+def _plan_loops(columns: list) -> list:
+    """The outline of the columns' bases in plan: base edges no other base
+    shares, chained into loops."""
+    nxt, seen = {}, {}
+    for base in columns:
+        for a, b in zip(base, base[1:] + base[:1]):
+            seen[a, b] = True
+    for (a, b) in seen:
+        if (b, a) not in seen:
+            nxt.setdefault(a, []).append(b)
+    loops = []
+    while nxt:
+        start = next(iter(nxt))
+        loop, a = [start], start
+        while True:
+            b = nxt[a].pop()
+            if not nxt[a]:
+                del nxt[a]
+            if b == start or b not in nxt:
+                break
+            loop.append(b)
+            a = b
+        loops.append(loop)
+    return loops
+
+
+def merge(name: str, kind: str, columns: list) -> list:
+    """`columns` (one kind's prismatoids from `strip`) as closed meshes, one
+    per connected region: corners welded, and every face two neighbouring
+    columns share dropped from both, so only the region's skin is left.
+
+    Neighbours meet face to face: a strip's triangles share whole edges,
+    the ground crossing splits a shared edge at the same point for both,
+    and consecutive strips share a station's earthwork line. Regions are
+    joined through faces only; two that touch at a corner or along an edge
+    without a face between them stay separate bodies (emit writes them as
+    separate items of one element)."""
+    verts, index = [], {}
+
+    def vid(q):
+        key = tuple(round(c, _WELD) for c in q)
+        if key not in index:
+            index[key] = len(verts)
+            verts.append(tuple(float(c) for c in q))
+        return index[key]
+
+    faces, bases, plan_id = [], [], {}
+    for p in columns:
+        faces += _column_faces(p, vid)
+        base = []
+        for x, y, _z in p.bottom:
+            key = (round(x, _WELD), round(y, _WELD))
+            base.append(plan_id.setdefault(key, (len(plan_id), (x, y))))
+        bases.append([i for i, _xy in base])
+    # a shared face appears once each way round: the same corners, reversed
+    by_corners: dict = {}
+    for i, f in enumerate(faces):
+        by_corners.setdefault(frozenset(f), []).append(i)
+    dropped = set()
+    for group in by_corners.values():
+        left = list(group)
+        while len(left) >= 2:
+            a = left.pop()
+            twin = next((b for b in left if _reversed(faces[a], faces[b])), None)
+            if twin is None:
+                break
+            left.remove(twin)
+            dropped.update((a, twin))
+    skin = [f for i, f in enumerate(faces) if i not in dropped]
+    # regions: faces joined through an edge two of them share
+    parent = list(range(len(skin)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    by_edge: dict = {}
+    for i, f in enumerate(skin):
+        for a, b in zip(f, f[1:] + f[:1]):
+            by_edge.setdefault((min(a, b), max(a, b)), []).append(i)
+    for users in by_edge.values():
+        if len(users) == 2:
+            parent[root(users[0])] = root(users[1])
+    regions: dict = {}
+    for i, f in enumerate(skin):
+        regions.setdefault(root(i), []).append(f)
+    xy = {i: q for i, q in plan_id.values()}
+    plan = [[xy[i] for i in loop] for loop in _plan_loops(bases)]
+    out = []
+    for k, region in enumerate(regions.values()):
+        used = sorted({x for f in region for x in f})
+        local = {x: n for n, x in enumerate(used)}
+        vs = [verts[x] for x in used]
+        tris = [(local[f[0]], local[f[m]], local[f[m + 1]])
+                for f in region for m in range(1, len(f) - 1)]
+        # the element's plan outline rides on its first body, once
+        out.append(EarthMesh(f"{name} {k + 1}", kind, vs,
+                             _outward_tris(vs, tris), plan if k == 0 else []))
+    return out
+
+
+def _reversed(f: list, g: list) -> bool:
+    """Whether polygon g is polygon f traversed the other way round."""
+    if len(f) != len(g):
+        return False
+    r = g[::-1]
+    k = r.index(f[0])
+    return r[k:] + r[:k] == f

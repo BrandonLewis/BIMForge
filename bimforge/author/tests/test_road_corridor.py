@@ -67,8 +67,8 @@ def test_nothing_is_built_inside_the_structure_gap(model):
 
 
 def test_the_structure_gap_ends_on_a_closed_face(model):
-    # each course ends on its own ring at the gap station, capped; each
-    # earthwork piece at the gap is a vertical column (its top over its base)
+    # each course ends on its own ring at the gap station, capped (the
+    # earthwork's closed skin is test_the_earthwork_is_merged_into_closed_bodies)
     ends = {1350.0: 0, 1400.0: 0}
     for el in courses(model):
         for lf in el.geometry:
@@ -77,13 +77,51 @@ def test_the_structure_gap_ends_on_a_closed_face(model):
                 if sec["s"] == s:
                     assert sec["outer"] == lf.rings[0 if s == 1400.0 else -1]
                     ends[s] += 1
-    # every course, component and side ends at the gap and starts past it
-    assert ends == {1350.0: 2 * 2 * 2, 1400.0: 2 * 2 * 2}
-    for el in model.elements:
-        if el.ifc_class.startswith("IfcEarthworks"):
-            for p in el.geometry:
-                for b, t in zip(p.bottom, p.top):
-                    assert b[:2] == pytest.approx(t[:2], abs=1e-9)
+    # every course ends at the gap and starts past it: one lane body across
+    # the crown, a shoulder body each side
+    assert ends == {1350.0: 2 * 3, 1400.0: 2 * 3}
+
+
+def _manifold(tris) -> bool:
+    """Every edge of the indexed shell is used once each way: closed, and no
+    edge shared by three or more faces."""
+    from collections import Counter
+    directed = Counter((a, b) for t in tris for a, b in zip(t, t[1:] + t[:1]))
+    return all(n == 1 and directed[b, a] == 1 for (a, b), n in directed.items())
+
+
+def test_the_innermost_course_is_one_body_across_the_crown(model):
+    from bimforge.author.primitives import _signed_area2
+    for el in courses(model):
+        lofts = el.geometry
+        if " lane " not in el.name:
+            assert len(lofts) == 2, el.name          # a shoulder each side
+            continue
+        (lf,) = lofts
+        assert {len(r) for r in lf.rings} == {6}
+        wind = [_signed_area2(r) for r in lf.rings]
+        assert all(w > 0.0 for w in wind) or all(w < 0.0 for w in wind)
+        d = lf.body_solids()[0]
+        assert _manifold(d["tris"]), el.name
+    # 12 ft each side of the crown, 0.4 ft thick, 100 ft at 1% grade
+    hma = model.element("HMA lane STA 10+00.00 to 11+00.00")
+    assert hma.quantities["volume_cf"] == pytest.approx(
+        0.4 * 24.0 * 100.0 * (1.0 + 0.01 ** 2) ** 0.5, rel=1e-9)
+
+
+def test_the_earthwork_is_merged_into_closed_bodies(model):
+    from bimforge.author.primitives import _signed_volume
+    earth = [e for e in model.elements if e.ifc_class.startswith("IfcEarthworks")]
+    assert earth
+    for el in earth:
+        got = 0.0
+        for g in el.geometry:
+            (d,) = g.body_solids()
+            assert _manifold(d["tris"]), el.name
+            v = d["verts"]
+            got += _signed_volume([(v[a], v[b], v[c]) for a, b, c in d["tris"]])
+        assert got == pytest.approx(el.quantities["volume_cf"], rel=1e-9)
+        assert len(el.geometry) < 10, el.name        # regions, not columns
 
 
 def test_every_course_meets_its_stated_volume(model):
@@ -243,6 +281,36 @@ def test_the_tree_is_road_segment_lateral_part(x3):
         assert E.get_container(el).PredefinedType == "ROADSEGMENT"
 
 
+def _only_point_contacts(found: list) -> list:
+    """The solid-body findings left once two earthwork regions meeting at a
+    single point are set aside: where the ground crosses the design line
+    exactly at a daylight point (depth 0 by construction), the fill on
+    either side of a cut can meet there and nowhere else. That is the
+    surfaces' own shape, not a crack; earthwork.merge keeps the two
+    regions as separate bodies."""
+    return [m for m in found
+            if not (m.startswith(("Cut ", "Fill "))
+                    and m.endswith("- 1 points where bodies touch"))]
+
+
+def test_every_body_is_solid_but_the_engine_s_sectioned_caps(x3, model):
+    # ifcopenshell 0.9 draws an IfcSectionedSolidHorizontal with its caps
+    # doubled (IfcOpenShell#9820): 3n - 3 edges on an n-point ring, as it
+    # does a SweptSection's (measured: 9 on a 4-point ring, 15 on the
+    # 6-point lane ring, either way). A lane body is one 6-point ring; the
+    # shoulders are two 4-point rings. Nothing else may be reported.
+    from bimforge.author.gate import _ifc_solid_body_check, _quiet_stdout
+    _f, out = x3
+    with _quiet_stdout():
+        found = _only_point_contacts(
+            _ifc_solid_body_check(model, str(out / "rc.ifc")))
+    assert found
+    for msg in found:
+        want = ("- 15 edges shared by 3+ faces" if " lane " in msg
+                else "- 18 edges shared by 3+ faces")
+        assert "(IfcCourse)" in msg and msg.endswith(want), msg
+
+
 def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
     import ifcopenshell.util.element as E
     f, out = x3
@@ -264,7 +332,73 @@ def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
     assert seen == set(rows)
 
 
-def test_the_ifc4_file_passes_the_schema(tmp_path):
-    from bimforge.author.gate import schema_issues
-    f, _out = _built(tmp_path, "IFC4")
+def test_the_ifc4_file_passes_the_schema_and_its_bodies_are_solid(tmp_path, model):
+    from bimforge.author.gate import _ifc_solid_body_check, _quiet_stdout, schema_issues
+    f, out = _built(tmp_path, "IFC4")
     assert not schema_issues(f)
+    with _quiet_stdout():
+        assert _only_point_contacts(
+            _ifc_solid_body_check(model, str(out / "rc.ifc"))) == []
+
+
+US_FT = 0.30480060960121924
+
+
+@pytest.fixture
+def on_3dep(monkeypatch, tmp_path):
+    """PARAMS on the same plane, served as a stubbed 3DEP grid (6 m cells)."""
+    import numpy as np
+
+    import bimforge.terrain as T
+    import bimforge.terrain.attach as A
+    from bimforge.terrain.grid import TerrainGrid
+
+    def fake_fetch(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
+        xmin, ymin, xmax, ymax = bbox_m            # ftUS: the model's own feet
+        cols = int(round((xmax - xmin) / spacing_m))
+        rows = int(round((ymax - ymin) / spacing_m))
+        e = xmin + (np.arange(cols) + 0.5) * (xmax - xmin) / cols
+        z = np.tile((300.0 + 0.05 * (e - E0)) * US_FT, (rows, 1))
+        return TerrainGrid(z=z, bbox_m=bbox_m, spacing_m=spacing_m, crs_epsg=crs_epsg)
+
+    monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
+    monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
+    p = copy.deepcopy(PARAMS)
+    p["ground"] = {"source": "3dep", "cache": str(tmp_path / "rc"), "margin_ft": 0.0,
+                   "spacing_m": 6.0}
+    return p
+
+
+def test_on_3dep_ground_the_cut_voids_the_terrain(on_3dep, tmp_path):
+    """The cut is ground removed from the TERRAIN, so it voids it and is
+    written as an IfcEarthworksCut, with no warning that it should."""
+    import warnings
+
+    import ifcopenshell
+
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.families.road_corridor import build
+    m = build(on_3dep, CTX)
+    (terrain,) = [e for e in m.elements if e.predefined_type == "TERRAIN"]
+    cuts = [e for e in m.elements if e.ifc_class == "IfcEarthworksCut"]
+    assert cuts and all(e.voids == terrain.name for e in cuts)
+    assert all(e.voids is None for e in m.elements if e not in cuts)
+    out = tmp_path / "rc.ifc"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        emit_ifc(m, str(out))
+    f = ifcopenshell.open(str(out))
+    assert {c.Name for c in f.by_type("IfcEarthworksCut")} == {e.name for e in cuts}
+    assert all(r.RelatingBuildingElement.Name == terrain.name
+               for r in f.by_type("IfcRelVoidsElement"))
+    assert not f.by_type("IfcEarthworksElement", include_subtypes=False)
+
+
+def test_on_ifc4_a_cut_voids_nothing(on_3dep):
+    """IFC4 has no IfcEarthworksCut to void with: the cut stays unhosted."""
+    import dataclasses
+
+    from bimforge.author.families.road_corridor import build
+    m = build(on_3dep, dataclasses.replace(CTX, schema="IFC4"))
+    assert any(e.predefined_type == "TERRAIN" for e in m.elements)
+    assert all(e.voids is None for e in m.elements)

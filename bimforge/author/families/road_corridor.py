@@ -67,6 +67,27 @@ def per_component(c, ground) -> list:
     return out
 
 
+def across_crown(left: list, right: list) -> list:
+    """One ring from the left and right rings of a component that meets
+    its other side at the crown: the left ring, then the right ring back,
+    less the crown edge they share. Both are [crown top, outer top, outer
+    bottom, crown bottom] (section.resolve), so the ring has six points at
+    every station and winds as the left ring does."""
+    if left[0] != right[0] or left[-1] != right[-1]:
+        raise ValueError(f"the left and right rings do not share a crown edge "
+                         f"({left[0]}, {left[-1]} vs {right[0]}, {right[-1]})")
+    return list(left) + list(right[::-1][1:-1])
+
+
+def _terrain(model) -> str | None:
+    """The TERRAIN element's name, when the ground added one (3DEP)."""
+    for el in model.elements:
+        if (el.ifc_class == "IfcGeographicElement"
+                and (el.predefined_type or "").upper() == "TERRAIN"):
+            return el.name
+    return None
+
+
 def _parts(r: int) -> tuple:
     """Run r's ROADSEGMENT, and its lateral parts by component kind."""
     from bimforge.author.corridor.params import PART_TYPES
@@ -100,6 +121,10 @@ def build(params: dict, ctx) -> "StructureModel":
     ground = from_params(params["ground"], al, ctx, reach, model,
                          log=lambda m: print(m, file=sys.stderr))
     divide = per_component(c, ground)
+    # a cut is ground taken out of the TERRAIN (emit_ifc #364), when there
+    # is one to void and a schema with IfcEarthworksCut to void it with
+    from bimforge.author.spatial import schema_has_facilities
+    host = _terrain(model) if schema_has_facilities(ctx.schema) else None
 
     def survey(s, u, v):
         return survey_point(al, prof, s, u, v)
@@ -121,10 +146,20 @@ def build(params: dict, ctx) -> "StructureModel":
             for k, course in enumerate(c.courses):
                 for j, comp in enumerate(c.components):
                     name = f"{course.name} {comp.name} {tag}"
-                    lofts = [StationLoft(f"{name} {side}", al, prof, ctx, ss,
-                                         [sec.courses[k, j, side] for sec in bs],
+                    if j == 0:
+                        # the two sides meet at the crown: one body, so
+                        # the element's bodies do not touch
+                        rings = [[across_crown(sec.courses[k, j, "L"],
+                                               sec.courses[k, j, "R"])
+                                  for sec in bs]]
+                        names = [name]
+                    else:
+                        rings = [[sec.courses[k, j, side] for sec in bs]
+                                 for side in SIDES]
+                        names = [f"{name} {side}" for side in SIDES]
+                    lofts = [StationLoft(n, al, prof, ctx, ss, rs,
                                          ifc="IfcCourse", layer=LAYER)
-                             for side in SIDES]
+                             for n, rs in zip(names, rings)]
                     vol = sum(lf.volume_cf for lf in lofts)
                     aea = sum(lf.average_end_area_cf for lf in lofts)
                     model.add(Element(
@@ -158,9 +193,10 @@ def build(params: dict, ctx) -> "StructureModel":
             els = []
             if cut:
                 els.append(model.add(Element(
-                    f"Cut {tag}", ifc_class="IfcEarthworksCut", geometry=cut,
+                    f"Cut {tag}", ifc_class="IfcEarthworksCut",
+                    geometry=earthwork.merge(f"Cut {tag}", "cut", cut),
                     predefined_type="CUT", layer=LAYER, body="solids",
-                    spatial_part=segment,
+                    spatial_part=segment, voids=host,
                     quantities={"length_ft": b1 - b0, "volume_cf": cut_cf},
                     standard_qto={"Qto_EarthworksCutBaseQuantities": {
                         "Length": ("length", b1 - b0), "Width": ("length", width),
@@ -170,7 +206,8 @@ def build(params: dict, ctx) -> "StructureModel":
             if fill:
                 bank = fill_cf / (1.0 - c.shrink)
                 els.append(model.add(Element(
-                    f"Fill {tag}", ifc_class="IfcEarthworksFill", geometry=fill,
+                    f"Fill {tag}", ifc_class="IfcEarthworksFill",
+                    geometry=earthwork.merge(f"Fill {tag}", "fill", fill),
                     predefined_type="EMBANKMENT", layer=LAYER, body="solids",
                     spatial_part=segment,
                     quantities={"length_ft": b1 - b0, "volume_cf": fill_cf},
