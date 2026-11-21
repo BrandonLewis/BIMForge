@@ -1,5 +1,5 @@
 """Every IFC bimforge writes passes the schema, its WHERE rules and its
-global rules (#94, C.7).
+global rules (#94, C.7), and buildingSMART's alignment checks (C.12).
 
 The examples are built as a user builds them, on IFC4X3 and on IFC4; the 4D
 and 5D writers then embed into a built example, federate merges two, and a
@@ -24,7 +24,7 @@ yaml = pytest.importorskip("yaml")
 
 import ifcopenshell.guid  # noqa: E402
 
-from bimforge.author.gate import schema_issues  # noqa: E402
+from bimforge.author.gate import alignment_issues, schema_issues  # noqa: E402
 
 EXAMPLES = sorted(e.name[:-len(".spec.yaml")]
                   for e in (files("bimforge.author") / "examples").iterdir()
@@ -68,9 +68,10 @@ def built(tmp_path_factory) -> dict:
 
 
 def _clean(f, name):
-    """No schema finding. `name` writes f for the normative rules; None for
-    a hand-built fixture, whose own shortcuts they would report."""
-    issues = schema_issues(f)
+    """No schema or alignment finding. `name` writes f for the normative
+    rules; None for a hand-built fixture, whose own shortcuts they would
+    report."""
+    issues = schema_issues(f) + alignment_issues(f)
     assert not issues, "\n".join(issues[:20])
     if name and (out := os.environ.get("BIMFORGE_CONFORMANCE_OUT")):
         Path(out).mkdir(parents=True, exist_ok=True)
@@ -83,6 +84,14 @@ def test_every_example_builds_conformant(built, name, schema):
     f = ifcopenshell.open(str(built[name, schema]))
     assert f.schema == _schema_of(schema)
     _clean(f, _label(name, schema))
+
+
+def test_the_alignment_checks_have_an_alignment_to_check(built):
+    """The bridge carries the examples' alignment, so the alignment checks
+    in `_clean` are not passing on files that have none."""
+    f = ifcopenshell.open(str(built["bridge-standard", X3]))
+    assert f.by_type("IfcAlignment")
+    assert not alignment_issues(f)
 
 
 def _schedule():
