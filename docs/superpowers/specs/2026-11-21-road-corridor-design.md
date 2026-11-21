@@ -56,7 +56,7 @@ New package `bimforge/author/corridor/`, plus the family module.
 ### Spatial tree and quantities
 
 - `IfcRoad` > `IfcRoadPart` ROADSEGMENT (one per run between structure gaps, LONGITUDINAL) > `IfcRoadPart` CARRIAGEWAY, SHOULDER and CENTRALRESERVE (LATERAL). A component's kind picks its part: `carriageway`, `shoulder`, `median`. Courses are contained in the part of the component they sit under.
-- Earthwork is contained in the ROADSEGMENT.
+- Fill is contained in the ROADSEGMENT. On IFC4X3 every cut voids the TERRAIN element (IfcRelVoidsElement), so as a feature of its host it is not spatially contained; TERRAIN is contained in the IfcRoad. Plane ground writes a TERRAIN surface too, so the shipped example has real IfcEarthworksCut. On IFC4 cut is unhosted and contained in the ROADSEGMENT.
 - The tree is written when the spec sets `project: {facility: {kind: road}}` on IFC4X3, as for every family until C.13 makes it the default.
 - The road is positioned on its `IfcAlignment` by `IfcRelPositions`.
 - Quantities use the standard per-class sets (roadmap M.17): `Qto_CourseBaseQuantities` (Length, Width, Thickness, Volume) and `Qto_EarthworksCutBaseQuantities` / `Qto_EarthworksFillBaseQuantities` (Length, Width, Depth, plus UndisturbedVolume and LooseVolume for cut, CompactedVolume and LooseVolume for fill). They are written from a new `Element.standard_qto` field, beside the existing `Qto_BaseQuantities`, which consumers read today; M.17 retires that later.
