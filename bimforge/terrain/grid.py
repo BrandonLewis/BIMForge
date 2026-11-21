@@ -1,8 +1,10 @@
 """Terrain elevation grids and their conversion to model-unit meshes.
 
-The terrain package is METRIC internally (source-native: NAVD88 metres on a
-metric grid in the project CRS); conversion to model units and the project
-vertical datum happens exactly once, in `grid_to_mesh(unit_scale, vshift_m)`.
+The terrain package is source-native internally: NAVD88 metres on a grid in
+the project CRS's own linear unit (metres for a metric CRS, US survey feet for
+a ftUS one; the `_m` names on `bbox_m`/`spacing_m` are historical).
+Conversion to model units and the project vertical datum happens exactly
+once, in `grid_to_mesh(unit_scale, vshift_m, plan_scale)`.
 Ported from the bridge-pilot build_bridge.py terrain arc.
 """
 from __future__ import annotations
@@ -13,11 +15,12 @@ from typing import Any
 
 @dataclass
 class TerrainGrid:
-    """An elevation raster over a metric bbox.
+    """An elevation raster over a bbox in the project CRS.
 
     `z[rows, cols]` — elevations in NAVD88 metres (ndarray; NaN = nodata);
-    `bbox_m` — `(xmin, ymin, xmax, ymax)` in the CRS named by `crs_epsg`;
-    `spacing_m` — nominal cell size in metres;
+    `bbox_m` — `(xmin, ymin, xmax, ymax)` in the CRS named by `crs_epsg`,
+    in that CRS's own linear unit (the name is historical);
+    `spacing_m` — nominal cell size, in the CRS's linear unit too;
     `crs_epsg` — the horizontal CRS the bbox (and grid) live in;
     `info` — source-specific metadata (LPC project/tiles/publication;
     empty for the DEM path).
@@ -55,12 +58,14 @@ def fill_nodata(z):
     return z
 
 
-def grid_to_mesh(grid: TerrainGrid, unit_scale, vshift_m):
+def grid_to_mesh(grid: TerrainGrid, unit_scale, vshift_m, plan_scale=None):
     """Triangulate a TerrainGrid into `(verts, tris)` in the model's own units.
 
     One vertex per valid (non-nodata) pixel CENTRE as `(n, e, z)`, with
     `z = (z_m - vshift_m) * unit_scale` — this is the single place NAVD88
-    metres become the model's vertical datum and units. Two triangles per
+    metres become the model's vertical datum and units. `plan_scale` takes
+    `n` and `e` from CRS units to model units; None means `unit_scale`,
+    right for a metric CRS (a ftUS CRS under a ftUS model passes 1.0). Two triangles per
     pixel quad, and only fully-valid corner triples emit, so nodata pixels
     leave holes instead of inventing ground.
     """
@@ -68,6 +73,7 @@ def grid_to_mesh(grid: TerrainGrid, unit_scale, vshift_m):
     z = np.asarray(grid.z, dtype="float64")
     rows, cols = z.shape
     xmin, ymin, xmax, ymax = grid.bbox_m
+    ps = unit_scale if plan_scale is None else plan_scale
     # esri nodata can land as a huge negative float rather than NaN.
     valid = np.isfinite(z) & (z > -1e10)
     vid = np.full((rows, cols), -1, dtype=np.int64)
@@ -79,7 +85,7 @@ def grid_to_mesh(grid: TerrainGrid, unit_scale, vshift_m):
                 continue
             e_coord = xmin + (c + 0.5) * (xmax - xmin) / cols
             vid[r, c] = len(verts)
-            verts.append((n_coord * unit_scale, e_coord * unit_scale,
+            verts.append((n_coord * ps, e_coord * ps,
                           (float(z[r, c]) - vshift_m) * unit_scale))
     tris = []
     for r in range(rows - 1):

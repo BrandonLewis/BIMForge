@@ -21,12 +21,16 @@ from .solid import carve
 def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
                    spacing_m=3.0, source="dem", vshift_m=None,
                    vshift_lookup=None, lonlat=None, cuts=(), refresh=False,
-                   log=print):
+                   plan_scale=None, log=print):
     """Fetch USGS 3DEP existing ground over ``bbox_m`` and attach it to
     ``model`` as site-context terrain; returns the added Element.
 
-    ``bbox_m`` is the metric ``(xmin, ymin, xmax, ymax)`` footprint in the
-    project CRS ``crs_epsg``; ``source`` is ``"dem"`` (1 m raster) or
+    ``bbox_m`` is the ``(xmin, ymin, xmax, ymax)`` footprint in the project
+    CRS ``crs_epsg``, and ``spacing_m`` the cell size, both in that CRS's own
+    linear unit (US survey feet for a ftUS CRS; the names are historical);
+    elevations come back in metres. ``unit_scale`` takes metres to model
+    units (for z); ``plan_scale`` takes CRS units to model units (for n and
+    e), None meaning ``unit_scale`` (a metric CRS). ``source`` is ``"dem"`` (1 m raster) or
     ``"lpc"`` (lidar bare-earth; the WGS84 discovery bbox is derived from
     ``bbox_m`` via pyproj). ``cache_stem`` is the path stem every cache
     artifact (DEM TIFF, LPC grid npz, vshift/workunit JSON) hangs off, so
@@ -95,7 +99,7 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
         wu = {}
         log("  terrain: no lon/lat available; work-unit vintage skipped")
 
-    verts, tris = grid_to_mesh(grid, unit_scale, shift)
+    verts, tris = grid_to_mesh(grid, unit_scale, shift, plan_scale)
     log(f"  terrain: {len(verts)} {source.upper()} verts @ {spacing_m:g} m, "
         f"shift -{shift:.3f} m")
 

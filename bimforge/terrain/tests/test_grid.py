@@ -96,3 +96,17 @@ def test_grid_to_mesh_treats_esri_sentinel_as_nodata():
     verts, tris = grid_to_mesh(g, unit_scale=1.0, vshift_m=0.0)
     assert len(verts) == 3
     assert tris == [(0, 1, 2)]
+
+
+def test_grid_to_mesh_on_a_feet_crs_scales_plan_and_height_apart():
+    # A US-survey-ft CRS, a ft model: the grid's n, e are already ft
+    # (plan_scale 1); its z are metres (unit_scale m -> ft).
+    ft_us = 1.0 / 0.30480060960121924
+    z = np.array([[10.0, 11.0],
+                  [12.0, 13.0]])
+    g = TerrainGrid(z=z, bbox_m=(100.0, 200.0, 102.0, 202.0), spacing_m=1.0,
+                    crs_epsg=2226, info={})
+    verts, _tris = grid_to_mesh(g, unit_scale=ft_us, vshift_m=0.5,
+                                plan_scale=1.0)
+    assert verts[0] == pytest.approx((201.5, 100.5, 9.5 * ft_us))
+    assert verts[3] == pytest.approx((200.5, 101.5, 12.5 * ft_us))

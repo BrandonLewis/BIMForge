@@ -182,3 +182,14 @@ def test_attach_lpc_builds_wgs_bbox_and_names_lidar(tmp_path, monkeypatch):
     assert prov["SourceProject"] == "CA_P"
     # the grid's crs_epsg reaches provenance through the info dict
     assert prov["SourceCRS"] == "EPSG:4326 / EPSG:5703"
+
+
+def test_attach_passes_plan_scale_to_the_mesh(tmp_path, monkeypatch):
+    # a feet CRS: plan coordinates kept as they are, z metres -> ft
+    monkeypatch.setattr(A, "fetch_3dep_dem", lambda *a, **k: _grid(2226))
+    m = _model()
+    el = A.attach_terrain(m, (0.0, 0.0, 4.0, 4.0), crs_epsg=2226,
+                          cache_stem=str(tmp_path / "site"), unit_scale=FT,
+                          spacing_m=1.0, vshift_m=0.0, plan_scale=1.0,
+                          log=lambda *_: None)
+    assert el.geometry["verts"][0] == pytest.approx((3.5, 0.5, 10.0 * FT))
