@@ -300,6 +300,23 @@ _QTY_ATTR = {"IfcQuantityArea": "AreaValue", "IfcQuantityLength": "LengthValue",
              "IfcQuantityVolume": "VolumeValue", "IfcQuantityCount": "CountValue",
              "IfcQuantityWeight": "WeightValue"}
 
+#: Element.standard_qto measure -> (IfcQuantity entity, power of ft_to_m)
+_STANDARD_MEASURES = {"length": ("IfcQuantityLength", 1),
+                      "area": ("IfcQuantityArea", 2),
+                      "volume": ("IfcQuantityVolume", 3)}
+
+
+def _standard_quantity(f, name: str, measure: str, value: float,
+                       ft_to_m: float):
+    """One quantity of an Element.standard_qto set, converted to metres."""
+    if measure not in _STANDARD_MEASURES:
+        raise ValueError(f"standard quantity {name}: measure {measure!r} is "
+                         f"not one of {sorted(_STANDARD_MEASURES)}")
+    ent, power = _STANDARD_MEASURES[measure]
+    q = f.create_entity(ent, Name=name)
+    setattr(q, _QTY_ATTR[ent], float(value) * ft_to_m ** power)
+    return q
+
 #: An element's `volume_formula` -> the Formula its GrossVolume is written
 #: with (roadmap M.3), over names in the same quantity set
 VOLUME_FORMULAS = {"box": "Length * Width * Height",
@@ -2315,6 +2332,13 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                         qq.Formula = formula
                     quantities.append(qq)
                 qto.Quantities = tuple(quantities)
+
+            # the class's standard set (roadmap M.17), beside the base set
+            for qset, values in (el.standard_qto or {}).items():
+                sq = run("pset.add_qto", f, product=product, name=qset)
+                sq.Quantities = tuple(
+                    _standard_quantity(f, qname, measure, value, ctx.ft_to_m)
+                    for qname, (measure, value) in values.items())
 
             # provenance rides the solids dict (smallest carrier: no new Element
             # field) and emits as a Pset on the product — terrain's source/

@@ -2079,3 +2079,31 @@ def test_volume_formula_refuses_what_the_quantities_cannot_carry(
                                quantities=quantities)
     with pytest.raises(ValueError, match=why):
         volume_formula(el)
+
+
+def test_standard_qto_is_written_beside_the_base_set(tmp_path):
+    import ifcopenshell
+    import ifcopenshell.util.element
+
+    m = _fixture_model()
+    m.element("PS-1 footing").standard_qto = {"Qto_FootingBaseQuantities": {
+        "Length": ("length", 4.0), "Width": ("length", 4.0),
+        "GrossVolume": ("volume", 32.0)}}
+    out = tmp_path / "std.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    el = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    qtos = ifcopenshell.util.element.get_psets(el, qtos_only=True)
+    k = m.ctx.ft_to_m
+    assert {"Qto_BaseQuantities", "Qto_FootingBaseQuantities"} <= set(qtos)
+    std = qtos["Qto_FootingBaseQuantities"]
+    assert std["Length"] == pytest.approx(4.0 * k)
+    assert std["GrossVolume"] == pytest.approx(32.0 * k ** 3)
+
+
+def test_standard_qto_refuses_an_unknown_measure(tmp_path):
+    m = _fixture_model()
+    m.element("PS-1 footing").standard_qto = {
+        "Qto_FootingBaseQuantities": {"Length": ("furlong", 1.0)}}
+    with pytest.raises(ValueError, match="furlong"):
+        emit_ifc(m, str(tmp_path / "bad.ifc"), PC)
