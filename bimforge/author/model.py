@@ -282,8 +282,8 @@ class StructureModel:
     #: Tables a family writes as CSV outputs, {output key: CSV text}: a
     #: road corridor's "walls" and "structures" (walls: auto) and
     #: "guardrail" (a steep fill rule or a guardrail: block); {} otherwise.
-    #: Each is meant for outputs.<key>; the registry does not write them
-    #: yet.
+    #: The registry writes each to outputs.<key> and refuses an output
+    #: key the model has no table for.
     tables: dict = field(default_factory=dict)
 
     def add(self, element: Element) -> Element:

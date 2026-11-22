@@ -1490,3 +1490,27 @@ def test_each_dimension_is_written_as_its_measure_and_a_taper_as_its_ends(tmp_pa
     assert "Width" not in d
     assert _course_volume(taper).Formula == \
         "PathLength * (StartWidth + EndWidth) / 2 * Thickness"
+
+
+def test_the_tables_are_written_where_the_spec_says(tmp_path):
+    from bimforge.author.families.road_corridor import build
+    outputs = {key: f"out/rc.{key}.csv" for key in ("walls", "structures", "guardrail")}
+    _f, out = _built_from(tmp_path, STEEP, outputs)
+    m = build(copy.deepcopy(STEEP), CTX)
+    for key in outputs:
+        assert (out / f"rc.{key}.csv").read_text("utf-8") == m.tables[key]
+
+
+def test_a_corridor_without_walls_auto_has_no_wall_table(tmp_path):
+    from bimforge.author.families.registry import build_from_spec
+    path = _spec_path(tmp_path, PARAMS, {"walls": "out/rc.walls.csv"})
+    with pytest.raises(ValueError, match=r"outputs\.walls.*road-corridor.*no walls table"):
+        build_from_spec(str(path), check_only=True)
+    assert not (tmp_path / "out").exists()
+
+
+def test_check_only_writes_no_table(tmp_path):
+    from bimforge.author.families.registry import build_from_spec
+    path = _spec_path(tmp_path, STEEP, {"guardrail": "out/rc.guardrail.csv"})
+    assert build_from_spec(str(path), check_only=True) == 0
+    assert not (tmp_path / "out").exists()
