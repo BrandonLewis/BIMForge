@@ -716,3 +716,55 @@ def test_a_cut_wall_widens_only_its_side_s_shoulder():
     assert outer["R", 1600.0] == pytest.approx(-22.0)
     assert {round(u, 9) for (side, _s), u in outer.items() if side == "L"} == {17.0}
     _closed_earthwork(m)
+
+
+def test_walls_auto_reads_the_ground_under_a_cut_wall_s_wider_shoulder():
+    from bimforge.author.alignment import Alignment
+    from bimforge.author.corridor.params import parse
+    from bimforge.author.families.road_corridor import ground_reach, per_component
+    al_p = STEEP["alignment"]
+    al = Alignment(al_p["pob"], al_p["run"])
+
+    class Grid:
+        spacing_ft = 3.0
+
+    c = parse(copy.deepcopy(STEEP), al.s_start, al.s_end)
+    # a cut wall may widen the 5 ft shoulder to 10 ft on either side: the
+    # lane in 4 cells, the shoulder in ceil(10 / 3) = 4; the reach 12 + 10
+    # out to the hinge and the 150 ft daylight limit past it
+    assert per_component(c, Grid()) == [4, 4]
+    assert ground_reach(c) == pytest.approx(172.0)
+    plain = copy.deepcopy(STEEP)
+    del plain["walls"]
+    c = parse(plain, al.s_start, al.s_end)
+    assert per_component(c, Grid()) == [4, 2]
+    assert ground_reach(c) == pytest.approx(167.0)
+
+
+#: STEEP's road on ground that turns the left side from fill to cut at
+#: 11+11.20, inside the right wall's lead-in (11+11 to 11+12)
+TURN_IN_LEAD_IN = copy.deepcopy(STEEP)
+TURN_IN_LEAD_IN["alignment"]["run"][0]["length"] = 300.0
+TURN_IN_LEAD_IN["profile"]["curves"][0].update(length_ft=300.0, evc_station=1300.0)
+TURN_IN_LEAD_IN["ground"] = {"source": "plane", "elevation": 310.17,
+                             "slope_n": 0.05, "slope_e": -0.14}
+TURN_IN_LEAD_IN["section"]["side_slopes"]["cut"].pop("rock")
+TURN_IN_LEAD_IN["section"]["side_slopes"]["fill"] = {"ratio": 4.0}
+
+
+def test_a_side_turning_inside_a_wall_s_lead_in_takes_no_section_there():
+    from bimforge.author.families.road_corridor import build
+    # the ground on the centreline is G = 310.17 + 0.05 d. The left hinge
+    # (17 west, 318.11) meets the ground, G + 2.38, at d = 111.2. The right
+    # 4:1, 322.36 - 0.25 x, meets the ground, G - 0.14 x, 60 ft out at
+    # G = 315.76, d = 111.8: so a right fill wall from 10+00 to 11+11, its
+    # lead-in to 11+12, its face (17 east, 319.51) 321.89 - G above the
+    # ground: 11.72 at 10+00, 6.17 at 11+11. At 11+11.20 the right slope reaches 60.27 ft, past
+    # the footprint: a section there would be refused, so the left side's
+    # turn takes none (the strip across it is lofted from 11+11 to 11+12)
+    m = build(copy.deepcopy(TURN_IN_LEAD_IN), CTX)
+    assert m.tables["walls"].splitlines()[1:] == [
+        "R,fill,1000.00,1111.00,17.00,6.17,11.72,yes,no"]
+    stations = {s for el in courses(m) for lf in el.geometry for s in lf.stations}
+    assert {1111.0, 1112.0} <= stations
+    assert not [s for s in stations if 1111.0 < s < 1112.0]

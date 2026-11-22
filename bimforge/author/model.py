@@ -279,9 +279,9 @@ class StructureModel:
     mass_haul: list = field(default_factory=list)
     #: Tables a family writes as CSV outputs, {output key: CSV text}: a
     #: road corridor's "walls" and "structures" (walls: auto) and
-    #: "guardrail" (a steep fill rule or a guardrail: block). The registry
-    #: writes each to outputs.<key>, and refuses that output when the key is
-    #: missing.
+    #: "guardrail" (a steep fill rule or a guardrail: block); {} otherwise.
+    #: Each is meant for outputs.<key>; the registry does not write them
+    #: yet.
     tables: dict = field(default_factory=dict)
 
     def add(self, element: Element) -> Element:

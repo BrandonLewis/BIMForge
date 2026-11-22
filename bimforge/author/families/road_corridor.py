@@ -69,10 +69,30 @@ def per_component(c, ground) -> list:
         if not spacing:
             out.append(1)
             continue
-        widest = max([comp.width] + [w for side in SIDES
-                                     for _s, w in c.widths.get((comp.name, side), ())])
+        widest = max(_widest(c, comp, side) for side in SIDES)
         out.append(max(1, math.ceil(widest / spacing - 1e-9)))
     return out
+
+
+def ground_reach(c) -> float:
+    """How far from the line the corridor can reach, feet: its widest side
+    and the daylight limit past it, or a listed wall's face if farther."""
+    from bimforge.author.corridor.params import SIDES
+    half = max(sum(_widest(c, comp, side) for comp in c.components)
+               for side in SIDES)
+    walls = [g.offset for g in c.gaps if g.kind == "wall" and g.offset is not None]
+    return max([half + c.slopes.daylight_limit] + walls)
+
+
+def _widest(c, comp, side: str) -> float:
+    """The widest `comp` gets on `side` anywhere in its width table; with
+    walls: auto the outermost shoulder at least CUT_WALL_SHOULDER_FT, which a
+    cut wall found later may widen it to, on either side."""
+    from bimforge.author.corridor.params import CUT_WALL_SHOULDER_FT
+    w = max([comp.width] + [w for _s, w in c.widths.get((comp.name, side), ())])
+    if c.auto_walls and comp.name == c._widened():
+        w = max(w, CUT_WALL_SHOULDER_FT)
+    return w
 
 
 def across_crown(left: list, right: list) -> list:
@@ -85,6 +105,17 @@ def across_crown(left: list, right: list) -> list:
         raise ValueError(f"the left and right rings do not share a crown edge "
                          f"({left[0]}, {left[-1]} vs {right[0]}, {right[-1]})")
     return list(left) + list(right[::-1][1:-1])
+
+
+def _in_lead_in(c, s: float) -> bool:
+    """Whether station s is strictly inside an automatic wall's
+    WALL_TRANSITION_FT lead-in, either side of the road: a turn on one side
+    is a section across both, and the wall's side there is a slope that
+    walls.find has not checked."""
+    from bimforge.author.corridor.params import WALL_TRANSITION_FT
+    return any(g.start - WALL_TRANSITION_FT < s < g.start
+               or g.end < s < g.end + WALL_TRANSITION_FT
+               for g in c.gaps if g.auto is not None)
 
 
 def _terrain(model) -> str | None:
@@ -125,9 +156,7 @@ def build(params: dict, ctx) -> "StructureModel":
     prof = Profile(params["profile"]["curves"])
     c = parse(params, al.s_start, al.s_end)
     model = StructureModel("road-corridor", ctx)
-    walls = [g.offset for g in c.gaps if g.kind == "wall"]
-    reach = max([c.max_half_width() + c.slopes.daylight_limit] + walls)
-    ground = from_params(params["ground"], al, ctx, reach, model,
+    ground = from_params(params["ground"], al, ctx, ground_reach(c), model,
                          log=lambda m: print(m, file=sys.stderr))
     divide = per_component(c, ground)
     # a cut is ground taken out of the TERRAIN (emit_ifc #364), when there
@@ -160,10 +189,13 @@ def build(params: dict, ctx) -> "StructureModel":
         stations = run_stations(s0, s1)
         secs = [resolve(c, s, ground_dz) for s in stations]
         # a section where a side turns between cut and fill
-        # (section.kind_changes), unless a station is already that close
+        # (section.kind_changes), unless a station is already that close or
+        # it falls in an automatic wall's lead-in: walls.find checked only
+        # the lead-in's far end, and the slope inside it may not fit
         turns = [t for a, b in zip(secs, secs[1:])
                  for t in kind_changes(c, a, b, ground_dz)
-                 if min(t - a.s, b.s - t) > TURN_GAP_FT]
+                 if min(t - a.s, b.s - t) > TURN_GAP_FT
+                 and not _in_lead_in(c, t)]
         if turns:
             stations = sorted(stations + turns)
             known = {sec.s: sec for sec in secs}
