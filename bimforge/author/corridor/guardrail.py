@@ -239,7 +239,8 @@ def _finish(side: str, core: _Core) -> RailRun:
 
 
 def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
-            lower: tuple, upper: tuple, walls=(), bridge_rail: bool = False) -> list:
+            lower: tuple, upper: tuple, walls=(), bridge_rail: bool = False,
+            offsets=None) -> list:
     """The rail runs on `side` within one corridor run, for its `guarded`
     spans [(s0, s1)], the rail face `l2` ft from the edge of traveled way
     and `lc` ft from the centreline. `lower` and `upper` are the corridor
@@ -248,12 +249,20 @@ def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
     run ties into. With `bridge_rail`, each AGT end also takes a run for
     the bridge rail end, merged with the rest by the same join rules. A
     bay or run of no length (EDGE_TOL_FT or less: a wall ending on a
-    structure gap) is dropped, not refused."""
-    near = need(l2, speed_mph)            # the lane beside the rail
-    far = need(lc, speed_mph)             # the opposing lane
-    # X for traffic travelling up-station (it extends a span's start) and
-    # down-station (its end)
-    up, down = (near, far) if side == "R" else (far, near)
+    structure gap) is dropped, not refused.
+
+    `offsets(s)`, when given, is the rail face's (L2, L) at station s, read
+    where each length of need is laid: a span's start for the traffic
+    heading up-station, its end for the traffic heading down-station, the
+    bridge rail end for a bridge run; `l2` and `lc` are then unused."""
+    def ends(s):
+        """X for traffic travelling up-station (it extends a span's start)
+        and down-station (its end), with the face as it is at s."""
+        a2, ac = (l2, lc) if offsets is None else offsets(s)
+        near = need(a2, speed_mph)        # the lane beside the rail
+        far = need(ac, speed_mph)         # the opposing lane
+        return (near, far) if side == "R" else (far, near)
+
     for a, b in guarded:
         for ws, we in walls:
             if ws < b - _EPS and we > a + _EPS:
@@ -263,14 +272,17 @@ def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
     cores = []
     for a, b in guarded:
         lo, hi = _bay(a, b, lower, upper, walls)
+        up, down = ends(a)[0], ends(b)[1]
         cores.append(_Core(a - up, b + down, TERMINAL if up > 0.0 else SFT_M,
                            TERMINAL if down > 0.0 else SFT_M, False, False,
                            lo, hi, ((a, b),)))
+    down = ends(lower[0])[1]
     if bridge_rail and lower[1] == AGT and down > 0.0:
         # down-station traffic heads toward the bridge rail end at `lower`
         lo, hi = _bay(lower[0], lower[0], lower, upper, walls)
         cores.append(_Core(lower[0], lower[0] + down, AGT, TERMINAL, True,
                            False, lo, hi))
+    up = ends(upper[0])[0]
     if bridge_rail and upper[1] == AGT and up > 0.0:
         lo, hi = _bay(upper[0], upper[0], lower, upper, walls)
         cores.append(_Core(upper[0] - up, upper[0], TERMINAL, AGT, False,
@@ -302,13 +314,14 @@ def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
 
 
 def side_runs(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
-              runs: list, s_start: float, s_end: float, walls=()) -> list:
+              runs: list, s_start: float, s_end: float, walls=(),
+              offsets=None) -> list:
     """Every rail run on `side` along the alignment `s_start` to `s_end`:
     `runs` [(s0, s1)] are the corridor's runs (params.Corridor.runs()), an
     end that is not the alignment's being a structure gap's (AGT, with
     bridge rail); `guarded` spans and `walls` [(start, end)] are the
     side's, over the whole alignment. A guarded span is clipped to each
-    corridor run it crosses."""
+    corridor run it crosses. `offsets` as lay_out's."""
     out = []
     for s0, s1 in runs:
         lower = (s0, TERMINAL if abs(s0 - s_start) < _EPS else AGT)
@@ -318,7 +331,7 @@ def side_runs(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
                    if max(a, s0) <= min(b, s1) + _EPS],
             l2, lc, speed_mph, lower, upper,
             [(ws, we) for ws, we in walls if we > s0 - _EPS and ws < s1 + _EPS],
-            bridge_rail=True)
+            bridge_rail=True, offsets=offsets)
     return out
 
 

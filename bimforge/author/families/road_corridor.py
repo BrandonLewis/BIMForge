@@ -169,9 +169,10 @@ def lay_rails(c, runs: list) -> list:
     bridge rail at each structure gap's ends, tied into the side's walls.
 
     The rail face is the shoulder edge; its offsets (L2 from the edge of
-    traveled way, L from the centreline) are read in each corridor run at
-    the first station it needs them: its first guarded span's start, else
-    its first end at a structure gap. A run with neither lays no rail. An
+    traveled way, L from the centreline) are read where each length of
+    need is laid (guardrail.lay_out's `offsets`), so a shoulder widening
+    elsewhere on the run changes no rail; one widening under a rail is
+    refused (rail_element). An
     automatic cut wall's 10 ft shoulder widens over its 1 ft lead-ins, so a
     rail tying into one ends at the lead-in's far end, the shoulder edge not
     moving under it (rail_element)."""
@@ -187,15 +188,15 @@ def lay_rails(c, runs: list) -> list:
             s0, s1 = secs[0].s, secs[-1].s
             spans = guardrail.spans([sec.s for sec in secs],
                                     [sec.sides[side].guarded for sec in secs])
-            at = [a for a, _b in spans[:1]] + [
-                s for s in (s0, s1) if min(abs(s - c.s_start), abs(s - c.s_end)) > 1e-6]
-            if not at:
-                continue
-            u, _v = grade_edge(c, min(at), side)
-            face = abs(u)
-            out += guardrail.side_runs(side, spans, face - c.etw(side, min(at)),
-                                       face, c.guard.speed_mph, [(s0, s1)],
-                                       c.s_start, c.s_end, walls=walls)
+
+            def offsets(s, side=side):
+                face = abs(grade_edge(c, s, side)[0])
+                return face - c.etw(side, s), face
+
+            out += guardrail.side_runs(side, spans, None, None,
+                                       c.guard.speed_mph, [(s0, s1)],
+                                       c.s_start, c.s_end, walls=walls,
+                                       offsets=offsets)
     # side_runs drops empty runs; rail_element is never handed one
     return [r for r in out if r.length > guardrail.EDGE_TOL_FT]
 

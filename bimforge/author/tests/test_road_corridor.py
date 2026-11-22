@@ -1548,3 +1548,44 @@ def test_the_example_with_a_wall_ending_on_its_bridge_builds(tmp_path):
     rails = list(csv.DictReader(io.StringIO(
         (tmp_path / "out" / "rc.guardrail.csv").read_text("utf-8"))))
     assert rails and all(float(r["length_ft"]) > 0.0 for r in rails)
+
+
+def test_each_length_of_need_reads_the_rail_face_where_it_is_laid():
+    # STEEP's level tangent run on to 26+00, a bridge at 24+00 to 24+50, the
+    # right shoulder widened from 5 ft to 10 ft over 15+00 to 16+00, 50 mph.
+    # At 24+00 the face is 22 ft out: L2 = 10, so the right lane's (up-
+    # station) need is (20 - 10) x 230 / 20 = 115, 10 elements, 125 ft:
+    # 22+75 to the AGT, made 150 ft to 22+50, its nose 22+37.50: 162.5 ft.
+    # A guarded span at 11+00 to 12+00, where the face is 17 ft out, must
+    # not change it (read there, L2 = 5 makes it 175 ft and the rail
+    # 187.5). That span's own rail: back 175 ft, cut at the alignment's
+    # start, and on 37.5 ft (L = 17) to 12+37.50: 237.5 ft, 19 whole
+    # elements, its nose 12.5 ft on: 10+00 to 12+50. A widening under a
+    # rail stays refused (test_a_rail_over_a_moving_shoulder_edge_is_refused)
+    from types import SimpleNamespace as NS
+
+    from bimforge.author.corridor.guardrail import AGT, TERMINAL
+    from bimforge.author.corridor.params import parse
+    from bimforge.author.families.road_corridor import lay_rails
+    p = copy.deepcopy(STEEP)
+    p["alignment"]["run"][0]["length"] = 1600.0
+    p["profile"]["curves"][0].update(length_ft=1600.0, evc_station=2600.0)
+    p["gaps"] = [{"from": 2400, "to": 2450, "kind": "structure"}]
+    p["widths"] = [{"component": "shoulder", "side": "R", "at": [[1500, 5.0], [1600, 10.0]]}]
+    del p["walls"]
+    p["guardrail"] = {"design_speed_mph": 50}
+    c = parse(p, 1000.0, 2600.0)
+
+    def run(guarded):
+        return [NS(s=float(s), sides={"L": NS(guarded=False),
+                                      "R": NS(guarded=guarded(s))})
+                for s in range(1000, 2401, 25)]
+
+    def bridge(rails):
+        (r,) = [r for r in rails if r.side == "R" and r.end_end == AGT]
+        return (r.start, r.end, r.start_end)
+
+    plain = lay_rails(c, [run(lambda s: False)])
+    spanned = lay_rails(c, [run(lambda s: 1100 <= s <= 1200)])
+    assert bridge(plain) == bridge(spanned) == (2237.5, 2400.0, TERMINAL)
+    assert [(r.start, r.end) for r in spanned if r.end_end != AGT] == [(1000.0, 1250.0)]
