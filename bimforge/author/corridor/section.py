@@ -145,6 +145,12 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
     # each end their own side
     wall = c.wall(side, s)
     if wall is not None:
+        if wall.offset is None:
+            # an automatic wall (walls: auto) stands at the hinge: a fill
+            # wall with no slope in front, a cut wall beside its 10 ft
+            # shoulder (params.Corridor.width). Its line is the hinge
+            # twice, so the side keeps its point count (_samples)
+            return Side("wall", [hinge, hinge])
         if wall.offset < abs(hu):
             raise ValueError(
                 f"station {sta(s)}: the {side} wall at offset {wall.offset:g} ft "

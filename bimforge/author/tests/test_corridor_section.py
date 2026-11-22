@@ -3,7 +3,7 @@ import copy
 
 import pytest
 
-from bimforge.author.corridor.params import parse
+from bimforge.author.corridor.params import Gap, parse
 from bimforge.author.corridor.section import (GUARD_STEP_FT, SIDE_SAMPLES,
                                               NoDaylight, grade_edge,
                                               needs_wall, resolve)
@@ -395,3 +395,43 @@ def test_a_rock_cut_with_no_ditch_starts_its_face_at_the_hinge():
     sec = resolve(sloped(cut=cut), 500.0, level(15.0))
     assert flat(sec.sides["L"].line) == pytest.approx(flat(
         [(17, -1.89), (21.445, 7.0), (27.445, 7.0), (43.445, 15.0)]))
+
+
+def test_an_automatic_fill_wall_stands_at_the_hinge():
+    c = corridor(walls="auto").with_walls(
+        [Gap(400.0, 600.0, "wall", "L", None, auto="fill")])
+
+    def ground(s, u, v):                  # no ground left, 5 ft down right
+        return (-500.0 if u > 0.0 else -5.0) - v
+    sec = resolve(c, 500.0, ground)
+    assert sec.sides["L"].kind == "wall"
+    assert flat(sec.sides["L"].line) == pytest.approx(flat([(17, -1.89), (17, -1.89)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-23.22, -5.0])
+
+
+def test_an_automatic_cut_wall_stands_at_the_edge_of_a_10_ft_shoulder():
+    # the left shoulder is 10 ft through the wall: grade (12, -0.24) then
+    # (22, -0.74); the hinge 1.4 ft under, (22, -2.14), is the wall's foot.
+    # The right cuts 43.39 ft up from its ditch edge at 1 in 2: (-110.78, 40)
+    c = corridor(walls="auto").with_walls(
+        [Gap(400.0, 600.0, "wall", "L", None, auto="cut")])
+    sec = resolve(c, 500.0, level(40.0))
+    assert flat(sec.grade["L"]) == pytest.approx(flat([(0, 0), (12, -0.24), (22, -0.74)]))
+    assert flat(sec.courses[0, 1, "L"]) == pytest.approx(
+        flat([(12, -0.24), (22, -0.74), (22, -1.14), (12, -0.64)]))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat([(22, -2.14), (22, -2.14)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-110.78, 40.0])
+
+
+def test_one_earthwork_line_count_for_every_kind_of_side():
+    n = 2 * SIDE_SAMPLES - 1 + 2 * 2
+    rocky = sloped(cut=ROCK_CUT, fill=STEEP_FILL)
+    walled = corridor(walls="auto").with_walls(
+        [Gap(400.0, 600.0, "wall", "L", None, auto="fill")])
+    secs = [resolve(corridor(), 500.0, level(-5.0)),      # fill 2:1
+            resolve(rocky, 500.0, level(-5.0)),           # fill 4:1
+            resolve(rocky, 500.0, level(-15.0)),          # fill 2:1, guarded
+            resolve(rocky, 500.0, level(15.0)),           # cut into rock
+            resolve(rocky, 500.0, level(3.0)),            # cut short of rock
+            resolve(walled, 500.0, lambda s, u, v: (-500.0 if u > 0.0 else -5.0) - v)]
+    assert {len(sec.earthwork_line()) for sec in secs} == {n}
