@@ -4,7 +4,7 @@
 
 **Goal:** Hold a road corridor's side slopes to Caltrans practice on steep ground (4:1 fill, 2:1 behind guardrail over a fill height, soil over rock with a bench in cut, a wall wherever no slope fits), write each guardrail run as an `IfcRailing` GUARDRAIL with its length of need and end treatments, list every automatic wall and every stretch a structure should take, and give courses, earthwork and guardrail the `BIMForge_Dimensions` and quantity `Formula`s that the gate recomputes.
 
-**Architecture:** Every V1.1 key is optional and parsed in `corridor/params.py`; with none of them the corridor builds V1's bodies, quantities and GlobalIds (Task 1 pins this). The section resolver (`corridor/section.py`) gains the steep-fill rule with the guarded widening, the rock bench, the footprint check, a wall at the hinge, and `needs_wall()`, a probe that says which wall a side needs. A new `corridor/walls.py` turns failing stations into wall gaps (runs ending where the slope fits again) and writes the wall and structure-candidate tables. A new `corridor/guardrail.py` lays out guardrail runs by the TSSM length-of-need formula. A new `corridor/dimensions.py` holds the dictionary class codes and the Formulas. The family (`families/road_corridor.py`) finds the walls first, then builds as V1 did, then adds the rails (a kernel `SweptSection` W-beam band) and the tables. The kernel gains `StructureModel.tables` (CSV outputs, written by the registry), a Formula on `Element.standard_qto` quantities, text and optional dictionary dimensions, and a gate formula grammar that reads the element's `BIMForge_Dimensions` and takes one difference (`EndStation - StartStation`).
+**Architecture:** Every V1.1 key is optional and parsed in `corridor/params.py`; with none of them the corridor builds V1's bodies, earthwork quantities, mass haul and GlobalIds (Task 1 pins this). A course's declared volume becomes the exact volume of the solid the IFC4X3 file describes, integrated along the course (section area times the speed of the centroid along the 3D tangent, 5-point Gauss-Legendre per bay: `loft.pappus`), with its mesh held to it; its centroid's 3D path gives `PathLength`, over which `Volume = PathLength * Width * Thickness`. The section resolver (`corridor/section.py`) gains the steep-fill rule with the guarded widening, the rock bench, the footprint check, a wall at the hinge, and `needs_wall()`, a probe that says which wall a side needs. A new `corridor/walls.py` turns failing stations into wall gaps (runs ending where the slope fits again) and writes the wall and structure-candidate tables. A new `corridor/guardrail.py` lays out guardrail runs by the TSSM length-of-need formula. A new `corridor/dimensions.py` holds the dictionary class codes and the Formulas. The family (`families/road_corridor.py`) finds the walls first, then builds as V1 did, then adds the rails (a kernel `SweptSection` W-beam band) and the tables. The kernel gains `StructureModel.tables` (CSV outputs, written by the registry), a Formula on `Element.standard_qto` quantities, text and optional dictionary dimensions, and a gate formula grammar that reads the element's `BIMForge_Dimensions` and takes arithmetic (`EndStation - StartStation`, `PathLength * (StartWidth + EndWidth) / 2 * Thickness`).
 
 **Tech Stack:** Python 3.11+, ifcopenshell, pytest.
 
@@ -14,7 +14,7 @@
 - Section coordinates: `u` positive to the LEFT of travel, `v` up from the profile grade line. Cross slopes negative down, outward from the crown. A ratio is horizontal per vertical (4.0 is 4:1).
 - Survey points are `(northing, easting, elevation)`; `bimforge.author.sweep.to_model(origin, n, e, z)` is the only conversion to the model frame.
 - The model is in US survey feet; the IFC is in metres. `emit_ifc` converts every length, area and volume, and every `BIMForge_Dimensions` length; families never convert.
-- Every new key is optional. A spec without them builds V1's geometry, quantities and GlobalIds exactly (`test_road_corridor_v1.py`, Task 1). V1.1 *adds* to every corridor element a class reference, `BIMForge_Dimensions` and a `Length` Formula, all written after `emit_ifc`'s GlobalId sweep, so nothing V1 wrote is renumbered.
+- Every new key is optional. A spec without them builds V1's geometry, earthwork quantities, mass haul and GlobalIds exactly (`test_road_corridor_v1.py`, Task 1). V1.1 declares every course's exact volume in place of its mesh's (they differ by the mesh's chord error, at most 0.125%; Task 10), and *adds* to every corridor element a class reference, `BIMForge_Dimensions` and Formulas, all written after `emit_ifc`'s GlobalId sweep or as attributes, so nothing V1 wrote is renumbered.
 - A side's line has a fixed vertex count for its configuration (with rock, the bench collapses when the cut does not reach rock), and every side is padded to `SIDE_SAMPLES`, so `Section.earthwork_line()` has the same count at every station whatever the side is: slope, guarded slope, rock cut or wall.
 - `Element.standard_qto` is written only on the class it is for (`emit_ifc`'s `own_class`); `Qto_BaseQuantities` stays the authoritative set consumers read.
 - A station is a length along the alignment: `StartStation`/`EndStation` are `IfcLengthMeasure` with `StartStationText`/`EndStationText` (`IfcLabel`) twins.
@@ -39,25 +39,26 @@
 | Create `bimforge/author/corridor/walls.py` | `find()` (wall gaps from failing stations), `rows()`, `structures()`, their CSVs |
 | Create `bimforge/author/corridor/guardrail.py` | Length of need, `lay_out()` runs, the W-beam `band()`, the CSV |
 | Create `bimforge/author/corridor/dimensions.py` | Dictionary class codes, `stations()`, the Formulas |
+| Modify `bimforge/author/corridor/loft.py` | `pappus()`: a course's exact volume, its centroid's offset, height and 3D path; `StationLoft.volume_cf` exact, `faceted_volume_cf`, `widths_ft` |
 | Modify `bimforge/author/corridor/earthwork.py` | `plan_area_sf()` |
 | Modify `bimforge/author/families/road_corridor.py` | Walls first, then the V1 build, rails, tables, dimensions and Formulas |
 | Modify `bimforge/author/model.py` | `StructureModel.tables`; `standard_qto` may carry a Formula |
 | Modify `bimforge/author/emit_ifc.py` | A standard quantity's Formula; text and optional dimensions |
-| Modify `bimforge/author/gate.py` | Formula grammar: one difference, names from the element's `BIMForge_Dimensions` |
+| Modify `bimforge/author/gate.py` | Formula grammar: arithmetic (`+ - * /`, parentheses, numbers) over the set's quantities and the element's `BIMForge_Dimensions` |
 | Modify `bimforge/author/family_dictionary.py` | Text dimensions (`IfcLabel`), `required_dimensions()` |
 | Modify `bimforge/author/dictionary/bimforge-families.bsdd.json` | Four corridor classes, twelve properties |
 | Modify `bimforge/bim/model_elements.py` | Station texts in `BIMForge_Dimensions` are skipped, not warned about |
 | Modify `bimforge/author/families/registry.py` | `walls`, `structures`, `guardrail` outputs and their errors |
 | Modify `bimforge/author/examples/road-corridor.spec.yaml`, `road-corridor.paycodes.yaml` | Guarded fill, rock cut, an automatic wall, guardrail |
 | Modify `bimforge/author/tests/fixtures/example_globalids.json`, `docs/ifc-inventory.json`, `docs/ifc-inventory.md`, `scripts/bsi_baseline.yaml` (only if a new finding is accepted) | Re-recorded for the example |
-| Create tests `test_corridor_walls.py`, `test_corridor_guardrail.py`; modify `test_corridor_params.py`, `test_corridor_section.py`, `test_corridor_earthwork.py`, `test_road_corridor.py`, `test_emit.py`, `test_dictionary.py`, `test_registry.py` | Unit and integration tests |
+| Create tests `test_corridor_walls.py`, `test_corridor_guardrail.py`; modify `test_corridor_params.py`, `test_corridor_section.py`, `test_corridor_loft.py`, `test_corridor_earthwork.py`, `test_road_corridor.py`, `test_emit.py`, `test_dictionary.py`, `test_registry.py` | Unit and integration tests |
 | Modify `CHANGELOG.md` | Unreleased > Added |
 
 ---
 
 ### Task 1: Pin the V1 build
 
-The example changes in Task 12, so freeze it now, with what it builds, and test that the frozen copy keeps building the same thing through every later task.
+The example changes in Task 13, so freeze it now, with what it builds, and test that the frozen copy keeps building the same thing through every later task.
 
 **Files:**
 - Create: `bimforge/author/tests/fixtures/road-corridor-v1/road-corridor.spec.yaml`, `road-corridor.paycodes.yaml`, `globalids.json`, `volumes.json`, `masshaul.csv`
@@ -109,9 +110,12 @@ spec and paycodes copied before V1.1 changed the example, and what it built
 then: every element's and root's GlobalId, every element's
 Qto_BaseQuantities GrossVolume, and the mass-haul CSV. V1.1's keys are all
 optional: without them the corridor builds the same bodies, the same
-quantities and the same GlobalIds. V1.1 may ADD roots (the dimension sets
-and the class references, written after the GlobalId sweep); it may not
-move or drop one, and it adds no element.
+earthwork quantities and mass haul, and the same GlobalIds. V1.1 may ADD
+roots (the dimension sets and the class references, written after the
+GlobalId sweep); it may not move or drop one, and it adds no element. One
+quantity changes on purpose: a course declares its exact volume (V1.1
+Task 10), which V1's chorded mesh was within 0.125% of, so a course's
+volume is held to 0.5% and every other volume exactly.
 """
 from __future__ import annotations
 
@@ -177,7 +181,8 @@ def test_every_v1_volume_is_unchanged(built):
             now[el.Name] = base["GrossVolume"]
     assert set(now) == set(was)
     for name, v in was.items():
-        assert now[name] == pytest.approx(v, rel=1e-9), name
+        course = name.startswith(("HMA ", "AB "))
+        assert now[name] == pytest.approx(v, rel=5e-3 if course else 1e-9), name
 
 
 def test_the_v1_mass_haul_is_unchanged(built):
@@ -1769,7 +1774,7 @@ EOF
 - Create: `bimforge/author/corridor/guardrail.py`
 - Test: create `bimforge/author/tests/test_corridor_guardrail.py`
 
-The length of need (TSSM length-of-need calculator), for a parallel rail with in-line terminals (Y = 0): X = (LH - L) / (LH / LR), LH the 20 ft clear-zone edge (HDM 309.1), L the rail face's offset (from the edge of traveled way for the lane beside the rail, from the centreline for the opposing lane), LR the runout length (195 ft at 45 mph, 230 ft at 50 mph). Each X is rounded up to whole 12.5 ft rail elements. On a two-lane road (right-hand traffic) the lane beside a right-side rail runs up-station, so its X extends the run's start; the opposing lane's X extends its end. A left-side rail is the mirror. A run is then cut back at a structure gap (an AGT) or a wall (tied in), runs closer than a 50 ft terminal join, and a run with a terminal is made whole elements and 150 ft at least, the extra at its terminal ends.
+The length of need (TSSM length-of-need calculator), for a parallel rail with in-line terminals (Y = 0): X = (LH - L) / (LH / LR), LH the 20 ft clear-zone edge (HDM 309.1), L the rail face's offset (from the edge of traveled way for the lane beside the rail, from the centreline for the opposing lane), LR the runout length (195 ft at 45 mph, 230 ft at 50 mph). Each X is rounded up to whole 12.5 ft rail elements. On a two-lane road (right-hand traffic) the lane beside a right-side rail runs up-station, so its X extends the run's start; the opposing lane's X extends its end. A left-side rail is the mirror. A run is then cut back at a structure gap (an AGT) or a wall (tied in), runs closer than a 50 ft terminal join, and a run with a terminal is made whole elements and 150 ft at least, the extra split evenly between its two ends, or all at one end when the other is fixed (an AGT, a wall, or the alignment's end). Posts stand every 6'-3" from the run's start: 6 ft posts within the guarded spans, behind the widening (A77N3 Detail A), 8 ft W6 posts elsewhere, where the length of need runs on with no widening behind it (A77N3 Detail B: hinge 0 to under 30 in behind the post, the slope behind no steeper than 2:1, which 4:1 fill and a cut meet).
 
 - [ ] **Step 1: Write the failing tests** in `bimforge/author/tests/test_corridor_guardrail.py`
 
@@ -1804,16 +1809,19 @@ def test_length_of_need_at_45_and_50_mph():
 
 def test_a_right_side_run_extends_up_station_for_its_own_lane():
     # 150 ft before 13+00, 37.5 ft past 14+00: 11+50 to 14+37.5, 287.5 ft
-    # = 23 elements; 287.5 / 6.25 = 46 spaces, 47 posts
+    # = 23 elements; 287.5 / 6.25 = 46 spaces, 47 posts. Posts stand at
+    # 11+50 + 6.25 i: i = 24 to 40 (13+00 to 14+00) are in the guarded span,
+    # 17 six-foot posts; the other 30 are 8 ft (no widening behind them)
     (run,) = gr.lay_out("R", [(1300.0, 1400.0)], 5.0, 17.0, 45, *ENDS)
-    assert run == RailRun("R", 1150.0, 1437.5, TERMINAL, TERMINAL)
+    assert run == RailRun("R", 1150.0, 1437.5, TERMINAL, TERMINAL, ((1300.0, 1400.0),))
     assert (run.length, run.posts, run.terminals, run.agts) == (287.5, 47, 2, 0)
+    assert (run.posts_6ft, run.posts_8ft) == (17, 30)
 
 
 def test_a_left_side_run_extends_down_station_for_its_own_lane():
     # 37.5 ft before 13+00, 150 ft past 14+00: 12+62.5 to 15+50
     assert gr.lay_out("L", [(1300.0, 1400.0)], 5.0, 17.0, 45, *ENDS) == [
-        RailRun("L", 1262.5, 1550.0, TERMINAL, TERMINAL)]
+        RailRun("L", 1262.5, 1550.0, TERMINAL, TERMINAL, ((1300.0, 1400.0),))]
 
 
 def test_at_50_mph_the_run_is_longer():
@@ -1837,12 +1845,14 @@ def test_runs_closer_than_a_terminal_join():
     # 11+50 to 14+37.5 and 14+50 to 16+87.5 are 12.5 ft apart, under a
     # 50 ft terminal: one run, 11+50 to 16+87.5, 537.5 ft = 43 elements
     assert gr.lay_out("R", [(1300.0, 1400.0), (1600.0, 1650.0)], 5.0, 17.0, 45,
-                      *ENDS) == [RailRun("R", 1150.0, 1687.5, TERMINAL, TERMINAL)]
+                      *ENDS) == [RailRun("R", 1150.0, 1687.5, TERMINAL, TERMINAL,
+                                         ((1300.0, 1400.0), (1600.0, 1650.0)))]
     # 15+50 is 112.5 ft past 14+37.5: two runs, the second 15+50 to
     # 17+87.5, 237.5 ft = 19 elements
     assert gr.lay_out("R", [(1300.0, 1400.0), (1700.0, 1750.0)], 5.0, 17.0, 45,
-                      *ENDS) == [RailRun("R", 1150.0, 1437.5, TERMINAL, TERMINAL),
-                                 RailRun("R", 1550.0, 1787.5, TERMINAL, TERMINAL)]
+                      *ENDS) == [
+        RailRun("R", 1150.0, 1437.5, TERMINAL, TERMINAL, ((1300.0, 1400.0),)),
+        RailRun("R", 1550.0, 1787.5, TERMINAL, TERMINAL, ((1700.0, 1750.0),))]
 
 
 def test_a_run_into_a_structure_gap_ends_on_an_agt():
@@ -1851,7 +1861,7 @@ def test_a_run_into_a_structure_gap_ends_on_an_agt():
     # elements, the 5 ft at the one terminal: 11+50
     (run,) = gr.lay_out("R", [(1305.0, 1430.0)], 5.0, 17.0, 45,
                         (1000.0, TERMINAL), (1450.0, AGT))
-    assert run == RailRun("R", 1150.0, 1450.0, TERMINAL, AGT)
+    assert run == RailRun("R", 1150.0, 1450.0, TERMINAL, AGT, ((1305.0, 1430.0),))
     assert (run.terminals, run.agts) == (1, 1)
 
 
@@ -1861,7 +1871,7 @@ def test_a_run_ties_into_a_wall():
     # = 19 elements
     assert gr.lay_out("L", [(1300.0, 1400.0)], 5.0, 17.0, 45, *ENDS,
                       walls=[(1500.0, 1600.0)]) == [
-        RailRun("L", 1262.5, 1500.0, TERMINAL, WALL)]
+        RailRun("L", 1262.5, 1500.0, TERMINAL, WALL, ((1300.0, 1400.0),))]
 
 
 def test_runs_do_not_join_across_a_wall():
@@ -1871,15 +1881,26 @@ def test_runs_do_not_join_across_a_wall():
     # 15+00 to 16+50
     assert gr.lay_out("R", [(1300.0, 1400.0), (1520.0, 1600.0)], 5.0, 17.0, 45,
                       *ENDS, walls=[(1450.0, 1500.0)]) == [
-        RailRun("R", 1150.0, 1437.5, TERMINAL, TERMINAL),
-        RailRun("R", 1500.0, 1650.0, WALL, TERMINAL)]
+        RailRun("R", 1150.0, 1437.5, TERMINAL, TERMINAL, ((1300.0, 1400.0),)),
+        RailRun("R", 1500.0, 1650.0, WALL, TERMINAL, ((1520.0, 1600.0),))]
 
 
 def test_a_run_at_the_alignment_s_start_stops_there():
     # 37.5 ft before 10+00 is off the alignment: the run starts at 10+00,
-    # with its terminal there; to 11+25 + 150 = 12+75: 275 ft = 22 elements
-    assert gr.lay_out("L", [(1000.0, 1125.0)], 5.0, 17.0, 45, *ENDS) == [
-        RailRun("L", 1000.0, 1275.0, TERMINAL, TERMINAL)]
+    # with its terminal there; to 11+25 + 150 = 12+75: 275 ft = 22 elements,
+    # whole already. Posts at 10+00 + 6.25 i, i = 0 to 44: i = 0 to 20 (to
+    # 11+25) are guarded, 21 six-foot posts; 24 eight-foot posts on to 12+75
+    (run,) = gr.lay_out("L", [(1000.0, 1125.0)], 5.0, 17.0, 45, *ENDS)
+    assert run == RailRun("L", 1000.0, 1275.0, TERMINAL, TERMINAL, ((1000.0, 1125.0),))
+    assert (run.posts, run.posts_6ft, run.posts_8ft) == (45, 21, 24)
+
+
+def test_a_run_from_the_alignment_s_start_takes_its_extra_at_the_other_end():
+    # 10+00 to 10+10 guarded on the left: 37.5 ft before is off the
+    # alignment, so it starts at 10+00; 150 ft past, to 11+60: 160 ft; whole
+    # elements 162.5, the 2.5 ft all at the free end: 11+62.5
+    (run,) = gr.lay_out("L", [(1000.0, 1010.0)], 5.0, 17.0, 45, *ENDS)
+    assert (run.start, run.end) == (1000.0, 1162.5)
 
 
 def test_guarded_stations_make_spans():
@@ -1894,8 +1915,9 @@ def test_the_w_beam_band_and_the_table():
         [17.0, bottom, 17.0 + 3.25 / 12.0, bottom, 17.0 + 3.25 / 12.0, top,
          17.0, top])
     assert gr.band("R", -17.0)[1] == pytest.approx((-17.0 - 3.25 / 12.0, bottom))
-    assert gr.to_csv([RailRun("L", 1000.0, 1275.0, TERMINAL, TERMINAL)]) == (
-        gr.HEADER + "\n" "L,1000.00,1275.00,275.00,TERMINAL,TERMINAL,45\n")
+    assert gr.to_csv([RailRun("L", 1000.0, 1275.0, TERMINAL, TERMINAL,
+                              ((1000.0, 1125.0),))]) == (
+        gr.HEADER + "\n" "L,1000.00,1275.00,275.00,TERMINAL,TERMINAL,45,21,24\n")
 ```
 
 - [ ] **Step 2: Run them to make sure they fail**
@@ -1923,7 +1945,9 @@ at least (TSSM 3.6(1)), the extra at its terminal ends.
 
 The rail face stands at the shoulder edge; the body is the W-beam band,
 31 in to the top of rail (A77N3), swept along the alignment. Posts are
-counted at 6'-3", not modelled.
+counted at 6'-3", not modelled: 6 ft posts where the run shields a guarded
+span (behind the widening, A77N3 Detail A), 8 ft W6 posts elsewhere (no
+widening, A77N3 Detail B).
 """
 from __future__ import annotations
 
@@ -1952,7 +1976,8 @@ EDGE_TOL_FT = 0.01
 #: the IfcRailingType name (the dictionary class road-corridor-guardrail)
 TYPE_NAME = "Midwest guardrail system"
 TERMINAL, AGT, WALL = "TERMINAL", "AGT", "WALL"
-HEADER = "side,start,end,length_ft,start_treatment,end_treatment,posts"
+HEADER = ("side,start,end,length_ft,start_treatment,end_treatment,posts,"
+          "posts_6ft,posts_8ft")
 _EPS = 1e-9
 
 
@@ -1963,6 +1988,8 @@ class RailRun:
     end: float
     start_end: str          # TERMINAL, AGT or WALL
     end_end: str
+    #: the guarded spans [(s0, s1)] the run shields: 6 ft posts there
+    guarded: tuple = ()
 
     @property
     def length(self) -> float:
@@ -1971,6 +1998,20 @@ class RailRun:
     @property
     def posts(self) -> int:
         return math.floor(self.length / POST_SPACING_FT + _EPS) + 1
+
+    @property
+    def posts_6ft(self) -> int:
+        """Posts (every POST_SPACING_FT from the start) within a guarded
+        span: 6 ft posts behind the widening (A77N3 Detail A)."""
+        return sum(1 for i in range(self.posts)
+                   if any(a - _EPS <= self.start + i * POST_SPACING_FT <= b + _EPS
+                          for a, b in self.guarded))
+
+    @property
+    def posts_8ft(self) -> int:
+        """The other posts: 8 ft W6 posts with no widening behind them
+        (A77N3 Detail B)."""
+        return self.posts - self.posts_6ft
 
     @property
     def terminals(self) -> int:
@@ -2010,14 +2051,15 @@ def spans(stations: list, flags: list) -> list:
     return out
 
 
-def _clamped(side: str, start: float, end: float, lo: tuple, hi: tuple) -> RailRun:
+def _clamped(side: str, start: float, end: float, lo: tuple, hi: tuple,
+             guarded: tuple) -> RailRun:
     """A run cut back to its limits (station, treatment) at either end."""
     s_kind = e_kind = TERMINAL
     if start <= lo[0] + _EPS:
         start, s_kind = lo
     if end >= hi[0] - _EPS:
         end, e_kind = hi
-    return RailRun(side, start, end, s_kind, e_kind)
+    return RailRun(side, start, end, s_kind, e_kind, guarded)
 
 
 def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
@@ -2036,7 +2078,7 @@ def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
                  key=lambda t: t[0])
         hi = min([upper] + [(s, WALL) for s, _e in walls if s >= b - _EPS],
                  key=lambda t: t[0])
-        runs.append((_clamped(side, a - up, b + down, lo, hi), lo, hi))
+        runs.append((_clamped(side, a - up, b + down, lo, hi, ((a, b),)), lo, hi))
     merged = []
     for run, lo, hi in runs:
         if merged:
@@ -2044,15 +2086,18 @@ def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
             if (prev.end_end == TERMINAL and run.start_end == TERMINAL
                     and run.start - prev.end < TERMINAL_FT):
                 merged[-1] = (RailRun(side, prev.start, max(prev.end, run.end),
-                                      prev.start_end, run.end_end), plo, hi)
+                                      prev.start_end, run.end_end,
+                                      prev.guarded + run.guarded), plo, hi)
                 continue
         merged.append((run, lo, hi))
     return [_whole(run, lo, hi) for run, lo, hi in merged]
 
 
 def _whole(run: RailRun, lo: tuple, hi: tuple) -> RailRun:
-    """`run` made whole elements and MIN_RUN_FT at least, the extra at its
-    terminal ends (split between two), then cut back to its limits."""
+    """`run` made whole elements and MIN_RUN_FT at least: the extra split
+    evenly between its two ends where both are free terminals, all at the
+    free one where the other is fixed (an AGT, a wall, or a terminal at the
+    alignment's end); then cut back to its limits."""
     free = (run.start_end == TERMINAL and run.start > lo[0] + _EPS,
             run.end_end == TERMINAL and run.end < hi[0] - _EPS)
     extra = max(MIN_RUN_FT, round_up(run.length)) - run.length
@@ -2065,7 +2110,7 @@ def _whole(run: RailRun, lo: tuple, hi: tuple) -> RailRun:
         start -= extra
     else:
         end += extra
-    return _clamped(run.side, start, end, lo, hi)
+    return _clamped(run.side, start, end, lo, hi, run.guarded)
 
 
 def band(side: str, face_u: float) -> list:
@@ -2081,7 +2126,8 @@ def band(side: str, face_u: float) -> list:
 def to_csv(runs: list) -> str:
     return "\n".join([HEADER] + [
         f"{r.side},{r.start:.2f},{r.end:.2f},{r.length:.2f},"
-        f"{r.start_end},{r.end_end},{r.posts}" for r in runs]) + "\n"
+        f"{r.start_end},{r.end_end},{r.posts},{r.posts_6ft},{r.posts_8ft}"
+        for r in runs]) + "\n"
 ```
 
 - [ ] **Step 4: Run the tests**
@@ -2124,14 +2170,17 @@ def test_the_steep_road_s_guardrail(steep):
     # ground 301.7 + 0.05 d), over 10 ft to d = 128.2: guarded 10+00 to
     # 11+25. Its own lane runs down-station: 150 ft past 11+25, to 12+75; the
     # opposing 37.5 ft before 10+00 is off the alignment, so it starts there.
-    # 275 ft = 22 elements, 275 / 6.25 = 44 spaces, 45 posts.
+    # 275 ft = 22 elements, 275 / 6.25 = 44 spaces, 45 posts: 21 six-foot
+    # posts to 11+25, then 24 eight-foot posts with no widening behind them.
     # Right: guarded from 11+12 (past the first wall) to 11+96 (before the
     # second); 150 ft before and 37.5 after both reach a wall, so it ties
-    # into both: 11+11 to 11+97, 86 ft, 86 / 6.25 = 13.76, 14 posts
+    # into both: 11+11 to 11+97, 86 ft, 86 / 6.25 = 13.76, 14 posts at
+    # 11+11 + 6.25 i: the first, at 11+11, is before the guarded span (8 ft),
+    # the other 13 (11+17.25 to 11+92.25) are 6 ft
     assert steep.tables["guardrail"] == (
         gr.HEADER + "\n"
-        "L,1000.00,1275.00,275.00,TERMINAL,TERMINAL,45\n"
-        "R,1111.00,1197.00,86.00,WALL,WALL,14\n")
+        "L,1000.00,1275.00,275.00,TERMINAL,TERMINAL,45,21,24\n"
+        "R,1111.00,1197.00,86.00,WALL,WALL,14,13,1\n")
     left = steep.element("Guardrail L STA 10+00.00 to 12+75.00")
     assert (left.ifc_class, left.predefined_type) == ("IfcRailing", "GUARDRAIL")
     assert left.type_name == gr.TYPE_NAME
@@ -2140,7 +2189,8 @@ def test_the_steep_road_s_guardrail(steep):
     assert left.quantities["volume_cf"] == pytest.approx(
         3.25 * 12.25 / 144.0 * 275.0, rel=1e-9)
     assert left.psets["BIMForge_Guardrail"] == {
-        "PostCount": 45, "StartTreatment": "TERMINAL", "EndTreatment": "TERMINAL",
+        "PostCount": 45, "Posts6ft": 21, "Posts8ft": 24,
+        "StartTreatment": "TERMINAL", "EndTreatment": "TERMINAL",
         "Terminals": 2, "AGTTransitions": 0}
     sweep = left.geometry
     assert flat(sweep.section) == pytest.approx(flat(gr.band("L", 17.0)))
@@ -2238,7 +2288,8 @@ def rail_element(rail, c, al, prof, ctx, segment):
     """`rail` (corridor.guardrail.RailRun) as an IfcRailing GUARDRAIL: the
     W-beam band at the shoulder edge, a SweptSection in the plumb frame on
     the profile, raised by the edge's height off the profile grade line (its
-    camber). Posts are counted (BIMForge_Guardrail), not modelled."""
+    camber). Posts are counted (BIMForge_Guardrail: all, 6 ft, 8 ft), not
+    modelled."""
     from bimforge.author.alignment import sta
     from bimforge.author.corridor import guardrail
     from bimforge.author.corridor.section import grade_edge
@@ -2262,7 +2313,8 @@ def rail_element(rail, c, al, prof, ctx, segment):
         type_name=guardrail.TYPE_NAME, typed_late=True, material="Steel",
         layer=LAYER, spatial_part=segment,
         psets={"BIMForge_Guardrail": {
-            "PostCount": rail.posts, "StartTreatment": rail.start_end,
+            "PostCount": rail.posts, "Posts6ft": rail.posts_6ft,
+            "Posts8ft": rail.posts_8ft, "StartTreatment": rail.start_end,
             "EndTreatment": rail.end_end, "Terminals": rail.terminals,
             "AGTTransitions": rail.agts}},
         standard_qto={"Qto_RailingBaseQuantities": {
@@ -2337,7 +2389,7 @@ EOF
 
 ### Task 9: Kernel: Formulas on standard quantities, text and optional dimensions, a formula over the element's dimensions
 
-The spec's `Length: EndStation - StartStation` is a difference over names that live in `BIMForge_Dimensions`, not in the quantity set, and the gate's formula grammar (M.3) reads only a product of names in the set. This task widens the grammar to a product or one difference, over the set's quantities and then the element's `BIMForge_Dimensions` numbers; adds a Formula to `Element.standard_qto` entries; lets a dictionary property be text (`IfcLabel`, for the station-text twins) and a class property optional (`IsRequired: false`, for `RockDepth`).
+The spec's `Length: EndStation - StartStation` is a difference over names that live in `BIMForge_Dimensions`, not in the quantity set, and a course through a width transition takes `PathLength * (StartWidth + EndWidth) / 2 * Thickness`; the gate's formula grammar (M.3) reads only a product of names in the set. This task widens the grammar to arithmetic (names, numbers, `+ - * /` and parentheses, parsed by `ast`, nothing else admitted), over the set's quantities and then the element's `BIMForge_Dimensions` numbers; adds a Formula to `Element.standard_qto` entries; lets a dictionary property be text (`IfcLabel`, for the station-text twins) and a class property optional (`IsRequired: false`, for `RockDepth`).
 
 **Files:**
 - Modify: `bimforge/author/model.py` (the `standard_qto` comment)
@@ -2369,15 +2421,19 @@ def test_a_standard_quantity_may_carry_its_formula(tmp_path):
     assert _ifc_formula_check(m, str(out)) == []
 
 
-def test_a_formula_is_a_product_or_one_difference():
+def test_a_formula_is_arithmetic_over_names():
     from bimforge.author.gate import formula_value
-    v = {"EndStation": 1275.0, "StartStation": 1000.0, "Width": 2.0}
+    v = {"EndStation": 1275.0, "StartStation": 1000.0, "PathLength": 100.0,
+         "StartWidth": 10.0, "EndWidth": 15.0, "Thickness": 0.4}
     assert formula_value("EndStation - StartStation", v) == 275.0
-    assert formula_value("Width * EndStation", v) == 2550.0
-    with pytest.raises(ValueError, match="one difference"):
-        formula_value("EndStation - StartStation - Width", v)
-    with pytest.raises(ValueError, match="not a quantity name"):
-        formula_value("EndStation - Width * 2", v)
+    # the trapezoid: 100 x (10 + 15) / 2 x 0.4 = 500
+    assert formula_value("PathLength * (StartWidth + EndWidth) / 2 * Thickness",
+                         v) == pytest.approx(500.0)
+    for bad in ("Thickness ** 2", "__import__('os')", "Thickness[0]", "Thickness +"):
+        with pytest.raises(ValueError, match="not a quantity name"):
+            formula_value(bad, v)
+    with pytest.raises(ValueError, match="no quantity 'Depth'"):
+        formula_value("Depth * 2", v)
 
 
 #: a family dictionary of one class, "x": two lengths, a text and an
@@ -2479,10 +2535,22 @@ with:
             for code in pset:
 ```
 
+In `test_formula_gate_catches_a_quantity_that_does_not_recompute` (`test_emit.py`), `Length + Width` is now a valid formula (it would fail as a mismatch, not as grammar); replace
+
+```python
+    vol.Formula = "Length + Width"
+```
+
+with
+
+```python
+    vol.Formula = "Length ** Width"
+```
+
 - [ ] **Step 2: Run them to make sure they fail**
 
 Run: `python -m pytest bimforge/author/tests/test_emit.py bimforge/author/tests/test_dictionary.py -q -k "formula or dimension"`
-Expected: FAIL. `_standard_quantity` is handed a 3-tuple (`ValueError: too many values to unpack`); `formula_value("EndStation - StartStation", ...)` raises `not a quantity name`; `fd.required_dimensions` does not exist; `fd.measure("T")` raises `KeyError: 'PhysicalQuantity'`.
+Expected: FAIL. `_standard_quantity` is handed a 3-tuple (`ValueError: too many values to unpack`); `formula_value("EndStation - StartStation", ...)` and the trapezoid raise `not a quantity name`; `fd.required_dimensions` does not exist; `fd.measure("T")` raises `KeyError: 'PhysicalQuantity'`.
 
 - [ ] **Step 3: The standard quantity's Formula.** In `bimforge/author/emit_ifc.py`, replace `_standard_quantity` with:
 
@@ -2593,33 +2661,48 @@ In `bimforge/author/emit_ifc.py`, replace the body of `_dimensions` from `from b
 
 In its docstring, replace the sentence `An element carries exactly what its class declares: a class that declares a dimension the family did not size, or a dimension no class declares, fails the build.` with `An element carries every dimension its class requires and none it does not declare; anything else fails the build. A text dimension is an IfcLabel.`
 
-- [ ] **Step 5: The formula grammar.** In `bimforge/author/gate.py`, replace `formula_value` with:
+- [ ] **Step 5: The formula grammar.** In `bimforge/author/gate.py`, add `import ast` and `import operator` to the imports, and replace `formula_value` with:
 
 ```python
-def formula_value(formula: str, values: dict) -> float:
-    """A quantity Formula evaluated over {name: value}: a product of names
-    (`Length * Width * Height`) or the difference of two (`EndStation -
-    StartStation`). Anything else, or a name not in `values`, raises
-    ValueError."""
-    def name(term: str) -> float:
-        n = term.strip()
-        if not n.isidentifier():
-            raise ValueError(f"formula {formula!r}: {n!r} is not a quantity name")
-        if n not in values:
-            raise ValueError(f"formula {formula!r}: no quantity {n!r} in the "
-                             f"set or the element's dimensions")
-        return values[n]
+#: the arithmetic a quantity Formula may use
+_FORMULA_OPS = {ast.Add: operator.add, ast.Sub: operator.sub,
+                ast.Mult: operator.mul, ast.Div: operator.truediv}
 
-    if "-" in formula:
-        terms = formula.split("-")
-        if len(terms) != 2:
-            raise ValueError(f"formula {formula!r}: a formula takes one "
-                             f"difference, of two names")
-        return name(terms[0]) - name(terms[1])
-    out = 1.0
-    for term in formula.split("*"):
-        out *= name(term)
-    return out
+
+def formula_value(formula: str, values: dict) -> float:
+    """A quantity Formula evaluated over {name: value}: names, numbers,
+    `+ - * /` and parentheses (`Length * Width * Height`, `EndStation -
+    StartStation`, `PathLength * (StartWidth + EndWidth) / 2 * Thickness`).
+    Anything else, or a name not in `values`, raises ValueError. Parsed by
+    ast and walked here, so nothing in it is run."""
+    grammar = (f"formula {formula!r}: not a quantity name, a number, or "
+               f"+ - * / ( ) of them")
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError:
+        raise ValueError(grammar) from None
+
+    def ev(node) -> float:
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.BinOp) and type(node.op) in _FORMULA_OPS:
+            try:
+                return _FORMULA_OPS[type(node.op)](ev(node.left), ev(node.right))
+            except ZeroDivisionError:
+                raise ValueError(f"formula {formula!r}: divides by zero") from None
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -ev(node.operand)
+        if (isinstance(node, ast.Constant) and isinstance(node.value, (int, float))
+                and not isinstance(node.value, bool)):
+            return float(node.value)
+        if isinstance(node, ast.Name):
+            if node.id not in values:
+                raise ValueError(f"formula {formula!r}: no quantity {node.id!r} "
+                                 f"in the set or the element's dimensions")
+            return values[node.id]
+        raise ValueError(f"{grammar} ({ast.unparse(node)!r})")
+
+    return ev(tree)
 
 
 def _dimension_values(product) -> dict:
@@ -2697,7 +2780,270 @@ EOF
 ```
 
 ---
-### Task 10: Dictionary classes, `BIMForge_Dimensions` and Formulas on the corridor's elements
+### Task 10: A course's exact volume, and the path its centroid travels
+
+V1 declared a course's volume as its faceted mesh's. V1.1 declares the exact volume of the solid the IFC4X3 file describes (the IfcSectionedSolidHorizontal: each station's ring square to the alignment's 3D tangent, rings blended linearly vertex for vertex between stations), as the kernel's sweeps declare their closed form. The mesh is then held to it.
+
+**The integration.** Take section coordinates (u, v) at station s (plan length along the alignment), the frame `frame.survey_point` uses: N the horizontal left normal, T3 the 3D unit tangent, B the section's up axis (square to T3 in the vertical plane, pitched with the grade). With g the grade, γ = atan g, κ the plan curvature (left positive) and γ' = dγ/ds, a section point X(s, u, v) = C(s) + u N + v B moves along T3 at
+
+    J(s, u, v) = dX/ds · T3 = sqrt(1 + g²) - κ cos γ · u - γ' · v
+
+and (s, u, v) are coordinates of the solid with Jacobian J, so
+
+    V = ∫ ds ∫∫_A(s) J du dv = ∫ [ A sqrt(1 + g²) - κ cos γ · Qu - γ' · Qv ] ds
+
+with A, Qu = ∫u dA, Qv = ∫v dA the blended ring's area and first moments (Pappus, generalised to a changing section). Within a bay the blended ring's vertices are linear in s, so A is quadratic and Qu, Qv cubic in s, and κ and γ' are constant on an arc and a parabolic vertical curve; the stations hold every geometry point (V1's `geometry_stations`), so 5-point Gauss-Legendre per bay integrates it to rounding. γ' is the bay's grade change over its length divided by 1 + g².
+
+**The path.** The course's centroid offset and height are its area-weighted means over the band, ū = ∫Qu ds / ∫A ds and v̄ = ∫Qv ds / ∫A ds (an element with bodies both sides, a shoulder, has one combined centroid). `PathLength` is the 3D length of the line held at (ū, v̄), parallel to the profile grade line, following its plan curvature and grade:
+
+    P' = T3 (sqrt(1 + g²) - κ cos γ ū - γ' v̄) + B (κ ū sin γ) + N (-κ v̄ sin γ)
+
+so PathLength = ∫ |P'| ds, by the same Gauss points. For a course of constant section (A, ū, v̄ fixed) V = A ∫ (P' · T3) ds, so `PathLength * Width * Thickness` (A = Width x Thickness for these rings) is V within ½ (κ g r)² relatively, r = sqrt(ū² + v̄²): 1.6e-7 for a shoulder at 14.5 ft on a 500 ft curve at 2%, under the gate's 1e-6 while κ g r stays under about 1.4e-3. Where superelevation changes on a vertical curve (γ' ≠ 0 while v̄ drifts) it can miss; the family tests every Formula before writing it (Task 11).
+
+**What else this touches.** `StationLoft.volume_cf` becomes the exact figure and `faceted_volume_cf` the mesh's, so the pre gate's `check_arc_faceting` holds the mesh to the exact volume at `FACET_TOLERANCE` (0.5%, the corridor's `AEA_TOL`); the stated quantity holds the exact volume to the independent average end areas at `AEA_TOL`; and `_ifc_exact_sweep_check` sums the lofts' `volume_cf`, now the exact figure the element declares. `Qto_BaseQuantities.GrossVolume` and `Qto_CourseBaseQuantities.Volume` both carry it. Earthwork keeps its prismatoid volumes, so cut, fill and the mass haul do not change. No root is added, so no GlobalId moves; the V1 pin (Task 1) holds course volumes to 0.5% of V1's mesh figures and everything else exactly.
+
+**Files:**
+- Modify: `bimforge/author/corridor/loft.py`
+- Modify: `bimforge/author/families/road_corridor.py` (the stated quantity)
+- Test: `bimforge/author/tests/test_corridor_loft.py`, `bimforge/author/tests/test_road_corridor.py`
+
+- [ ] **Step 1: Write the failing tests.** Append to `bimforge/author/tests/test_corridor_loft.py`:
+
+```python
+import math
+
+from bimforge.author.corridor.loft import pappus
+
+#: 10 degrees of a 500 ft curve: 500 x pi / 18 = 87.266463 ft
+LS = 500.0 * math.pi / 18.0
+SHOULDER = [(12.0, -0.24), (17.0, -0.49), (17.0, -0.89), (12.0, -0.64)]
+LANE = [(0.0, 0.0), (12.0, -0.24), (12.0, -0.64), (0.0, -0.4), (-12.0, -0.64),
+        (-12.0, -0.24)]
+
+
+def arc():
+    """10 ft tangent, 10 degrees of a 500 ft right curve, 10 ft tangent: the
+    curve's length is its radius x delta exactly."""
+    return Alignment(POB, [
+        {"kind": "tangent", "bearing": "N 0-0-0 E", "length": 10.0},
+        {"kind": "curve", "delta": "10-0-0", "radius": 500.0, "turn": "R",
+         "length": LS},
+        {"kind": "tangent", "bearing": "N 10-0-0 E", "length": 10.0}], name="A")
+
+
+def _on_the_curve(ring):
+    al, prof = arc(), level(grade_pct=2.0)
+    ss = densify(al, prof, [10.0, 10.0 + LS])
+    return StationLoft("c", al, prof, None, ss, [ring] * len(ss))
+
+
+def test_a_shoulder_on_a_curve_at_2_percent_is_its_area_times_its_centroid_s_path():
+    lf = _on_the_curve(SHOULDER)
+    p = pappus([lf])
+    # A = 5 x 0.4 = 2.0 sf; centroid (14.5, -0.565), left of a right curve
+    # (kappa = -1/500). sqrt(1 + 0.02^2) = 1.00019998, cos = 0.99980006.
+    # V = A x LS x (1.00019998 + 14.5 / 500 x 0.99980006)
+    #   = 2.0 x 87.266463 x 1.02919418 = 179.628271 cf
+    assert (p.offset_ft, p.height_ft) == pytest.approx((14.5, -0.565))
+    assert lf.volume_cf == pytest.approx(179.628271, rel=1e-8)
+    # the centroid's line is a helix: 87.266463 x 514.5 / 500 = 89.797190 ft
+    # in plan, rising 0.02 x 87.266463 = 1.745329 ft:
+    # sqrt(89.797190^2 + 1.745329^2) = 89.814150 ft
+    assert p.path_ft == pytest.approx(89.814150, rel=1e-8)
+    # PathLength x Width x Thickness = 89.814150 x 5 x 0.4 = 179.628300:
+    # 1.6e-7 over the volume, inside the gate's 1e-6
+    assert abs(p.path_ft * 5.0 * 0.4 - lf.volume_cf) <= 1e-6 * lf.volume_cf
+    # the mesh, chorded over 3 bays of 3.33 degrees, is 5.6e-4 short:
+    # inside 0.5%
+    assert lf.faceted_volume_cf < lf.volume_cf
+    assert lf.faceted_volume_cf == pytest.approx(lf.volume_cf, rel=5e-3)
+
+
+def test_a_lane_across_the_crown_rides_the_profile_grade_line():
+    lf = _on_the_curve(LANE)
+    p = pappus([lf])
+    # A = 24 x 0.4 = 9.6 sf, centroid (0, -0.32): on the centreline, so the
+    # curve does not lengthen it: PathLength = 87.266463 x 1.00019998 =
+    # 87.283914 ft; V = 9.6 x 87.283914 = 837.925576 cf
+    assert (p.offset_ft, p.height_ft) == pytest.approx((0.0, -0.32), abs=1e-12)
+    assert p.path_ft == pytest.approx(87.283914, rel=1e-8)
+    assert lf.volume_cf == pytest.approx(837.925576, rel=1e-8)
+    assert p.path_ft * 24.0 * 0.4 == pytest.approx(lf.volume_cf, rel=1e-9)
+
+
+def test_an_element_s_bodies_both_sides_share_one_centroid():
+    al, prof = arc(), level(grade_pct=2.0)
+    ss = densify(al, prof, [10.0, 10.0 + LS])
+    right = [(-u, v) for u, v in SHOULDER]
+    lofts = [StationLoft(n, al, prof, None, ss, [r] * len(ss))
+             for n, r in (("L", SHOULDER), ("R", right))]
+    p = pappus(lofts)
+    # left at +14.5 and right at -14.5, equal areas: the centroid on the line
+    assert p.offset_ft == pytest.approx(0.0, abs=1e-12)
+    assert p.volume_cf == pytest.approx(sum(lf.volume_cf for lf in lofts), rel=1e-12)
+    assert [round(w, 9) for w in lofts[0].widths_ft] == [5.0] * len(ss)
+```
+
+Append to `bimforge/author/tests/test_road_corridor.py`:
+
+```python
+def test_a_course_declares_its_exact_volume_and_its_mesh_is_held_to_it(model):
+    from bimforge.author.corridor.loft import pappus
+    from bimforge.author.gate import check_arc_faceting
+    for el in courses(model):
+        assert el.quantities["volume_cf"] == pytest.approx(
+            pappus(el.geometry).volume_cf, rel=1e-12), el.name
+        assert el.standard_qto["Qto_CourseBaseQuantities"]["Volume"][1] == \
+            el.quantities["volume_cf"]
+    # each loft's mesh within 0.5% of its exact volume (the pre gate's check)
+    assert check_arc_faceting(model) == []
+```
+
+- [ ] **Step 2: Run them to make sure they fail**
+
+Run: `python -m pytest bimforge/author/tests/test_corridor_loft.py bimforge/author/tests/test_road_corridor.py -q -k "curve or crown or centroid or exact_volume"`
+Expected: collection ERROR, `ImportError: cannot import name 'pappus' from 'bimforge.author.corridor.loft'`.
+
+- [ ] **Step 3: Implement** in `bimforge/author/corridor/loft.py`. Add `from dataclasses import dataclass` to the imports, and after the imports:
+
+```python
+#: Gauss-Legendre nodes and weights on [-1, 1], 5 points: exact for a
+#: polynomial of degree 9 in station, ample for a bay's blended ring (area
+#: quadratic, first moments cubic) in a frame constant on an arc
+_GAUSS = ((-0.9061798459386640, 0.2369268850561891),
+          (-0.5384693101056831, 0.4786286704993665),
+          (0.0, 0.5688888888888889),
+          (0.5384693101056831, 0.4786286704993665),
+          (0.9061798459386640, 0.2369268850561891))
+
+
+def _moments(ring: list) -> tuple:
+    """(area, first moment in u, first moment in v) of a (u, v) ring wound
+    counterclockwise."""
+    a = qu = qv = 0.0
+    for (u0, v0), (u1, v1) in zip(ring, ring[1:] + ring[:1]):
+        cr = u0 * v1 - u1 * v0
+        a += cr
+        qu += (u0 + u1) * cr
+        qv += (v0 + v1) * cr
+    return a / 2.0, qu / 6.0, qv / 6.0
+
+
+@dataclass(frozen=True)
+class Pappus:
+    volume_cf: float       # the exact volume of the lofts together
+    path_ft: float         # the 3D length of their centroid's line
+    offset_ft: float       # that line's offset, left positive
+    height_ft: float       # its height above the profile grade line
+
+
+def pappus(lofts: list) -> Pappus:
+    """The exact volume of `lofts` (StationLofts on the same stations) and
+    the path of their combined centroid. A section point moves along the 3D
+    tangent at J = sqrt(1 + g^2) - kappa cos(gamma) u - gamma' v, so the
+    volume is the integral of A sqrt(1 + g^2) - kappa cos(gamma) Qu -
+    gamma' Qv over station; the centroid's line, held at the band's mean
+    (u, v) parallel to the profile grade line, has speed |P'| (its tangent
+    part J at (u, v), plus kappa u sin(gamma) up and -kappa v sin(gamma)
+    across). Both by 5-point Gauss-Legendre per bay, on the rings blended
+    as IFC blends them (ring_at)."""
+    first = lofts[0]
+    al, prof, ss = first.alignment, first.profile, first.stations
+    nodes = []
+    for a, b in zip(ss, ss[1:]):
+        h = b - a
+        eps = 1e-9 * h
+        # a bay never straddles a vertical curve's end, so its grade changes
+        # linearly across it
+        gp = (prof.grade(b - eps) - prof.grade(a + eps)) / h
+        for x, w in _GAUSS:
+            s = a + 0.5 * h * (1.0 + x)
+            area = qu = qv = 0.0
+            for lf in lofts:
+                da, du, dv = _moments(lf.ring_at(s))
+                area, qu, qv = area + da, qu + du, qv + dv
+            g = prof.grade(s)
+            nodes.append((0.5 * h * w, area, qu, qv, al.curvature(s), g,
+                          gp / (1.0 + g * g)))
+    weight = sum(dw * area for dw, area, *_rest in nodes)
+    ub = sum(dw * qu for dw, _a, qu, *_rest in nodes) / weight
+    vb = sum(dw * qv for dw, _a, _u, qv, *_rest in nodes) / weight
+    volume = path = 0.0
+    for dw, area, qu, qv, k, g, dgam in nodes:
+        root = math.sqrt(1.0 + g * g)
+        cg, sg = 1.0 / root, g / root
+        volume += dw * (area * root - k * cg * qu - dgam * qv)
+        along = root - k * cg * ub - dgam * vb
+        path += dw * math.sqrt(along ** 2 + (k * ub * sg) ** 2 + (k * vb * sg) ** 2)
+    return Pappus(volume, path, ub, vb)
+```
+
+In `StationLoft`, replace the `volume_cf` property with:
+
+```python
+    @property
+    def volume_cf(self) -> float:
+        """The exact volume of the solid IFC4X3 describes (pappus): what the
+        corridor declares, as the kernel's sweeps declare their closed form."""
+        return pappus([self]).volume_cf
+
+    @property
+    def faceted_volume_cf(self) -> float:
+        """The chorded mesh's volume, held to volume_cf by the pre gate's
+        arc-faceting check."""
+        return abs(face_volume(self._faces()))
+
+    @property
+    def widths_ft(self) -> list:
+        """Each station's ring width, its u extent, feet."""
+        return [max(u for u, _v in r) - min(u for u, _v in r) for r in self.rings]
+```
+
+- [ ] **Step 4: The stated quantity** in `bimforge/author/families/road_corridor.py`, `build`: replace
+
+```python
+                    # the mesh against a figure that does not read it: the
+                    # post gate's volume leg for an exact sweep is the
+                    # loft's own mesh volume, so this is the independent one
+                    model.stated_quantities.append(
+                        (f"{name}: mesh volume vs average end area", vol, aea,
+                         AEA_TOL * max(aea, 1.0)))
+```
+
+with
+
+```python
+                    # the exact volume (loft.pappus) against a figure that
+                    # does not read it; the mesh is held to the exact
+                    # volume by the pre gate's arc-faceting check, and the
+                    # post gate's exact-sweep leg sums the same exact figure
+                    model.stated_quantities.append(
+                        (f"{name}: exact volume vs average end area", vol, aea,
+                         AEA_TOL * max(aea, 1.0)))
+```
+
+and change the `AEA_TOL` comment at the top of the module to `#: how far a course's exact volume may stray from its average end areas, and its mesh from its exact volume (check_arc_faceting's FACET_TOLERANCE, the same 0.5%)`.
+
+- [ ] **Step 5: Run the tests**
+
+Run: `python -m pytest bimforge/author/tests/test_corridor_loft.py bimforge/author/tests/test_road_corridor.py bimforge/author/tests/test_road_corridor_v1.py -q`
+Expected: PASS. The V1 loft tests still pass (a straight loft's exact volume is its prism; a curved one is within 1e-3 of its corrected end areas; the 6% grade one within 1e-6); `test_the_innermost_course_is_one_body_across_the_crown` still finds 0.4 x 24 x 100 x sqrt(1.0001) on its tangent; the V1 pin's course volumes move by under 0.125%, its earthwork, mass haul and GlobalIds not at all.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add bimforge/author/corridor/loft.py bimforge/author/families/road_corridor.py bimforge/author/tests/test_corridor_loft.py bimforge/author/tests/test_road_corridor.py
+git commit -F - <<'EOF'
+road corridor: a course declares its exact volume; the mesh is held to it (P.6 V1.1)
+
+Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01XRnqNpEZgPBXc8juu3tEFR
+EOF
+```
+
+---
+
+### Task 11: Dictionary classes, `BIMForge_Dimensions` and Formulas on the corridor's elements
 
 **Files:**
 - Modify: `bimforge/author/dictionary/bimforge-families.bsdd.json`
@@ -2706,7 +3052,7 @@ EOF
 - Modify: `bimforge/author/families/road_corridor.py`
 - Test: `bimforge/author/tests/test_road_corridor.py`, `bimforge/author/tests/test_corridor_earthwork.py`, `bimforge/author/tests/test_dictionary.py`
 
-`Qto_CourseBaseQuantities` has no `NetVolume` (its volumes are `Volume` and `GrossVolume`), so the course's volume Formula goes on `Volume`, the quantity V1 writes.
+`Qto_CourseBaseQuantities` has no `NetVolume` (its volumes are `Volume` and `GrossVolume`), so the course's volume Formula goes on `Volume`, the quantity V1 writes, now the exact volume (Task 10). A course's dimensions are `Thickness`, `Width` (or `StartWidth` and `EndWidth` where its combined width changes along the band), `Offset` and `PathLength` (its centroid's, `loft.pappus`), and its stations; its `Volume` Formula is `PathLength * Width * Thickness`, or `PathLength * (StartWidth + EndWidth) / 2 * Thickness`, each written only where it holds within `FORMULA_TOLERANCE`.
 
 - [ ] **Step 1: Write the failing tests.** Append to `bimforge/author/tests/test_corridor_earthwork.py`:
 
@@ -2817,7 +3163,18 @@ def test_the_left_rail_s_dimensions_and_length(steep_x3):
     assert q["Length"] == pytest.approx(275.0 * US_FT)
 
 
-def test_every_formula_holds_and_level_tangent_courses_are_boxes(steep_x3):
+def _course_volume(course):
+    (vol,) = [q for r in course.IsDefinedBy
+              if r.RelatingPropertyDefinition.is_a("IfcElementQuantity")
+              and r.RelatingPropertyDefinition.Name == "Qto_CourseBaseQuantities"
+              for q in r.RelatingPropertyDefinition.Quantities if q.Name == "Volume"]
+    return vol
+
+
+def test_every_formula_holds_and_every_steep_course_is_its_path_box(steep_x3):
+    import ifcopenshell.util.element as E
+
+    from bimforge.author import family_dictionary as fd
     from bimforge.author.gate import _ifc_formula_check
     f, out = steep_x3
     assert _ifc_formula_check(None, str(out / "rc.ifc")) == []
@@ -2826,28 +3183,69 @@ def test_every_formula_holds_and_level_tangent_courses_are_boxes(steep_x3):
     for qset in ("Qto_CourseBaseQuantities", "Qto_EarthworksCutBaseQuantities",
                  "Qto_EarthworksFillBaseQuantities", "Qto_RailingBaseQuantities"):
         assert (qset, "Length", "EndStation - StartStation") in found
-    # on a level tangent of constant width every course is its box: the
-    # lane 24 ft x 0.4 ft x 100 ft = 960 cf to the mesh's 1e-12
     for course in f.by_type("IfcCourse"):
-        (vol,) = [q for r in course.IsDefinedBy
-                  if r.RelatingPropertyDefinition.is_a("IfcElementQuantity")
-                  and r.RelatingPropertyDefinition.Name == "Qto_CourseBaseQuantities"
-                  for q in r.RelatingPropertyDefinition.Quantities if q.Name == "Volume"]
-        assert vol.Formula == "Length * Width * Thickness", course.Name
+        assert _course_volume(course).Formula == "PathLength * Width * Thickness", \
+            course.Name
+    # the lane, centroid (0, -0.32), on the level tangent: its path is the
+    # band's 100 ft
+    lane = next(c for c in f.by_type("IfcCourse")
+                if c.Name == "HMA lane STA 10+00.00 to 11+00.00")
+    d = E.get_pset(lane, fd.DIMENSIONS)
+    assert d["PathLength"] == pytest.approx(100.0 * US_FT, rel=1e-12)
+    assert d["Offset"] == pytest.approx(0.0, abs=1e-9)
 
 
-def test_a_course_on_a_curve_or_a_grade_gets_no_volume_formula(model):
+def test_courses_on_a_curve_and_a_grade_are_their_path_boxes(x3):
+    import ifcopenshell.util.element as E
+
+    from bimforge.author import family_dictionary as fd
+    f, _out = x3
+    # PARAMS curves at 500 ft and climbs 1% through two superelevation runs,
+    # every course at a constant width. On the constant grade gamma' = 0, so
+    # the volume is A times the integral of sqrt(1 + g^2) - kappa cos(gamma)
+    # u, the centroid's speed along the 3D tangent; the centroid line's own
+    # length adds (kappa g r)^2 / 2, at most (0.002 x 0.01 x 17)^2 / 2 =
+    # 6e-8: every course carries the formula, shoulders on the curve too
+    courses_ = f.by_type("IfcCourse")
+    assert courses_
+    for course in courses_:
+        assert _course_volume(course).Formula == "PathLength * Width * Thickness", \
+            course.Name
+        assert {"Offset", "PathLength", "Width"} <= set(E.get_pset(course, fd.DIMENSIONS))
+
+
+def test_a_widening_shoulder_takes_the_trapezoid():
     from bimforge.author.corridor import dimensions as dims
-    # PARAMS climbs 1% and curves at 500 ft radius: the mesh volume runs
-    # sqrt(1 + 0.01^2) = 1.00005 past the box on the tangents, and the
-    # chorded curve is short of it: both past the gate's 1e-6
-    for el in courses(model):
-        qset = el.standard_qto["Qto_CourseBaseQuantities"]
-        assert len(qset["Volume"]) == 2, el.name
-        assert qset["Length"][2] == dims.LENGTH
-    # the box at 1% grade: 960 x 1.00005 = 960.048 cf misses by 5e-5
-    assert dims.course_volume(960.0, 100.0, 24.0, 0.4) == ("volume", 960.0, dims.VOLUME)
-    assert dims.course_volume(960.048, 100.0, 24.0, 0.4) == ("volume", 960.048)
+    from bimforge.author.families.road_corridor import build
+    from bimforge.author.gate import FORMULA_TOLERANCE, formula_value
+    p = copy.deepcopy(PARAMS)
+    p["widths"] = [{"component": "shoulder", "side": "R", "at": [[1000, 5.0], [1100, 10.0]]}]
+    el = build(p, CTX).element("HMA shoulder STA 10+00.00 to 11+00.00")
+    # both shoulders together: 5 + 5 = 10 ft at 10+00, 5 + 10 = 15 ft at 11+00
+    assert (el.dimensions["StartWidth"], el.dimensions["EndWidth"]) == pytest.approx((10.0, 15.0))
+    assert "Width" not in el.dimensions
+    # on the tangent at 1%: PathLength = 100 x sqrt(1.0001) = 100.005 ft;
+    # Volume = 0.4 x 100.005 x (10 + 15) / 2 = 500.025 cf, the trapezoid exactly
+    assert el.dimensions["PathLength"] == pytest.approx(100.0 * 1.0001 ** 0.5, rel=1e-9)
+    vol = el.standard_qto["Qto_CourseBaseQuantities"]["Volume"]
+    assert vol[1] == pytest.approx(500.025, rel=1e-6)
+    assert vol[2] == dims.TRAPEZOID
+    assert formula_value(dims.TRAPEZOID, {**el.dimensions, "Thickness": 0.4}) == \
+        pytest.approx(vol[1], rel=FORMULA_TOLERANCE)
+
+
+def test_the_course_volume_entry():
+    from bimforge.author.corridor import dimensions as dims
+    # Task 10's shoulder on the curve: 89.8141498 x 5 x 0.4 is 1.6e-7 over
+    # its 179.6282711 cf: the box holds
+    assert dims.course_volume(179.6282711, 89.8141498, [5.0, 5.0, 5.0], 0.4) == (
+        {"Width": 5.0}, ("volume", 179.6282711, dims.VOLUME))
+    # a volume the box misses gets none
+    assert dims.course_volume(180.0, 89.8141498, [5.0, 5.0, 5.0], 0.4) == (
+        {"Width": 5.0}, ("volume", 180.0))
+    # 100 x (10 + 15) / 2 x 0.4 = 500
+    assert dims.course_volume(500.0, 100.0, [10.0, 12.5, 15.0], 0.4) == (
+        {"StartWidth": 10.0, "EndWidth": 15.0}, ("volume", 500.0, dims.TRAPEZOID))
 
 
 def test_bidsheet_reads_the_dimensions_and_not_the_station_texts(steep_x3):
@@ -2891,7 +3289,7 @@ and in `test_every_class_dimension_is_written` replace the last assertion with:
 
 - [ ] **Step 2: Run them to make sure they fail**
 
-Run: `python -m pytest bimforge/author/tests/test_road_corridor.py bimforge/author/tests/test_corridor_earthwork.py -q -k "classed or rail_s or formula or bidsheet or plan_area"`
+Run: `python -m pytest bimforge/author/tests/test_road_corridor.py bimforge/author/tests/test_corridor_earthwork.py -q -k "classed or rail_s or formula or path_box or trapezoid or volume_entry or bidsheet or plan_area"`
 Expected: FAIL. `earthwork.plan_area_sf` and `bimforge.author.corridor.dimensions` do not exist, and the corridor's elements carry no class (`family_class_of` is None).
 
 - [ ] **Step 3: Add the classes and properties** to the dictionary (run once from the worktree root; it keeps the file's two-space JSON):
@@ -2927,7 +3325,10 @@ d["Classes"] += [
                    "typed by the course's own IfcCourseType (HMA, AB, ...).",
      "RelatedIfcEntityNamesList": ["IfcCourse"] + [f"IfcCourse{t}" for t in COURSE_TYPES],
      "CountryOfOrigin": "US",
-     "ClassProperties": [dim("Thickness"), dim("Width")] + STATIONS},
+     "ClassProperties": [dim("Thickness"), dim("Width", required=False),
+                         dim("StartWidth", required=False),
+                         dim("EndWidth", required=False), dim("Offset"),
+                         dim("PathLength")] + STATIONS},
     {"Code": "road-corridor-cut", "Name": "Corridor cut", "ClassType": "Class",
      "Definition": "The cut of a road corridor over one station band, both sides: "
                    "ground removed down to the subgrade and its side slopes.",
@@ -2964,6 +3365,17 @@ d["Properties"] += [
                         "vertical axis, parallel to finished grade."),
     length("Width", "The element's width across the road: a course's bodies' "
                     "mean width over its station band, both sides together."),
+    length("StartWidth", "A course's combined width at its start station, "
+                         "through a width transition."),
+    length("EndWidth", "A course's combined width at its end station, through a "
+                       "width transition."),
+    length("Offset", "The section centroid's offset from the alignment, left "
+                     "(LT) positive, right (RT) negative: the band's area-weighted "
+                     "mean, of all the element's bodies together."),
+    length("PathLength", "The 3D length of the line the section's centroid "
+                         "travels between the element's stations, held at its "
+                         "Offset and height, following the alignment's curves "
+                         "and the profile's grades."),
     length("StartStation", "Station where the element starts: a length along "
                            "the alignment."),
     length("EndStation", "Station where the element ends: a length along the "
@@ -3002,13 +3414,14 @@ Formulas (V1.1; roadmap M.1, M.2, M.3).
 Each course, cut, fill and guardrail element is a family-dictionary class
 whose Codes are its BIMForge_Dimensions names. A station is a length along
 the alignment, so an element's Length is `EndStation - StartStation`, on
-curves as on tangents. A course's volume is `Length * Width * Thickness`
-only where the element's mesh volume is that box within the gate's formula
-tolerance, which is a course of constant width on a level tangent: on a
-grade the sections stand square to the 3D tangent, so the volume runs
-sqrt(1 + g^2) past the box (5e-5 at 1%), and on a curve the mesh is chorded
-between stations (up to 0.125%), both far past the gate's 1e-6. There no
-volume Formula is written.
+curves as on tangents. A course declares its exact volume (loft.pappus):
+its section area times the path its centroid travels, so `PathLength *
+Width * Thickness` is that volume for a course of constant width, on
+tangents, grades and curves, to (kappa g r)^2 / 2 (r the centroid's
+distance from the alignment): under the gate's 1e-6 while kappa g r stays
+under about 1.4e-3. Through a width transition the trapezoid is exact on a
+tangent; on a curve the centroid drifts as the width changes. Each is
+written only where the family has checked it.
 """
 from __future__ import annotations
 
@@ -3019,7 +3432,8 @@ CUT = "road-corridor-cut"
 FILL = "road-corridor-fill"
 GUARDRAIL = "road-corridor-guardrail"
 LENGTH = "EndStation - StartStation"
-VOLUME = "Length * Width * Thickness"
+VOLUME = "PathLength * Width * Thickness"
+TRAPEZOID = "PathLength * (StartWidth + EndWidth) / 2 * Thickness"
 
 
 def stations(s0: float, s1: float) -> dict:
@@ -3028,14 +3442,23 @@ def stations(s0: float, s1: float) -> dict:
             "StartStationText": sta(s0), "EndStationText": sta(s1)}
 
 
-def course_volume(volume_cf: float, length: float, width: float,
+def course_volume(volume_cf: float, path_ft: float, widths: list,
                   thickness: float) -> tuple:
-    """A course's Volume entry for Element.standard_qto: with the box
-    Formula where the box is the volume within the gate's tolerance."""
+    """(width dimensions, Volume entry for Element.standard_qto) of a course
+    whose combined width is `widths` at its stations: `Width` with
+    VOLUME where it is constant, `StartWidth` and `EndWidth` with TRAPEZOID
+    where it is not; the Formula only where it is the declared volume within
+    the gate's formula tolerance."""
     from bimforge.author.gate import FORMULA_TOLERANCE
-    if abs(length * width * thickness - volume_cf) <= FORMULA_TOLERANCE * abs(volume_cf):
-        return ("volume", volume_cf, VOLUME)
-    return ("volume", volume_cf)
+    w0, w1 = widths[0], widths[-1]
+    if max(widths) - min(widths) <= 1e-9 * max(1.0, max(widths)):
+        shape, formula, box = {"Width": w0}, VOLUME, path_ft * w0 * thickness
+    else:
+        shape, formula = {"StartWidth": w0, "EndWidth": w1}, TRAPEZOID
+        box = path_ft * (w0 + w1) / 2.0 * thickness
+    if abs(box - volume_cf) <= FORMULA_TOLERANCE * abs(volume_cf):
+        return shape, ("volume", volume_cf, formula)
+    return shape, ("volume", volume_cf)
 ```
 
 - [ ] **Step 5: The plan area.** In `bimforge/author/corridor/earthwork.py`, after `strip`, add:
@@ -3052,6 +3475,12 @@ Add to the imports at the top of `build`:
 
 ```python
     from bimforge.author.corridor import dimensions as dims
+```
+
+and change its loft import to:
+
+```python
+    from bimforge.author.corridor.loft import StationLoft, pappus
 ```
 
 Replace the course block:
@@ -3078,20 +3507,26 @@ with:
                     vol = sum(lf.volume_cf for lf in lofts)
                     aea = sum(lf.average_end_area_cf for lf in lofts)
                     wide = sum(lf.mean_width_ft for lf in lofts)
+                    centroid = pappus(lofts)
+                    shape, volume = dims.course_volume(
+                        vol, centroid.path_ft,
+                        [sum(ws) for ws in zip(*(lf.widths_ft for lf in lofts))],
+                        course.thickness)
                     model.add(Element(
                         name, ifc_class="IfcCourse", geometry=lofts,
                         predefined_type=course.type, type_name=course.name,
                         material=course.name, layer=LAYER, body="solids",
                         spatial_part=parts[comp.kind], family_class=dims.COURSE,
-                        dimensions={"Thickness": course.thickness, "Width": wide,
+                        dimensions={"Thickness": course.thickness, **shape,
+                                    "Offset": centroid.offset_ft,
+                                    "PathLength": centroid.path_ft,
                                     **dims.stations(b0, b1)},
                         quantities={"length_ft": b1 - b0, "volume_cf": vol},
                         standard_qto={"Qto_CourseBaseQuantities": {
                             "Length": ("length", b1 - b0, dims.LENGTH),
                             "Width": ("length", wide),
                             "Thickness": ("length", course.thickness),
-                            "Volume": dims.course_volume(vol, b1 - b0, wide,
-                                                         course.thickness)}}))
+                            "Volume": volume}}))
 ```
 
 Replace the earthwork block from `            els = []` down to (and including) the fill element's `"LooseVolume": ("volume", bank * (1.0 + c.swell))}})))` with:
@@ -3161,7 +3596,8 @@ and replace its `return Element.from_geometry(...)` with:
                     "PostSpacing": guardrail.POST_SPACING_FT,
                     **dims.stations(rail.start, rail.end)},
         psets={"BIMForge_Guardrail": {
-            "PostCount": rail.posts, "StartTreatment": rail.start_end,
+            "PostCount": rail.posts, "Posts6ft": rail.posts_6ft,
+            "Posts8ft": rail.posts_8ft, "StartTreatment": rail.start_end,
             "EndTreatment": rail.end_end, "Terminals": rail.terminals,
             "AGTTransitions": rail.agts}},
         standard_qto={"Qto_RailingBaseQuantities": {
@@ -3189,7 +3625,7 @@ EOF
 
 ---
 
-### Task 11: The registry writes the tables, and refuses one no family makes
+### Task 12: The registry writes the tables, and refuses one no family makes
 
 **Files:**
 - Modify: `bimforge/author/families/registry.py`
@@ -3292,7 +3728,7 @@ EOF
 
 ---
 
-### Task 12: The shipped example: guarded fill, a rock cut, an automatic wall
+### Task 13: The shipped example: guarded fill, a rock cut, an automatic wall
 
 **Files:**
 - Modify: `bimforge/author/examples/road-corridor.spec.yaml`, `bimforge/author/examples/road-corridor.paycodes.yaml`
@@ -3506,7 +3942,7 @@ EOF
 
 ---
 
-### Task 13: Changelog
+### Task 14: Changelog
 
 **Files:**
 - Modify: `CHANGELOG.md` (Unreleased > Added)
@@ -3534,14 +3970,31 @@ EOF
 - **For ProjectCommand and BidSheet.ai:** every corridor course, cut, fill
   and guardrail now references its family-dictionary class
   (`road-corridor-course`, `-cut`, `-fill`, `-guardrail`) and carries
-  `BIMForge_Dimensions` (stations as lengths with text twins, thickness,
-  width, depths, slope ratio, rock depth, rail height, post spacing). Every
-  `Length` in its standard quantity set has `Formula = "EndStation -
-  StartStation"`, over the element's dimensions; a course on a level
-  tangent of constant width also has `Volume` = `Length * Width *
-  Thickness`. The gate's formula check reads a difference and the element's
-  dimensions. The shipped example's GlobalIds are re-recorded (V1.1 changes
-  its elements); a V1 spec's GlobalIds do not move.
+  `BIMForge_Dimensions`: stations as lengths with text twins; a course's
+  thickness, width (or start and end widths through a transition),
+  centroid `Offset` (LT positive) and `PathLength` (the 3D length of its
+  centroid's line); earthwork's depths, slope ratio and rock depth; the
+  rail's height and post spacing. Every `Length` in a standard quantity set
+  has `Formula = "EndStation - StartStation"`, and a course's `Volume` has
+  `PathLength * Width * Thickness` (or the trapezoid through a transition)
+  wherever it holds to 1e-6, shoulders on curves included.
+- **For ProjectCommand and BidSheet.ai:** a course's declared volume
+  (`Qto_BaseQuantities.GrossVolume` and `Qto_CourseBaseQuantities.Volume`,
+  the same figure) is now the exact volume of its IFC4X3 solid, integrated
+  along the course, not its faceted mesh: on curves and vertical curves the
+  pavement quantities rise by up to 0.125%. Earthwork volumes and the mass
+  haul do not change.
+- **For ProjectCommand and BidSheet.ai:** a quantity's `Formula` may now
+  name the element's `BIMForge_Dimensions` properties as well as its own
+  set's quantities, and use `+ - * /`, numbers and parentheses (a
+  difference of stations, a trapezoid's mean width), not only a product.
+  The gate recomputes it that way; a reader that recomputes needs the same
+  rule.
+- The guardrail table and `BIMForge_Guardrail` count 6 ft posts (behind
+  the widening, A77N3 Detail A) and 8 ft W6 posts (the length of need
+  beyond it, Detail B) apart. The shipped example's GlobalIds are
+  re-recorded (V1.1 changes its elements); a V1 spec's GlobalIds do not
+  move.
 ```
 
 - [ ] **Step 2: Commit**
@@ -3558,25 +4011,42 @@ EOF
 
 ---
 
+## Errors V1.1 adds
+
+Each names the field and, where there is one, the station and side:
+
+- `steep.above_height_ft`, `rock.depth_ft`, `rock.bench_ft`, `footprint_ft.L`/`.R`, `max_wall_height_ft`, `guardrail.rail_depth_ft` non-positive or not finite (Task 2);
+- `steep.ratio` not steeper than `fill.ratio`; `rock.ratio` not steeper than `cut.ratio`; rock depth rows off the alignment or not ascending; `footprint_ft` not a mapping of L and R (Task 2);
+- `walls:` anything but `auto` (Task 2);
+- `guardrail.design_speed_mph` outside the runout table, 45 and 50 (Task 2);
+- an automatic wall touching a listed wall gap on its side, lead-ins included; a cut wall with no shoulder component to widen (Task 2);
+- a slope daylighting past `footprint_ft` without `walls: auto` (Task 3);
+- a rock face that finds no rock surface within the daylight limit (Task 4);
+- a guardrail run over a shoulder edge that moves more than 0.01 ft sideways, a width transition under the rail (Task 8);
+- `outputs.walls`, `outputs.structures` or `outputs.guardrail` on a build that makes no such table (Task 12).
+
+V1's errors stand, except that "no daylight within the limit" is a wall under `walls: auto`.
+
 ## Decisions the plan makes
 
-Each of these is where the code makes a spec point impossible or leaves it open. The controller should confirm them with the user before Task 9 at the latest.
+Where the code makes a spec point impossible, or leaves it open, the plan chooses as follows. Items marked (accepted) were confirmed by the controller; the rest are for the spec.
 
-1. **The course volume Formula holds only on a level tangent.** The spec says `Length * Width * Thickness` holds "on tangents and curves alike" for the course across the crown. It does for the exact IFC4X3 solid (Pappus), but the quantity written is the mesh volume (V1: "Volume comes from the mesh faces"): on a grade the sections stand square to the 3D tangent, so the volume is `sqrt(1 + g^2)` past the box (5e-5 at 1%), and on a curve the mesh is chorded (up to 1.25e-3). Both are far past `FORMULA_TOLERANCE` (1e-6). The plan keeps the spec's own rule (write it only where the family's check passes), so in practice only level tangents of constant width get it, and the shipped example (a sag curve throughout) gets none. The alternative, writing the exact solid's volume as the course's Volume, would change V1's quantities.
-2. **`NetVolume` is `Volume`.** `Qto_CourseBaseQuantities` has no `NetVolume`; the Formula goes on its `Volume`, the quantity V1 writes.
-3. **`Length = EndStation - StartStation` needs a wider formula grammar.** M.3 says a Formula is "over names in the same quantity set", and the gate reads only products. The plan lets a Formula take one difference and read the element's `BIMForge_Dimensions` numbers after the set's own quantities (Task 9). ProjectCommand and BidSheet.ai readers that recompute Formulas need the same rule.
-4. **Station texts in `BIMForge_Dimensions`.** The twins are `IfcLabel` properties of the set (dictionary `DataType: String`); `model_elements` skips them instead of warning that they are not lengths.
-5. **`RockDepth` is optional.** A dictionary class property may now be `IsRequired: false`; the cut class declares `RockDepth` optional, written only when the spec has rock (its band mean). An element must carry every required dimension and none undeclared.
-6. **The bench collapses onto the toe, not the daylight.** The spec says onto "its daylight point". Collapsing onto the toe (the ditch's outer edge) keeps the same vertex count and keeps the padded segment on the soil slope at every station; onto daylight would leave a zero-length last segment for `_samples` to divide.
-7. **The guarded widening starts 0.01 ft out (`GUARD_STEP_FT`).** A vertical step up the courses' outer edge, from the hinge to the shoulder edge, made the merged fill two bodies touching along an edge (checked in a scratch run against `earthwork.merge`); a 0.01 ft step makes one closed body.
-8. **The fill height is read at the subgrade hinge** (the resolver's hinge, the bottom outer corner of the courses), not at the widening's TSSM hinge.
-9. **The widening is built only at guarded stations.** The rail's length-of-need extension runs over 4:1 fill or cut at the shoulder edge with no widening behind it.
-10. **Guardrail layout details.** Each direction's X is rounded up to 12.5 ft, then the run is made whole elements and 150 ft at least, the extra split between its terminal ends (all to the one terminal when the other end is an AGT or a wall). Runs join when under 50 ft (an in-line terminal) apart, never across a wall. A run reaching the alignment's end stops there with its terminal, and may fall short of its length of need (no error). A run ends `WALL` at any wall gap on its side, listed or automatic, cut or fill (the spec names automatic walls).
-11. **The rail body** is a kernel `SweptSection` in the plumb frame with `camber` = the shoulder edge's height off the profile grade line, the section constant at the edge's offset. A run under which the shoulder edge moves more than 0.01 ft sideways (a width transition) is refused with an error naming the run, a new error the spec does not list. On a grade the plumb sweep is written as its mesh (the exact form leans past 2 mm), as other plumb sweeps are.
-12. **`walls:` takes only `auto`.** The spec's "or a list of wall gaps, as V1": listed walls stay in `gaps:` as in V1; a list under `walls:` is an error pointing there. `side_slopes` stays under `section` (V1); `walls`, `max_wall_height_ft` and `guardrail` are top-level params.
-13. **A footprint without `walls: auto` is an error** naming the station, side and offset, as "no daylight" is.
-14. **Wall details.** A wall run is cut where the 1 ft probe beyond its end first fits (so the lead-in is a slope). The wall's `offset` in `outputs.walls` is the largest hinge offset over its stations; its height is the shoulder edge's above the ground (fill) or the ground's above the edge (cut). A cut wall needs a shoulder component to widen (an error otherwise); the outermost shoulder widens. Only fill walls become structure candidates. An automatic wall touching a listed one (lead-ins included) is the spec's "same side and stations" error.
-15. **`SlopeRatio`** on a fill band is the steepest fill ratio its sections take (2.0 where any is guarded); on a cut band, the soil ratio.
-16. **Tables exist only when configured.** `walls` and `structures` with `walls: auto`; `guardrail` with a steep rule or a `guardrail:` block (a steep rule brings the 45 mph, 1.44 ft defaults). Requesting one otherwise is the spec's "output on a family that makes none" error, also for a road corridor not so configured.
-17. **"V1 unchanged" means V1's geometry, quantities, mass haul and GlobalIds.** Every corridor element (V1 specs included) gains a class reference, `BIMForge_Dimensions` and `Length` Formulas; these are written after the GlobalId sweep, so no V1 root moves (Task 1's fixture proves it).
-18. **The example's ground** is changed (`slope_n` 0.03 to 0.02) to make a fill over 10 ft; its guardrail pay code has no item number (the owner's call, P.7).
+1. **A course declares its exact volume** (Task 10): the volume of the IFC4X3 solid (rings square to the 3D tangent, blended linearly between stations), integrated as ∫ [A sqrt(1 + g²) - κ cos γ Qu - γ' Qv] ds by 5-point Gauss-Legendre per bay (`loft.pappus`). The same figure is `Qto_BaseQuantities.GrossVolume` and `Qto_CourseBaseQuantities.Volume`. The mesh is held to it by the pre gate's arc-faceting check (0.5%, the corridor's AEA_TOL); the stated quantity now holds the exact volume to the average end areas (0.5%); the exact-sweep gate leg sums the lofts' `volume_cf`, now exact. V1 specs' course volumes change by the chord error (at most 0.125%); earthwork keeps its prismatoid volumes, so cut, fill and the mass haul are unchanged; no root is added, so no GlobalId moves. Task 1's pin holds course volumes to 0.5% and everything else exactly.
+2. **`PathLength` and `Offset`.** The centroid is the element's combined section's, all its bodies together, area-weighted over the band; `Offset` is its u (left positive, as `BIMForge_LinearReference` writes offsets), so a two-sided shoulder element's is about 0. `PathLength` is the 3D length of the line held at that offset and the centroid's height, parallel to the profile grade line, following plan curvature and grade. For a constant section the volume is A ∫ (P' · T3) ds and the length ∫ |P'| ds, which differ by (κ g r)² / 2: 1.6e-7 for Task 10's shoulder, under 1e-6 while κ g r < 1.4e-3 (r = 17 ft on a 500 ft curve up to about 4% grade). Where superelevation changes on a vertical curve, or the curve is sharper and steeper, the Formula may miss and the family's check leaves it out.
+3. **The formula grammar is arithmetic** (names, numbers, `+ - * /`, parentheses, via `ast`), over the set's quantities and then the element's `BIMForge_Dimensions` numbers: the trapezoid needs a sum and a division, more than one difference. The CHANGELOG tells ProjectCommand and BidSheet.ai.
+4. **`NetVolume` is `Volume`** (accepted): `Qto_CourseBaseQuantities` has no `NetVolume`.
+5. **Station texts in `BIMForge_Dimensions`** are `IfcLabel` (dictionary `DataType: String`); `model_elements` skips them rather than warning.
+6. **Optional dimensions**: a class property may be `IsRequired: false`. The cut's `RockDepth` (written with rock, its band mean) and the course's `Width`, `StartWidth`, `EndWidth` (one form or the other) are optional.
+7. **The rock bench collapses onto the cut's toe** (accepted), the ditch's outer edge, not the daylight point: same vertex count, and the padded segment stays the soil slope.
+8. **The guarded widening starts 0.01 ft out** (`GUARD_STEP_FT`): a vertical step up the courses' edge made the merged fill two bodies touching along an edge (checked against `earthwork.merge`); the step makes one closed body.
+9. **The steep rule reads the fill height at the subgrade hinge** (the courses' bottom outer corner), not at the widening's hinge.
+10. **Length of need beyond the guarded fill** (accepted): no widening there; the posts are 8 ft W6 posts (A77N3 Detail B: hinge 0 to under 30 in behind the post, the slope behind no steeper than 2:1, which 4:1 fill meets). Posts stand every 6'-3" from the run's start; those within a guarded span are 6 ft, the rest 8 ft, counted apart in `BIMForge_Guardrail` (`Posts6ft`, `Posts8ft`) and the CSV (`posts_6ft`, `posts_8ft`).
+11. **Guardrail layout** (accepted in part). Each direction's X is rounded up to whole 12.5 ft elements; the run is then made whole elements and 150 ft at least, the extra split evenly between its two ends. An end fixed by an AGT, a wall, or the alignment's end takes none: the extra goes all to the other end, and a run reaching the alignment's end stops there with its terminal, even short of its length of need (no error). Runs join when under 50 ft (an in-line terminal) apart, never across a wall. A run ends `WALL` at any wall gap on its side, listed or automatic, cut or fill.
+12. **The rail body** is a kernel `SweptSection`, plumb, with `camber` the shoulder edge's height off the profile grade line, at a constant offset; a run over a moving shoulder edge is refused (accepted; listed under Errors). On a grade a plumb sweep is written as its mesh (its exact form leans past 2 mm), as other plumb sweeps are.
+13. **Where the keys sit** (accepted for `side_slopes`): `side_slopes`, with `fill.steep`, `cut.rock` and `footprint_ft`, stays under `section` as in V1; `walls`, `max_wall_height_ft` and `guardrail` are top-level params. `walls:` takes only `auto`; a listed wall stays a `gaps:` entry, and a list under `walls:` is an error pointing there.
+14. **A footprint exceeded without `walls: auto` is an error** (accepted).
+15. **Automatic walls**: a wall runs over consecutive failing stations of one kind on a side, extended a foot at a time while the section a foot beyond still fails, so each 1 ft lead-in is a slope that fits; a wall at a run's end starts or ends there. Fill walls stand at the hinge with a barrier and no slope; cut walls at the edge of the outermost shoulder, widened to 10 ft over the lead-ins (a cut wall with no shoulder is an error). An automatic wall touching a listed one, lead-ins included, is the spec's "same side and stations" error. In `outputs.walls` the offset is the largest hinge offset over the wall's stations; the height is the shoulder edge's above the ground (fill) or the ground's above the edge (cut). Only fill walls become structure candidates; overlapping candidates on both sides merge as "both", the low point being the station of lowest ground on the centreline.
+16. **`SlopeRatio`**: on a fill band the steepest fill ratio its sections take (2.0 where any is guarded); on a cut band the soil ratio.
+17. **Tables exist only when configured**: `walls` and `structures` with `walls: auto`, `guardrail` with a steep rule or a `guardrail:` block (a steep rule brings the 45 mph, 1.44 ft defaults). Asking for one otherwise is the spec's "output on a family that makes none" error, also for a road corridor not so configured.
+18. **"V1 unchanged"** means V1's geometry, earthwork quantities, mass haul and GlobalIds; every corridor element, V1 specs included, gains a class reference, `BIMForge_Dimensions` and Formulas, and its course volumes become exact (decision 1).
+19. **The example's ground** changes (`slope_n` 0.03 to 0.02) so the fill passes 10 ft; its expected wall and guardrail stations are hand estimates, with fallbacks in Task 13. Its guardrail pay code has no item number (the owner's call, P.7).
