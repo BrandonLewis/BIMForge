@@ -15,6 +15,7 @@ the same PR that finishes or adds an item.
 | 2026-11-15 | **Agency content lives in a pack: a subpackage of the wheel, `bimforge.caltrans` first.** The core keeps the kernel and the families no agency owns. A pack holds an agency's standard-plan tables, its families and its part of the dictionary, and nothing the core needs to build without it, so it can become a distribution of its own later (an extra cannot carry code or data). Only what public plans, standard plans and specifications state goes in: no prices, no bid data, no job identifiers. |
 | 2026-11-17 | **The model is the estimate's record, and a quantity says how it was derived.** Takeoffs are made from the model and checked against the plan sheets, so the IFC carries, for the estimating system to keep: what each element is (its dictionary class), the dimensions that size it, each quantity's formula over those dimensions where the shape has one, where it sits, and the record of its check. All of it in standard IFC places (classification reference, quantity sets, `Formula` on the quantity, IfcApproval), so any reader gets it. BidSheet.ai's side is D8 and rows 5.16 to 5.22 of its roadmap. |
 | 2026-11-20 | **Next after M.3: the road corridor family (P.6), then a command that runs the terrain (G.9), then a girder bridge family (P.5).** The girder family starts from the bespoke bridge models in the private Work repository: pick out the bridge types they build and make each one IFC4.3 compliant (typed, classified, under an IfcBridge, passing C.7, C.8 and C.12) as it moves into a family. This is ahead of P.4, which P.5 and P.6 were listed after. |
+| 2026-11-22 | **A whole job is the unit, and its families come from one already built.** The corpus (M.12) models entire jobs, every bid item, from the plans and the supplemental documents; the agency's quantity sheets and bid quantities are what a model is checked against, never what it is built from, so a disagreement is a finding. The first whole-job reference is a Caltrans sound wall job modelled by hand in the private Work repository: one validated IFC4X3 site model of 1,269 elements, built by 18 job scripts. Sorting those scripts gives the family list (W rows). An agent's output is a job's parameter files, each value citing its sheet; code is a family's, not a job's. |
 | 2026-11-18 | **The spec stays the source of a model; an edit made anywhere is a spec change. Not ruled: the owner's leaning, to keep in mind.** A model is a reproducible, verifiable build from a spec, and that is worth keeping when models come to be created and edited in ProjectCommand, which is expected. So a model is never hand-edited and edits do not pile up in the file: a tool that changes a model exports a spec, and the model is rebuilt from it (M.16). Project records (progress, approvals, checks, actual cost) are not design and stay additions carried through a rebuild. The rule about not changing a producer's entities is, since we are the producer, a rule about issued states: nothing issued is changed silently. |
 
 ## Model exchange: contract and dictionary
@@ -84,6 +85,9 @@ after a small version shows the search finds useful neighbours.
 
 The agency surveys (P.10, P.11) run in parallel and block none of this.
 
+The families a whole job needs beyond these stages are the W rows ("Whole-job
+families"), in the order given there.
+
 ## The model as the estimate's record
 
 Goal: an element modelled for one bid arrives in the estimating system as a
@@ -138,6 +142,43 @@ is the brief for building one.
 | P.10 | Caltrans survey: inventory every 2025 Standard Plan and Standard Specification section, then a dictionary class for every type, series by series, and a pay item dictionary from the standard item codes. Today the manifest covers the B series and D80 to D91 (91 sheets), five tables are transcribed and eleven classes exist. | Next: needs someone assigned |
 | P.11 | City of Sacramento pack: the same survey over the city's standard drawings and standard specifications. Starts from the inventory; the S-280 and S-290 pipe inlet and outlet structure tables already exist in a private family and move in with it. | Next: needs someone assigned |
 | P.12 | Pack mechanics for more than one agency: a conformance test every pack passes (declared tables ship, table names are class codes, manifest present), and `est-bim` listing the packs and their tables. | With P.11 |
+
+## Whole-job families
+
+Goal: a whole public job, every bid item, is built from parameter files with no
+job-specific code. From a sort on 2026-11-22 of the 18 scripts (about 4,650
+lines) that built the first whole-job reference model (see Decisions): about
+half the code becomes families, a fifth is already here or belongs in the
+kernel, and the rest is particular to that job. A second from-scratch design
+is expected to add to this list.
+
+Families, in the order that unlocks the most bid items across the first three
+target jobs:
+
+| ID | Item | State |
+|---|---|---|
+| W.1 | Placed along an alignment. One generic family for what is a run or a count at a station and offset: barrier and railing runs, fence, temporary barrier and screens, crash cushions, drums, and removals of the same (an existing element, marked for removal). A section or a symbol, a station range or a station, a side and an offset; the IFC class and predefined type by kind of item. Where the plans do not dimension the section it is an assumption, and the element says so. | Next |
+| W.2 | Drainage run. Inlets, pipe runs by station and invert, flared end sections, rock slope protection, and removals, as IfcPipeSegment, IfcDistributionChamberElement and their ports, sized from the D-series standard plans in the pack. | Next |
+| W.3 | The road corridor (P.6) on a job that is not a road job: a narrow paved strip along a structure, trench surfacing over a pipe, removal of existing surfacing, and structure excavation and backfill to the plans' limits of payment, in layers where the specifications pay them apart. | After P.6 |
+| W.4 | Sound wall on drilled piles: piles at a spacing with skips where the plans straddle a utility, pile caps, the barrier under the wall, wall panels between expansion joints, coating by face. Needs the masonry sound wall standard plans in the pack's manifest, which leaves that series out today (P.10), and the 842SV variant in the barrier family. | After W.1 |
+| W.5 | A drilled-pile part, for any family with piles: the cage (bars and spiral by pitch zone) and inspection pipes. Weight is bar length times weight per foot, never solid volume times density, so faceting cannot move a pay quantity; a spiral is a shell of the same steel volume, not a helix. | With W.4 |
+| W.6 | Sign installation: panel, posts sized and counted by the specification and the standard plan, footing, from a sign schedule. On nearly every job as construction area signs. | Later |
+| W.7 | Barrier-mounted lighting and conduit, from the electrical standard plans: electroliers, pull boxes, conduit runs with their fittings at boxes and expansion joints, joined by ports. | Later |
+| W.8 | Masonry at the unit: every block by panel and course, grout, bars and joint filler, as a detail level of W.4, for checking a masonry price. | Later |
+
+Kernel and commands, for what the job scripts did that is not a family:
+
+| ID | Item | State |
+|---|---|---|
+| W.9 | A facility tree from a spec, as a command: elements sorted into IfcFacility and IfcFacilityPart nodes by rule, with a report of what matched nothing. Today a tool in the private repository run after `federate`. With it, a lighter copy of a model for viewers (faceted solids as triangulated sets, voids as interferences), which that job also scripted. | Next |
+| W.10 | Terrain from a designer's surface: a LandXML TIN for existing ground and a corridor surface for finished grade, clipped to the work, with a check against the plans' cross sections. Beside G.9, which fetches public elevation data where the designer's is not supplied. | With G.9 |
+| W.11 | Place a plan sheet by its station labels: match each label's foot on the drawn line to the alignment, fit the transform, and refuse above a stated residual (the job that did this held 0.2 ft over the line). It is how anything is measured off a sheet in project coordinates, so it belongs with `est-bim calibrate`. | Next |
+| W.12 | The model against the agency, per pay item, as an output of the takeoff: official quantity, modelled quantity, difference and element count. The corpus stores it (conformed.ai's item coverage); a difference is reported, never tuned away. | Next |
+| W.13 | Cited parameters. A spec's parameter may carry the sheet it was read from, and an assumption its reason, and the build can be told to refuse a parameter with neither. The reference job's parameter files already do this by comment (about 860 lines, every value cited); it becomes part of the spec, and what an agent's output is checked for. Feeds the modification record (M.8) and the spec export (M.16). | Next |
+
+Not families, and where they go: existing utilities drawn for a clearance check
+are the overlap gate (G.2); traffic control layouts and staged overlays wrote
+no IFC and are issue #76.
 
 ## Geometry: checks and outputs
 
