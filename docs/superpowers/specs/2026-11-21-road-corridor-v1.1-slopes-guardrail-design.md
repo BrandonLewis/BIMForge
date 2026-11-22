@@ -33,7 +33,7 @@ Every new key is optional. A V1 spec builds exactly as before: one fill ratio, o
 ## Fill
 
 - At each station and side the resolver tries `fill.ratio` (4:1).
-- If the fill at the hinge is taller than `steep.above_height_ft`, it uses `steep.ratio` (2:1) instead, and that side is **guarded** at that station.
+- If the fill at the hinge (the subgrade hinge, so the courses' depth below the finished shoulder, which makes the trigger that much more conservative than TSSM's embankment height) is taller than `steep.above_height_ft`, it uses `steep.ratio` (2:1) instead, and that side is **guarded** at that station.
 - The 10 ft default is below TSSM's warrant for 2:1 (the Equal Severity Curve, TSSM 3.4 Figure 2, is at about 12 ft for 2:1), so every 2:1 slope is guarded and nothing rests on a chart reading. HDM Index 304.1 asks for 4:1 or flatter on new fill.
 
 ## Cut
