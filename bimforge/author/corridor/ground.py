@@ -152,10 +152,11 @@ def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
         stem = str(gp["cache"])
         grid = terrain.fetch_3dep_dem(bbox, spacing, ctx.epsg,
                                       Path(stem + "-3DEP-DEM.tif"), log=log)
-        _to_model_frame(terrain.attach_terrain(
-            model, bbox, crs_epsg=ctx.epsg, cache_stem=stem,
-            unit_scale=1.0 / ft, plan_scale=1.0 / c, spacing_m=spacing,
-            vshift_m=vshift, log=log), ctx)
+        if model is not None:
+            _to_model_frame(terrain.attach_terrain(
+                model, bbox, crs_epsg=ctx.epsg, cache_stem=stem,
+                unit_scale=1.0 / ft, plan_scale=1.0 / c, spacing_m=spacing,
+                vshift_m=vshift, log=log), ctx)
         return GridGround(grid, ft, vshift, crs_per_ft=c)
     raise ValueError(f"ground: source {gp.get('source') if gp else None!r} is "
                      f"not plane or 3dep")

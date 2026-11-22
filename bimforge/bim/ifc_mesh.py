@@ -26,7 +26,8 @@ def quiet_stdout():
 
     @contextlib.contextmanager
     def quiet():
-        sys.stdout.flush()
+        if sys.stdout is not None:          # None under pythonw / an embed
+            sys.stdout.flush()
         try:
             saved = os.dup(1)
         except OSError:                     # no real fd 1 (embedded host)

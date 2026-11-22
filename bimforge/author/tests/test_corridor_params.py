@@ -25,6 +25,7 @@ def params(**over):
 
 def test_defaults_are_a_normal_crown_and_25_ft_sections():
     c = parse(params(), 1000.0, 2000.0)
+    assert NORMAL_CROWN == -0.02
     assert c.cross_slope("L", 1500.0) == NORMAL_CROWN == c.cross_slope("R", 1500.0)
     assert (c.interval, c.band, c.shrink, c.swell) == (25.0, 100.0, 0.0, 0.0)
     assert c.depth() == pytest.approx(1.4)
