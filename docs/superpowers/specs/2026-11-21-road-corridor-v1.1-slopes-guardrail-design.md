@@ -77,13 +77,15 @@ New family-dictionary classes for a corridor course, a cut, a fill and a guardra
 
 | Element | `BIMForge_Dimensions` | `Formula` |
 |---|---|---|
-| Course | `Thickness`, `Width` (the component's mean width over the band), `StartStation`, `EndStation` | `Length`: `EndStation - StartStation`. `NetVolume`: `Length * Width * Thickness`, only where it holds within the gate's formula tolerance (see below) |
+| Course | `Thickness`, `Width` (or `StartWidth` and `EndWidth` through a transition), `Offset` (its centroid's, LT or RT), `PathLength`, `StartStation`, `EndStation` | `Length`: `EndStation - StartStation`. `Volume`: `PathLength * Width * Thickness`, or `PathLength * (StartWidth + EndWidth) / 2 * Thickness` through a transition, where it holds (see below) |
 | Cut, fill | `MaxDepth`, `MeanDepth`, `SlopeRatio`, `StartStation`, `EndStation`, and on cut `RockDepth` | `Length`: `EndStation - StartStation`. No volume formula |
 | Guardrail | `RailHeight`, `PostSpacing`, `StartStation`, `EndStation` | `Length`: `EndStation - StartStation` |
 
-`Length` is measured along the alignment by station, so `EndStation - StartStation` holds on curves as on tangents. A volume is its section area times the length of the path its centroid travels (Pappus), so `Length * Width * Thickness` holds wherever the course's centroid runs on the alignment and its width is constant: the course across the crown, on tangents and curves alike. A course off the centreline on a curve (a shoulder, about 3% off on a 500 ft radius) or through a width transition gets no volume formula.
+`Length` is measured along the alignment by station, so `EndStation - StartStation` holds on curves as on tangents. An element off the centreline is located by station and offset (LT or RT), as `BIMForge_LinearReference` records it, and a line held at that offset has its own stationing. With the elevations along it, that gives the element's true path. `PathLength` is that length for a course: the 3D length of the line its section's centroid travels, at the centroid's offset and following its elevations, between the course's stations.
 
-A Formula is written only where it is true: the family tests each against the element's mesh volume at the gate's formula tolerance before writing it, the gate's formula check (M.3) recomputes each on the written file, and a formula that misses would fail every check on it.
+A volume is its section area times the length of the path its centroid travels (Pappus). The declared `Volume` is that exact figure, integrated along the course (as the kernel's sweeps declare their closed form), not the faceted mesh; the mesh is checked against it at the corridor's 0.5%. So `PathLength * Width * Thickness` is exact for any course of constant width, on tangents, grades and curves, shoulders included. Through a width transition the trapezoid form is exact on a tangent; on a curve, where the centroid drifts as the width changes, it is written only if it holds within the gate's tolerance. Earthwork's section changes at every station, so cut and fill keep their integrated volume and no volume formula; their dimensions describe them.
+
+A Formula is written only where it is true: the family tests each against the element's declared volume at the gate's formula tolerance before writing it, the gate's formula check (M.3) recomputes each on the written file, and a formula that misses would fail every check on it.
 
 ## Errors
 
