@@ -4,8 +4,44 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+**For ProjectCommand and BidSheet.ai:** quantity `Formula`s are now
+arithmetic (`+ - * /`, numbers, parentheses) and may name the element's
+`BIMForge_Dimensions` properties, so a reader that recomputes formulas must
+evaluate the wider grammar and look names up in the quantity's own set first,
+then in the element's dimensions; it should also cap a formula's length
+(1,000 characters) and refuse a result that is not finite. Road-corridor
+elements carry `StartStation` / `EndStation` dimensions (lengths, with
+`StartStationText` / `EndStationText` labels); `BIMForge_LinearReference`
+keeps its own `StationStart` / `StationEnd`. A corridor `Offset` is the
+centroid's, left positive, as the linear reference's offsets are.
+
 ### Added
 
+- **Road corridor V1.1: slope rules, walls, guardrail, dimensions (P.6).**
+  Held to Caltrans practice (HDM 08/08/2025, TSSM April 2025, 2025 Standard
+  Plans A77N2 and A77N3):
+  - fill 4:1, switching to 2:1 above a fill height (`steep`); a cut runs
+    2:1 through the soil, then a bench and 0.5:1 in rock below a depth that
+    may vary by station (`rock`); an optional footprint line per side;
+  - `walls: auto` places a wall wherever a slope finds no daylight or runs
+    past the footprint: a fill wall at the hinge carrying a barrier, a cut
+    wall beside a shoulder widened to 10 ft; a fill wall taller than
+    `max_wall_height_ft` becomes a structure candidate (a short bridge or a
+    culvert). `outputs.walls` and `outputs.structures` list them;
+  - guardrail (MGS) on every 2:1 fill and at both ends of each structure gap,
+    by the TSSM length of need for each direction of travel, in whole 12.5 ft
+    elements with a 150 ft minimum, joined where runs are 200 ft or less
+    apart, ending in terminals, Type AGT transitions at bridges and walls, or
+    SFT-M anchors; the 10:1 widening behind the rail runs its whole length.
+    Each run is an `IfcRailing` typed GUARDRAIL with its length, posts and
+    end treatments; `outputs.guardrail` lists them and flags a run under
+    150 ft or cut short by the alignment's end;
+  - courses, cut, fill and guardrail carry `BIMForge_Dimensions` from new
+    family-dictionary classes. Every element's `Length` has the Formula
+    `EndStation - StartStation`. A course's declared volume is now exact
+    (its section times the path its centroid travels, along plan and grade),
+    and `Volume = PathLength * Width * Thickness` (or the trapezoid through a
+    taper) is written wherever it holds within the formula check's tolerance.
 - **The `road-corridor` family (P.6).** A road from an alignment, a
   profile, a typical section and the ground:
   - pavement courses are `IfcCourse` elements typed by `IfcCourseType`,
@@ -44,6 +80,16 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   takeoff written earlier against a rebuilt model, by GlobalId: an element
   whose value moved or that is gone fails the rows it backs, and the
   command exits 1.
+
+### Changed
+
+- **Quantity Formulas are arithmetic.** A `Formula` may use names, numbers,
+  `+ - * /` and parentheses (parsed, never evaluated as code), over the
+  quantity's own set and then the element's `BIMForge_Dimensions` numbers,
+  on `Qto_BaseQuantities` and on standard sets alike. A formula longer than
+  1,000 characters, one that cannot be read, or one whose result is not
+  finite fails only its own quantity. `BIMForge_Dimensions` may hold text
+  (`IfcLabel`, not sent as a parameter) and optional properties.
 
 ### Fixed
 
