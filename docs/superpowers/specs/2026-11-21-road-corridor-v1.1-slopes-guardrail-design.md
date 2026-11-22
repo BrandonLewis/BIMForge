@@ -42,6 +42,7 @@ Every new key is optional. A V1 spec builds exactly as before: one fill ratio, o
 - The cut runs at `cut.ratio` through the soil to `rock.depth_ft` below ground, then a level bench `rock.bench_ft` wide, then `rock.ratio` in rock down to grade or daylight.
 - `depth_ft` is one value or `[station, depth]` rows, interpolated linearly with the end values holding, as widths are. It stands for a geotechnical report the project does not have yet.
 - The rock face is built up from the cut's toe: rock depth is measured vertically below ground at each point along the face, so the face's top (the bench's inner end) sits on the soil/rock interface and the face only ever stands in rock.
+- **Tall rock faces.** `rock.face_bench: {every_ft: 30, width_ft: 10}` breaks a rock face taller than `every_ft` with a level bench `width_ft` wide at each `every_ft` of face height, measured up from the toe. `rock.catchment: {width_ft, depth_ft}` makes the cut's ditch at least that wide and deep wherever the rock face is taller than `every_ft`, to catch rockfall at the toe. Both are optional; without them a face is one plane, as before. A side keeps a fixed point count: the corridor allows `rock.face_bench.max` benches (default 4) and collapses unused ones onto the top of the face; a face that would need more is an error naming the station and side. Bench and catchment sizes are planning values until a geotechnical report sets them.
 - A cut whose toe is not in rock collapses the face and bench onto the toe, so the cut side keeps a fixed point count (lofting needs it).
 
 ## Walls
