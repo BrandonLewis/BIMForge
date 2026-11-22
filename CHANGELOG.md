@@ -6,6 +6,35 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ### Added
 
+- **The `road-corridor` family (P.6).** A road from an alignment, a
+  profile, a typical section and the ground:
+  - pavement courses are `IfcCourse` elements typed by `IfcCourseType`,
+    written as `IfcSectionedSolidHorizontal` along the alignment on IFC4X3
+    (a closed mesh on IFC4), under `IfcRoad` > ROADSEGMENT > CARRIAGEWAY /
+    SHOULDER / CENTRALRESERVE;
+  - cut and fill run to daylight, with an optional ditch, as
+    `IfcEarthworksCut` and `IfcEarthworksFill`, one of each per station
+    band; on IFC4X3 every cut voids the TERRAIN element;
+  - superelevation, width transitions, and gaps for bridges and walls;
+  - a mass-haul table, in a `BIMForge_MassHaul` property set on each band's
+    earthwork and as a CSV (`outputs.masshaul`, in CY), with shrink and
+    swell; the set's `StartStation` / `EndStation` are `IfcLengthMeasure`
+    and `CumulativeVolume` an `IfcVolumeMeasure`, in the file's metres as
+    `BIMForge_LinearReference` writes stations, with `StartStationText` /
+    `EndStationText` ("14+00.00");
+  - ground is a plane (tests and CI, which write a TERRAIN surface too) or
+    3DEP over the corridor's footprint, cached.
+
+  Each course's volume is checked against an independent average-end-area
+  figure, within 0.5%. The shipped example `road-corridor.spec.yaml` joins
+  the conformance set and the buildingSMART rules job.
+
+- **`Element.standard_qto`: a class's standard quantity set**
+  (`Qto_CourseBaseQuantities`, `Qto_EarthworksCutBaseQuantities`, ...),
+  written beside `Qto_BaseQuantities` and only on the class it belongs to
+  (M.17's first step). Where a name is in both, takeoff keeps reading
+  `Qto_BaseQuantities`, so no takeoff number changes.
+
 - **`model-elements` sends each element's measurement checks (M.6, M.5).**
   An element with a check (ProjectCommand's or `est-bim check`'s) carries
   `checks`: what was measured (`<set>.<name>`), the sheet value, the model
@@ -18,6 +47,25 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   `--checked-takeoff takeoff.json` also sends that takeoff's sum checked
   against the model, as the call-level `takeoff_check`. Additive: BidSheet.ai
   ignores both until it stores them.
+
+### Fixed
+
+- **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
+  and grid spacing to 3DEP in the CRS's own unit but scaled plan and height
+  by one factor, so it only worked on a metric CRS. `grid_to_mesh` and
+  `attach_terrain` take an optional `plan_scale`; existing callers are
+  unchanged.
+
+- **An uncarved terrain is declared a surface,** so the solid-body check no
+  longer reports its rim as open edges.
+
+- **The terrain's mesh spacing names its unit.** `Pset_BimforgeTerrain`
+  gains `MeshSpacingUnit` (the CRS's: `ftUS`, `ft` or `m`), and the build
+  log gives the spacing in it, not always "m".
+
+- **A facility on an alignment is positioned on it.** `IfcRelPositions`
+  now lists the `IfcRoad` (or other facility) as well as its elements.
+
 
 ## 0.1.131 — 2026-11-22
 

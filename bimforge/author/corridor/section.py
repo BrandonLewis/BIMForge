@@ -1,0 +1,247 @@
+"""The road corridor's cross-section at a station (roadmap P.6): finished
+grade, course rings, subgrade and side slopes to daylight, in section
+coordinates (u left of travel, v up from the profile grade line).
+
+No geometry and no IFC. The ground comes in as `ground_dz(s, u, v)`: how far
+the ground lies above the section point (u, v) at station s, so a test can
+hand in level ground and the family hands in the real thing.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from bimforge.author.alignment import sta
+from bimforge.author.corridor.params import SIDES
+
+#: points on each side's slope line, hinge and daylight included: fixed, so
+#: every station's earthwork line has the same count and lofts point to point
+SIDE_SAMPLES = 12
+#: the daylight search's step along a slope, horizontal feet
+_SCAN_FT = 1.0
+#: how far a daylight point may sit off the ground, feet
+_ON_GROUND_FT = 0.01
+
+
+@dataclass(frozen=True)
+class Side:
+    kind: str           # "cut", "fill" or "wall"
+    line: list          # [(u, v)] from the hinge out to daylight or the wall
+
+
+@dataclass(frozen=True)
+class Section:
+    s: float
+    grade: dict         # side -> [(u, v)], crown outward, one per component edge
+    courses: dict       # (course index, component index, side) -> 4-point ring
+    subgrade: dict      # side -> [(u, v)], crown outward; its last is the hinge
+    sides: dict         # side -> Side
+
+    def earthwork_line(self, per_component=1) -> list:
+        """Left daylight to right daylight across the subgrade, with the same
+        number of points at every station.
+
+        `per_component` cuts each component's subgrade segment, both sides,
+        into that many equal parts (an int for all, or one count per
+        component), so the ground is read across a wide lane and not only
+        at its edges. The points lie on the subgrade, so the geometry is
+        unchanged; the caller must pass the same counts at every station."""
+        n = len(self.subgrade["L"]) - 1
+        if len(self.subgrade["R"]) - 1 != n:
+            raise ValueError(f"station {sta(self.s)}: the subgrade has "
+                             f"{n} components left, {len(self.subgrade['R']) - 1} right")
+        counts = ([per_component] * n if isinstance(per_component, int)
+                  else list(per_component))
+        if len(counts) != n:
+            raise ValueError(f"per_component: {len(counts)} counts for {n} "
+                             f"components; give one count per component")
+        if any(not isinstance(k, int) or k < 1 for k in counts):
+            raise ValueError(f"per_component: each count must be an int of "
+                             f"at least 1, not {counts}")
+        sub = {side: _divided(self.subgrade[side], counts) for side in SIDES}
+        left = list(reversed(_samples(self.sides["L"].line)))
+        under_left = list(reversed(sub["L"][:-1]))
+        under_right = sub["R"][1:]
+        right = _samples(self.sides["R"].line)[1:]
+        return left + under_left + under_right + right
+
+    def width(self) -> float:
+        """Daylight to daylight, feet."""
+        return abs(self.sides["L"].line[-1][0] - self.sides["R"].line[-1][0])
+
+
+def _divided(pts: list, counts: list) -> list:
+    """`pts` with segment j cut evenly into counts[j] parts."""
+    out = []
+    for ((u0, v0), (u1, v1)), k in zip(zip(pts, pts[1:]), counts):
+        out.append((u0, v0))
+        out += [(u0 + (u1 - u0) * i / k, v0 + (v1 - v0) * i / k)
+                for i in range(1, k)]
+    return out + [pts[-1]]
+
+
+def _samples(line: list) -> list:
+    """`line` with its last segment cut evenly to SIDE_SAMPLES points."""
+    extra = SIDE_SAMPLES - len(line)
+    (u0, v0), (u1, v1) = line[-2], line[-1]
+    mid = [(u0 + (u1 - u0) * i / (extra + 1), v0 + (v1 - v0) * i / (extra + 1))
+           for i in range(1, extra + 1)]
+    return list(line[:-1]) + mid + [line[-1]]
+
+
+def _daylight(s, start, sign, rise, ground_dz, reach, cut):
+    """Where the line from `start`, `sign` outward and `rise` ft up per ft
+    out, meets the ground within `reach` horizontal ft; None if it does
+    not."""
+    su, sv = start
+
+    def hit(h):
+        dz = ground_dz(s, su + sign * h, sv + rise * h)
+        return dz <= 0.0 if cut else dz >= 0.0
+
+    if hit(0.0):
+        return start
+    if reach <= 0.0:
+        return None
+    lo, h = 0.0, min(_SCAN_FT, reach)
+    while not hit(h):
+        if h >= reach:
+            return None
+        lo, h = h, min(h + _SCAN_FT, reach)
+    hi = h
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        if hit(mid):
+            hi = mid
+        else:
+            lo = mid
+    return (su + sign * hi, sv + rise * hi)
+
+
+def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
+    hu, hv = hinge
+    # each side reads its own wall, so walls on both sides at one station
+    # each end their own side
+    wall = c.wall(side, s)
+    if wall is not None:
+        if wall.offset < abs(hu):
+            raise ValueError(
+                f"station {sta(s)}: the {side} wall at offset {wall.offset:g} ft "
+                f"is inside the hinge at {abs(hu):g} ft")
+        return Side("wall", [hinge, (sign * wall.offset, hv)])
+    sl = c.slopes
+    if ground_dz(s, hu, hv) > 0.0:
+        kind, pts = "cut", [hinge]
+        if sl.ditch is not None:
+            p1 = (hu + sign * sl.cut_ratio * sl.ditch.depth, hv - sl.ditch.depth)
+            pts += [p1, (p1[0] + sign * sl.ditch.width, p1[1])]
+    else:
+        kind, pts = "fill", [hinge]
+    # up the backslope while the ground is above the slope's start; on a side
+    # hill the ditch's outer edge can stand above the ground, and the side
+    # then runs down at the fill ratio from there
+    up = ground_dz(s, *pts[-1]) > 0.0
+    rise = 1.0 / sl.cut_ratio if up else -1.0 / sl.fill_ratio
+    used = abs(pts[-1][0] - hu)
+    day = _daylight(s, pts[-1], sign, rise, ground_dz,
+                    sl.daylight_limit - used, cut=up)
+    if day is None:
+        raise ValueError(
+            f"station {sta(s)}: the {side} {kind} slope finds no ground within "
+            f"{sl.daylight_limit:g} ft of the hinge")
+    off = ground_dz(s, *day)
+    if abs(off) > _ON_GROUND_FT:
+        raise ValueError(
+            f"station {sta(s)}: the {side} {kind} slope ends {abs(off):.2f} ft "
+            f"off the ground at offset {abs(day[0]):.2f} ft (is the ground "
+            f"continuous there?)")
+    return Side(kind, pts + [day])
+
+
+def _grade(c, s: float, side: str) -> list:
+    """Finished grade on `side` at station s, crown outward, one point per
+    component edge."""
+    sign = 1.0 if side == "L" else -1.0
+    u = v = 0.0
+    pts = [(0.0, 0.0)]
+    for comp in c.components:
+        w = c.width(comp, side, s)
+        slope = (comp.slope if comp.slope is not None
+                 else c.cross_slope(side, s))
+        u += sign * w
+        v += w * slope
+        pts.append((u, v))
+    return pts
+
+
+#: how close the station a side turns at is found, feet
+_TURN_FT = 1e-9
+
+
+def kind_changes(c, a: Section, b: Section, ground_dz) -> list:
+    """Stations strictly between sections `a` and `b` where a side turns
+    from cut to fill or back: where its hinge meets the ground.
+
+    A side's earthwork line is lofted point to point between stations, so
+    across a turn the ditch and backslope at one station run onto the fill
+    slope at the next: long twisted slivers whose ground crossing is a comb.
+    Cut a section where it turns and the side there is a point on the
+    ground (the hinge, as fill), so each strip either side is all one kind
+    fanning from that point. The station returned is the fill side of the
+    turn, within _TURN_FT."""
+    depth = c.depth()
+    out = []
+    for side in SIDES:
+        kinds = {a.sides[side].kind, b.sides[side].kind}
+        if kinds != {"cut", "fill"}:
+            continue
+
+        def above(s):
+            u, v = _grade(c, s, side)[-1]
+            return ground_dz(s, u, v - depth) > 0.0
+
+        lo, hi = a.s, b.s                 # `above` differs at the two ends
+        cut_lo = above(lo)
+        while hi - lo > _TURN_FT:
+            mid = 0.5 * (lo + hi)
+            if above(mid) == cut_lo:
+                lo = mid
+            else:
+                hi = mid
+        s = hi if cut_lo else lo          # the end where the side is fill
+        if a.s < s < b.s:
+            out.append(s)
+    return sorted(set(out))
+
+
+def _named(ground_dz, side: str):
+    """`ground_dz`, its errors (a DEM with no ground there) naming the
+    station and side they were read for."""
+    def dz(s, u, v):
+        try:
+            return ground_dz(s, u, v)
+        except ValueError as exc:
+            raise ValueError(f"station {sta(s)}, {side} side, offset "
+                             f"{abs(u):.2f} ft: {exc}") from None
+    return dz
+
+
+def resolve(c, s: float, ground_dz) -> Section:
+    """The section of corridor `c` at station `s` (params.Corridor)."""
+    depth = c.depth()
+    grade, subgrade, courses, sides = {}, {}, {}, {}
+    for side in SIDES:
+        sign = 1.0 if side == "L" else -1.0
+        pts = _grade(c, s, side)
+        grade[side] = pts
+        subgrade[side] = [(pu, pv - depth) for pu, pv in pts]
+        above = 0.0
+        for k, course in enumerate(c.courses):
+            t = course.thickness
+            for j in range(len(c.components)):
+                (u0, v0), (u1, v1) = pts[j], pts[j + 1]
+                courses[k, j, side] = [(u0, v0 - above), (u1, v1 - above),
+                                       (u1, v1 - above - t), (u0, v0 - above - t)]
+            above += t
+        sides[side] = _side(c, s, side, sign, subgrade[side][-1],
+                            _named(ground_dz, side))
+    return Section(s, grade, courses, subgrade, sides)

@@ -148,6 +148,17 @@ def test_attach_with_cuts_carves_and_stamps_provenance(tmp_path, monkeypatch):
     assert list(seen["cuts"]) == [cut]
     assert el.geometry["provenance"]["Carved"] is True
     assert el.name.endswith("(excavation carved)")
+    assert el.body == "solid"                          # carved: closed
+
+
+def test_an_uncarved_terrain_is_declared_a_surface(tmp_path, monkeypatch):
+    # an open sheet of ground: the solid-body check must not read its rim as
+    # open edges of a broken solid
+    monkeypatch.setattr(A, "fetch_3dep_dem", lambda *a, **k: _grid())
+    el = A.attach_terrain(_model(), (0.0, 0.0, 4.0, 4.0), crs_epsg=26942,
+                          cache_stem=str(tmp_path / "site"), unit_scale=FT,
+                          vshift_m=0.5, log=lambda s: None)
+    assert el.body == "surface"
 
 
 # --------------------------------------------------------------------- LPC
@@ -182,3 +193,25 @@ def test_attach_lpc_builds_wgs_bbox_and_names_lidar(tmp_path, monkeypatch):
     assert prov["SourceProject"] == "CA_P"
     # the grid's crs_epsg reaches provenance through the info dict
     assert prov["SourceCRS"] == "EPSG:4326 / EPSG:5703"
+
+
+def test_attach_passes_plan_scale_to_the_mesh(tmp_path, monkeypatch):
+    # a feet CRS: plan coordinates kept as they are, z metres -> ft
+    monkeypatch.setattr(A, "fetch_3dep_dem", lambda *a, **k: _grid(2226))
+    m = _model()
+    el = A.attach_terrain(m, (0.0, 0.0, 4.0, 4.0), crs_epsg=2226,
+                          cache_stem=str(tmp_path / "site"), unit_scale=FT,
+                          spacing_m=1.0, vshift_m=0.0, plan_scale=1.0,
+                          log=lambda *_: None)
+    assert el.geometry["verts"][0] == pytest.approx((3.5, 0.5, 10.0 * FT))
+
+
+@pytest.mark.parametrize("epsg, unit", [(2226, "ftUS"), (26942, "m")])
+def test_the_log_gives_the_spacing_in_the_crs_unit(tmp_path, monkeypatch, epsg, unit):
+    monkeypatch.setattr(A, "fetch_3dep_dem", lambda *a, **k: _grid(crs_epsg=epsg))
+    logs = []
+    el = A.attach_terrain(_model(), (0.0, 0.0, 4.0, 4.0), crs_epsg=epsg,
+                          cache_stem=str(tmp_path / "site"), unit_scale=FT,
+                          spacing_m=3.0, vshift_m=0.0, log=logs.append)
+    assert el.geometry["provenance"]["MeshSpacingUnit"] == unit
+    assert any(f"@ 3 {unit}," in line for line in logs), logs

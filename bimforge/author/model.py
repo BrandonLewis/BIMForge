@@ -125,7 +125,16 @@ class Element:
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
+    #: A ("length" | "area" | "volume", value) pair, the value in the feet
+    #: domain, is written as that IFC measure in the file's metres.
     psets: dict = field(default_factory=dict)
+    #: The class's standard quantity set (roadmap M.17), {set name:
+    #: {quantity name: (measure, value)}}, measure one of "length", "area",
+    #: "volume", values in the feet domain: emit_ifc writes each as an
+    #: IfcElementQuantity beside Qto_BaseQuantities, which consumers read
+    #: until M.17 retires it ({"Qto_CourseBaseQuantities": {"Thickness":
+    #: ("length", 0.4)}}).
+    standard_qto: dict = field(default_factory=dict)
     #: The element this one is a PART of (IfcRelAggregates), by name: a
     #: post or rail of a handrail run, an end block of a barrier run. The
     #: part leaves the spatial container and hangs under its whole, which
@@ -265,6 +274,9 @@ class StructureModel:
     #: `ifc: {sweeps: mesh}`; `emit_ifc(sweeps=)` / `outputs.ifc_sweeps`
     #: override it for one emit (emit_ifc.SWEEP_MODES).
     ifc_sweeps: str = "exact"
+    #: A road corridor's mass-haul table (corridor.masshaul.HaulRow per
+    #: station band), written to `outputs.masshaul` as a CSV; [] otherwise.
+    mass_haul: list = field(default_factory=list)
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

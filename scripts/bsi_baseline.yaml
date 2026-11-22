@@ -43,6 +43,8 @@ accepted:
       - dxf2bim-sample-ifc4
       - federated-headwalls
       - federated-headwalls-ifc4
+      - road-corridor
+      - road-corridor-ifc4
       - tubular-handrail
       - tubular-handrail-ifc4
   GRF005:
@@ -82,14 +84,17 @@ accepted:
       - demo-box-ifc4
       - federated-headwalls
       - federated-headwalls-ifc4
+      - road-corridor
+      - road-corridor-ifc4
       - tubular-handrail
       - tubular-handrail-ifc4
   ALS016:
     why: >-
-      A warning: segments meet within 0.9 mm, against a 0.01 mm tolerance.
-      The example's plan rounds the arc lengths (174.53 ft for 500 ft x 20
-      deg = 174.5329). bimforge places each curve's end by its delta, while
-      IFC evaluates SegmentLength / R. Writing R x delta as the length would
+      A warning: segments meet within 0.9 mm (the bridge) and 1.3 mm (the
+      road), against a 0.01 mm tolerance. The examples' plans round the arc
+      lengths (174.53 ft for 500 ft x 20 deg = 174.5329; 349.07 ft for
+      1000 ft x 20 deg = 349.0659). bimforge places each curve's end by
+      its delta, while IFC evaluates SegmentLength / R. Writing R x delta as the length would
       close the gap but shift IFC distances off the plan's stations. IFC4
       has no IfcAlignment, so only the IFC4X3 files carry it.
     outputs:
@@ -97,3 +102,15 @@ accepted:
       - bridge-standard-4d-cost5d
       - bridge-standard-carried
       - bridge-standard-estimate-model
+      - road-corridor
+  PSE001:
+    why: >-
+      Pset_BimforgeTerrain is the terrain writer's own set, on the TERRAIN
+      a plane or 3DEP ground writes, under the Pset_ prefix buildingSMART
+      keeps for its standard sets. Its rename to Bimforge_Terrain, with
+      readers accepting both, is tracked in
+      docs/superpowers/specs/2026-11-09-ifc-compliance-audit.md and is out
+      of the road corridor's scope.
+    outputs:
+      - road-corridor
+      - road-corridor-ifc4

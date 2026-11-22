@@ -9,6 +9,20 @@ mesh spacing, and whether the excavation was carved into it.
 from __future__ import annotations
 
 
+def spacing_unit(crs_epsg) -> str | None:
+    """The short name of a CRS's linear unit, as a spacing in it is
+    labelled: "m", "ftUS", "ft", else the registry's name; None with no
+    CRS."""
+    if not crs_epsg:
+        return None
+    from bimforge.bim.georef import crs_unit
+    name, metres = crs_unit(int(crs_epsg))
+    for short, m in (("m", 1.0), ("ftUS", 1200.0 / 3937.0), ("ft", 0.3048)):
+        if abs(metres - m) < 1e-12:
+            return short
+    return name
+
+
 def build_provenance(source, info, workunit, shift_m, spacing_m, carved):
     """Assemble the terrain provenance Pset dict.
 
@@ -49,9 +63,12 @@ def build_provenance(source, info, workunit, shift_m, spacing_m, carved):
     prov.update({
         "SourceVerticalDatum": "NAVD88",
         "AppliedVerticalShift": -float(shift_m),  # to the project datum
-        "MeshSpacing": float(spacing_m),
+        "MeshSpacing": float(spacing_m),     # in the CRS's own unit
         "Carved": bool(carved),
         "License": "Public domain (US Government work)",
         "SurveyGrade": False,
     })
+    unit = spacing_unit(info.get("crs_epsg"))
+    if unit:
+        prov["MeshSpacingUnit"] = unit
     return prov

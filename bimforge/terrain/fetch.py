@@ -35,8 +35,10 @@ def _urlretrieve(url, path):
 
 def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
                    log=print):
-    """TerrainGrid of NAVD88-metre elevations over a metric `bbox_m` in the
-    project CRS (`crs_epsg`). Requests the DEM straight in the project CRS
+    """TerrainGrid of NAVD88-metre elevations over `bbox_m` in the project
+    CRS (`crs_epsg`). `bbox_m` and `spacing_m` are in the CRS's own linear
+    unit, as 3DEP reads a bbox sent with `bboxSR` (US survey feet for a
+    ftUS CRS; the names are historical). Requests the DEM straight in the project CRS
     (server-side reprojection — no client-side resampling or axis-order
     traps) as a float32 GeoTIFF and reads it with Pillow. The raw TIFF is
     cached so rebuilds are offline and deterministic; refresh=True refetches.

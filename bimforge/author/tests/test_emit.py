@@ -2082,3 +2082,130 @@ def test_volume_formula_refuses_what_the_quantities_cannot_carry(
                                quantities=quantities)
     with pytest.raises(ValueError, match=why):
         volume_formula(el)
+
+
+def test_standard_qto_is_written_beside_the_base_set(tmp_path):
+    import ifcopenshell
+    import ifcopenshell.util.element
+
+    m = _fixture_model()
+    m.element("PS-1 footing").standard_qto = {"Qto_FootingBaseQuantities": {
+        "Length": ("length", 4.0), "Width": ("length", 4.0),
+        "GrossVolume": ("volume", 32.0)}}
+    out = tmp_path / "std.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    el = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    qtos = ifcopenshell.util.element.get_psets(el, qtos_only=True)
+    k = m.ctx.ft_to_m
+    assert {"Qto_BaseQuantities", "Qto_FootingBaseQuantities"} <= set(qtos)
+    std = qtos["Qto_FootingBaseQuantities"]
+    assert std["Length"] == pytest.approx(4.0 * k)
+    assert std["GrossVolume"] == pytest.approx(32.0 * k ** 3)
+
+
+def test_standard_qto_is_written_only_on_the_class_it_is_for(tmp_path):
+    # a standard set is defined for its own class (bSI QTY001): an element
+    # written as another class (IFC4's proxy fallback here) carries none,
+    # though it keeps Qto_BaseQuantities
+    import dataclasses
+
+    import ifcopenshell
+    import ifcopenshell.util.element
+
+    m = _fixture_model()
+    m.ctx = dataclasses.replace(m.ctx, schema="IFC4")
+    el = m.element("PS-1 footing")
+    el.ifc_class = "IfcEarthworksFill"           # not in IFC4: a proxy
+    el.standard_qto = {"Qto_EarthworksFillBaseQuantities": {
+        "Length": ("length", 4.0)}}
+    out = tmp_path / "std4.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    (prod,) = [e for e in f.by_type("IfcBuildingElementProxy") if e.Name == "PS-1 footing"]
+    qtos = ifcopenshell.util.element.get_psets(prod, qtos_only=True)
+    assert "Qto_BaseQuantities" in qtos
+    assert "Qto_EarthworksFillBaseQuantities" not in qtos
+
+
+def test_standard_qto_refuses_an_unknown_measure(tmp_path):
+    m = _fixture_model()
+    m.element("PS-1 footing").standard_qto = {
+        "Qto_FootingBaseQuantities": {"Length": ("furlong", 1.0)}}
+    with pytest.raises(ValueError, match="furlong"):
+        emit_ifc(m, str(tmp_path / "bad.ifc"), PC)
+
+
+def test_standard_qto_never_overrides_the_base_quantities(tmp_path):
+    import ifcopenshell
+    from bimforge.bim.ifc_takeoff import quantities_of
+
+    m = _fixture_model()
+    el = m.element("PS-1 footing")
+    out0 = tmp_path / "base.ifc"
+    emit_ifc(m, str(out0), PC)
+    f0 = ifcopenshell.open(str(out0))
+    e0 = next(e for e in f0.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    base = quantities_of(e0)["Length"]
+    el.standard_qto = {"Qto_FootingBaseQuantities": {"Length": ("length", 999.0)}}
+    out = tmp_path / "clash.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    e = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    assert quantities_of(e)["Length"] == pytest.approx(base)
+
+
+def test_standard_qto_skips_an_empty_set(tmp_path):
+    import ifcopenshell
+    import ifcopenshell.util.element
+
+    m = _fixture_model()
+    m.element("PS-1 footing").standard_qto = {"Qto_FootingBaseQuantities": {}}
+    out = tmp_path / "empty.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    el = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    assert "Qto_FootingBaseQuantities" not in ifcopenshell.util.element.get_psets(
+        el, qtos_only=True)
+
+
+def test_standard_qto_never_overrides_base_in_ifc2gis(tmp_path):
+    import ifcopenshell
+    from bimforge.bim.ifc2gis import _quantities
+
+    m = _fixture_model()
+    base_out = tmp_path / "base.ifc"
+    emit_ifc(m, str(base_out), PC)
+    f0 = ifcopenshell.open(str(base_out))
+    e0 = next(e for e in f0.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    base = _quantities(e0, 1.0)["Length"]
+    m.element("PS-1 footing").standard_qto = {
+        "Qto_FootingBaseQuantities": {"Length": ("length", 999.0)}}
+    out = tmp_path / "clash.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    e = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    assert _quantities(e, 1.0)["Length"] == pytest.approx(base)
+
+
+def test_a_pset_measure_is_written_typed_in_project_units(tmp_path):
+    import ifcopenshell
+    import ifcopenshell.util.element
+
+    m = _fixture_model()
+    m.element("PS-1 footing").psets["Pset_Fixture"] = {
+        "Run": ("length", 10.0), "Bulk": ("volume", 27.0), "Note": "plain"}
+    out = tmp_path / "pm.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    el = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    (ps,) = [r.RelatingPropertyDefinition for r in el.IsDefinedBy
+             if r.is_a("IfcRelDefinesByProperties")
+             and r.RelatingPropertyDefinition.Name == "Pset_Fixture"]
+    props = {p.Name: p.NominalValue for p in ps.HasProperties}
+    k = m.ctx.ft_to_m
+    assert props["Run"].is_a("IfcLengthMeasure")
+    assert props["Run"].wrappedValue == pytest.approx(10.0 * k)
+    assert props["Bulk"].is_a("IfcVolumeMeasure")
+    assert props["Bulk"].wrappedValue == pytest.approx(27.0 * k ** 3)
+    assert props["Note"].is_a("IfcLabel")

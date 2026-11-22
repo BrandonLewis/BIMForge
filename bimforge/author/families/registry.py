@@ -13,6 +13,7 @@ The spec file:
     outputs: {dxf: CAD/x.dxf, ifc: CAD/x.ifc,
               takeoff_map: CAD/x-takeoff-map.yaml,
               qto: CAD/x-QTO.xlsx, step: null,
+              masshaul: CAD/x.masshaul.csv,   # a road corridor's mass haul
               ifc_allow_local: false,
               ifc_sweeps: exact}    # overrides ifc.sweeps for this emit
     ifc: {sweeps: exact}    # exact (default) | mesh: how alignment sweeps
@@ -69,7 +70,7 @@ def _shipped():
         approach_slab, box_culvert, bridge_standard, concrete_barrier_732sw,
         concrete_barrier_842, culvert_headwall,
         culvert_wingwall, demo_box, headwall_926, pipe_headwall, pipe_supports,
-        spillway, standard_plan, tubular_handrail)
+        road_corridor, spillway, standard_plan, tubular_handrail)
     return {
         "demo-box": demo_box.build,
         "pipe-supports": pipe_supports.build,
@@ -85,6 +86,7 @@ def _shipped():
         "concrete-barrier-732sw": concrete_barrier_732sw.build,
         "concrete-barrier-842": concrete_barrier_842.build,
         "approach-slab": approach_slab.build,
+        "road-corridor": road_corridor.build,
     }
 
 
@@ -154,7 +156,7 @@ def get(name: str, family_paths=()):
 
 
 REQUIRED_SPEC_KEYS = ("family", "params", "paycodes", "outputs", "project")
-OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs")
+OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs", "masshaul")
 
 
 # Packs a spec's `params.tables_pack` can name: pack -> the module whose
@@ -364,6 +366,10 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
     if unread != "off":
         params = TrackedParams(params)
     model = builder(params, ctx)
+    if spec["outputs"].get("masshaul") and not model.mass_haul:
+        raise ValueError(f"{Path(spec_path).name}: outputs.masshaul is set, but "
+                         f"family {spec['family']!r} makes no mass haul (only a "
+                         f"road corridor does)")
     place_from_spec(model, spec, alignments,
                     log=lambda m: print(m, file=sys.stderr))
     if spec.get("spatial_parts"):
@@ -434,6 +440,13 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
             from bimforge.author.emit_step import emit_step
             print(emit_step(model, outs["step"]), file=sys.stderr)
             written["step"] = outs["step"]
+        if outs.get("masshaul") and model.mass_haul:
+            from bimforge.author.corridor.masshaul import to_csv
+            p = Path(outs["masshaul"])
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(to_csv(model.mass_haul), encoding="utf-8")
+            print(f"mass haul written to {p}", file=sys.stderr)
+            written["masshaul"] = str(p)
     except Exception:
         # refuse-partial: an emitter failing mid-loop (unwritable path, disk
         # full) must not orphan the outputs already written — the same
