@@ -89,11 +89,20 @@ when the file has it, all in the units BidSheet.ai stores (never m):
   "station_start", "station_end", "offset_left_min", "offset_left_max",
   "unit": "FT"};
 - `formula` on a quantity: the source quantity's Formula (M.3), over names
-  in the source's set.
+  in the source's set;
+- `checks`: each measurement check on the element (M.5, `bim.checks`,
+  ProjectCommand's or `est-bim check`'s), [{"what": "<set>.<name>",
+  "unit" (FT, SF or CY), "sheet_value", "model_value", "value_now",
+  "tolerance", "result" ("agrees"/"differs" as recorded), "standing"
+  (`checks.standing`: the result, or "lapsed" when the file's value has
+  moved past the tolerance since, or "gone"), "value_source", "sheet",
+  "revision", "day", "by", "model_origin"}].
 
 and once per call, `model`: the file's `BIMForge_Model` identity,
-{"build_id", "bimforge_version", "ifc_schema", "source"}. BidSheet.ai
-ignores keys it does not store, so a payload with them is valid either way.
+{"build_id", "bimforge_version", "ifc_schema", "source"}; and, given a
+takeoff (`checked_takeoff`), `takeoff_check`: its sum checked against this
+model (`takeoff_check.check_takeoff`, M.5). BidSheet.ai ignores keys it
+does not store, so a payload with them is valid either way.
 
 Pure: reads the IFC, writes nothing.
 """
@@ -428,6 +437,45 @@ def described(element, ft: float, linear: dict, warnings: list,
     return out
 
 
+#: a check's dimension -> (BidSheet.ai's unit, metres per unit; None for
+#: the project's foot)
+CHECK_UNITS = {"length": ("FT", None), "area": ("SF", SF_M2),
+               "volume": ("CY", CY_M3)}
+
+
+def checks_of(element, checks: list, scales: dict, foot: float,
+              warnings: list, label: str) -> list:
+    """The measurement checks (`checks.read_checks`) on `element`, each
+    with its standing now, in BidSheet.ai's units (M.5)."""
+    from bimforge.bim.checks import standing
+    out = []
+    for c in checks:
+        if element.GlobalId not in c["global_ids"] or \
+                c.get("dim") not in CHECK_UNITS:
+            continue
+        unit, per = CHECK_UNITS[c["dim"]]
+        factor = scales[c["dim"]] / (per or foot)
+        state, now = standing(element, c)
+        entry = {"what": f"{c.get('set')}.{c.get('name')}", "unit": unit}
+        values = {"sheet_value": c.get("sheet_value"),
+                  "model_value": c.get("model_value"), "value_now": now}
+        if not all(math.isfinite(v) for v in values.values()
+                   if v is not None):
+            warnings.append(f"{label}: check {entry['what']} has a "
+                            f"non-finite value — a broken export; not sent")
+            continue
+        entry.update({k: round(v * factor, 6) for k, v in values.items()
+                      if v is not None})
+        entry.update({"tolerance": c.get("tolerance"),
+                      "result": c["status"], "standing": state})
+        for key in ("value_source", "sheet", "revision", "day", "by",
+                    "model_origin"):
+            if c.get(key):
+                entry[key] = c[key]
+        out.append({k: v for k, v in entry.items() if v is not None})
+    return out
+
+
 def _parts(element) -> list:
     return [o for rel in getattr(element, "IsDecomposedBy", None) or []
             if rel.is_a("IfcRelAggregates")
@@ -439,7 +487,8 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
                            form_area: str | None = None,
                            all_elements: bool = False,
                            schedule: str | None = None,
-                           takeoff: bool = False) -> dict:
+                           takeoff: bool = False,
+                           checked_takeoff: dict | None = None) -> dict:
     """Plan the `upsert_modelled_elements` payload for an IFC.
 
     `ifc` is a path or an open model. `items` maps classification (bid
@@ -452,6 +501,8 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
     beams/members/plates/courses/pavements, as generic. See the module
     docstring for which elements are sent. `takeoff` plans for a takeoff
     target: no `pay_items` on any entry, and `items`/`schedule` are refused.
+    `checked_takeoff`, a takeoff document, is checked against this model and
+    sent as `takeoff_check`.
 
     Returns {"elements": [...], "skipped": [{global_id, name, ifc_class,
     reason}], "without_quantities": [{global_id, name}], "warnings": [...]}.
@@ -463,8 +514,11 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
     from bimforge.bim.alignment_station import foot_m
     model = ifcopenshell.open(ifc) if isinstance(ifc, str) else ifc
     scales = _unit_scales(model)
+    from bimforge.bim.checks import read_checks
     linear = linear_ref.read(model)
-    ft = scales["length"] / foot_m(model)
+    foot = foot_m(model)
+    ft = scales["length"] / foot
+    checks = read_checks(model)
     index, ambiguous = _item_index(items, schedule)
     structure_ids = {str(k): v for k, v in (structure_ids or {}).items()}
     skipped, warnings = [], []
@@ -564,6 +618,9 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
         if sid:
             entry["structure_id"] = str(sid)[:STRUCTURE_ID_MAX]
         entry.update(described(el, ft, linear, warnings, label))
+        on_element = checks_of(el, checks, scales, foot, warnings, label)
+        if on_element:
+            entry["checks"] = on_element
         entry["quantities"] = quantities
         if not quantities:
             without.append({"global_id": gid, "name": name})
@@ -615,4 +672,7 @@ def plan_modelled_elements(ifc, items=None, *, structure_id: str | None = None,
     record = model_record(model)
     if record:
         out["model"] = record
+    if checked_takeoff is not None:
+        from bimforge.bim.takeoff_check import check_takeoff
+        out["takeoff_check"] = check_takeoff(model, checked_takeoff)
     return out

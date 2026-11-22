@@ -2,6 +2,23 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
+## Unreleased
+
+### Added
+
+- **`model-elements` sends each element's measurement checks (M.6, M.5).**
+  An element with a check (ProjectCommand's or `est-bim check`'s) carries
+  `checks`: what was measured (`<set>.<name>`), the sheet value, the model
+  value it was checked at and the file's value now, in FT (the project's
+  foot), SF or CY, the tolerance, the result as recorded, the sheet,
+  revision, day, who and the model it was checked on, and its `standing`
+  as ProjectCommand reads it: the result, or `lapsed` when the file's
+  value has moved past the tolerance since (a rebuild that changed it), or
+  `gone` when the element no longer has what was checked.
+  `--checked-takeoff takeoff.json` also sends that takeoff's sum checked
+  against the model, as the call-level `takeoff_check`. Additive: BidSheet.ai
+  ignores both until it stores them.
+
 ## 0.1.131 — 2026-11-22
 
 The check is recorded (M.5): every takeoff carries its sum checked against the model (#116), and `est-bim check` records a measurement made in Bonsai in the model, in ProjectCommand's shape (#117). A measurement check now comes through a rebuild whole.

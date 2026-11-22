@@ -12,7 +12,7 @@
   est-bim takeoff-workbook --ifc model.ifc [--ifc more.ifc ...] --map takeoff_map.yaml [--official bid_items.json] --out takeoff.xlsx
   est-bim schedule-read --ifc model.4d.ifc [--schedule NAME] --out schedule.json [--takeoff-map map.yaml --takeoff-out takeoff.json] [--costs-out costs.json]
   est-bim sfca    model.ifc [--flat 0.85] [--split-el EL] [--skip-class IfcPipeSegment,...]
-  est-bim model-elements model.ifc [--items items.json] [--estimate-id N] [--complete] [--structure-id ID] [--structure-ids ids.json] [--form-area Qto_Set.Name] [--schedule LABEL] [--all-elements] [--takeoff [--takeoff-id N]] [--out upsert.json]
+  est-bim model-elements model.ifc [--items items.json] [--estimate-id N] [--complete] [--structure-id ID] [--structure-ids ids.json] [--form-area Qto_Set.Name] [--schedule LABEL] [--all-elements] [--takeoff [--takeoff-id N]] [--checked-takeoff takeoff.json] [--out upsert.json]
   est-bim estimate-model model.ifc estimate_model.json out.ifc [--schedule-name NAME] [--placeholders]
   est-bim kml     model.ifc [--out model.kml]
   est-bim kmz     model.ifc [--out model.kmz] [--geoid-shift-m M] [--omit RE] [--massing] [--collada | --gltf]
@@ -748,7 +748,9 @@ def _run_model_elements(args) -> int:
             args.ifc, items, structure_id=args.structure_id,
             structure_ids=structure_ids, form_area=args.form_area,
             all_elements=args.all_elements, schedule=args.schedule,
-            takeoff=takeoff)
+            takeoff=takeoff, checked_takeoff=(
+                json.loads(Path(args.checked_takeoff).read_text(
+                    encoding="utf-8")) if args.checked_takeoff else None))
     except (OSError, ValueError, KeyError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -770,6 +772,15 @@ def _run_model_elements(args) -> int:
           f"{len(plan['skipped'])} skipped, "
           f"{len(plan['without_quantities'])} with no quantities"
           + (f"; written to {args.out}" if args.out else ""), file=sys.stderr)
+    checked = sum(len(e.get("checks", ())) for e in plan["elements"])
+    if checked:
+        lapsed = sum(c["standing"] in ("lapsed", "gone")
+                     for e in plan["elements"] for c in e.get("checks", ()))
+        print(f"  {checked} measurement check(s) sent, {lapsed} lapsed or "
+              f"gone", file=sys.stderr)
+    if "takeoff_check" in plan:
+        print(f"  takeoff check: {plan['takeoff_check']['result']}",
+              file=sys.stderr)
     if takeoff:
         print("  for upsert_modelled_elements(takeoff_id="
               f"{args.takeoff_id if args.takeoff_id is not None else '...'}"
@@ -2797,6 +2808,10 @@ def main(argv=None) -> int:
     me.add_argument("--takeoff-id", dest="takeoff_id", type=int,
                     help="BidSheet.ai takeoff id, carried into the payload "
                          "(implies --takeoff)")
+    me.add_argument("--checked-takeoff", dest="checked_takeoff",
+                    metavar="TAKEOFF_JSON",
+                    help="a takeoff (est-bim takeoff) whose sum is checked "
+                         "against this model and sent as takeoff_check")
     me.add_argument("--out", help="output JSON (default: stdout)")
 
     em = sub.add_parser("estimate-model",
