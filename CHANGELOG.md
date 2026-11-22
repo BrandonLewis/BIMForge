@@ -28,11 +28,55 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   Each course's volume is checked against an independent average-end-area
   figure, within 0.5%. The shipped example `road-corridor.spec.yaml` joins
   the conformance set and the buildingSMART rules job.
+
 - **`Element.standard_qto`: a class's standard quantity set**
   (`Qto_CourseBaseQuantities`, `Qto_EarthworksCutBaseQuantities`, ...),
   written beside `Qto_BaseQuantities` and only on the class it belongs to
   (M.17's first step). Where a name is in both, takeoff keeps reading
   `Qto_BaseQuantities`, so no takeoff number changes.
+
+- **`model-elements` sends each element's measurement checks (M.6, M.5).**
+  An element with a check (ProjectCommand's or `est-bim check`'s) carries
+  `checks`: what was measured (`<set>.<name>`), the sheet value, the model
+  value it was checked at and the file's value now, in FT (the project's
+  foot), SF or CY, the tolerance, the result as recorded, the sheet,
+  revision, day, who and the model it was checked on, and its `standing`
+  as ProjectCommand reads it: the result, or `lapsed` when the file's
+  value has moved past the tolerance since (a rebuild that changed it), or
+  `gone` when the element no longer has what was checked.
+  `--checked-takeoff takeoff.json` also sends that takeoff's sum checked
+  against the model, as the call-level `takeoff_check`. Additive: BidSheet.ai
+  ignores both until it stores them.
+
+### Fixed
+
+- **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
+  and grid spacing to 3DEP in the CRS's own unit but scaled plan and height
+  by one factor, so it only worked on a metric CRS. `grid_to_mesh` and
+  `attach_terrain` take an optional `plan_scale`; existing callers are
+  unchanged.
+
+- **An uncarved terrain is declared a surface,** so the solid-body check no
+  longer reports its rim as open edges.
+
+- **The terrain's mesh spacing names its unit.** `Pset_BimforgeTerrain`
+  gains `MeshSpacingUnit` (the CRS's: `ftUS`, `ft` or `m`), and the build
+  log gives the spacing in it, not always "m".
+
+- **A facility on an alignment is positioned on it.** `IfcRelPositions`
+  now lists the `IfcRoad` (or other facility) as well as its elements.
+
+
+## 0.1.131 — 2026-11-22
+
+The check is recorded (M.5): every takeoff carries its sum checked against the model (#116), and `est-bim check` records a measurement made in Bonsai in the model, in ProjectCommand's shape (#117). A measurement check now comes through a rebuild whole.
+
+**For ProjectCommand:** a check written by `est-bim check` is the shape your `check.rs` writes, stamped with the application it was made in (`--app`, default Bonsai); recording one again replaces yours under its GlobalIds. A rebuild now carries the `Checked` IfcResourceApprovalRelationship, so a check reads back whole after `carry_forward`.
+
+**For estimating_tools and BidSheet.ai:** the takeoff JSON gains a top-level `check`; `CanonicalTakeoff.from_json` ignores it. Rows are unchanged.
+
+### Added
+
 - **Every takeoff records its sum, checked against the model (M.5).**
   `est-bim takeoff` writes a top-level `check` into the takeoff JSON
   (CanonicalTakeoff readers ignore it): the model's `build_id`, each row's
@@ -44,6 +88,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   takeoff written earlier against a rebuilt model, by GlobalId: an element
   whose value moved or that is gone fails the rows it backs, and the
   command exits 1.
+- **`est-bim check` records a measurement made in Bonsai in the model
+  (M.5),** in the shape ProjectCommand writes and reads (its `check.rs`):
+  an IfcObjective of `SheetValue`, `ModelValue` and `Tolerance` metrics
+  naming what was measured by set and name, an IfcApproval with Level
+  `measurement` and Status `agrees` or `differs`, and the sheet as
+  IfcDocumentInformation, stamped with the application the check was made
+  in so a rebuild carries it. `--what` is a quantity
+  (`Qto_BaseQuantities.GrossVolume`) or a property
+  (`BIMForge_Dimensions.DesignHeight`); values are given in `--unit` (a
+  foot is the project's foot) and written in the file's units; without
+  `--measured` the file's own value is checked. Recording the same thing
+  again replaces the check under its ids, whoever recorded it. `--list`
+  lists every check a model carries.
 
 ### Fixed
 
@@ -53,18 +110,6 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   value and tolerance), since nothing references it. It is now copied when
   both ends come across, so a carried check reads whole and a reader can
   call it lapsed.
-- **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
-  and grid spacing to 3DEP in the CRS's own unit but scaled plan and height
-  by one factor, so it only worked on a metric CRS. `grid_to_mesh` and
-  `attach_terrain` take an optional `plan_scale`; existing callers are
-  unchanged.
-- **An uncarved terrain is declared a surface,** so the solid-body check no
-  longer reports its rim as open edges.
-- **The terrain's mesh spacing names its unit.** `Pset_BimforgeTerrain`
-  gains `MeshSpacingUnit` (the CRS's: `ftUS`, `ft` or `m`), and the build
-  log gives the spacing in it, not always "m".
-- **A facility on an alignment is positioned on it.** `IfcRelPositions`
-  now lists the `IfcRoad` (or other facility) as well as its elements.
 
 ## 0.1.130 — 2026-11-21
 
