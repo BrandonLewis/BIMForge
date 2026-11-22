@@ -267,7 +267,7 @@ def _run_check(args) -> int:
     try:
         data = Path(args.ifc).read_bytes()
         model = ifcopenshell.open(args.ifc)
-    except (OSError, RuntimeError) as exc:
+    except (OSError, ValueError, RuntimeError, ifcopenshell.Error) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     if args.list:

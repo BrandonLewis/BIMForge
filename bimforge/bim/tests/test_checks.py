@@ -223,3 +223,11 @@ def test_cli_records_and_lists_a_check(tmp_path, capsys):
     assert main(["check", "--ifc", str(path), "--element", WALL, "--what",
                  "DesignHeight", "--sheet", "S-3", "--sheet-value", "8",
                  "--unit", "FT", "--out", str(out)]) == 1
+
+
+def test_cli_refuses_a_file_that_is_not_ifc(tmp_path, capsys):
+    from bimforge.bim.cli import main
+    path = tmp_path / "broken.ifc"
+    path.write_text("not an IFC file")
+    assert main(["check", "--ifc", str(path), "--list"]) == 1
+    assert "error:" in capsys.readouterr().err
