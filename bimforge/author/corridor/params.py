@@ -98,7 +98,8 @@ class Guard:
 
     @property
     def widening(self) -> float:
-        """Rail face to the hinge behind the post, feet."""
+        """Horizontal, from the shoulder edge (the rail face) to the hinge,
+        falling at 10:1, feet."""
         return self.rail_depth + HINGE_BEHIND_POST_FT
 
 
@@ -196,7 +197,8 @@ class Corridor:
         return edge
 
     def max_half_width(self) -> float:
-        """The widest a side's components get anywhere, feet."""
+        """The widest a side's components get anywhere in their width
+        tables, feet; a cut wall's 10 ft shoulder is not counted."""
         return max(sum(max([comp.width] + [w for _s, w in
                                             self.widths.get((comp.name, side), ())])
                        for comp in self.components)
@@ -254,8 +256,8 @@ class Corridor:
         for w in walls:
             for g in self.gaps:
                 if (g.kind == "wall" and g.auto is None and g.side == w.side
-                        and w.start - WALL_TRANSITION_FT < g.end + _EPS
-                        and g.start - _EPS < w.end + WALL_TRANSITION_FT):
+                        and w.start - 2 * WALL_TRANSITION_FT < g.end + _EPS
+                        and g.start - _EPS < w.end + 2 * WALL_TRANSITION_FT):
                     raise ValueError(
                         f"walls: auto puts a {w.auto} wall on the {w.side} side "
                         f"from {sta(w.start)} to {sta(w.end)}, against the "
@@ -359,6 +361,9 @@ def _slopes(sec: dict, s_start: float, s_end: float) -> Slopes:
     steep = None
     if fill.get("steep") is not None:
         st = fill["steep"]
+        if not isinstance(st, dict):
+            raise ValueError("side_slopes.fill.steep: a mapping "
+                             "({ratio, above_height_ft})")
         steep = Steep(_num(st.get("ratio"), "side_slopes.fill.steep.ratio"),
                       _num(st.get("above_height_ft"),
                            "side_slopes.fill.steep.above_height_ft"))
@@ -368,6 +373,9 @@ def _slopes(sec: dict, s_start: float, s_end: float) -> Slopes:
     rock = None
     if cut.get("rock") is not None:
         rk = cut["rock"]
+        if not isinstance(rk, dict):
+            raise ValueError("side_slopes.cut.rock: a mapping "
+                             "({depth_ft, ratio, bench_ft})")
         rock = Rock(_depth_rows(rk.get("depth_ft"), s_start, s_end),
                     _num(rk.get("ratio"), "side_slopes.cut.rock.ratio"),
                     _num(rk.get("bench_ft"), "side_slopes.cut.rock.bench_ft"))
@@ -405,11 +413,11 @@ def _depth_rows(value, s_start: float, s_end: float) -> tuple:
 
 def _guard(gp, steep: bool) -> Guard | None:
     """The `guardrail:` block; a steep rule brings one at its defaults."""
+    if gp is not None and not isinstance(gp, dict):
+        raise ValueError("guardrail: a mapping ({design_speed_mph: 45})")
     if gp is None and not steep:
         return None
     gp = gp or {}
-    if not isinstance(gp, dict):
-        raise ValueError("guardrail: a mapping ({design_speed_mph: 45})")
     speed = _num(gp.get("design_speed_mph", 45), "guardrail.design_speed_mph")
     if speed not in RUNOUT_FT:
         raise ValueError(f"guardrail.design_speed_mph: {speed:g} mph is not in "

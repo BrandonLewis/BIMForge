@@ -3,7 +3,8 @@ import copy
 
 import pytest
 
-from bimforge.author.corridor.params import NORMAL_CROWN, parse
+from bimforge.author.corridor.params import (CUT_WALL_SHOULDER_FT, NORMAL_CROWN,
+                                             Gap, Guard, Rock, Steep, parse)
 
 BASE = {"section": {
     "components": [{"name": "lane", "kind": "carriageway", "width": 12.0},
@@ -156,8 +157,6 @@ def test_another_crown_is_refused(crown):
         parse({"section": dict(BASE["section"], crown=crown)}, 1000.0, 2000.0)
 
 
-from bimforge.author.corridor.params import (CUT_WALL_SHOULDER_FT, Gap, Guard,
-                                             Rock, Steep)
 
 STEEP_FILL = {"ratio": 4.0, "steep": {"ratio": 2.0, "above_height_ft": 10.0}}
 ROCK_CUT = {"ratio": 2.0, "ditch": {"width": 4.0, "depth": 1.5},
@@ -288,7 +287,20 @@ def test_a_cut_wall_needs_a_shoulder_to_widen():
     (params(guardrail={"design_speed_mph": 55}),
      r"design_speed_mph: 55 mph is not in the runout table \(45, 50 mph\)"),
     (params(guardrail={"rail_depth_ft": 0}), r"rail_depth_ft: must be positive"),
+    (slopes(fill={"ratio": 4.0, "steep": 2.0}), r"fill\.steep: a mapping"),
+    (slopes(cut={"ratio": 2.0, "rock": 0.5}), r"cut\.rock: a mapping"),
+    (params(guardrail=[]), r"guardrail: a mapping"),
+    (params(guardrail=0), r"guardrail: a mapping"),
+    (params(guardrail=""), r"guardrail: a mapping"),
 ])
 def test_bad_v11_params_are_refused(p, match):
     with pytest.raises(ValueError, match=match):
         parse(p, 1000.0, 2000.0)
+
+
+def test_an_automatic_wall_clears_a_listed_one_by_both_lead_ins():
+    c = parse(params(walls="auto", gaps=[{"from": 1100, "to": 1300, "kind": "wall",
+                                          "side": "L", "offset": 30}]), 1000.0, 2000.0)
+    with pytest.raises(ValueError, match="against the listed wall gap"):
+        c.with_walls([Gap(1301.5, 1400.0, "wall", "L", None, auto="fill")])
+    c.with_walls([Gap(1302.5, 1400.0, "wall", "L", None, auto="fill")])
