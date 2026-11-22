@@ -44,7 +44,10 @@ class Side:
     kind: str           # "cut", "fill" or "wall"
     line: list          # [(u, v)] from the hinge out to daylight or the wall
     guarded: bool = False          # V1.1: a steep fill behind guardrail
-    ratio: float | None = None     # V1.1: the slope it runs at; None on a wall
+    #: V1.1: the side's nominal slope ratio: cut_ratio on any cut side (even
+    #: a side-hill cut whose ditch edge runs down at the fill ratio), the
+    #: fill or steep ratio on a fill side; None on a wall
+    ratio: float | None = None
 
 
 @dataclass(frozen=True)
@@ -166,7 +169,10 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side
             pts += [p1, (p1[0] + sign * sl.ditch.width, p1[1])]
     else:
         kind, pts = "fill", [hinge]
-        # the fill height is read at the subgrade hinge, not the widening's
+        # the fill height is read at the subgrade hinge, the courses' depth
+        # below the finished shoulder, not at the widening's hinge: the
+        # trigger is that much more conservative than TSSM's embankment
+        # height, measured from the shoulder
         if sl.steep is not None and -ground_dz(s, hu, hv) > sl.steep.above_height:
             fill_ratio, guarded = sl.steep.ratio, True
             pts += _widening(c, s, side, sign)

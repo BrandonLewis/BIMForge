@@ -293,3 +293,21 @@ def test_needs_wall_says_which_wall_a_side_needs():
     walled = corridor(gaps=[{"from": 400, "to": 600, "kind": "wall", "side": "L",
                              "offset": 30.0}])
     assert needs_wall(walled, 500.0, "L", level(-500.0)) is None
+
+
+def test_a_cut_past_the_footprint_is_refused():
+    # the backslope daylights at 36.78 ft, past a 30 ft footprint on the left
+    with pytest.raises(NoDaylight, match=r"5\+00\.00: the L cut slope daylights "
+                       r"36\.78 ft out, past the L footprint of 30 ft") as exc:
+        resolve(sloped(footprint={"L": 30.0}), 500.0, level(3.0))
+    assert exc.value.kind == "cut"
+
+
+def test_needs_wall_names_the_kind_past_the_footprint():
+    # fill daylights at 43.22 ft and cut at 36.78 ft: both past their footprint
+    c = sloped(footprint={"L": 30.0, "R": 40.0})
+    assert needs_wall(c, 500.0, "L", level(-15.0)) == "fill"
+    assert needs_wall(c, 500.0, "L", level(3.0)) == "cut"
+    assert needs_wall(c, 500.0, "R", level(-15.0)) == "fill"
+    # inside the footprint the slope fits
+    assert needs_wall(c, 500.0, "R", level(3.0)) is None
