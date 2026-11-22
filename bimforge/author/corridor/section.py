@@ -302,8 +302,8 @@ def _rock(c, s: float, side: str, sign: float, toe: tuple, ground_dz,
     bench `width` ft wide at each `every` ft of height up from the toe,
     two points each, before its top. A corridor allows `max` of them: the
     ones a face does not use collapse onto its top (onto the toe with the
-    rest where the toe is not in rock), and a face needing more is a
-    ValueError, not NoDaylight: a wall is not the answer to it.
+    rest where the toe is not in rock), and a face needing more is
+    NoDaylight, a cut that does not fit: walls: auto puts a cut wall there.
 
     Rock depth is measured vertically below the ground at each point along
     the face, so the face's top (the bench's inner end) sits on the
@@ -340,9 +340,9 @@ def _rock(c, s: float, side: str, sign: float, toe: tuple, ground_dz,
                 f"surface within {c.slopes.daylight_limit:g} ft of the hinge",
                 "cut")
         if len(benches) == 2 * most:
-            raise ValueError(
+            raise NoDaylight(
                 f"station {sta(s)}: the {side} cut's rock face needs more than "
-                f"rock.face_bench.max ({most}) benches")
+                f"rock.face_bench.max ({most}) benches", "cut")
         inner = (at[0] + sign * step, at[1] + fb.every)
         at = (inner[0] + sign * fb.width, inner[1])
         benches += [inner, at]

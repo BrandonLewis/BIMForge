@@ -668,6 +668,24 @@ def test_the_steep_road_benches_its_tall_rock_faces():
     assert vols[1] > vols[0]
 
 
+def test_a_rock_face_needing_more_benches_than_its_max_takes_a_cut_wall():
+    from bimforge.author.families.road_corridor import build
+    # benched every 2 ft and at most one bench, the left's 8 ft rock faces
+    # near 16+00 do not fit: walls: auto stands a cut wall there, and
+    # without walls: auto (and the footprint, so the right's fill fits) the
+    # build refuses
+    p = copy.deepcopy(STEEP)
+    p["section"]["side_slopes"]["footprint_ft"]["L"] = 120
+    p["section"]["side_slopes"]["cut"]["rock"]["face_bench"] = {
+        "every_ft": 2.0, "width_ft": 4.0, "max": 1}
+    assert "\nL,cut," in build(copy.deepcopy(p), CTX).tables["walls"]
+    p.pop("walls")
+    p["section"]["side_slopes"].pop("footprint_ft")
+    with pytest.raises(ValueError, match=r"the L cut's rock face needs more than "
+                       r"rock\.face_bench\.max \(1\) benches"):
+        build(p, CTX)
+
+
 def test_the_steep_road_cuts_a_section_a_foot_outside_each_wall(steep):
     # the wall gaps' ends and their lead-ins' ends are stations (the first
     # wall starts at the run's start, so it has no lead-in there)

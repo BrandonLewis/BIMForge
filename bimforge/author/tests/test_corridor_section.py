@@ -475,13 +475,23 @@ def test_a_tall_face_s_catchment_under_the_rail_keeps_its_flowline():
     assert flat(line[3:5]) == pytest.approx(flat([(28.952, -4.89), (38.952, -4.89)]))
 
 
-def test_a_face_needing_more_benches_than_its_max_is_refused():
-    # the 70 ft face needs two benches; max 1 allows one
-    with pytest.raises(ValueError, match=r"5\+00\.00: the L cut's rock face needs "
+def test_a_face_needing_more_benches_than_its_max_is_a_cut_that_does_not_fit():
+    # the 70 ft face needs two benches; max 1 allows one. Without walls:
+    # auto that is an error naming the station and side
+    with pytest.raises(NoDaylight, match=r"5\+00\.00: the L cut's rock face needs "
                        r"more than rock\.face_bench\.max \(1\) benches") as exc:
         resolve(sloped(cut=tall_cut(max=1)), 500.0, level(74.61))
-    assert not isinstance(exc.value, NoDaylight)
+    assert exc.value.kind == "cut"
     resolve(sloped(cut=tall_cut(max=2)), 500.0, level(74.61))
+    # with walls: auto the side takes a cut wall, as any cut that does not
+    # fit: it stands beside its 10 ft shoulder and the section builds
+    c = sloped(cut=tall_cut(max=1), walls="auto")
+    assert needs_wall(c, 500.0, "L", level(74.61)) == "cut"
+    walled = c.with_walls([Gap(400.0, 600.0, "wall", "L", None, auto="cut"),
+                           Gap(400.0, 600.0, "wall", "R", None, auto="cut")])
+    sec = resolve(walled, 500.0, level(74.61))
+    assert [sec.sides[side].kind for side in ("L", "R")] == ["wall", "wall"]
+    assert flat(sec.sides["L"].line) == pytest.approx(flat([(22, -2.14), (22, -2.14)]))
 
 
 def test_with_face_benches_every_side_has_one_earthwork_line_count():
