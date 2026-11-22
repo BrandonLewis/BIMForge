@@ -251,8 +251,16 @@ class Corridor:
         """This corridor with automatic wall gaps (`walls: auto`) added. A
         wall whose stations, its 1 ft lead-ins included, touch a listed wall
         gap on its side is refused, as is a cut wall with no shoulder to
-        widen beside it."""
-        walls = tuple(walls)
+        widen beside it.
+
+        Automatic walls of one kind on a side, these and those already
+        added, closer than one station interval and with no structure gap
+        between are one wall: a ground that fails, fits for a few feet and
+        fails again gets one continuous wall, not short walls with slivers
+        of slope between."""
+        walls = self._merged(tuple(g for g in self.gaps if g.auto is not None)
+                             + tuple(walls))
+        listed = tuple(g for g in self.gaps if g.auto is None)
         for w in walls:
             for g in self.gaps:
                 if (g.kind == "wall" and g.auto is None and g.side == w.side
@@ -272,8 +280,7 @@ class Corridor:
         # each ending on a slope that fits; closer, the side has neither a
         # wall nor a slope there, and a cut wall's widening reaches under
         # its neighbour
-        autos = sorted((g for g in self.gaps + walls if g.auto is not None),
-                       key=lambda g: (g.side, g.start))
+        autos = sorted(walls, key=lambda g: (g.side, g.start))
         for p, q in zip(autos, autos[1:]):
             if p.side == q.side and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS:
                 raise ValueError(
@@ -282,8 +289,23 @@ class Corridor:
                     f"{sta(q.start)} to {sta(q.end)}, under "
                     f"{2 * WALL_TRANSITION_FT:g} ft apart: no slope fits between "
                     f"them; list a wall or a structure gap there")
-        return replace(self, gaps=tuple(sorted(self.gaps + walls,
+        return replace(self, gaps=tuple(sorted(listed + walls,
                                                key=lambda g: (g.start, g.side or ""))))
+
+    def _merged(self, walls: tuple) -> tuple:
+        """`walls` (automatic) with each side's walls of one kind under one
+        station interval apart, no structure gap between, made one."""
+        out = []
+        for w in sorted(walls, key=lambda g: (g.side, g.auto, g.start)):
+            p = out[-1] if out else None
+            if (p is not None and p.side == w.side and p.auto == w.auto
+                    and w.start - p.end < self.interval - _EPS
+                    and not any(g.kind == "structure" and g.start < w.start + _EPS
+                                and g.end > p.end - _EPS for g in self.gaps)):
+                out[-1] = replace(p, end=max(p.end, w.end))
+            else:
+                out.append(w)
+        return tuple(out)
 
 
 def _num(value, where: str, positive: bool = True) -> float:

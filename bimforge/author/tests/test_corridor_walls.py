@@ -202,3 +202,39 @@ def test_the_wall_and_structure_tables():
     assert walls.walls_csv([]) == walls.WALL_HEADER + "\n"
     assert walls.structures_csv([walls.StructureRow("R", 1000.0, 1111.0, 21.21, 1000.0)]) == (
         walls.STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00\n")
+
+
+def test_same_kind_walls_closer_than_a_station_interval_are_one_wall():
+    # the left fill finds no ground from 4+49.5 to 5+00.5 and from 5+10.5 to
+    # 5+60.5, fitting for 10 ft between (a station at 5+05 sees it). find
+    # makes 4+50 to 5+00 (5+01 fits) and 5+11 (5+10 fits) to 5+60 (5+61
+    # fits): 11 ft apart, under the 25 ft station interval, so one wall,
+    # not two with a sliver of slope between
+    def dz(s, u, v):
+        deep = u > 0.0 and (449.5 <= s <= 500.5 or 510.5 <= s <= 560.5)
+        return (-500.0 if deep else -5.0) - v
+    c = corridor(walls="auto")
+    found = walls.find(c, [425.0, 450.0, 475.0, 500.0, 505.0, 525.0, 550.0, 575.0], dz)
+    assert found == [Gap(450.0, 500.0, "wall", "L", None, auto="fill"),
+                     Gap(511.0, 560.0, "wall", "L", None, auto="fill")]
+    assert [g for g in c.with_walls(found).gaps if g.auto] == [
+        Gap(450.0, 560.0, "wall", "L", None, auto="fill")]
+
+
+def test_same_kind_walls_merge_and_other_kinds_or_a_bridge_keep_them_apart():
+    c = corridor(walls="auto")
+    a = Gap(400.0, 437.4, "wall", "L", None, auto="fill")
+    # under two lead-ins apart but the same kind: one wall, no error, and a
+    # wall added later merges with one already there
+    assert [g for g in c.with_walls([a, Gap(438.0, 475.0, "wall", "L", None,
+                                            auto="fill")]).gaps if g.auto] == [
+        Gap(400.0, 475.0, "wall", "L", None, auto="fill")]
+    assert [g for g in c.with_walls([a]).with_walls(
+        [Gap(450.0, 475.0, "wall", "L", None, auto="fill")]).gaps if g.auto] == [
+        Gap(400.0, 475.0, "wall", "L", None, auto="fill")]
+    # 25 ft apart is not under the interval; across a structure gap never
+    b = Gap(462.4, 475.0, "wall", "L", None, auto="fill")
+    assert len([g for g in c.with_walls([a, b]).gaps if g.auto]) == 2
+    bridged = corridor(walls="auto", gaps=[{"from": 440, "to": 445, "kind": "structure"}])
+    assert len([g for g in bridged.with_walls(
+        [a, Gap(446.0, 475.0, "wall", "L", None, auto="fill")]).gaps if g.auto]) == 2
