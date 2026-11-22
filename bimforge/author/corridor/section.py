@@ -139,7 +139,8 @@ def _daylight(s, start, sign, rise, ground_dz, reach, cut):
     return (su + sign * hi, sv + rise * hi)
 
 
-def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
+def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
+          rail: bool = False) -> Side:
     hu, hv = hinge
     # each side reads its own wall, so walls on both sides at one station
     # each end their own side
@@ -156,22 +157,33 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
                 f"station {sta(s)}: the {side} wall at offset {wall.offset:g} ft "
                 f"is inside the hinge at {abs(hu):g} ft")
         return Side("wall", [hinge, (sign * wall.offset, hv)])
-    return _slope(c, s, side, sign, hinge, ground_dz)
+    return _slope(c, s, side, sign, hinge, ground_dz, rail)
 
 
-def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
+def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
+           rail: bool = False) -> Side:
     """The side's slope from `hinge` out to daylight: cut (the ditch, V1.1's
     rock face and bench, then the backslope) or fill (V1.1: the steep ratio
     behind the rail's widening where the fill at the hinge is over the
     steep rule's height). NoDaylight when it finds no ground within the
-    limit or daylights past the footprint."""
+    limit or daylights past the footprint.
+
+    With `rail` (a guardrail runs past station s on this side) the 10:1
+    widening stands behind the rail whatever the side is: a 4:1 fill runs
+    from the widening's hinge, and a cut's ditch moves out behind it. The
+    side's kind and its guarded flag are read at the subgrade hinge as
+    without it, so the rail does not move the spans it was laid for."""
     hu, hv = hinge
     sl = c.slopes
     fill_ratio, guarded = sl.fill_ratio, False
     if ground_dz(s, hu, hv) > 0.0:
         kind, pts = "cut", [hinge]
+        if rail:
+            pts += _widening(c, s, side, sign)
         if sl.ditch is not None:
-            p1 = (hu + sign * sl.cut_ratio * sl.ditch.depth, hv - sl.ditch.depth)
+            # from the hinge, or under a rail from the widening's hinge
+            du, dv = pts[-1]
+            p1 = (du + sign * sl.cut_ratio * sl.ditch.depth, dv - sl.ditch.depth)
             pts += [p1, (p1[0] + sign * sl.ditch.width, p1[1])]
         if sl.rock is not None:
             pts += _rock(c, s, side, sign, pts[-1], ground_dz,
@@ -184,6 +196,7 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side
         # height, measured from the shoulder
         if sl.steep is not None and -ground_dz(s, hu, hv) > sl.steep.above_height:
             fill_ratio, guarded = sl.steep.ratio, True
+        if guarded or rail:
             pts += _widening(c, s, side, sign)
     # up the backslope while the ground is above the slope's start; on a side
     # hill the ditch's outer edge can stand above the ground, and the side
@@ -346,8 +359,10 @@ def _named(ground_dz, side: str):
     return dz
 
 
-def resolve(c, s: float, ground_dz) -> Section:
-    """The section of corridor `c` at station `s` (params.Corridor)."""
+def resolve(c, s: float, ground_dz, rail=()) -> Section:
+    """The section of corridor `c` at station `s` (params.Corridor). `rail`
+    names the sides a guardrail runs past at s: each takes the widening
+    behind it (_slope)."""
     depth = c.depth()
     grade, subgrade, courses, sides = {}, {}, {}, {}
     for side in SIDES:
@@ -364,5 +379,5 @@ def resolve(c, s: float, ground_dz) -> Section:
                                        (u1, v1 - above - t), (u0, v0 - above - t)]
             above += t
         sides[side] = _side(c, s, side, sign, subgrade[side][-1],
-                            _named(ground_dz, side))
+                            _named(ground_dz, side), side in rail)
     return Section(s, grade, courses, subgrade, sides)

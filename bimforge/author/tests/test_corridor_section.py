@@ -435,3 +435,53 @@ def test_one_earthwork_line_count_for_every_kind_of_side():
             resolve(rocky, 500.0, level(3.0)),            # cut short of rock
             resolve(walled, 500.0, lambda s, u, v: (-500.0 if u > 0.0 else -5.0) - v)]
     assert {len(sec.earthwork_line()) for sec in secs} == {n}
+
+
+def test_a_4_to_1_fill_under_the_rail_takes_the_widening():
+    # 3.11 ft of fill: 4:1, not guarded, but a rail runs here (its length of
+    # need past a guarded span), so the 10:1 widening stands behind it: to
+    # (20.94, -0.884), then 4:1 falling 4.116 ft in 16.464 ft: (37.404, -5)
+    sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(-5.0), rail=("L",))
+    side = sec.sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("fill", False, 4.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (37.404, -5.0)]))
+    # the right has no rail: 4:1 from its hinge, as before
+    assert flat(sec.sides["R"].line) == pytest.approx(flat([(-17, -1.89), (-29.44, -5.0)]))
+    # a guarded side under its rail is the guarded side
+    assert (resolve(sloped(fill=STEEP_FILL), 500.0, level(-15.0), rail=("L",)).sides["L"]
+            == resolve(sloped(fill=STEEP_FILL), 500.0, level(-15.0)).sides["L"])
+
+
+def test_a_cut_under_the_rail_moves_its_ditch_out_behind_the_widening():
+    # the widening to (20.94, -0.884); the ditch from there, down 1.5 at 2:1
+    # to (23.94, -2.384) and 4 ft across to (27.94, -2.384); the backslope
+    # rises 5.384 ft in 10.768 ft to the ground at 3: (38.708, 3)
+    sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(3.0), rail=("L",))
+    side = sec.sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("cut", False, 2.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (23.94, -2.384),
+         (27.94, -2.384), (38.708, 3.0)]))
+
+
+def test_a_rock_cut_under_the_rail_and_the_line_s_count():
+    # the toe (27.94, -2.384) as above; rock 8 ft under the ground at 15
+    # (v = 7): the 0.5:1 face rises 9.384 ft in 4.692 ft to (32.632, 7), the
+    # bench to (38.632, 7), the soil 2:1 up 8 ft in 16 ft to (54.632, 15)
+    c = sloped(fill=STEEP_FILL, cut=ROCK_CUT)
+    sec = resolve(c, 500.0, level(15.0), rail=("L", "R"))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (23.94, -2.384),
+         (27.94, -2.384), (32.632, 7.0), (38.632, 7.0), (54.632, 15.0)]))
+    n = 2 * SIDE_SAMPLES - 1 + 2 * 2
+    under = [resolve(c, 500.0, level(h), rail=("L", "R"))
+             for h in (-5.0, -15.0, 3.0, 15.0)]
+    assert {len(s.earthwork_line()) for s in under} == {n}
+
+
+def test_a_wall_under_the_rail_is_the_wall():
+    c = sloped(fill=STEEP_FILL, gaps=[{"from": 900, "to": 1100, "kind": "wall",
+                                       "side": "L", "offset": 30.0}])
+    assert (resolve(c, 1000.0, level(-15.0), rail=("L",)).sides["L"]
+            == resolve(c, 1000.0, level(-15.0)).sides["L"])
