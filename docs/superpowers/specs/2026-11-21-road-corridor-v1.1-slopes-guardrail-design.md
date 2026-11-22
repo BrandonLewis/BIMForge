@@ -40,7 +40,8 @@ Every new key is optional. A V1 spec builds exactly as before: one fill ratio, o
 
 - The cut runs at `cut.ratio` through the soil to `rock.depth_ft` below ground, then a level bench `rock.bench_ft` wide, then `rock.ratio` in rock down to grade or daylight.
 - `depth_ft` is one value or `[station, depth]` rows, interpolated linearly with the end values holding, as widths are. It stands for a geotechnical report the project does not have yet.
-- A cut that never reaches rock collapses the bench onto its daylight point, so the cut side keeps a fixed point count (lofting needs it).
+- The rock face is built up from the cut's toe: rock depth is measured vertically below ground at each point along the face, so the face's top (the bench's inner end) sits on the soil/rock interface and the face only ever stands in rock.
+- A cut whose toe is not in rock collapses the face and bench onto the toe, so the cut side keeps a fixed point count (lofting needs it).
 
 ## Walls
 
