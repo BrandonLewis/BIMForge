@@ -184,3 +184,17 @@ def test_a_plane_adds_its_terrain_as_3dep_would():
 def test_a_plane_with_no_model_adds_nothing():
     g = from_params({"source": "plane", "elevation": 95.0}, line(), None, 50.0, None)
     assert g.z(0.0, 0.0) == pytest.approx(95.0)
+
+
+def test_3dep_with_no_model_reads_ground_and_adds_nothing(monkeypatch, tmp_path):
+    import bimforge.terrain as T
+
+    def fake_fetch(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
+        return TerrainGrid(z=np.full((4, 4), 30.0), bbox_m=bbox_m,
+                           spacing_m=spacing_m, crs_epsg=crs_epsg)
+
+    monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
+    ctx = ProjectContext(name="g", epsg=2226, guid_ns=uuid.UUID(int=5))
+    g = from_params({"source": "3dep", "cache": str(tmp_path / "ml")},
+                    line(), ctx, 40.0, None, log=lambda *_: None)
+    assert g.z(50.0, 0.0) == pytest.approx(30.0 / US_FT)     # 30 m, in ft

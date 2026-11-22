@@ -173,3 +173,15 @@ def test_an_unused_vertex_does_not_break_the_check():
     v, f = _cube()
     t = mesh_topology(v + [(2.0, 2.0, 2.0)], f, weld=1e-6)
     assert t["closed"] and t["components"] == 1
+
+
+def test_quiet_stdout_runs_with_no_sys_stdout(monkeypatch):
+    # pythonw and embedded hosts give sys.stdout = None; the guard must not
+    # touch it, and must still run its body
+    import sys
+    from bimforge.bim.ifc_mesh import quiet_stdout
+    monkeypatch.setattr(sys, "stdout", None)
+    ran = []
+    with quiet_stdout():
+        ran.append(True)
+    assert ran == [True]
