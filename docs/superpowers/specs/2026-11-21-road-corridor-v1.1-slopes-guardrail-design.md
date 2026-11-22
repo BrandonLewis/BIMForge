@@ -60,17 +60,19 @@ Every new key is optional. A V1 spec builds exactly as before: one fill ratio, o
 
 ## Guardrail
 
-- **Where:** every guarded station (a 2:1 fill) on a side; consecutive guarded stations merge into a run. Cut sides and fill walls get none.
-- **Section behind the rail** (TSSM 3.6, Standard Plan A77N3 Detail A): MGS, rail face at the shoulder edge; a 10:1 widening behind it out to a hinge 30 in behind the back of post; then the 2:1 slope. Face to back of post is `rail_depth_ft`, 1.44 ft by default: the 3 1/4 in W-beam, the standard 6 x 8 in block that holds the rail 8 in off the post, and a W6 post about 6 in deep (2025 Standard Plans A77N2, A77N3; the 12 in block, used with a 6 in Type A dike, makes it about 1.77 ft). Top of rail 31 in, posts at 6'-3", hinge at least 30 in behind the back of post (A77N3 Detail A). The widening is earthwork.
+- **Where:** every guarded station (a 2:1 fill) on a side; consecutive guarded stations merge into a run, then extend by their length of need. Every structure gap also gets approach and departure rail on both sides of both ends, from the bridge rail (a Type AGT) outward by the length of need, with the bridge end as the hazard (TSSM 3.6(2)(a)). Fill walls carry their own barrier.
+- **Section behind the rail** (TSSM 3.6, Standard Plan A77N3 Detail A): MGS, rail face at the shoulder edge; a 10:1 widening behind it out to a hinge 30 in behind the back of post; then the 2:1 slope. Face to back of post is `rail_depth_ft`, 1.44 ft by default: the 3 1/4 in W-beam, the standard 6 x 8 in block that holds the rail 8 in off the post, and a W6 post about 6 in deep (2025 Standard Plans A77N2, A77N3; the 12 in block, used with a 6 in Type A dike, makes it about 1.77 ft). Top of rail 31 in, posts at 6'-3", hinge at least 30 in behind the back of post (A77N3 Detail A). The widening is earthwork. It runs the whole length of the rail, length-of-need stretches included, on any kind of side: where the rail passes a cut, the ditch moves out behind the widening. So every post is a 6 ft post on Detail A.
 - **Length of need** (TSSM length-of-need calculator), each run extended upstream and downstream, for each direction of travel on a two-lane road:
   - X = (LH − L2 − Y) / (LH / LR).
   - LR (runout length) from `design_speed_mph`: 195 ft at 45 mph, 230 ft at 50 mph.
   - LH: the clear-zone edge, 20 ft (HDM Index 309.1), measured from centerline for opposing traffic.
   - L2: the rail face's offset from the edge of traveled way. Y: 0, in-line terminals.
-  - The run is rounded up to whole 12.5 ft rail elements, 150 ft minimum. Runs closer than a terminal's length join.
-- **Ends:** a crashworthy in-line terminal, except at a structure gap (a Type AGT transition to the bridge rail) or an automatic wall (tied into its barrier).
+  - The run is rounded up to whole 12.5 ft rail elements, 150 ft minimum (TSSM 3.6(1)); the extra is split evenly between free ends. A run held at both ends (bridge, wall, alignment end) that cannot reach 150 ft is flagged, not passed silently.
+  - The length of need is measured to a point 12.5 ft in from a terminal's nose, so a terminal end extends 12.5 ft past it.
+  - Runs closer than 200 ft join (TSSM 3.6(11)), unless a wall or a structure gap lies between them.
+- **Ends:** a crashworthy in-line terminal; a Type AGT transition at a bridge rail or a wall (TSSM 3.6(10)(c)); a Type SFT-M anchor where that direction's length of need is zero (TSSM 3.6(10)(b)).
 - **Element:** each run is an `IfcRailing` GUARDRAIL; its body is a W-beam band at 31 in to the top of rail, swept along its offset line with the kernel's sweep. Posts are not modelled as solids.
-- **Quantities:** rail length, post count at 6'-3", terminals by type, AGT transitions. `outputs.guardrail`: side, start and end station, length, end treatments.
+- **Quantities:** rail length, post count at 6'-3", terminals, AGT transitions and SFT-M anchors. `outputs.guardrail`: side, start and end station, length, end treatments, and the below-minimum flag.
 
 ## Dimensions and formulas
 
@@ -109,4 +111,4 @@ V1's errors stand, except that "no daylight within the limit" is now a wall unde
 
 ## Out of scope
 
-The path beside the road (part C); 3:1 slopes and the runout band; narrow-hinge 8 ft posts; fixed objects other than walls; flared terminals; the District Traffic Safety Engineer's concurrence; culvert sizing and drainage paths (the drainage study); concrete barrier as its own element.
+The path beside the road (part C); 3:1 slopes and the runout band; fixed objects other than walls; flared terminals; the District Traffic Safety Engineer's concurrence; culvert sizing and drainage paths (the drainage study); concrete barrier as its own element.
