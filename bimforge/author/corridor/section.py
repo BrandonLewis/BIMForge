@@ -154,8 +154,8 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
 
 
 def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
-    """The side's slope from `hinge` out to daylight: cut (the ditch, then
-    the backslope) or fill (V1.1: the steep ratio behind the rail's widening
+    """The side's slope from `hinge` out to daylight: cut (the ditch, V1.1's
+    rock face and bench, then the backslope) or fill (V1.1: the steep ratio behind the rail's widening
     where the fill at the hinge is over the steep rule's height). NoDaylight
     when it finds no ground within the limit or daylights past the
     footprint."""
@@ -167,6 +167,9 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side
         if sl.ditch is not None:
             p1 = (hu + sign * sl.cut_ratio * sl.ditch.depth, hv - sl.ditch.depth)
             pts += [p1, (p1[0] + sign * sl.ditch.width, p1[1])]
+        if sl.rock is not None:
+            pts += _rock(c, s, side, sign, pts[-1], ground_dz,
+                         sl.daylight_limit - abs(pts[-1][0] - hu))
     else:
         kind, pts = "fill", [hinge]
         # the fill height is read at the subgrade hinge, the courses' depth
@@ -211,6 +214,31 @@ def _widening(c, s: float, side: str, sign: float) -> list:
     eu, ev = grade_edge(c, s, side)
     return [(eu + sign * w, ev - WIDENING_SLOPE * w)
             for w in (GUARD_STEP_FT, c.guard.widening)]
+
+
+def _rock(c, s: float, side: str, sign: float, toe: tuple, ground_dz,
+          reach: float) -> list:
+    """The rock face's top and the bench's end, out from the toe of the cut
+    (the ditch's outer edge, or the hinge without a ditch): the face at
+    `rock.ratio` up to the rock surface (`rock.depth_at(s)` under the
+    ground), then the bench level `rock.bench` ft. A toe not in rock gives
+    the toe twice: the face and bench collapse onto it, so a rock cut has
+    one vertex count at every station and its last segment, the one
+    `_samples` divides, is always the soil slope."""
+    rock = c.slopes.rock
+    depth = rock.depth_at(s)
+
+    def in_rock(s_, u, v):
+        return ground_dz(s_, u, v) - depth
+
+    if in_rock(s, *toe) <= 0.0:
+        return [toe, toe]
+    top = _daylight(s, toe, sign, 1.0 / rock.ratio, in_rock, reach, cut=True)
+    if top is None:
+        raise NoDaylight(
+            f"station {sta(s)}: the {side} cut's rock face finds no rock "
+            f"surface within {c.slopes.daylight_limit:g} ft of the hinge", "cut")
+    return [top, (top[0] + sign * rock.bench, top[1])]
 
 
 def _grade(c, s: float, side: str) -> list:

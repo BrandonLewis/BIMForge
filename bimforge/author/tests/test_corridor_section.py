@@ -261,6 +261,12 @@ def test_the_earthwork_line_keeps_its_count_whatever_the_side_is():
     secs = [resolve(c, 500.0, level(-5.0)), resolve(c, 500.0, level(-15.0)),
             resolve(c, 500.0, level(3.0)), resolve(c, 1000.0, level(-15.0))]
     assert [s.sides["L"].kind for s in secs] == ["fill", "fill", "cut", "wall"]
+    # with rock: a cut into rock, one whose bench collapses, a side-hill cut
+    # (V1's 2:1 fill ratio: the 4:1 runs down shallower than its ground) and
+    # fill
+    rc = sloped(cut=ROCK_CUT)
+    secs += [resolve(rc, 500.0, level(15.0)), resolve(rc, 500.0, level(3.0)),
+             resolve(rc, 500.0, side_hill), resolve(rc, 500.0, level(-15.0))]
     assert {len(s.earthwork_line()) for s in secs} == {2 * SIDE_SAMPLES - 1 + 2 * 2}
 
 
@@ -311,3 +317,71 @@ def test_needs_wall_names_the_kind_past_the_footprint():
     assert needs_wall(c, 500.0, "R", level(-15.0)) == "fill"
     # inside the footprint the slope fits
     assert needs_wall(c, 500.0, "R", level(3.0)) is None
+
+
+ROCK_CUT = {"ratio": 2.0, "ditch": {"width": 4.0, "depth": 1.5},
+            "rock": {"depth_ft": 8.0, "ratio": 0.5, "bench_ft": 6.0}}
+
+
+def test_a_cut_into_rock_benches_then_runs_soil_to_daylight():
+    # ground 15 ft above the PGL, rock 8 ft under it, at v = 7. The ditch's
+    # outer edge (24, -3.39) is 18.39 ft under ground, 10.39 ft into rock.
+    # The rock face rises 2 per ft (0.5:1): 10.39 ft in 5.195 ft, to
+    # (29.195, 7). The bench runs 6 ft level: (35.195, 7). The soil, 8 ft
+    # deep, rises 1 in 2: 16 ft out, daylight (51.195, 15)
+    sec = resolve(sloped(cut=ROCK_CUT), 500.0, level(15.0))
+    side = sec.sides["L"]
+    assert (side.kind, side.ratio) == ("cut", 2.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39), (29.195, 7.0), (35.195, 7.0),
+         (51.195, 15.0)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-51.195, 15.0])
+
+
+def test_a_cut_that_never_reaches_rock_collapses_its_bench_onto_the_toe():
+    # ground 3 ft above: the ditch's edge is 3 + 3.39 = 6.39 ft under,
+    # inside the 8 ft of soil. The rock face and the bench are points at the
+    # edge, and the soil runs to V1's daylight: 6.39 ft up at 1 in 2,
+    # 12.78 ft out: (36.78, 3)
+    sec = resolve(sloped(cut=ROCK_CUT), 500.0, level(3.0))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39), (24, -3.39), (24, -3.39),
+         (36.78, 3.0)]))
+    deep = resolve(sloped(cut=ROCK_CUT), 500.0, level(15.0))
+    assert len(sec.earthwork_line()) == len(deep.earthwork_line())
+
+
+def test_rock_depth_follows_its_rows():
+    # [0, 8] to [2000, 12]: 10 ft at 10+00, rock at v = 15 - 10 = 5. The
+    # rock face rises 5 + 3.39 = 8.39 ft from the ditch's edge in 4.195 ft:
+    # (28.195, 5); the bench to (34.195, 5); 10 ft of soil at 1 in 2, 20 ft
+    # out: (54.195, 15)
+    cut = copy.deepcopy(ROCK_CUT)
+    cut["rock"]["depth_ft"] = [[0, 8.0], [2000, 12.0]]
+    sec = resolve(sloped(cut=cut), 1000.0, level(15.0))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39), (28.195, 5.0), (34.195, 5.0),
+         (54.195, 15.0)]))
+
+
+def test_a_side_hill_rock_cut_whose_ditch_edge_is_above_ground_runs_fill_down():
+    # as V1's side hill: the ditch edge (24, -3.39) is 1/3 ft above the
+    # ground, so not in rock; the bench collapses onto it and the side runs
+    # down 2:1 to (26, -4.39)
+    sec = resolve(sloped(cut=ROCK_CUT), 500.0, side_hill)
+    side = sec.sides["L"]
+    assert (side.kind, side.ratio) == ("cut", 2.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39), (24, -3.39), (24, -3.39),
+         (26, -4.39)]))
+
+
+def test_a_rock_face_that_finds_no_rock_surface_is_refused():
+    # ground 50 ft above the PGL at the centreline, rising 3 per ft outward:
+    # the ditch's edge is deep in rock, but the rock surface, 8 ft under the
+    # ground, rises 3 per ft and the 0.5:1 face only 2, so it never gets there
+    rising = lambda s, u, v: 50.0 + 3.0 * abs(u) - v
+    with pytest.raises(NoDaylight, match=r"5\+00\.00: the L cut's rock face "
+                       r"finds no rock surface within 150 ft") as exc:
+        resolve(sloped(cut=ROCK_CUT), 500.0, rising)
+    assert exc.value.kind == "cut"
