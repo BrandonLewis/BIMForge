@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from bimforge.author.alignment import sta
-from bimforge.author.corridor.params import SIDES
+from bimforge.author.corridor.params import SIDES, WIDENING_SLOPE
 
 #: points on each side's slope line, hinge and daylight included: fixed, so
 #: every station's earthwork line has the same count and lofts point to point
@@ -22,10 +22,29 @@ _SCAN_FT = 1.0
 _ON_GROUND_FT = 0.01
 
 
+#: a guarded side's widening starts this far outside the shoulder edge, so
+#: the earthwork's face up the courses' outer edge is a slope and not a
+#: vertical step (a step puts two columns on one plan edge, and the merged
+#: earthwork skin is then two bodies touching along it), feet
+GUARD_STEP_FT = 0.01
+
+
+class NoDaylight(ValueError):
+    """A side slope that does not fit: no ground within the daylight limit,
+    or a daylight past the side's footprint. `kind` is the side's kind at
+    its hinge, "cut" or "fill": the wall `walls: auto` puts there."""
+
+    def __init__(self, message: str, kind: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
 @dataclass(frozen=True)
 class Side:
     kind: str           # "cut", "fill" or "wall"
     line: list          # [(u, v)] from the hinge out to daylight or the wall
+    guarded: bool = False          # V1.1: a steep fill behind guardrail
+    ratio: float | None = None     # V1.1: the slope it runs at; None on a wall
 
 
 @dataclass(frozen=True)
@@ -128,7 +147,18 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
                 f"station {sta(s)}: the {side} wall at offset {wall.offset:g} ft "
                 f"is inside the hinge at {abs(hu):g} ft")
         return Side("wall", [hinge, (sign * wall.offset, hv)])
+    return _slope(c, s, side, sign, hinge, ground_dz)
+
+
+def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
+    """The side's slope from `hinge` out to daylight: cut (the ditch, then
+    the backslope) or fill (V1.1: the steep ratio behind the rail's widening
+    where the fill at the hinge is over the steep rule's height). NoDaylight
+    when it finds no ground within the limit or daylights past the
+    footprint."""
+    hu, hv = hinge
     sl = c.slopes
+    fill_ratio, guarded = sl.fill_ratio, False
     if ground_dz(s, hu, hv) > 0.0:
         kind, pts = "cut", [hinge]
         if sl.ditch is not None:
@@ -136,25 +166,45 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
             pts += [p1, (p1[0] + sign * sl.ditch.width, p1[1])]
     else:
         kind, pts = "fill", [hinge]
+        # the fill height is read at the subgrade hinge, not the widening's
+        if sl.steep is not None and -ground_dz(s, hu, hv) > sl.steep.above_height:
+            fill_ratio, guarded = sl.steep.ratio, True
+            pts += _widening(c, s, side, sign)
     # up the backslope while the ground is above the slope's start; on a side
     # hill the ditch's outer edge can stand above the ground, and the side
     # then runs down at the fill ratio from there
     up = ground_dz(s, *pts[-1]) > 0.0
-    rise = 1.0 / sl.cut_ratio if up else -1.0 / sl.fill_ratio
+    rise = 1.0 / sl.cut_ratio if up else -1.0 / fill_ratio
     used = abs(pts[-1][0] - hu)
     day = _daylight(s, pts[-1], sign, rise, ground_dz,
                     sl.daylight_limit - used, cut=up)
     if day is None:
-        raise ValueError(
+        raise NoDaylight(
             f"station {sta(s)}: the {side} {kind} slope finds no ground within "
-            f"{sl.daylight_limit:g} ft of the hinge")
+            f"{sl.daylight_limit:g} ft of the hinge", kind)
     off = ground_dz(s, *day)
     if abs(off) > _ON_GROUND_FT:
         raise ValueError(
             f"station {sta(s)}: the {side} {kind} slope ends {abs(off):.2f} ft "
             f"off the ground at offset {abs(day[0]):.2f} ft (is the ground "
             f"continuous there?)")
-    return Side(kind, pts + [day])
+    fp = (sl.footprint or {}).get(side)
+    if fp is not None and abs(day[0]) > fp + 1e-9:
+        raise NoDaylight(
+            f"station {sta(s)}: the {side} {kind} slope daylights "
+            f"{abs(day[0]):.2f} ft out, past the {side} footprint of {fp:g} ft",
+            kind)
+    return Side(kind, pts + [day], guarded,
+                sl.cut_ratio if kind == "cut" else fill_ratio)
+
+
+def _widening(c, s: float, side: str, sign: float) -> list:
+    """A guarded side's two points past the hinge: GUARD_STEP_FT out from
+    the shoulder edge, then the hinge `Guard.widening` behind the rail face
+    (at the shoulder edge), both on the 10:1 (TSSM 3.6, A77N3 Detail A)."""
+    eu, ev = grade_edge(c, s, side)
+    return [(eu + sign * w, ev - WIDENING_SLOPE * w)
+            for w in (GUARD_STEP_FT, c.guard.widening)]
 
 
 def _grade(c, s: float, side: str) -> list:
@@ -171,6 +221,27 @@ def _grade(c, s: float, side: str) -> list:
         v += w * slope
         pts.append((u, v))
     return pts
+
+
+def grade_edge(c, s: float, side: str) -> tuple:
+    """(u, v) of the finished grade's outer edge, the shoulder edge, on
+    `side` at station s: where a guardrail's face stands."""
+    return _grade(c, s, side)[-1]
+
+
+def needs_wall(c, s: float, side: str, ground_dz) -> str | None:
+    """The wall `side` needs at station s, "cut" or "fill", when its slope
+    does not fit (no daylight within the limit, or past the footprint);
+    None when it fits, or where a wall gap already stands."""
+    if c.wall(side, s) is not None:
+        return None
+    sign = 1.0 if side == "L" else -1.0
+    u, v = grade_edge(c, s, side)
+    try:
+        _slope(c, s, side, sign, (u, v - c.depth()), _named(ground_dz, side))
+    except NoDaylight as exc:
+        return exc.kind
+    return None
 
 
 #: how close the station a side turns at is found, feet

@@ -4,7 +4,9 @@ import copy
 import pytest
 
 from bimforge.author.corridor.params import parse
-from bimforge.author.corridor.section import SIDE_SAMPLES, resolve
+from bimforge.author.corridor.section import (GUARD_STEP_FT, SIDE_SAMPLES,
+                                              NoDaylight, grade_edge,
+                                              needs_wall, resolve)
 
 BASE = {"section": {
     "components": [{"name": "lane", "kind": "carriageway", "width": 12.0},
@@ -202,3 +204,92 @@ def test_ground_missing_under_a_side_names_the_station_and_side():
         return 3.0 - v
     with pytest.raises(ValueError, match=r"station 5\+00\.00, L side.*no ground at N 1\.0 E 2\.0"):
         resolve(corridor(), 500.0, dem)
+
+
+STEEP_FILL = {"ratio": 4.0, "steep": {"ratio": 2.0, "above_height_ft": 10.0}}
+
+
+def sloped(fill=None, cut=None, footprint=None, **over):
+    """A corridor on BASE with its side slopes changed."""
+    p = copy.deepcopy(BASE)
+    ss = p["section"]["side_slopes"]
+    if fill is not None:
+        ss["fill"] = copy.deepcopy(fill)
+    if cut is not None:
+        ss["cut"] = copy.deepcopy(cut)
+    if footprint is not None:
+        ss["footprint_ft"] = dict(footprint)
+    p.update(over)
+    return parse(p, 0.0, 2000.0)
+
+
+def test_the_shoulder_edge_is_the_grade_s_outer_point():
+    assert grade_edge(corridor(), 500.0, "R") == pytest.approx((-17.0, -0.49))
+
+
+def test_fill_under_the_height_limit_takes_4_to_1():
+    # 3.11 ft of fill at the hinge (17, -1.89) over ground at -5: not over
+    # 10 ft, so 4:1, falling 3.11 ft in 4 x 3.11 = 12.44 ft: (29.44, -5)
+    sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(-5.0))
+    side = sec.sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("fill", False, 4.0)
+    assert flat(side.line) == pytest.approx(flat([(17, -1.89), (29.44, -5.0)]))
+
+
+def test_fill_over_the_height_limit_takes_2_to_1_behind_the_rail_s_widening():
+    # 13.11 ft of fill at the hinge over ground at -15: over 10, so 2:1 and
+    # guarded. The rail face is at the shoulder edge (17, -0.49); the
+    # widening falls 1 in 10 to the hinge 1.44 + 2.5 = 3.94 ft out:
+    # (20.94, -0.49 - 0.394) = (20.94, -0.884). Its first point is 0.01 ft
+    # out, on the widening: (17.01, -0.491). From the widening's hinge 2:1
+    # falls 14.116 ft in 28.232 ft: daylight (49.172, -15)
+    sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(-15.0))
+    side = sec.sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("fill", True, 2.0)
+    assert GUARD_STEP_FT == 0.01
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (49.172, -15.0)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-49.172, -15.0])
+    assert len(sec.earthwork_line()) == 2 * SIDE_SAMPLES - 1 + 2 * 2
+
+
+def test_the_earthwork_line_keeps_its_count_whatever_the_side_is():
+    # 4:1 fill, guarded 2:1 fill, cut through the ditch, and a wall: one
+    # count, so stations loft point to point
+    c = sloped(fill=STEEP_FILL, gaps=[{"from": 900, "to": 1100, "kind": "wall",
+                                       "side": "L", "offset": 30.0}])
+    secs = [resolve(c, 500.0, level(-5.0)), resolve(c, 500.0, level(-15.0)),
+            resolve(c, 500.0, level(3.0)), resolve(c, 1000.0, level(-15.0))]
+    assert [s.sides["L"].kind for s in secs] == ["fill", "fill", "cut", "wall"]
+    assert {len(s.earthwork_line()) for s in secs} == {2 * SIDE_SAMPLES - 1 + 2 * 2}
+
+
+def test_without_a_steep_rule_fill_keeps_its_one_ratio():
+    # V1: 2:1 from the hinge, 13.11 ft in 26.22 ft: (43.22, -15)
+    side = resolve(corridor(), 500.0, level(-15.0)).sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("fill", False, 2.0)
+    assert flat(side.line) == pytest.approx(flat([(17, -1.89), (43.22, -15.0)]))
+
+
+def test_a_daylight_past_the_footprint_is_refused():
+    # the 2:1 daylights at 43.22 ft, past a 40 ft footprint on the left
+    with pytest.raises(NoDaylight, match=r"5\+00\.00: the L fill slope daylights "
+                       r"43\.22 ft out, past the L footprint of 40 ft") as exc:
+        resolve(sloped(footprint={"L": 40.0}), 500.0, level(-15.0))
+    assert exc.value.kind == "fill"
+    assert isinstance(exc.value, ValueError)
+    # inside it, the same section builds
+    resolve(sloped(footprint={"L": 44.0}), 500.0, level(-15.0))
+
+
+def test_needs_wall_says_which_wall_a_side_needs():
+    c = corridor()
+    assert needs_wall(c, 500.0, "L", level(-5.0)) is None
+    assert needs_wall(c, 500.0, "L", level(-500.0)) == "fill"
+    # 500 ft of cut: the backslope from the ditch's edge (24, -3.39) needs
+    # 2 x 503.39 ft, past the 143 ft left of the daylight limit
+    assert needs_wall(c, 500.0, "L", level(500.0)) == "cut"
+    # where a wall is listed, the side is that wall: it needs none
+    walled = corridor(gaps=[{"from": 400, "to": 600, "kind": "wall", "side": "L",
+                             "offset": 30.0}])
+    assert needs_wall(walled, 500.0, "L", level(-500.0)) is None
