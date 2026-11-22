@@ -636,6 +636,38 @@ def test_the_steep_road_finds_its_walls(steep):
         STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00\n")
 
 
+def test_the_steep_road_benches_its_tall_rock_faces():
+    from bimforge.author.families.road_corridor import build
+    from bimforge.author.primitives import _signed_volume
+    # the left rock face near 16+00 is about 8 ft tall: benched every 4 ft,
+    # and with a catchment, the cut reaches past the 60 ft footprint, so the
+    # left's is widened to keep it a slope. The benches, the catchment and
+    # the stations where they come and go are still closed bodies, and cut
+    # more than the one-plane face
+    plain = copy.deepcopy(STEEP)
+    plain["section"]["side_slopes"]["footprint_ft"]["L"] = 120
+    benched = copy.deepcopy(plain)
+    benched["section"]["side_slopes"]["cut"]["rock"].update(
+        face_bench={"every_ft": 4.0, "width_ft": 4.0},
+        catchment={"width_ft": 6.0, "depth_ft": 2.5})
+    vols = []
+    for p in (plain, benched):
+        m = build(p, CTX)
+        assert ",cut," not in m.tables["walls"]
+        cuts = [e for e in m.elements if e.ifc_class == "IfcEarthworksCut"]
+        assert cuts
+        for el in cuts:
+            got = 0.0
+            for g in el.geometry:
+                (d,) = g.body_solids()
+                assert _manifold(d["tris"]), el.name
+                v = d["verts"]
+                got += _signed_volume([(v[a], v[b], v[c]) for a, b, c in d["tris"]])
+            assert got == pytest.approx(el.quantities["volume_cf"], rel=1e-9)
+        vols.append(sum(e.quantities["volume_cf"] for e in cuts))
+    assert vols[1] > vols[0]
+
+
 def test_the_steep_road_cuts_a_section_a_foot_outside_each_wall(steep):
     # the wall gaps' ends and their lead-ins' ends are stations (the first
     # wall starts at the run's start, so it has no lead-in there)

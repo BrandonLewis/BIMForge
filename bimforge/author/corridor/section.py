@@ -11,10 +11,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from bimforge.author.alignment import sta
-from bimforge.author.corridor.params import SIDES, WIDENING_SLOPE
+from bimforge.author.corridor.params import SIDES, WIDENING_SLOPE, Ditch
 
 #: points on each side's slope line, hinge and daylight included: fixed, so
 #: every station's earthwork line has the same count and lofts point to point
+#: (a corridor whose rock faces bench takes two more for each bench it
+#: allows: side_samples)
 SIDE_SAMPLES = 12
 #: the daylight search's step along a slope, horizontal feet
 _SCAN_FT = 1.0
@@ -57,6 +59,8 @@ class Section:
     courses: dict       # (course index, component index, side) -> 4-point ring
     subgrade: dict      # side -> [(u, v)], crown outward; its last is the hinge
     sides: dict         # side -> Side
+    #: the points on each side's slope line in the earthwork (side_samples)
+    samples: int = SIDE_SAMPLES
 
     def earthwork_line(self, per_component=1) -> list:
         """Left daylight to right daylight across the subgrade, with the same
@@ -80,10 +84,10 @@ class Section:
             raise ValueError(f"per_component: each count must be an int of "
                              f"at least 1, not {counts}")
         sub = {side: _divided(self.subgrade[side], counts) for side in SIDES}
-        left = list(reversed(_samples(self.sides["L"].line)))
+        left = list(reversed(_samples(self.sides["L"].line, self.samples)))
         under_left = list(reversed(sub["L"][:-1]))
         under_right = sub["R"][1:]
-        right = _samples(self.sides["R"].line)[1:]
+        right = _samples(self.sides["R"].line, self.samples)[1:]
         return left + under_left + under_right + right
 
     def width(self) -> float:
@@ -101,9 +105,19 @@ def _divided(pts: list, counts: list) -> list:
     return out + [pts[-1]]
 
 
-def _samples(line: list) -> list:
-    """`line` with its last segment cut evenly to SIDE_SAMPLES points."""
-    extra = SIDE_SAMPLES - len(line)
+def side_samples(c) -> int:
+    """The points on each side's slope line in corridor `c`'s earthwork:
+    SIDE_SAMPLES, and two more for each bench its rock faces may take, so a
+    corridor without face benches keeps V1's count."""
+    rock = c.slopes.rock
+    if rock is None or rock.face_bench is None:
+        return SIDE_SAMPLES
+    return SIDE_SAMPLES + 2 * rock.face_bench.max
+
+
+def _samples(line: list, n: int = SIDE_SAMPLES) -> list:
+    """`line` with its last segment cut evenly to `n` points."""
+    extra = n - len(line)
     (u0, v0), (u1, v1) = line[-2], line[-1]
     mid = [(u0 + (u1 - u0) * i / (extra + 1), v0 + (v1 - v0) * i / (extra + 1))
            for i in range(1, extra + 1)]
@@ -188,20 +202,20 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
     # the widening's points, or the hinge twice where it has none
     collapsed = [hinge, hinge] if c.guard is not None else []
     if ground_dz(s, hu, hv) > 0.0:
-        kind, pts = "cut", [hinge]
-        pts += _widening(c, s, side, sign) if rail else collapsed
-        if sl.ditch is not None:
-            # the flowline is the ditch depth under the subgrade hinge,
-            # rail or no rail, so the base drains to it and it does not step
-            # at a rail's ends; the foreslope runs down to it from the hinge,
-            # or under a rail from the widening's hinge
-            du, dv = pts[-1]
-            flow = hv - sl.ditch.depth
-            p1 = (du + sign * sl.cut_ratio * (dv - flow), flow)
-            pts += [p1, (p1[0] + sign * sl.ditch.width, p1[1])]
-        if sl.rock is not None:
-            pts += _rock(c, s, side, sign, pts[-1], ground_dz,
-                         sl.daylight_limit - abs(pts[-1][0] - hu))
+        kind = "cut"
+        start = [hinge] + (_widening(c, s, side, sign) if rail else collapsed)
+        pts, face = _cut(c, s, side, sign, start, sl.ditch, ground_dz)
+        rock = sl.rock
+        if (rock is not None and rock.catchment is not None
+                and face > rock.face_bench.every):
+            # a face taller than every_ft takes the catchment's ditch, at
+            # least as wide and deep as the ditch. The face is read with
+            # the ditch; on level ground the catchment's deeper toe only
+            # makes it taller
+            ct = rock.catchment
+            pts, _face = _cut(c, s, side, sign, start,
+                              Ditch(max(sl.ditch.width, ct.width),
+                                    max(sl.ditch.depth, ct.depth)), ground_dz)
     else:
         kind, pts = "fill", [hinge]
         # the fill height is read at the subgrade hinge, the courses' depth
@@ -239,6 +253,32 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
                 sl.cut_ratio if kind == "cut" else fill_ratio)
 
 
+def _cut(c, s: float, side: str, sign: float, start: list, ditch,
+         ground_dz) -> tuple:
+    """(points, rock face height): a cut side from `start` (the hinge, then
+    the widening's two points or the hinge twice) through `ditch` and, with
+    rock, the rock face and its bench, short of the soil slope."""
+    hu, hv = start[0]
+    sl = c.slopes
+    pts = list(start)
+    if ditch is not None:
+        # the flowline is the ditch depth under the subgrade hinge,
+        # rail or no rail, so the base drains to it and it does not step
+        # at a rail's ends; the foreslope runs down to it from the hinge,
+        # or under a rail from the widening's hinge
+        du, dv = pts[-1]
+        flow = hv - ditch.depth
+        p1 = (du + sign * sl.cut_ratio * (dv - flow), flow)
+        pts += [p1, (p1[0] + sign * ditch.width, p1[1])]
+    if sl.rock is None:
+        return pts, 0.0
+    toe = pts[-1]
+    pts += _rock(c, s, side, sign, toe, ground_dz,
+                 sl.daylight_limit - abs(toe[0] - hu))
+    # the face's top is the soil bench's inner end
+    return pts, pts[-2][1] - toe[1]
+
+
 def _widening(c, s: float, side: str, sign: float) -> list:
     """A guarded side's two points past the hinge: GUARD_STEP_FT out from
     the shoulder edge, then the hinge `Guard.widening` behind the rail face
@@ -258,6 +298,13 @@ def _rock(c, s: float, side: str, sign: float, toe: tuple, ground_dz,
     one vertex count at every station and its last segment, the one
     `_samples` divides, is always the soil slope.
 
+    With `rock.face_bench`, a face taller than its `every` takes a level
+    bench `width` ft wide at each `every` ft of height up from the toe,
+    two points each, before its top. A corridor allows `max` of them: the
+    ones a face does not use collapse onto its top (onto the toe with the
+    rest where the toe is not in rock), and a face needing more is a
+    ValueError, not NoDaylight: a wall is not the answer to it.
+
     Rock depth is measured vertically below the ground at each point along
     the face, so the face's top (the bench's inner end) sits on the
     soil/rock interface and the face only ever stands in rock. The bench
@@ -269,18 +316,39 @@ def _rock(c, s: float, side: str, sign: float, toe: tuple, ground_dz,
     falling faster than that)."""
     rock = c.slopes.rock
     depth = rock.depth_at(s)
+    fb = rock.face_bench
+    most = 0 if fb is None else fb.max
 
     def in_rock(s_, u, v):
         return ground_dz(s_, u, v) - depth
 
     if in_rock(s, *toe) <= 0.0:
-        return [toe, toe]
-    top = _daylight(s, toe, sign, 1.0 / rock.ratio, in_rock, reach, cut=True)
-    if top is None:
-        raise NoDaylight(
-            f"station {sta(s)}: the {side} cut's rock face finds no rock "
-            f"surface within {c.slopes.daylight_limit:g} ft of the hinge", "cut")
-    return [top, (top[0] + sign * rock.bench, top[1])]
+        return [toe] * (2 * most + 2)
+    # up the face from the toe; with face_bench, a level bench at each
+    # every_ft of height the face rises without reaching the rock surface
+    benches, at = [], toe
+    step = None if fb is None else fb.every * rock.ratio
+    while True:
+        left = reach - abs(at[0] - toe[0])
+        top = _daylight(s, at, sign, 1.0 / rock.ratio, in_rock,
+                        left if step is None else min(left, step), cut=True)
+        if top is not None:
+            break
+        if step is None or left <= step:
+            raise NoDaylight(
+                f"station {sta(s)}: the {side} cut's rock face finds no rock "
+                f"surface within {c.slopes.daylight_limit:g} ft of the hinge",
+                "cut")
+        if len(benches) == 2 * most:
+            raise ValueError(
+                f"station {sta(s)}: the {side} cut's rock face needs more than "
+                f"rock.face_bench.max ({most}) benches")
+        inner = (at[0] + sign * step, at[1] + fb.every)
+        at = (inner[0] + sign * fb.width, inner[1])
+        benches += [inner, at]
+    # the benches the face does not use collapse onto its top
+    return (benches + [top] * (2 * most - len(benches))
+            + [top, (top[0] + sign * rock.bench, top[1])])
 
 
 def _grade(c, s: float, side: str) -> list:
@@ -395,4 +463,4 @@ def resolve(c, s: float, ground_dz, rail=()) -> Section:
             above += t
         sides[side] = _side(c, s, side, sign, subgrade[side][-1],
                             _named(ground_dz, side), side in rail)
-    return Section(s, grade, courses, subgrade, sides)
+    return Section(s, grade, courses, subgrade, sides, side_samples(c))

@@ -400,6 +400,106 @@ def test_a_rock_cut_with_no_ditch_starts_its_face_at_the_hinge():
         [(17, -1.89), (21.445, 7.0), (27.445, 7.0), (43.445, 15.0)]))
 
 
+def tall_cut(max=None, catchment=None):
+    """ROCK_CUT whose faces bench every 30 ft of height, 10 ft wide."""
+    cut = copy.deepcopy(ROCK_CUT)
+    cut["rock"]["face_bench"] = {"every_ft": 30.0, "width_ft": 10.0}
+    if max is not None:
+        cut["rock"]["face_bench"]["max"] = max
+    if catchment is not None:
+        cut["rock"]["catchment"] = catchment
+    return cut
+
+
+def test_a_tall_rock_face_benches_every_30_ft_of_its_height():
+    # ground 74.61 ft above the PGL, rock 8 ft under it at v = 66.61: from
+    # the ditch's edge (24, -3.39) the face is 70 ft tall. At 0.5:1 it rises
+    # 30 ft in 15 ft to the first bench (39, 26.61), 10 ft wide to
+    # (49, 26.61); 30 ft more to the second (64, 56.61), to (74, 56.61); its
+    # last 10 ft in 5 ft to the rock surface (79, 66.61). Two of the four
+    # benches are used: the other two collapse onto the face's top. The
+    # soil bench to (85, 66.61), the soil 2:1 up 8 ft in 16 ft: (101, 74.61)
+    sec = resolve(sloped(cut=tall_cut()), 500.0, level(74.61))
+    top = (79.0, 66.61)
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39),
+         (39, 26.61), (49, 26.61), (64, 56.61), (74, 56.61),
+         top, top, top, top, top, (85, 66.61), (101, 74.61)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-101.0, 74.61])
+
+
+def test_a_rock_face_no_taller_than_every_ft_takes_no_bench():
+    # ROCK_CUT's 10.39 ft face at 15 ft of ground: one plane, as without
+    # face_bench, its four benches collapsed onto its top (29.195, 7)
+    sec = resolve(sloped(cut=tall_cut(catchment={"width_ft": 10.0, "depth_ft": 3.0})),
+                  500.0, level(15.0))
+    top = (29.195, 7.0)
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39)] + [top] * 9
+        + [(35.195, 7.0), (51.195, 15.0)]))
+    # a toe not in rock collapses the face, its benches and the soil bench
+    # onto the toe
+    short = resolve(sloped(cut=tall_cut()), 500.0, level(3.0))
+    assert flat(short.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39)] + [(24, -3.39)] * 11 + [(36.78, 3.0)]))
+
+
+def test_a_tall_rock_face_takes_the_catchment_ditch():
+    # the 70 ft face is taller than 30 ft, so the ditch is the catchment's:
+    # 3 ft under the hinge, flowline -4.89, the foreslope 2:1 down 3 ft to
+    # (23, -4.89), 10 ft across to (33, -4.89). The face from there is
+    # 71.5 ft: benches at (48, 25.11) to (58, 25.11) and (73, 55.11) to
+    # (83, 55.11), its last 11.5 ft in 5.75 ft to (88.75, 66.61); the soil
+    # bench to (94.75, 66.61) and the soil 16 ft out to (110.75, 74.61)
+    sec = resolve(sloped(cut=tall_cut(catchment={"width_ft": 10.0, "depth_ft": 3.0})),
+                  500.0, level(74.61))
+    top = (88.75, 66.61)
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (23, -4.89), (33, -4.89),
+         (48, 25.11), (58, 25.11), (73, 55.11), (83, 55.11),
+         top, top, top, top, top, (94.75, 66.61), (110.75, 74.61)]))
+    # a catchment smaller than the ditch leaves the ditch: at least, not
+    # exactly, that wide and deep
+    sec = resolve(sloped(cut=tall_cut(catchment={"width_ft": 1.0, "depth_ft": 1.0})),
+                  500.0, level(74.61))
+    assert flat(sec.sides["L"].line[1:3]) == pytest.approx(flat([(20, -3.39), (24, -3.39)]))
+
+
+def test_a_tall_face_s_catchment_under_the_rail_keeps_its_flowline():
+    # under a rail the foreslope runs from the widening's hinge
+    # (20.94, -0.884) down to the same flowline, -4.89: 4.006 ft at 2:1,
+    # 8.012 ft, to (28.952, -4.89), 10 ft across to (38.952, -4.89)
+    c = sloped(fill=STEEP_FILL, cut=tall_cut(catchment={"width_ft": 10.0,
+                                                        "depth_ft": 3.0}))
+    line = resolve(c, 500.0, level(74.61), rail=("L",)).sides["L"].line
+    assert flat(line[3:5]) == pytest.approx(flat([(28.952, -4.89), (38.952, -4.89)]))
+
+
+def test_a_face_needing_more_benches_than_its_max_is_refused():
+    # the 70 ft face needs two benches; max 1 allows one
+    with pytest.raises(ValueError, match=r"5\+00\.00: the L cut's rock face needs "
+                       r"more than rock\.face_bench\.max \(1\) benches") as exc:
+        resolve(sloped(cut=tall_cut(max=1)), 500.0, level(74.61))
+    assert not isinstance(exc.value, NoDaylight)
+    resolve(sloped(cut=tall_cut(max=2)), 500.0, level(74.61))
+
+
+def test_with_face_benches_every_side_has_one_earthwork_line_count():
+    # four benches, two points each, on every side's line
+    n = 2 * (SIDE_SAMPLES + 2 * 4) - 1 + 2 * 2
+    c = sloped(cut=tall_cut(catchment={"width_ft": 10.0, "depth_ft": 3.0}),
+               fill=STEEP_FILL)
+    secs = [resolve(c, 500.0, level(h)) for h in (-5.0, -15.0, 3.0, 15.0, 74.61)]
+    # a side hill on V1's 2:1 fill ratio (the 4:1 runs down shallower than
+    # its ground)
+    secs += [resolve(c, 500.0, level(74.61), rail=("L", "R")),
+             resolve(sloped(cut=tall_cut()), 500.0, side_hill)]
+    assert {len(s.earthwork_line()) for s in secs} == {n}
+    # without face_bench the count is V1.1's
+    assert len(resolve(sloped(cut=ROCK_CUT, fill=STEEP_FILL), 500.0,
+                       level(15.0)).earthwork_line()) == 2 * SIDE_SAMPLES - 1 + 2 * 2
+
+
 def test_an_automatic_fill_wall_stands_at_the_hinge():
     c = corridor(walls="auto").with_walls(
         [Gap(400.0, 600.0, "wall", "L", None, auto="fill")])

@@ -264,6 +264,65 @@ def test_a_bench_appearing_between_stations_merges_into_one_closed_body():
     assert_one_closed_body(cut)
 
 
+def flat(points):
+    return [c for p in points for c in p]
+
+
+#: ROCK whose faces bench every 10 ft of height, 4 ft wide (up to the
+#: default 4), a face taller than 10 ft taking a 6 ft wide, 3 ft deep ditch
+TALL_ROCK = parse({"section": {**SECTION, "side_slopes": {
+    "cut": {"ratio": 2.0, "ditch": {"width": 4.0, "depth": 1.5},
+            "rock": {"depth_ft": 8.0, "ratio": 0.5, "bench_ft": 6.0,
+                     "face_bench": {"every_ft": 10.0, "width_ft": 4.0},
+                     "catchment": {"width_ft": 6.0, "depth_ft": 3.0}}},
+    "fill": {"ratio": 2.0}}}}, 0.0, 100.0)
+
+
+def test_a_benched_rock_cut_merges_into_one_closed_body():
+    # ground at 135, 35 ft over the PGL; rock at v = 27. With the ditch the
+    # face would rise 29.5 ft from (17, -2.5), over 10 ft, so the ditch is
+    # the catchment's: (10, -1) down 3 ft at 2:1 to (16, -4), 6 ft across to
+    # (22, -4). The face rises 31 ft: benches at v = 6, 16 and 26, (27, 6)
+    # to (31, 6), (36, 16) to (40, 16), (45, 26) to (49, 26), then 1 ft to
+    # (49.5, 27); the soil bench to (55.5, 27) and the soil 8 ft in 16 to
+    # (71.5, 35). Depths under the ground, each side: 10 x 36 + 6 x 37.5
+    # + 6 x 39 + 5 x 34 + 4 x 29 + 5 x 24 + 4 x 19 + 5 x 14 + 4 x 9
+    # + 0.5 x 8.5 + 6 x 8 + 16 x 4 = 1523.25 sf; both sides over 100 ft:
+    # 304,650 cf
+    ground = PlaneGround(135.0)
+    a, b = sections(ground, TALL_ROCK)
+    assert flat(a.sides["L"].line[2:12]) == pytest.approx(flat(
+        [(22.0, -4.0), (27.0, 6.0), (31.0, 6.0), (36.0, 16.0), (40.0, 16.0),
+         (45.0, 26.0), (49.0, 26.0), (49.5, 27.0), (49.5, 27.0), (49.5, 27.0)]))
+    cut, fill, _cd, _fd = earthwork.strip("t", a, b, survey, ground.z, None)
+    assert fill == []
+    assert sum(p.volume_cf for p in cut) == pytest.approx(304650.0, rel=1e-9)
+    assert_closed(cut)
+    assert_one_closed_body(cut)
+
+
+@pytest.mark.parametrize("at_0", [
+    # 0+00 at 115: the 9.5 ft face from the ditch's edge (17, -2.5) takes no
+    # bench and no catchment; its four benches collapse onto its top
+    115.0,
+    # 0+00 at 105: the ditch's edge is 7.5 ft under, in soil; the face, its
+    # benches and the soil bench collapse onto the toe
+    105.0,
+])
+def test_benches_appearing_between_stations_merge_into_one_closed_body(at_0):
+    # rising to 135 at 1+00: three benches and the catchment, as above
+    ground = PlaneGround(at_0, slope_n=(135.0 - at_0) / 100.0)
+    a, b = sections(ground, TALL_ROCK)
+    top = (21.75, 7.0) if at_0 == 115.0 else (17.0, -2.5)
+    assert flat(a.sides["L"].line[3:12]) == pytest.approx(flat([top] * 9))
+    assert b.sides["L"].line[3] == pytest.approx((27.0, 6.0))
+    assert len(a.earthwork_line()) == len(b.earthwork_line())
+    cut, fill, _cd, _fd = earthwork.strip("t", a, b, survey, ground.z, None)
+    assert fill == []
+    assert_closed(cut)
+    assert_one_closed_body(cut)
+
+
 def test_a_listed_wall_turning_into_a_guarded_fill_merges_into_one_closed_body():
     # a listed left wall to 0+50, 30 ft out; past it, ground 15 ft under
     # the PGL, 14 ft of fill at the hinge (10, -1): over 10 ft, so 2:1

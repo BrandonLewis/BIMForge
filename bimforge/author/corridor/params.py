@@ -80,11 +80,28 @@ class Steep:
 
 
 @dataclass(frozen=True)
+class FaceBench:
+    """Benches breaking a tall rock face, one each `every` ft of its height."""
+    every: float                   # face height between benches, feet
+    width: float                   # each level bench's width, feet
+    max: int = 4                   # the most a face may take
+
+
+@dataclass(frozen=True)
+class Catchment:
+    """The least ditch under a rock face taller than `FaceBench.every`."""
+    width: float                   # feet
+    depth: float                   # below the subgrade hinge, feet
+
+
+@dataclass(frozen=True)
 class Rock:
     """Rock under the soil in cut: its face, a bench at its surface."""
     depth: tuple                   # ((station, depth below ground), ...)
     ratio: float                   # the rock face, horizontal per vertical
     bench: float                   # the level bench's width, feet
+    face_bench: FaceBench | None = None    # tall faces' benches
+    catchment: Catchment | None = None     # a tall face's ditch
 
     def depth_at(self, s: float) -> float:
         return interp(list(self.depth), s)
@@ -414,7 +431,8 @@ def _slopes(sec: dict, s_start: float, s_end: float) -> Slopes:
                              "({depth_ft, ratio, bench_ft})")
         rock = Rock(_depth_rows(rk.get("depth_ft"), s_start, s_end),
                     _num(rk.get("ratio"), "side_slopes.cut.rock.ratio"),
-                    _num(rk.get("bench_ft"), "side_slopes.cut.rock.bench_ft"))
+                    _num(rk.get("bench_ft"), "side_slopes.cut.rock.bench_ft"),
+                    *_tall_rock(rk, ditch))
         if not rock.ratio < cut_ratio:
             raise ValueError(f"side_slopes.cut.rock.ratio: {rock.ratio:g} is "
                              f"not steeper than cut.ratio {cut_ratio:g}")
@@ -430,6 +448,39 @@ def _slopes(sec: dict, s_start: float, s_end: float) -> Slopes:
                   _num(ss.get("daylight_limit_ft", 150.0),
                        "side_slopes.daylight_limit_ft"),
                   steep=steep, rock=rock, footprint=footprint)
+
+
+def _tall_rock(rk: dict, ditch: Ditch | None) -> tuple:
+    """(FaceBench or None, Catchment or None) from a rock block."""
+    where = "side_slopes.cut.rock"
+    face = catch = None
+    if rk.get("face_bench") is not None:
+        fb = rk["face_bench"]
+        if not isinstance(fb, dict):
+            raise ValueError(f"{where}.face_bench: a mapping "
+                             "({every_ft, width_ft, max})")
+        most = fb.get("max", 4)
+        if isinstance(most, bool) or not isinstance(most, int) or most < 1:
+            raise ValueError(f"{where}.face_bench.max: a whole number of at "
+                             f"least 1, got {most!r}")
+        face = FaceBench(_num(fb.get("every_ft"), f"{where}.face_bench.every_ft"),
+                         _num(fb.get("width_ft"), f"{where}.face_bench.width_ft"),
+                         most)
+    if rk.get("catchment") is not None:
+        ct = rk["catchment"]
+        if not isinstance(ct, dict):
+            raise ValueError(f"{where}.catchment: a mapping ({{width_ft, depth_ft}})")
+        catch = Catchment(_num(ct.get("width_ft"), f"{where}.catchment.width_ft"),
+                          _num(ct.get("depth_ft"), f"{where}.catchment.depth_ft"))
+        # it is for a face taller than face_bench.every_ft, and it widens
+        # and deepens the cut's ditch
+        if face is None:
+            raise ValueError(f"{where}.catchment: needs rock.face_bench, whose "
+                             f"every_ft is the face height it starts at")
+        if ditch is None:
+            raise ValueError(f"{where}.catchment: needs a cut.ditch to widen "
+                             f"and deepen")
+    return face, catch
 
 
 def _depth_rows(value, s_start: float, s_end: float) -> tuple:

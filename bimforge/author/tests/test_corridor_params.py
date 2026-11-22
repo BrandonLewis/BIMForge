@@ -4,7 +4,8 @@ import copy
 import pytest
 
 from bimforge.author.corridor.params import (CUT_WALL_SHOULDER_FT, NORMAL_CROWN,
-                                             Gap, Guard, Rock, Steep, parse)
+                                             Catchment, FaceBench, Gap, Guard,
+                                             Rock, Steep, parse)
 
 BASE = {"section": {
     "components": [{"name": "lane", "kind": "carriageway", "width": 12.0},
@@ -203,6 +204,64 @@ def test_rock_depth_is_one_value_or_rows_by_station():
     # values hold outside the rows
     assert (rock.depth_at(1400.0), rock.depth_at(1100.0),
             rock.depth_at(1900.0)) == (10.0, 8.0, 12.0)
+
+
+def tall_rock(**rock):
+    """BASE with ROCK_CUT's rock taking `rock`'s keys besides its own."""
+    cut = copy.deepcopy(ROCK_CUT)
+    cut["rock"].update(rock)
+    return slopes(cut=cut)
+
+
+def test_face_benches_and_a_catchment_are_optional_rock_keys():
+    rock = parse(slopes(cut=ROCK_CUT), 1000.0, 2000.0).slopes.rock
+    assert (rock.face_bench, rock.catchment) == (None, None)
+    rock = parse(tall_rock(face_bench={"every_ft": 30, "width_ft": 10},
+                           catchment={"width_ft": 10, "depth_ft": 3}),
+                 1000.0, 2000.0).slopes.rock
+    assert rock.face_bench == FaceBench(every=30.0, width=10.0, max=4)
+    assert rock.catchment == Catchment(width=10.0, depth=3.0)
+    rock = parse(tall_rock(face_bench={"every_ft": 30, "width_ft": 10, "max": 2}),
+                 1000.0, 2000.0).slopes.rock
+    assert rock.face_bench.max == 2
+
+
+FACE = {"every_ft": 30, "width_ft": 10}
+
+
+@pytest.mark.parametrize("p, match", [
+    (tall_rock(face_bench=30), r"rock\.face_bench: a mapping"),
+    (tall_rock(face_bench={"width_ft": 10}),
+     r"rock\.face_bench\.every_ft: expected a number"),
+    (tall_rock(face_bench={"every_ft": 0, "width_ft": 10}),
+     r"rock\.face_bench\.every_ft: must be positive"),
+    (tall_rock(face_bench={"every_ft": 30, "width_ft": -1}),
+     r"rock\.face_bench\.width_ft: must be positive"),
+    (tall_rock(face_bench={**FACE, "max": 0}),
+     r"rock\.face_bench\.max: a whole number of at least 1, got 0"),
+    (tall_rock(face_bench={**FACE, "max": 2.5}),
+     r"rock\.face_bench\.max: a whole number of at least 1, got 2\.5"),
+    (tall_rock(face_bench={**FACE, "max": True}),
+     r"rock\.face_bench\.max: a whole number of at least 1, got True"),
+    (tall_rock(face_bench=FACE, catchment=[10, 3]), r"rock\.catchment: a mapping"),
+    (tall_rock(face_bench=FACE, catchment={"width_ft": 0, "depth_ft": 3}),
+     r"rock\.catchment\.width_ft: must be positive"),
+    (tall_rock(face_bench=FACE, catchment={"width_ft": 10}),
+     r"rock\.catchment\.depth_ft: expected a number"),
+    # the catchment is for faces taller than face_bench.every_ft
+    (tall_rock(catchment={"width_ft": 10, "depth_ft": 3}),
+     r"rock\.catchment: needs rock\.face_bench"),
+])
+def test_bad_tall_rock_params_are_refused(p, match):
+    with pytest.raises(ValueError, match=match):
+        parse(p, 1000.0, 2000.0)
+
+
+def test_a_catchment_needs_a_ditch_to_widen():
+    cut = {k: v for k, v in copy.deepcopy(ROCK_CUT).items() if k != "ditch"}
+    cut["rock"].update(face_bench=FACE, catchment={"width_ft": 10, "depth_ft": 3})
+    with pytest.raises(ValueError, match=r"rock\.catchment: needs a cut\.ditch"):
+        parse(slopes(cut=cut), 1000.0, 2000.0)
 
 
 def test_walls_auto_the_footprint_and_the_wall_height():
