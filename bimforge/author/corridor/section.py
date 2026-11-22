@@ -155,10 +155,10 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
 
 def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz) -> Side:
     """The side's slope from `hinge` out to daylight: cut (the ditch, V1.1's
-    rock face and bench, then the backslope) or fill (V1.1: the steep ratio behind the rail's widening
-    where the fill at the hinge is over the steep rule's height). NoDaylight
-    when it finds no ground within the limit or daylights past the
-    footprint."""
+    rock face and bench, then the backslope) or fill (V1.1: the steep ratio
+    behind the rail's widening where the fill at the hinge is over the
+    steep rule's height). NoDaylight when it finds no ground within the
+    limit or daylights past the footprint."""
     hu, hv = hinge
     sl = c.slopes
     fill_ratio, guarded = sl.fill_ratio, False
@@ -224,7 +224,17 @@ def _rock(c, s: float, side: str, sign: float, toe: tuple, ground_dz,
     ground), then the bench level `rock.bench` ft. A toe not in rock gives
     the toe twice: the face and bench collapse onto it, so a rock cut has
     one vertex count at every station and its last segment, the one
-    `_samples` divides, is always the soil slope."""
+    `_samples` divides, is always the soil slope.
+
+    Rock depth is measured vertically below the ground at each point along
+    the face, so the face's top (the bench's inner end) sits on the
+    soil/rock interface and the face only ever stands in rock. The bench
+    and the soil slope take no such reading: on ground rising outward the
+    first part of the soil slope can cut rock (conservative); on ground
+    falling faster than depth / bench across the bench, its outer end can
+    stand above the ground, and the side then runs down at the fill ratio
+    from there, as a side-hill cut does (NoDaylight where the ground keeps
+    falling faster than that)."""
     rock = c.slopes.rock
     depth = rock.depth_at(s)
 

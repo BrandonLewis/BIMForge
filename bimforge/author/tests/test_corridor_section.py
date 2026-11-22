@@ -385,3 +385,13 @@ def test_a_rock_face_that_finds_no_rock_surface_is_refused():
                        r"finds no rock surface within 150 ft") as exc:
         resolve(sloped(cut=ROCK_CUT), 500.0, rising)
     assert exc.value.kind == "cut"
+
+
+def test_a_rock_cut_with_no_ditch_starts_its_face_at_the_hinge():
+    # the hinge (17, -1.89) is 15 + 1.89 = 16.89 ft under the ground, 8.89 ft
+    # into rock: the face rises 2 per ft, 4.445 ft out to (21.445, 7); the
+    # bench to (27.445, 7); 8 ft of soil at 1 in 2, 16 ft out: (43.445, 15)
+    cut = {k: v for k, v in ROCK_CUT.items() if k != "ditch"}
+    sec = resolve(sloped(cut=cut), 500.0, level(15.0))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (21.445, 7.0), (27.445, 7.0), (43.445, 15.0)]))
