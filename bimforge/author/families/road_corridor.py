@@ -38,6 +38,21 @@ TURN_GAP_FT = 0.01
 RAIL_WALL_ROUNDS = 5
 
 
+#: stations closer than this are one station, feet
+STATION_TOL_FT = 1e-6
+
+
+def merge_stations(have: list, more, tol: float = STATION_TOL_FT) -> list:
+    """`have` (ascending, distinct) with each of `more` not within `tol` of
+    a station already kept, ascending: two rails ending at one station, or
+    a rail end on a wall's or a band's station, cut one section."""
+    out = list(have)
+    for s in sorted(more):
+        if all(abs(s - k) > tol for k in out):
+            out.append(s)
+    return sorted(out)
+
+
 def bands(stations: list, s_start: float, band: float) -> list:
     """[(i0, i1)]: the index range of `stations` in each station band. The
     band boundaries are stations already (params.Corridor.stations)."""
@@ -347,7 +362,7 @@ def build(params: dict, ctx) -> "StructureModel":
                      if min(t - a.s, b.s - t) > TURN_GAP_FT
                      and not _in_lead_in(c, t)]
             if turns:
-                stations = sorted(stations + turns)
+                stations = merge_stations(stations, turns)
                 known = {sec.s: sec for sec in secs}
                 secs = [known.get(s) or resolve(c, s, ground_dz) for s in stations]
             runs.append(secs)
@@ -358,9 +373,8 @@ def build(params: dict, ctx) -> "StructureModel":
         out = []
         for secs in runs:
             have = [sec.s for sec in secs]
-            more = [s for s in rail_stations(c, rails, have[0], have[-1])
-                    if min(abs(s - k) for k in have) > 1e-6]
-            out.append(sorted(have + more))
+            out.append(merge_stations(have, rail_stations(c, rails, have[0],
+                                                          have[-1])))
         return out
 
     def second_pass(c, runs, rails):

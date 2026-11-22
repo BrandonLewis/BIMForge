@@ -1081,3 +1081,12 @@ def test_without_walls_auto_a_widening_past_the_footprint_says_what_to_do():
                        r"out.*; list a wall gap there, widen footprint_ft, or set "
                        r"walls: auto"):
         build(p, CTX)
+
+
+def test_rail_stations_merge_once_within_a_tolerance():
+    from bimforge.author.families.road_corridor import merge_stations
+    # two rails ending at one station, one of them also a station already
+    assert merge_stations([1500.0, 1525.0, 1550.0],
+                          [1537.5, 1537.5, 1537.5 + 1e-9, 1525.0 + 1e-8]) == [
+        1500.0, 1525.0, 1537.5, 1550.0]
+
