@@ -1090,3 +1090,26 @@ def test_rail_stations_merge_once_within_a_tolerance():
                           [1537.5, 1537.5, 1537.5 + 1e-9, 1525.0 + 1e-8]) == [
         1500.0, 1525.0, 1537.5, 1550.0]
 
+
+def test_the_v1_1_preview_spec_builds_through_the_gate(tmp_path):
+    # the shipped example with V1.1's slope rules, walls: auto and guardrail
+    # beside its bridge and listed wall: two rails ending at one station
+    # once cut the same section twice
+    import contextlib
+    import pathlib
+    import shutil
+
+    import yaml
+
+    from bimforge.author.families.registry import build_from_spec
+    here = pathlib.Path(__file__).parent / "fixtures" / "road-corridor-v11-preview"
+    spec = yaml.safe_load((here / "road-corridor.spec.yaml").read_text("utf-8"))
+    spec["outputs"] = {"ifc": "out/rc.ifc"}
+    shutil.copy(here / "road-corridor.paycodes.yaml", tmp_path)
+    path = tmp_path / "rc.spec.yaml"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        # 0: the pre gate and the post gate both passed
+        assert build_from_spec(str(path)) == 0, err.getvalue()
+    assert "mesh did not sew" not in err.getvalue()

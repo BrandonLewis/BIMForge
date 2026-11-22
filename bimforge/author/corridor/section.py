@@ -156,7 +156,10 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
             raise ValueError(
                 f"station {sta(s)}: the {side} wall at offset {wall.offset:g} ft "
                 f"is inside the hinge at {abs(hu):g} ft")
-        return Side("wall", [hinge, (sign * wall.offset, hv)])
+        # with guardrail, the widening's two points on the hinge (_slope), so
+        # the level run lofts to the slope beside it, not onto its widening
+        mid = [hinge, hinge] if c.guard is not None else []
+        return Side("wall", [hinge] + mid + [(sign * wall.offset, hv)])
     return _slope(c, s, side, sign, hinge, ground_dz, rail)
 
 

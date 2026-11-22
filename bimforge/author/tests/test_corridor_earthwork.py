@@ -262,3 +262,32 @@ def test_a_bench_appearing_between_stations_merges_into_one_closed_body():
     assert fill == []
     assert_closed(cut)
     assert_one_closed_body(cut)
+
+
+def test_a_listed_wall_turning_into_a_guarded_fill_merges_into_one_closed_body():
+    # a listed left wall to 0+50, 30 ft out; past it, ground 15 ft under
+    # the PGL, 14 ft of fill at the hinge (10, -1): over 10 ft, so 2:1
+    # behind the widening. The wall's line keeps the widening's two points,
+    # collapsed on the hinge, so its level run lofts to the guarded slope
+    # and not up onto the widening
+    import copy
+    sec = copy.deepcopy(SECTION)
+    sec["side_slopes"]["fill"] = {"ratio": 4.0,
+                                  "steep": {"ratio": 2.0, "above_height_ft": 10.0}}
+    c = parse({"section": sec, "gaps": [{"from": 0, "to": 50, "kind": "wall",
+                                         "side": "L", "offset": 30.0}]}, 0.0, 100.0)
+    ground = PlaneGround(85.0)
+
+    def dz(s, u, v):
+        n, e, z = survey(s, u, v)
+        return ground.z(n, e) - z
+
+    a, b = resolve(c, 50.0, dz), resolve(c, 51.0, dz)
+    assert a.sides["L"].line == [(10.0, -1.0)] * 3 + [(30.0, -1.0)]
+    assert b.sides["L"].guarded
+    _cut, fill, _cd, _fd = earthwork.strip("t", a, b, survey, ground.z, None)
+    bodies = earthwork.merge("t", "fill", fill)
+    assert len(bodies) == 1
+    edges = Counter(frozenset(e) for x, y, z in bodies[0].tris
+                    for e in ((x, y), (y, z), (z, x)))
+    assert set(edges.values()) == {2}
