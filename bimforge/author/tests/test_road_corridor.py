@@ -810,8 +810,8 @@ def test_the_steep_road_s_guardrail(steep_built):
     # = 13.76, 14 posts
     assert steep.tables["guardrail"] == (
         gr.HEADER + "\n"
-        "L,1000.00,1287.50,287.50,TERMINAL,TERMINAL,47,no,yes\n"
-        "R,1111.00,1197.00,86.00,WALL,WALL,14,yes,no\n")
+        "L,1000.00,1287.50,287.50,TERMINAL,TERMINAL,47,2,0,0,no,yes\n"
+        "R,1111.00,1197.00,86.00,WALL,WALL,14,0,2,0,yes,no\n")
     left = steep.element("Guardrail L STA 10+00.00 to 12+87.50")
     assert (left.ifc_class, left.predefined_type) == ("IfcRailing", "GUARDRAIL")
     assert left.type_name == gr.TYPE_NAME
@@ -890,10 +890,10 @@ def test_bridge_rail_at_a_structure_gap_with_no_guarded_fill():
     m = build(p, CTX)
     assert m.tables["guardrail"] == (
         gr.HEADER + "\n"
-        "L,1100.00,1350.00,250.00,WALL,AGT,41,no,no\n"
-        "L,1400.00,1500.00,100.00,AGT,TERMINAL,17,yes,yes\n"
-        "R,1187.50,1350.00,162.50,TERMINAL,AGT,27,no,no\n"
-        "R,1400.00,1500.00,100.00,AGT,TERMINAL,17,yes,yes\n")
+        "L,1100.00,1350.00,250.00,WALL,AGT,41,0,2,0,no,no\n"
+        "L,1400.00,1500.00,100.00,AGT,TERMINAL,17,1,1,0,yes,yes\n"
+        "R,1187.50,1350.00,162.50,TERMINAL,AGT,27,1,1,0,no,no\n"
+        "R,1400.00,1500.00,100.00,AGT,TERMINAL,17,1,1,0,yes,yes\n")
     rails = [e for e in m.elements if e.ifc_class == "IfcRailing"]
     assert [e.spatial_part.name for e in rails] == ["Segment 1", "Segment 2"] * 2
     # the rail follows the superelevation: the left shoulder edge is
@@ -1055,8 +1055,8 @@ def test_a_slope_the_widening_pushes_past_the_footprint_takes_a_wall():
     m = build(p, CTX)
     assert m.tables["guardrail"] == (
         gr.HEADER + "\n"
-        "L,1027.00,1129.00,102.00,WALL,WALL,17,yes,no\n"
-        "R,1111.00,1197.00,86.00,WALL,WALL,14,yes,no\n")
+        "L,1027.00,1129.00,102.00,WALL,WALL,17,0,2,0,yes,no\n"
+        "R,1111.00,1197.00,86.00,WALL,WALL,14,0,2,0,yes,no\n")
     rows = m.tables["walls"].splitlines()
     assert "L,fill,1000.00,1027.00,17.00,16.46,17.81,yes,no" in rows
     assert "L,fill,1129.00,1158.00,17.00,9.91,11.36,yes,no" in rows
@@ -1589,3 +1589,34 @@ def test_each_length_of_need_reads_the_rail_face_where_it_is_laid():
     spanned = lay_rails(c, [run(lambda s: 1100 <= s <= 1200)])
     assert bridge(plain) == bridge(spanned) == (2237.5, 2400.0, TERMINAL)
     assert [(r.start, r.end) for r in spanned if r.end_end != AGT] == [(1000.0, 1250.0)]
+
+
+def test_walls_the_rail_keeps_needing_stop_after_the_round_cap(monkeypatch):
+    import bimforge.author.families.road_corridor as rc
+    p = copy.deepcopy(STEEP)
+    p["section"]["side_slopes"]["footprint_ft"]["L"] = 47
+    # test_a_slope_the_widening_pushes_past_the_footprint_takes_a_wall's
+    # second wall, 11+29 to 11+58, comes from the rail: with no round
+    # allowed it is the error
+    monkeypatch.setattr(rc, "RAIL_WALL_ROUNDS", 0)
+    with pytest.raises(ValueError, match=r"guardrail: walls: auto still adds a fill "
+                       r"wall on the L side at 11\+29\.00 to 11\+58\.00 behind the "
+                       r"rail after 0 rounds; list a wall gap there"):
+        rc.build(p, CTX)
+
+
+def test_a_rail_on_no_corridor_run_is_named():
+    from types import SimpleNamespace as NS
+
+    from bimforge.author.corridor.guardrail import AGT, RailRun
+    from bimforge.author.families.road_corridor import rail_segment
+    runs = [[NS(s=1000.0), NS(s=1350.0)], [NS(s=1400.0), NS(s=1500.0)]]
+    assert rail_segment(RailRun("L", 1400.0, 1450.0, AGT, AGT), runs) == 2
+    with pytest.raises(ValueError, match=r"Guardrail L STA 13\+60\.00 to 13\+70\.00: "
+                       r"starts at 13\+60\.00, on no corridor run"):
+        rail_segment(RailRun("L", 1360.0, 1370.0, AGT, AGT), runs)
+
+
+def test_mean_depth_with_no_plan_area_is_zero():
+    from bimforge.author.families.road_corridor import mean_depth
+    assert mean_depth(0.0, []) == 0.0

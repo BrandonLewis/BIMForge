@@ -75,7 +75,7 @@ TYPE_NAME = "Midwest guardrail system"
 #: gap, a Type AGT tied into a wall, a Type SFT-M anchor
 TERMINAL, AGT, WALL, SFT_M = "TERMINAL", "AGT", "WALL", "SFT-M"
 HEADER = ("side,start,end,length_ft,start_treatment,end_treatment,posts,"
-          "below_minimum,short_end")
+          "terminals,agts,anchors,below_minimum,short_end")
 _EPS = 1e-9
 
 
@@ -348,6 +348,6 @@ def band(side: str, face_u: float) -> list:
 def to_csv(runs: list) -> str:
     return "\n".join([HEADER] + [
         f"{r.side},{r.start:.2f},{r.end:.2f},{r.length:.2f},"
-        f"{r.start_end},{r.end_end},{r.posts},"
+        f"{r.start_end},{r.end_end},{r.posts},{r.terminals},{r.agts},{r.anchors},"
         f"{'yes' if r.below_minimum else 'no'},{'yes' if r.short_end else 'no'}"
         for r in runs]) + "\n"

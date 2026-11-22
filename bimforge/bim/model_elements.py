@@ -398,7 +398,10 @@ def described(element, ft: float, linear: dict, warnings: list,
         for prop in pset.HasProperties:
             nv = getattr(prop, "NominalValue", None)
             if nv is not None and nv.is_a() in ("IfcLabel", "IfcText"):
-                continue        # a station's text twin: the number is sent
+                # every text dimension (IfcLabel, IfcText) is skipped, not
+                # warned about: a station's text twin, whose number is sent,
+                # or any other label, which is no length or ratio to send
+                continue
             unit = PARAMETER_UNITS.get(nv.is_a()) if nv is not None else None
             if unit is None:
                 warnings.append(f"{label}: {DIMENSIONS}.{prop.Name} is "

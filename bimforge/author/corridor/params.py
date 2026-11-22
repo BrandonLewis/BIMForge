@@ -153,7 +153,7 @@ class Corridor:
         the WALL_TRANSITION_FT lead-in at each end (HDM 309.1(3)(b))."""
         table = self.widths.get((comp.name, side))
         w = interp(table, s) if table else comp.width
-        if not self.auto_walls or comp.name != self._widened():
+        if not self.auto_walls or comp.name != self.widened():
             return w
         for g in self.gaps:
             if g.auto != "cut" or g.side != side:
@@ -242,7 +242,7 @@ class Corridor:
         out[-1] = s1
         return out
 
-    def _widened(self) -> str | None:
+    def widened(self) -> str | None:
         """The component a cut wall widens: the outermost shoulder."""
         names = [comp.name for comp in self.components if comp.kind == "shoulder"]
         return names[-1] if names else None
@@ -271,7 +271,7 @@ class Corridor:
                         f"from {sta(w.start)} to {sta(w.end)}, against the "
                         f"listed wall gap {sta(g.start)} to {sta(g.end)}; list "
                         f"the wall or let walls: auto place it, not both")
-            if w.auto == "cut" and self._widened() is None:
+            if w.auto == "cut" and self.widened() is None:
                 raise ValueError(
                     f"walls: auto puts a cut wall on the {w.side} side from "
                     f"{sta(w.start)} to {sta(w.end)}; the 10 ft shoulder beside "

@@ -115,7 +115,7 @@ def _widest(c, comp, side: str) -> float:
     cut wall found later may widen it to, on either side."""
     from bimforge.author.corridor.params import CUT_WALL_SHOULDER_FT
     w = max([comp.width] + [w for _s, w in c.widths.get((comp.name, side), ())])
-    if c.auto_walls and comp.name == c._widened():
+    if c.auto_walls and comp.name == c.widened():
         w = max(w, CUT_WALL_SHOULDER_FT)
     return w
 
@@ -234,6 +234,29 @@ def rail_stations(c, rails: list, s0: float, s1: float) -> list:
                    for r in rails):
                 out.append(s)
     return [s for s in out if s0 - 1e-6 <= s <= s1 + 1e-6]
+
+
+def rail_segment(rail, runs: list) -> int:
+    """The number (from 1) of the corridor run, of `runs` (each its
+    sections), that `rail` starts on: its ROADSEGMENT."""
+    from bimforge.author.alignment import sta
+    r = next((r for r, secs in enumerate(runs, start=1)
+              if secs[0].s - 1e-6 <= rail.start <= secs[-1].s + 1e-6), None)
+    if r is None:
+        raise ValueError(f"{rail_name(rail)}: starts at {sta(rail.start)}, on "
+                         f"no corridor run (inside a structure gap?)")
+    return r
+
+
+def mean_depth(volume_cf: float, columns: list) -> float:
+    """A band's mean cut or fill depth: its volume over the plan area under
+    its columns (earthwork.plan_area_sf). Every column has plan area
+    (earthwork._column drops one that has none), so a band with earthwork
+    has some; MeanDepth is a required dimension, so none gives 0 rather
+    than a division by zero."""
+    from bimforge.author.corridor import earthwork
+    area = earthwork.plan_area_sf(columns)
+    return volume_cf / area if area > 0.0 else 0.0
 
 
 def rail_name(rail) -> str:
@@ -520,7 +543,7 @@ def build(params: dict, ctx) -> "StructureModel":
             els = []
             if cut:
                 cut_dims = {"MaxDepth": cut_d,
-                            "MeanDepth": cut_cf / earthwork.plan_area_sf(cut),
+                            "MeanDepth": mean_depth(cut_cf, cut),
                             "SlopeRatio": c.slopes.cut_ratio,
                             **dims.stations(b0, b1)}
                 if c.slopes.rock is not None:
@@ -548,7 +571,7 @@ def build(params: dict, ctx) -> "StructureModel":
                           if sec.sides[side].kind == "fill"
                           and sec.sides[side].ratio is not None]
                 fill_dims = {"MaxDepth": fill_d,
-                             "MeanDepth": fill_cf / earthwork.plan_area_sf(fill),
+                             "MeanDepth": mean_depth(fill_cf, fill),
                              **dims.stations(b0, b1)}
                 if ratios:
                     fill_dims["SlopeRatio"] = min(ratios)
@@ -569,9 +592,8 @@ def build(params: dict, ctx) -> "StructureModel":
             haul_elements.append(els)
     # after every run's courses and earthwork, so their order is V1's
     for rail in rails:
-        r = next(r for r, secs in enumerate(runs, start=1)
-                 if secs[0].s - 1e-6 <= rail.start <= secs[-1].s + 1e-6)
-        model.add(rail_element(rail, c, al, prof, ctx, _parts(r)[0]))
+        model.add(rail_element(rail, c, al, prof, ctx,
+                               _parts(rail_segment(rail, runs))[0]))
         for msg in _rail_warnings(rail, c):
             log(msg)
     model.mass_haul = masshaul.mass_haul(hauls, c.shrink)

@@ -279,5 +279,5 @@ def test_the_w_beam_band_and_the_table():
                               ((1000.0, 1125.0),), short_end=True),
                       RailRun("R", 1380.0, 1450.0, AGT, AGT, (), True)]) == (
         gr.HEADER + "\n"
-        "L,1000.00,1287.50,287.50,TERMINAL,TERMINAL,47,no,yes\n"
-        "R,1380.00,1450.00,70.00,AGT,AGT,12,yes,no\n")
+        "L,1000.00,1287.50,287.50,TERMINAL,TERMINAL,47,2,0,0,no,yes\n"
+        "R,1380.00,1450.00,70.00,AGT,AGT,12,0,2,0,yes,no\n")
