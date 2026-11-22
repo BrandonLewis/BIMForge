@@ -141,6 +141,36 @@ def test_side_runs_splits_the_alignment_at_structure_gaps():
         RailRun("R", 1600.0, 1762.5, AGT, TERMINAL)]
 
 
+def test_side_runs_clips_a_guarded_span_at_a_structure_gap():
+    # guarded 14+00 to 17+00 across a bridge 15+00 to 16+00: 14+00 to 15+00
+    # before it, 16+00 to 17+00 after. Before: LON 12+50 (14+00 - 150) to
+    # the AGT at 15+00, 250 ft = 20 elements, nose 12+37.5 (the bridge
+    # rail's 13+50 to 15+00 lies within it). After: from the AGT at 16+00
+    # to 17+37.5, 137.5 ft, made 150 at the free end, 17+50, nose 17+62.5
+    assert gr.side_runs("R", [(1400.0, 1700.0)], 5.0, 17.0, 45,
+                        [(1000.0, 1500.0), (1600.0, 3000.0)], 1000.0, 3000.0) == [
+        RailRun("R", 1237.5, 1500.0, TERMINAL, AGT, ((1400.0, 1500.0),)),
+        RailRun("R", 1600.0, 1762.5, AGT, TERMINAL, ((1600.0, 1700.0),))]
+
+
+def test_a_nose_200_ft_or_less_from_a_wall_ties_into_it():
+    # the run's nose is at 14+50 (above). A wall from 14+60, 10 ft on: the
+    # rail runs on and ties in there (TSSM 3.6(11), no terminal at the wall
+    # barrier's end)
+    (run,) = gr.lay_out("R", [(1300.0, 1400.0)], 5.0, 17.0, 45, *ENDS,
+                        walls=[(1460.0, 1500.0)])
+    assert run == RailRun("R", 1137.5, 1460.0, TERMINAL, WALL, ((1300.0, 1400.0),))
+    assert (run.terminals, run.agts) == (1, 1)
+    # from 16+00, 150 ft on: the same
+    (run,) = gr.lay_out("R", [(1300.0, 1400.0)], 5.0, 17.0, 45, *ENDS,
+                        walls=[(1600.0, 1700.0)])
+    assert (run.end, run.end_end) == (1600.0, WALL)
+    # from 16+60, 210 ft on: the terminal stays
+    (run,) = gr.lay_out("R", [(1300.0, 1400.0)], 5.0, 17.0, 45, *ENDS,
+                        walls=[(1660.0, 1700.0)])
+    assert (run.end, run.end_end) == (1450.0, TERMINAL)
+
+
 def test_a_run_ties_into_a_wall_with_an_agt():
     # a left rail's own lane runs down-station: 14+00 + 150 = 15+50, past
     # the wall at 15+00, so it ties in there (Type AGT, TSSM 3.6(10)(c)):
@@ -189,10 +219,22 @@ def test_a_run_held_at_both_ends_short_of_150_ft_is_flagged():
 def test_a_run_at_the_alignment_s_start_stops_there():
     # 37.5 ft before 10+00 is off the alignment: the run starts at 10+00,
     # with its terminal there; to 11+25 + 150 = 12+75: 275 ft = 22 elements,
-    # whole already; the far nose 12+87.5. 287.5 / 6.25 = 46 spaces, 47 posts
+    # whole already; the far nose 12+87.5. 287.5 / 6.25 = 46 spaces, 47 posts.
+    # The held terminal has no room for its gating and its length of need
+    # would run on off the alignment: short_end
     (run,) = gr.lay_out("L", [(1000.0, 1125.0)], 5.0, 17.0, 45, *ENDS)
-    assert run == RailRun("L", 1000.0, 1287.5, TERMINAL, TERMINAL, ((1000.0, 1125.0),))
-    assert run.posts == 47
+    assert run == RailRun("L", 1000.0, 1287.5, TERMINAL, TERMINAL, ((1000.0, 1125.0),),
+                          short_end=True)
+    assert (run.posts, run.below_minimum) == (47, False)
+    # a run clear of the alignment's ends is not short
+    (run,) = gr.lay_out("L", [(1300.0, 1400.0)], 5.0, 17.0, 45, *ENDS)
+    assert not run.short_end
+    # a nose cut back by the alignment's end is short too. Left, 18+30 to
+    # 18+37.5: LON 17+92.5 to 19+87.5, 195 ft, made 200 with 2.5 at each
+    # end: 17+90 to 19+90; the far nose 20+02.5 is cut to 20+00, 2.5 ft of
+    # its gating lost
+    (run,) = gr.lay_out("L", [(1830.0, 1837.5)], 5.0, 17.0, 45, *ENDS)
+    assert (run.end, run.end_end, run.short_end) == (2000.0, TERMINAL, True)
 
 
 def test_a_run_from_the_alignment_s_start_takes_its_extra_at_the_other_end():
@@ -217,8 +259,8 @@ def test_the_w_beam_band_and_the_table():
     assert gr.band("R", -17.0)[1] == pytest.approx((-17.0 - 3.25 / 12.0, bottom))
     # 70 ft: 11 spaces, 12 posts
     assert gr.to_csv([RailRun("L", 1000.0, 1287.5, TERMINAL, TERMINAL,
-                              ((1000.0, 1125.0),)),
+                              ((1000.0, 1125.0),), short_end=True),
                       RailRun("R", 1380.0, 1450.0, AGT, AGT, (), True)]) == (
         gr.HEADER + "\n"
-        "L,1000.00,1287.50,287.50,TERMINAL,TERMINAL,47,no\n"
-        "R,1380.00,1450.00,70.00,AGT,AGT,12,yes\n")
+        "L,1000.00,1287.50,287.50,TERMINAL,TERMINAL,47,no,yes\n"
+        "R,1380.00,1450.00,70.00,AGT,AGT,12,yes,no\n")

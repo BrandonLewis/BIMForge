@@ -29,7 +29,12 @@ end); a run held at both ends short of 150 ft is kept and flagged
 (`below_minimum`), and the family warns. The length of need is measured to
 a point 12.5 ft in from a terminal's nose (TSSM 3.6(1)), so a run's
 stations are its noses: 12.5 ft (GATING_FT) is added at each free
-terminal end. A run reaching the alignment's end stops there.
+terminal end. A free terminal's nose 200 ft or less from a wall runs on
+and ties into it (TSSM 3.6(11); no terminal at the wall barrier's end). A
+run reaching the alignment's end stops there, its terminal at the end with
+no room for its gating and its length of need cut short: it is flagged
+(`short_end`), and the family warns. `side_runs` clips each guarded span
+to the corridor runs, so a span across a structure gap shields both sides.
 
 The rail face stands at the shoulder edge; the body is the W-beam band,
 31 in to the top of rail (A77N3), swept along the alignment. Posts are
@@ -70,7 +75,7 @@ TYPE_NAME = "Midwest guardrail system"
 #: gap, a Type AGT tied into a wall, a Type SFT-M anchor
 TERMINAL, AGT, WALL, SFT_M = "TERMINAL", "AGT", "WALL", "SFT-M"
 HEADER = ("side,start,end,length_ft,start_treatment,end_treatment,posts,"
-          "below_minimum")
+          "below_minimum,short_end")
 _EPS = 1e-9
 
 
@@ -85,6 +90,9 @@ class RailRun:
     guarded: tuple = ()
     #: held at both ends short of MIN_RUN_FT of need
     below_minimum: bool = False
+    #: a terminal held at the alignment's end: no gating, and its length of
+    #: need would run on past the alignment
+    short_end: bool = False
 
     @property
     def length(self) -> float:
@@ -215,7 +223,19 @@ def _finish(side: str, core: _Core) -> RailRun:
     if k.e_kind == TERMINAL and not k.e_fixed:
         k.end += GATING_FT
     _clamp(k)
-    return RailRun(side, k.start, k.end, k.s_kind, k.e_kind, k.guarded, below)
+    # a TERMINAL end now fixed is held at the alignment's end, its length of
+    # need or its gating cut short
+    short = ((k.s_kind == TERMINAL and k.s_fixed)
+             or (k.e_kind == TERMINAL and k.e_fixed))
+    # a free nose 200 ft or less from a wall ties into it
+    if (k.s_kind == TERMINAL and not k.s_fixed and k.lo[1] == WALL
+            and k.start - k.lo[0] <= JOIN_GAP_FT + _EPS):
+        k.start, k.s_kind = k.lo
+    if (k.e_kind == TERMINAL and not k.e_fixed and k.hi[1] == WALL
+            and k.hi[0] - k.end <= JOIN_GAP_FT + _EPS):
+        k.end, k.e_kind = k.hi
+    return RailRun(side, k.start, k.end, k.s_kind, k.e_kind, k.guarded, below,
+                   short)
 
 
 def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
@@ -282,13 +302,15 @@ def side_runs(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
     `runs` [(s0, s1)] are the corridor's runs (params.Corridor.runs()), an
     end that is not the alignment's being a structure gap's (AGT, with
     bridge rail); `guarded` spans and `walls` [(start, end)] are the
-    side's, over the whole alignment."""
+    side's, over the whole alignment. A guarded span is clipped to each
+    corridor run it crosses."""
     out = []
     for s0, s1 in runs:
         lower = (s0, TERMINAL if abs(s0 - s_start) < _EPS else AGT)
         upper = (s1, TERMINAL if abs(s1 - s_end) < _EPS else AGT)
         out += lay_out(
-            side, [(a, b) for a, b in guarded if a > s0 - _EPS and b < s1 + _EPS],
+            side, [(max(a, s0), min(b, s1)) for a, b in guarded
+                   if max(a, s0) <= min(b, s1) + _EPS],
             l2, lc, speed_mph, lower, upper,
             [(ws, we) for ws, we in walls if we > s0 - _EPS and ws < s1 + _EPS],
             bridge_rail=True)
@@ -309,5 +331,5 @@ def to_csv(runs: list) -> str:
     return "\n".join([HEADER] + [
         f"{r.side},{r.start:.2f},{r.end:.2f},{r.length:.2f},"
         f"{r.start_end},{r.end_end},{r.posts},"
-        f"{'yes' if r.below_minimum else 'no'}"
+        f"{'yes' if r.below_minimum else 'no'},{'yes' if r.short_end else 'no'}"
         for r in runs]) + "\n"
