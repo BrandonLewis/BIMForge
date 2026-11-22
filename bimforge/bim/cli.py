@@ -7,6 +7,8 @@
   est-bim ifc2gis --ifc model.ifc [model2.ifc ...] [--out model.gpkg] [--index structures.ifc] [--tin]
   est-bim takeoff --ifc model.ifc [--map takeoff_map.yaml] [--out takeoff.json] [--csv takeoff.csv]
   est-bim takeoff-check --takeoff takeoff.json --ifc model.ifc [--out checked.json]
+  est-bim check --ifc model.ifc --element GID --what SET.NAME --sheet S-3 --sheet-value 8 --unit FT --out checked.ifc [--revision R] [--measured V] [--tolerance 0.01] [--by NAME] [--day YYYY-MM-DD]
+  est-bim check --ifc model.ifc --list
   est-bim takeoff-workbook --ifc model.ifc [--ifc more.ifc ...] --map takeoff_map.yaml [--official bid_items.json] --out takeoff.xlsx
   est-bim schedule-read --ifc model.4d.ifc [--schedule NAME] --out schedule.json [--takeoff-map map.yaml --takeoff-out takeoff.json] [--costs-out costs.json]
   est-bim sfca    model.ifc [--flat 0.85] [--split-el EL] [--skip-class IfcPipeSegment,...]
@@ -249,6 +251,61 @@ def _run_takeoff(args) -> int:
     print_warnings(warnings)
     print("\nNext: hand this JSON to the estimating-core push-takeoff skill "
           "(or `est-takeoff plan` for a dry-run push plan).")
+    return 0
+
+
+def _run_check(args) -> int:
+    """Record a measurement check made in Bonsai in the model, in
+    ProjectCommand's shape (M.5), or list the checks a model carries."""
+    import hashlib
+    from pathlib import Path
+
+    import ifcopenshell
+
+    from bimforge.bim.checks import read_checks, record_check
+
+    try:
+        data = Path(args.ifc).read_bytes()
+        model = ifcopenshell.open(args.ifc)
+    except (OSError, ValueError, RuntimeError, ifcopenshell.Error) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.list:
+        for c in read_checks(model):
+            print(f"{c['identifier']}: {c['status']} — sheet "
+                  f"{c.get('sheet')} ({c.get('revision') or 'no revision'}) "
+                  f"{c.get('sheet_value')}, model {c.get('model_value')} "
+                  f"({c.get('value_source')}), {c['day']}"
+                  f"{', ' + c['by'] if c.get('by') else ''}")
+        return 0
+    missing = [f"--{n.replace('_', '-')}" for n in
+               ("element", "what", "sheet", "sheet_value", "unit", "out")
+               if getattr(args, n) is None]
+    if missing:
+        print(f"error: recording a check needs {', '.join(missing)}",
+              file=sys.stderr)
+        return 1
+    set_name, _, name = args.what.partition(".")
+    if not set_name or not name:
+        print(f"error: --what is SET.NAME (e.g. BIMForge_Dimensions."
+              f"DesignHeight), got {args.what!r}", file=sys.stderr)
+        return 1
+    try:
+        rec = record_check(
+            model, args.element, set_name, name, sheet=args.sheet,
+            sheet_value=args.sheet_value, unit=args.unit,
+            tolerance=args.tolerance, revision=args.revision, by=args.by,
+            day=args.day, measured=args.measured,
+            file_sha256=hashlib.sha256(data).hexdigest(), app=args.app)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    model.write(args.out)
+    print(f"{rec['identifier']}: {rec['status']} — sheet "
+          f"{rec['sheet_value']:.6g}, model {rec['model_value']:.6g} "
+          f"({rec['value_source']}), in project units"
+          f"{'; replaced the check recorded before' if rec['replaced'] else ''}")
+    print(f"Written to {args.out}")
     return 0
 
 
@@ -2531,6 +2588,33 @@ def main(argv=None) -> int:
     tc.add_argument("--ifc", required=True, help="the model to check it on")
     tc.add_argument("--out", help="write the takeoff with the new check")
 
+    ck = sub.add_parser("check",
+                        help="record a measurement made in Bonsai against "
+                             "the plan sheet in the model (M.5), or --list")
+    ck.add_argument("--ifc", required=True, help="the model")
+    ck.add_argument("--list", action="store_true",
+                    help="list the measurement checks the model carries")
+    ck.add_argument("--element", help="the element's GlobalId")
+    ck.add_argument("--what", help="SET.NAME measured: a quantity "
+                                   "(Qto_BaseQuantities.GrossVolume) or a "
+                                   "property (BIMForge_Dimensions.DesignHeight)")
+    ck.add_argument("--sheet", help="the plan sheet, e.g. S-3")
+    ck.add_argument("--revision", help="the plan set's revision or addendum")
+    ck.add_argument("--sheet-value", dest="sheet_value", type=float,
+                    help="the value on the sheet, in --unit")
+    ck.add_argument("--unit", help="M FT IN YD, M2 SF SY, M3 CY CF (a foot "
+                                   "is the project's foot)")
+    ck.add_argument("--measured", type=float,
+                    help="the value measured off the geometry, in --unit; "
+                         "without it the file's own value is checked")
+    ck.add_argument("--tolerance", type=float, default=0.01,
+                    help="relative (default 0.01, 1%%)")
+    ck.add_argument("--by", help="who checked")
+    ck.add_argument("--day", help="YYYY-MM-DD (default today)")
+    ck.add_argument("--app", default="Bonsai",
+                    help="the application the check was made in")
+    ck.add_argument("--out", help="output IFC (may be --ifc)")
+
     w = sub.add_parser("web", help="write the web pages (takeoff, 4D/5D "
                                    "dashboard) and their JSON bundle for an "
                                    "IFC, and optionally serve them")
@@ -3196,6 +3280,8 @@ def main(argv=None) -> int:
             return _run_takeoff(args)
         if args.cmd == "takeoff-check":
             return _run_takeoff_check(args)
+        if args.cmd == "check":
+            return _run_check(args)
         if args.cmd == "web":
             return _run_web(args)
         if args.cmd == "takeoff-workbook":
