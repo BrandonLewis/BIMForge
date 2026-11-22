@@ -89,6 +89,16 @@ centroid's, left positive, as the linear reference's offsets are.
   against the model, as the call-level `takeoff_check`. Additive: BidSheet.ai
   ignores both until it stores them.
 
+### Changed
+
+- **Quantity Formulas are arithmetic.** A `Formula` may use names, numbers,
+  `+ - * /` and parentheses (parsed, never evaluated as code), over the
+  quantity's own set and then the element's `BIMForge_Dimensions` numbers,
+  on `Qto_BaseQuantities` and on standard sets alike. A formula longer than
+  1,000 characters, one that cannot be read, or one whose result is not
+  finite fails only its own quantity. `BIMForge_Dimensions` may hold text
+  (`IfcLabel`, not sent as a parameter) and optional properties.
+
 ### Fixed
 
 - **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
@@ -142,16 +152,6 @@ The check is recorded (M.5): every takeoff carries its sum checked against the m
   `--measured` the file's own value is checked. Recording the same thing
   again replaces the check under its ids, whoever recorded it. `--list`
   lists every check a model carries.
-
-### Changed
-
-- **Quantity Formulas are arithmetic.** A `Formula` may use names, numbers,
-  `+ - * /` and parentheses (parsed, never evaluated as code), over the
-  quantity's own set and then the element's `BIMForge_Dimensions` numbers,
-  on `Qto_BaseQuantities` and on standard sets alike. A formula longer than
-  1,000 characters, one that cannot be read, or one whose result is not
-  finite fails only its own quantity. `BIMForge_Dimensions` may hold text
-  (`IfcLabel`, not sent as a parameter) and optional properties.
 
 ### Fixed
 
