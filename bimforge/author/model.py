@@ -277,6 +277,12 @@ class StructureModel:
     #: A road corridor's mass-haul table (corridor.masshaul.HaulRow per
     #: station band), written to `outputs.masshaul` as a CSV; [] otherwise.
     mass_haul: list = field(default_factory=list)
+    #: Tables a family writes as CSV outputs, {output key: CSV text}: a
+    #: road corridor's "walls" and "structures" (walls: auto) and
+    #: "guardrail" (a steep fill rule or a guardrail: block). The registry
+    #: writes each to outputs.<key>, and refuses that output when the key is
+    #: missing.
+    tables: dict = field(default_factory=dict)
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

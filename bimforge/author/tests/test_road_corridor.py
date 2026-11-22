@@ -561,3 +561,158 @@ def test_on_ifc4_a_cut_voids_nothing(on_3dep):
     m = build(on_3dep, dataclasses.replace(CTX, schema="IFC4"))
     assert any(e.predefined_type == "TERRAIN" for e in m.elements)
     assert all(e.voids is None for e in m.elements)
+
+
+#: a level road on a plane that rises 1 in 20 along the road (north) and
+#: falls 1 in 10 to its right (east): 18 to 20 ft of fill at 10+00, cut by
+#: 14+00. 4:1 fill, 2:1 behind guardrail over 10 ft of it; rock 8 ft down
+#: in cut; a wall wherever a slope would reach past 60 ft
+STEEP = {
+    "alignment": {"name": "ML", "pob": {"station": 1000.0, "northing": N0, "easting": E0},
+                  "run": [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 600.0}]},
+    "profile": {"curves": [{"bvc_station": 1000.0, "bvc_elev": 320.0, "g_in_pct": 0.0,
+                            "g_out_pct": 0.0, "length_ft": 600.0,
+                            "evc_station": 1600.0, "evc_elev": 320.0}]},
+    "ground": {"source": "plane", "elevation": 300.0, "slope_n": 0.05, "slope_e": -0.1},
+    "section": {
+        "components": [{"name": "lane", "kind": "carriageway", "width": 12.0},
+                       {"name": "shoulder", "kind": "shoulder", "width": 5.0,
+                        "slope": -0.05}],
+        "courses": [{"name": "HMA", "type": "PAVEMENT", "thickness": 0.4},
+                    {"name": "AB", "type": "CORE", "thickness": 1.0}],
+        "side_slopes": {
+            "cut": {"ratio": 2.0, "ditch": {"width": 4.0, "depth": 1.5},
+                    "rock": {"depth_ft": 8.0, "ratio": 0.5, "bench_ft": 6.0}},
+            "fill": {"ratio": 4.0, "steep": {"ratio": 2.0, "above_height_ft": 10.0}},
+            "daylight_limit_ft": 150, "footprint_ft": {"L": 60, "R": 60}}},
+    "walls": "auto",
+    "max_wall_height_ft": 20,
+    "guardrail": {"design_speed_mph": 45},
+    "stations": {"interval": 25, "band": 100},
+}
+
+
+@pytest.fixture(scope="module")
+def steep():
+    from bimforge.author.families.road_corridor import build
+    return build(copy.deepcopy(STEEP), CTX)
+
+
+def test_the_steep_road_finds_its_walls(steep):
+    from bimforge.author.corridor.walls import STRUCTURE_HEADER, WALL_HEADER
+    # Right of the road (x ft east, d = s - 1000) the ground is
+    # 300 + 0.05 d - 0.1 x. The hinge (17 east, 320 - 0.49 - 1.4 = 318.11)
+    # has 19.81 - 0.05 d ft of fill under it: over 10 ft to d = 196.2, so
+    # 2:1 from the widening's hinge (20.94 east, 319.51 - 0.394 = 319.116):
+    # 329.586 - 0.5 x meets the ground at x = 73.965 - 0.125 d, past the
+    # 60 ft footprint to d = 111.7. So a wall from 10+00 (the run's first
+    # station) to 11+11 (11+12 fits: x = 59.965). From d = 196.2 the fill is
+    # 4:1, 322.36 - 0.25 x, meeting the ground at x = (22.36 - 0.05 d) / 0.15,
+    # past 60 ft to d = 267.2: 12+00 to 12+50 fail; back from 12+00, 11+99 to
+    # 11+97 fail (4:1) and 11+96 fits (10.01 ft of fill, 2:1, x = 49.47), so
+    # the wall starts at 11+97; on from 12+50 it ends at 12+67 (12+68 fits).
+    # Each wall's face is the shoulder edge (17 east, 319.51), 21.21 - 0.05 d
+    # ft above the ground: 21.21 at 10+00, 15.66 at 11+11; 11.36 at 11+97,
+    # 7.86 at 12+67. The first is over 20 ft: a structure candidate, its
+    # ground lowest at 10+00 (the ground rises along the road). The left
+    # side fits throughout (its 2:1 daylights by 49.31 ft, its 4:1 by
+    # 45.57 ft, its rock cut by 55.6 ft)
+    assert steep.tables["walls"] == (
+        WALL_HEADER + "\n"
+        "R,fill,1000.00,1111.00,17.00,15.66,21.21,yes,yes\n"
+        "R,fill,1197.00,1267.00,17.00,7.86,11.36,yes,no\n")
+    assert steep.tables["structures"] == (
+        STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00\n")
+
+
+def test_the_steep_road_cuts_a_section_a_foot_outside_each_wall(steep):
+    # the wall gaps' ends and their lead-ins' ends are stations (the first
+    # wall starts at the run's start, so it has no lead-in there)
+    ends = {s for el in courses(steep) for lf in el.geometry for s in lf.stations}
+    assert {1000.0, 1111.0, 1112.0, 1196.0, 1197.0, 1267.0, 1268.0} <= ends
+
+
+def _closed_earthwork(m) -> None:
+    """Every cut and fill of `m` is closed bodies holding its volume."""
+    from bimforge.author.primitives import _signed_volume
+    earth = [e for e in m.elements if e.ifc_class.startswith("IfcEarthworks")]
+    assert {e.ifc_class for e in earth} == {"IfcEarthworksCut", "IfcEarthworksFill"}
+    for el in earth:
+        got = 0.0
+        for g in el.geometry:
+            (d,) = g.body_solids()
+            assert _manifold(d["tris"]), el.name
+            v = d["verts"]
+            got += _signed_volume([(v[a], v[b], v[c]) for a, b, c in d["tris"]])
+        assert got == pytest.approx(el.quantities["volume_cf"], rel=1e-9)
+        assert len(el.geometry) < 10, el.name
+
+
+def test_the_steep_road_s_earthwork_is_closed(steep):
+    _closed_earthwork(steep)
+
+
+def test_without_walls_auto_a_slope_past_the_footprint_is_an_error():
+    from bimforge.author.families.road_corridor import build
+    p = copy.deepcopy(STEEP)
+    del p["walls"]
+    # at 10+00 the right 2:1 daylights 73.965 ft out
+    with pytest.raises(ValueError, match=r"10\+00\.00: the R fill slope daylights "
+                       r"73\.9\d ft out, past the R footprint of 60 ft"):
+        build(p, CTX)
+
+
+def test_walls_auto_with_no_failing_station_adds_no_walls():
+    from bimforge.author.corridor.walls import STRUCTURE_HEADER, WALL_HEADER
+    from bimforge.author.families.road_corridor import build
+    p = copy.deepcopy(STEEP)
+    # the 60 ft footprint was the only limit: without it every slope fits,
+    # so walls: auto builds what the same spec without it builds
+    del p["section"]["side_slopes"]["footprint_ft"]
+    plain = copy.deepcopy(p)
+    del plain["walls"]
+    got, want = build(p, CTX), build(plain, CTX)
+    assert got.tables == {"walls": WALL_HEADER + "\n",
+                          "structures": STRUCTURE_HEADER + "\n"}
+    assert want.tables == {}
+    assert ([(e.name, e.quantities) for e in got.elements]
+            == [(e.name, e.quantities) for e in want.elements])
+
+
+def test_a_v1_corridor_makes_no_tables(model):
+    assert model.tables == {}
+
+
+def test_a_cut_wall_widens_only_its_side_s_shoulder():
+    from bimforge.author.corridor.walls import STRUCTURE_HEADER, WALL_HEADER
+    from bimforge.author.families.road_corridor import build
+    p = copy.deepcopy(STEEP)
+    # level ground rising 1 in 20 along the road, from 318 at 10+00: the
+    # hinge (17 out, 318.11) is in cut past d = 2.2; the ditch's outer edge
+    # is 24 out at 316.61, and the 2:1 backslope meets the ground
+    # (318 + 0.05 d) at 24 + 2 (1.39 + 0.05 d) = 26.78 + 0.1 d ft: past the
+    # R footprint of 40 ft from d = 132.2. So a cut wall from 11+33 (11+32
+    # fits: 39.98 ft) to the run's end, beside a 10 ft shoulder: its edge
+    # 22 out at 320 - 0.24 - 0.5 = 319.26, the ground 0.05 d - 1.26 above
+    # it: 5.39 at 11+33, 28.74 at 16+00. The left reaches 86.78 ft at most
+    p["ground"] = {"source": "plane", "elevation": 318.0, "slope_n": 0.05}
+    p["section"]["side_slopes"]["footprint_ft"] = {"L": 150, "R": 40}
+    m = build(p, CTX)
+    assert m.tables["walls"] == (
+        WALL_HEADER + "\n" "R,cut,1133.00,1600.00,22.00,5.39,28.74,no,no\n")
+    assert m.tables["structures"] == STRUCTURE_HEADER + "\n"
+    outer = {}
+    for el in courses(m):
+        if "shoulder" in el.name:
+            for lf in el.geometry:
+                side = lf.name[-1]
+                for s, ring in zip(lf.stations, lf.rings):
+                    outer[side, s] = ring[1][0]
+    # the shoulder's outer edge: 10 ft wide over the wall, 5 ft a foot
+    # before it and on the left throughout
+    assert outer["R", 1132.0] == pytest.approx(-17.0)
+    assert outer["R", 1133.0] == pytest.approx(-22.0)
+    assert outer["R", 1400.0] == pytest.approx(-22.0)
+    assert outer["R", 1600.0] == pytest.approx(-22.0)
+    assert {round(u, 9) for (side, _s), u in outer.items() if side == "L"} == {17.0}
+    _closed_earthwork(m)

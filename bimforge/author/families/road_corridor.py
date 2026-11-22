@@ -10,6 +10,10 @@ its own ROADSEGMENT, and its first and last sections close the courses with
 their caps and the earthwork with vertical columns, so nothing lies inside
 the gap.
 
+V1.1: with `walls: auto` the family first finds where no slope fits
+(corridor.walls) and adds a wall gap there, built as a listed wall is, then
+writes the wall and structure-candidate tables (StructureModel.tables).
+
 Spec: docs/superpowers/specs/2026-11-21-road-corridor-design.md.
 """
 from __future__ import annotations
@@ -105,6 +109,7 @@ def _parts(r: int) -> tuple:
 def build(params: dict, ctx) -> "StructureModel":
     from bimforge.author.alignment import Alignment, Profile, sta
     from bimforge.author.corridor import earthwork, masshaul
+    from bimforge.author.corridor import walls as auto_walls
     from bimforge.author.corridor.frame import densify, survey_point
     from bimforge.author.corridor.ground import from_params
     from bimforge.author.corridor.loft import StationLoft
@@ -137,11 +142,22 @@ def build(params: dict, ctx) -> "StructureModel":
         n, e, z = survey(s, u, v)
         return ground.z(n, e) - z
 
-    hauls, haul_elements = [], []
+    def run_stations(s0, s1):
+        return densify(al, prof, c.stations(
+            s0, s1, geometry_stations(al, prof, s0, s1)))
+
+    if c.auto_walls:
+        # V1.1: a wall wherever a side's slope cannot fit, found on the
+        # stations the corridor cuts, then added as wall gaps. `c` changes
+        # here, so run_stations below also cuts each wall's ends and the
+        # foot outside them (params.Corridor.stations)
+        c = c.with_walls([g for s0, s1 in c.runs()
+                          for g in auto_walls.find(c, run_stations(s0, s1),
+                                                   ground_dz)])
+    hauls, haul_elements, every = [], [], []
     for r, (s0, s1) in enumerate(c.runs(), start=1):
         segment, parts = _parts(r)
-        stations = densify(al, prof, c.stations(
-            s0, s1, geometry_stations(al, prof, s0, s1)))
+        stations = run_stations(s0, s1)
         secs = [resolve(c, s, ground_dz) for s in stations]
         # a section where a side turns between cut and fill
         # (section.kind_changes), unless a station is already that close
@@ -152,6 +168,7 @@ def build(params: dict, ctx) -> "StructureModel":
             stations = sorted(stations + turns)
             known = {sec.s: sec for sec in secs}
             secs = [known.get(s) or resolve(c, s, ground_dz) for s in stations]
+        every.extend(secs)
         for i0, i1 in bands(stations, al.s_start, c.band):
             b0, b1 = stations[i0], stations[i1]
             ss, bs = stations[i0:i1 + 1], secs[i0:i1 + 1]
@@ -243,4 +260,13 @@ def build(params: dict, ctx) -> "StructureModel":
                 "EndStationText": sta(row.station),
                 "CumulativeVolume": ("volume",
                                      row.cumulative_cy * masshaul.CF_PER_CY)}
+    if c.auto_walls:
+        # outputs.walls and outputs.structures (the registry writes them);
+        # a structure candidate's low point is the lowest ground on the
+        # centreline among the stations cut
+        rows = auto_walls.rows(c, every, ground_dz)
+        model.tables["walls"] = auto_walls.walls_csv(rows)
+        model.tables["structures"] = auto_walls.structures_csv(
+            auto_walls.structures(rows, sorted(sec.s for sec in every),
+                                  lambda s: ground.z(*survey(s, 0.0, 0.0)[:2])))
     return model
