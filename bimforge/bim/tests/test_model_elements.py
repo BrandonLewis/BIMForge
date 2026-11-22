@@ -635,3 +635,90 @@ def test_b3_wall_sends_class_type_plan_parameters_formula_and_model(
               if e["name"].startswith("T5 retaining wall stem"))
     assert t5["parameters"]["Batter"]["unit"] == "RATIO"
     assert plan["warnings"] == []
+
+
+def _checked(volume=2.0, height_ft=8.0):
+    """test_checks' wall with a Bonsai check on its height and its volume."""
+    from bimforge.bim.checks import record_check
+    from bimforge.bim.tests.test_checks import WALL, _model
+    f = _model(height_ft=height_ft, volume=volume)
+    record_check(f, WALL, "BIMForge_Dimensions", "DesignHeight", sheet="S-3",
+                 sheet_value=8.0, unit="FT", revision="Add. 2",
+                 by="B. Lewis", day="2026-11-22")
+    record_check(f, WALL, "Qto_BaseQuantities", "GrossVolume", sheet="S-3",
+                 sheet_value=2.0 / CY_M3, unit="CY", day="2026-11-22")
+    return f, WALL
+
+
+def _sent_checks(f):
+    (entry,) = plan_modelled_elements(f)["elements"]
+    return {c["what"]: c for c in entry["checks"]}
+
+
+def test_a_check_is_sent_with_its_element_in_bidsheets_units():
+    f, _ = _checked()
+    checks = _sent_checks(f)
+    height = checks["BIMForge_Dimensions.DesignHeight"]
+    assert height == {
+        "what": "BIMForge_Dimensions.DesignHeight", "unit": "FT",
+        "sheet_value": 8.0, "model_value": 8.0, "value_now": 8.0,
+        "tolerance": 0.01, "result": "agrees", "standing": "agrees",
+        "value_source": "stated", "sheet": "S-3", "revision": "Add. 2",
+        "day": "2026-11-22", "by": "B. Lewis"}  # no build, no sha: no origin
+    volume = checks["Qto_BaseQuantities.GrossVolume"]
+    assert (volume["unit"], volume["standing"]) == ("CY", "agrees")
+    assert volume["value_now"] == pytest.approx(2.0 / CY_M3, abs=1e-6)
+
+
+def test_a_check_whose_value_moved_is_sent_lapsed_and_one_whose_target_went_gone():
+    from bimforge.bim.carry_forward import carry_forward
+    from bimforge.bim.tests.test_checks import _model
+    returned, _ = _checked()
+    rebuilt = _model(height_ft=9.0, volume=2.0)
+    for rel in rebuilt.by_type("IfcRelDefinesByProperties"):
+        if rel.RelatingPropertyDefinition.Name == "Qto_BaseQuantities":
+            rebuilt.remove(rel.RelatingPropertyDefinition)
+            rebuilt.remove(rel)
+    carry_forward(returned, rebuilt)
+    checks = _sent_checks(rebuilt)
+    height = checks["BIMForge_Dimensions.DesignHeight"]
+    assert (height["result"], height["standing"]) == ("agrees", "lapsed")
+    assert (height["model_value"], height["value_now"]) == (8.0, 9.0)
+    volume = checks["Qto_BaseQuantities.GrossVolume"]
+    assert volume["standing"] == "gone" and "value_now" not in volume
+
+
+def test_a_move_within_the_tolerance_does_not_lapse_a_check():
+    from bimforge.bim.carry_forward import carry_forward
+    from bimforge.bim.tests.test_checks import _model
+    returned, _ = _checked()
+    rebuilt = _model(height_ft=8.04, volume=2.0)
+    carry_forward(returned, rebuilt)
+    height = _sent_checks(rebuilt)["BIMForge_Dimensions.DesignHeight"]
+    assert height["standing"] == "agrees" and height["value_now"] == 8.04
+
+
+def test_an_element_with_no_check_has_no_checks_key():
+    from bimforge.bim.tests.test_checks import _model
+    (entry,) = plan_modelled_elements(_model())["elements"]
+    assert "checks" not in entry
+
+
+def test_cli_sends_a_takeoffs_sum_checked_against_the_model(tmp_path, capsys):
+    f, wall = _checked()
+    path = tmp_path / "m.ifc"
+    f.write(str(path))
+    takeoff = {"rows": [{"cost_code": "C1", "unit": "CY",
+                         "quantity": round(2.0 / CY_M3, 4),
+                         "elements": [{"global_id": wall,
+                                       "measure": "GrossVolume"}]}]}
+    tpath = tmp_path / "takeoff.json"
+    tpath.write_text(json.dumps(takeoff), encoding="utf-8")
+    out = tmp_path / "upsert.json"
+    assert cli.main(["model-elements", str(path), "--checked-takeoff",
+                     str(tpath), "--out", str(out)]) == 0
+    err = capsys.readouterr().err
+    assert "2 measurement check(s) sent, 0 lapsed or gone" in err
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["takeoff_check"]["kind"] == "takeoff-sum"
+    assert len(payload["elements"][0]["checks"]) == 2
