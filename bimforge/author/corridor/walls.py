@@ -9,22 +9,30 @@ wall is then a wall gap (params.Gap, `auto` its kind), standing at the hinge
 (section._side): a fill wall with a barrier on top and no slope in front, a
 cut wall beside its 10 ft shoulder (params.Corridor.width).
 
-`rows` reads each wall's exposed height off the sections: the shoulder
-edge's height above the ground at a fill wall, the ground's above the edge
-at a cut wall. A fill wall over `max_wall_height_ft` is kept and flagged,
+`rows` reads each wall's exposed height at its face at finished grade, at
+its sections' stations and at least every 5 ft between: the shoulder edge's
+height above the ground at a fill wall (grade minus ground), the ground's
+above the edge at a cut wall (ground minus grade). The barrier on a fill
+wall and the wall's footing and embedment are not in it; the wall family
+adds them. A fill wall over `max_wall_height_ft` is kept and flagged,
 and its stretch is a structure candidate (`structures`): a short bridge or
 a culvert the designer may put there instead, with a structure gap.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 from bimforge.author.alignment import sta
 from bimforge.author.corridor.params import SIDES, WALL_TRANSITION_FT, Gap
-from bimforge.author.corridor.section import needs_wall
+from bimforge.author.corridor.section import grade_edge, needs_wall
 
+#: outputs.walls: heights are exposed at the face, at finished grade, with
+#: no barrier, footing or embedment (the module docstring)
 WALL_HEADER = "side,kind,start,end,offset_ft,min_height_ft,max_height_ft,barrier,too_tall"
 STRUCTURE_HEADER = "side,start,end,max_fill_ft,low_point_station"
+#: the longest step between the stations a wall's height is read at, feet
+HEIGHT_STEP_FT = 5.0
 _EPS = 1e-9
 
 
@@ -35,7 +43,8 @@ class WallRow:
     start: float
     end: float
     offset: float          # the largest hinge offset, feet from the centreline
-    min_height: float      # exposed height, feet
+    min_height: float      # exposed at the face at finished grade, feet
+                           # (no barrier, footing or embedment)
     max_height: float
     too_tall: bool         # a fill wall over max_wall_height_ft
 
@@ -82,39 +91,64 @@ def _reach(c, side: str, ground_dz, kind: str, s: float, neighbour, step: float)
     """The wall's end, moved from station `s` toward `neighbour` (the next
     station, which does not need this wall; None at the run's end, where
     the wall ends at `s`) a foot at a time while the section a foot beyond
-    still needs it. It stops a foot short of `neighbour` at the latest, so
-    the lead-in ends on a section that fits."""
+    still needs it, so its lead-in ends on a section that fits: the foot
+    beyond, or `neighbour` when the foot beyond would pass it. ValueError
+    where the foot beyond needs the other kind of wall, or the lead-in has
+    no room before a section that does not fit."""
     if neighbour is None:
         return s
+    first, t = s, s
     while True:
         t = s + step * WALL_TRANSITION_FT
-        if (neighbour - t) * step <= _EPS:
+        if (t - neighbour) * step > _EPS:
+            # a foot on passes the neighbour: end the wall a foot short of
+            # it, unless that is back inside the failing stations
+            e = neighbour - step * WALL_TRANSITION_FT
+            if (e - first) * step >= -_EPS:
+                return e
+            break
+        need = needs_wall(c, t, side, ground_dz)
+        if need is None:
             return s
-        if needs_wall(c, t, side, ground_dz) != kind:
-            return s
+        if need != kind:
+            raise ValueError(
+                f"walls: auto: the {side} side needs a "
+                f"{kind if step > 0 else need} wall at {sta(min(s, t))} and a "
+                f"{need if step > 0 else kind} wall at {sta(max(s, t))}, under "
+                f"{2 * WALL_TRANSITION_FT:g} ft apart: no slope fits between "
+                f"them; list a wall or a structure gap there")
         s = t
+    if needs_wall(c, t, side, ground_dz) is not None:
+        raise ValueError(
+            f"walls: auto: the {side} {kind} wall ending at {sta(s)} has no "
+            f"room for its {WALL_TRANSITION_FT:g} ft lead-in: the slope fits "
+            f"at {sta(neighbour)} but not at {sta(t)}; list a wall or a "
+            f"structure gap there")
+    return s
 
 
 def rows(c, secs: list, ground_dz) -> list:
-    """One WallRow per automatic wall of `c`, its heights read off the
-    sections `secs` (section.Section) on its stations, by start station."""
+    """One WallRow per automatic wall of `c`, by start station. Its exposed
+    height at the face, at finished grade (no barrier, footing or
+    embedment), and its offset are read at the stations of the sections
+    `secs` (section.Section) on it and at least every HEIGHT_STEP_FT
+    between its ends, so a peak in the ground between sections is not
+    missed."""
     out = []
     for g in c.gaps:
         if g.auto is None:
             continue
-        on = [sec for sec in secs if g.start - _EPS <= sec.s <= g.end + _EPS]
-        if not on:
-            raise ValueError(f"the {g.side} {g.auto} wall from {sta(g.start)} "
-                             f"to {sta(g.end)} has no section on it to read "
-                             f"its height from")
-        heights = []
-        for sec in on:
-            u, v = sec.grade[g.side][-1]
-            dz = ground_dz(sec.s, u, v)
+        n = max(1, math.ceil((g.end - g.start) / HEIGHT_STEP_FT - _EPS))
+        at = {g.start + (g.end - g.start) * i / n for i in range(n + 1)}
+        at.update(sec.s for sec in secs if g.start - _EPS <= sec.s <= g.end + _EPS)
+        heights, offsets = [], []
+        for s in sorted(at):
+            u, v = grade_edge(c, s, g.side)
+            dz = ground_dz(s, u, v)
             heights.append(-dz if g.auto == "fill" else dz)
+            offsets.append(abs(u))
         top = max(heights)
-        out.append(WallRow(g.side, g.auto, g.start, g.end,
-                           max(abs(sec.subgrade[g.side][-1][0]) for sec in on),
+        out.append(WallRow(g.side, g.auto, g.start, g.end, max(offsets),
                            min(heights), top,
                            g.auto == "fill" and top > c.max_wall_height + _EPS))
     return sorted(out, key=lambda r: (r.start, r.side))

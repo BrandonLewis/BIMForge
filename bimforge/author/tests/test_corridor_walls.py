@@ -67,17 +67,61 @@ def test_a_cut_that_finds_no_ground_is_a_cut_wall():
         Gap(400.0, 425.0, "wall", "L", None, auto="cut")]
 
 
-def test_a_fill_wall_and_a_cut_wall_on_one_side_are_two_walls():
-    # no ground left at 4+00 and 4+25 (fill), 500 ft of cut at 4+50 and
-    # 4+75: one wall of each kind, each ending at its own run's last station
-    # because the station beyond is the other kind
+def test_a_fill_wall_turning_into_a_cut_wall_is_refused():
+    # fill fails before 4+37.75 and cut after. The fill wall reaches on
+    # from 4+25.40 to 4+37.40; a foot on, 4+38.40, needs a cut wall: no
+    # slope fits between them, so neither wall has its lead-in
     def dz(s, u, v):
         if u > 0.0:
-            return (-500.0 if s < 437.5 else 500.0) - v
+            return (-500.0 if s < 437.75 else 500.0) - v
         return -5.0 - v
-    found = walls.find(corridor(walls="auto"), [400.0, 425.0, 450.0, 475.0], dz)
-    assert found == [Gap(400.0, 437.0, "wall", "L", None, auto="fill"),
-                     Gap(438.0, 475.0, "wall", "L", None, auto="cut")]
+    c = corridor(walls="auto")
+    with pytest.raises(ValueError, match=r"L side needs a fill wall at 4\+37\.40 "
+                       r"and a cut wall at 4\+38\.40.*list a wall or a structure "
+                       r"gap there"):
+        c.with_walls(walls.find(c, [400.4, 425.4, 450.0, 475.0], dz))
+
+
+def test_automatic_walls_under_two_lead_ins_apart_are_refused():
+    c = corridor(walls="auto")
+    fill = Gap(400.0, 437.4, "wall", "L", None, auto="fill")
+    cut = Gap(438.0, 475.0, "wall", "L", None, auto="cut")
+    with pytest.raises(ValueError, match=r"fill wall on the L side from 4\+00\.00 "
+                       r"to 4\+37\.40 and a cut wall from 4\+38\.00 to 4\+75\.00.*"
+                       r"list a wall or a structure gap there"):
+        c.with_walls([fill, cut])
+    # two lead-ins apart, the slope fits between them; on the other side,
+    # walls may share stations
+    c.with_walls([fill, Gap(439.4, 475.0, "wall", "L", None, auto="cut")])
+    c.with_walls([fill, Gap(400.0, 437.4, "wall", "R", None, auto="fill")])
+    # a wall already added counts too
+    with pytest.raises(ValueError, match="list a wall or a structure gap"):
+        c.with_walls([fill]).with_walls([cut])
+
+
+def test_a_wall_ends_a_foot_short_of_a_fractional_neighbour():
+    # the left fill fails from 4+40 to 5+10.20 and again from 5+10.80; the
+    # stations are 4+50, 4+75, 5+00 and 5+10.50, which fits. On from 5+00,
+    # 5+01 to 5+10 fail; 5+11, a foot on, is past 5+10.50 and fails, so the
+    # wall ends a foot short of the neighbour, 5+09.50, its lead-in ending
+    # on 5+10.50
+    def dz(s, u, v):
+        deep = u > 0.0 and (440.0 <= s <= 510.2 or s >= 510.8)
+        return (-500.0 if deep else -5.0) - v
+    found = walls.find(corridor(walls="auto"), [450.0, 475.0, 500.0, 510.5], dz)
+    assert found[0] == Gap(450.0, 509.5, "wall", "L", None, auto="fill")
+
+
+def test_a_lead_in_with_no_room_is_refused():
+    # the fill fails up to 4+75.20 and from 4+76: 4+75.50 fits, under a
+    # foot past 4+75, and 4+76, the lead-in's end, fails
+    def dz(s, u, v):
+        deep = u > 0.0 and (s <= 475.2 or s >= 476.0)
+        return (-500.0 if deep else -5.0) - v
+    with pytest.raises(ValueError, match=r"L fill wall ending at 4\+75\.00 has "
+                       r"no room for its 1 ft lead-in.*fits at 4\+75\.50 but not "
+                       r"at 4\+76\.00"):
+        walls.find(corridor(walls="auto"), [450.0, 475.0, 475.5], dz)
 
 
 def test_a_fill_wall_s_heights_are_read_off_its_sections():
@@ -121,11 +165,18 @@ def test_a_cut_wall_is_as_tall_as_the_ground_over_its_shoulder_edge():
     assert not row.barrier and not row.too_tall
 
 
-def test_a_wall_with_no_section_on_it_is_refused():
+def test_a_wall_s_height_is_sampled_between_its_sections():
+    # a cut wall from 4+50 to 5+50, sections every 50 ft; the ground is 40
+    # ft up but for a 5 ft bump peaking at 4+75, between sections: 45 ft
+    # there, 45.74 ft of wall over the shoulder edge (22, -0.74). Read every
+    # 5 ft, the peak is caught; the sections alone would give 40.74
+    def dz(s, u, v):
+        return 40.0 + max(0.0, 5.0 - abs(s - 475.0)) - v
     c = corridor(walls="auto").with_walls(
         [Gap(450.0, 550.0, "wall", "L", None, auto="cut")])
-    with pytest.raises(ValueError, match=r"4\+50\.00 to 5\+50\.00.*no section"):
-        walls.rows(c, [resolve(c, 400.0, level(40.0))], level(40.0))
+    secs = [resolve(c, s, dz) for s in (450.0, 500.0, 550.0)]
+    (row,) = walls.rows(c, secs, dz)
+    assert (row.min_height, row.max_height) == pytest.approx((40.74, 45.74))
 
 
 def test_too_tall_walls_side_by_side_are_one_structure_candidate():

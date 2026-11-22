@@ -268,6 +268,20 @@ class Corridor:
                     f"walls: auto puts a cut wall on the {w.side} side from "
                     f"{sta(w.start)} to {sta(w.end)}; the 10 ft shoulder beside "
                     f"it needs a shoulder component to widen")
+        # two automatic walls on a side need both lead-ins between them,
+        # each ending on a slope that fits; closer, the side has neither a
+        # wall nor a slope there, and a cut wall's widening reaches under
+        # its neighbour
+        autos = sorted((g for g in self.gaps + walls if g.auto is not None),
+                       key=lambda g: (g.side, g.start))
+        for p, q in zip(autos, autos[1:]):
+            if p.side == q.side and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS:
+                raise ValueError(
+                    f"walls: auto puts a {p.auto} wall on the {p.side} side from "
+                    f"{sta(p.start)} to {sta(p.end)} and a {q.auto} wall from "
+                    f"{sta(q.start)} to {sta(q.end)}, under "
+                    f"{2 * WALL_TRANSITION_FT:g} ft apart: no slope fits between "
+                    f"them; list a wall or a structure gap there")
         return replace(self, gaps=tuple(sorted(self.gaps + walls,
                                                key=lambda g: (g.start, g.side or ""))))
 
