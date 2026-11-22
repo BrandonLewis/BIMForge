@@ -823,7 +823,7 @@ def test_the_steep_road_s_guardrail(steep_built):
         "PostCount": 47, "StartTreatment": "TERMINAL", "EndTreatment": "TERMINAL",
         "Terminals": 2, "AGTTransitions": 0, "Anchors": 0}
     assert left.standard_qto == {"Qto_RailingBaseQuantities": {
-        "Length": ("length", pytest.approx(287.5))}}
+        "Length": ("length", pytest.approx(287.5), "EndStation - StartStation")}}
     sweep = left.geometry
     assert (sweep.s0, sweep.s1) == (1000.0, 1287.5)
     assert flat(sweep.section) == pytest.approx(flat(gr.band("L", 17.0)))
@@ -1125,3 +1125,297 @@ def test_a_course_declares_its_exact_volume_and_its_mesh_is_held_to_it(model):
             el.quantities["volume_cf"]
     # each loft's mesh within 0.5% of its exact volume (the pre gate's check)
     assert check_arc_faceting(model) == []
+
+
+# -- V1.1: dictionary classes, BIMForge_Dimensions and Formulas -------------
+STEEP_PAYCODES = """\
+rules:
+  - {match: "(?i)^(HMA|AB) ", group: rc_pave}
+  - {match: "(?i)^(Cut|Fill) ", group: rc_earth}
+  - {match: "(?i)^Guardrail ", group: rc_mgs}
+groups:
+  rc_pave: {measure: GrossVolume}
+  rc_earth: {measure: GrossVolume}
+  rc_mgs: {measure: Length}
+codes:
+  RC-PAVE: {group: rc_pave, measure: GrossVolume, unit: CY, item_number: "0001",
+            description: "Pavement courses"}
+  RC-EARTH: {group: rc_earth, measure: GrossVolume, unit: CY, item_number: "0002",
+             description: "Earthwork"}
+  RC-MGS: {group: rc_mgs, measure: Length, unit: LF, item_number: "0003",
+           description: "Midwest guardrail system"}
+"""
+
+
+def _spec_path(tmp_path, params, outputs, schema="IFC4X3_ADD2"):
+    import yaml
+    (tmp_path / "rc.paycodes.yaml").write_text(STEEP_PAYCODES, "utf-8")
+    spec = {"family": "road-corridor", "params": copy.deepcopy(params),
+            "paycodes": "./rc.paycodes.yaml",
+            "outputs": {"ifc": "out/rc.ifc", **outputs},
+            "project": {"name": "Corridor fixture", "epsg": 2226,
+                        "base": [E0, N0, 300.0], "guid_ns": str(uuid.UUID(int=9)),
+                        "schema": schema, "facility": {"kind": "road"}}}
+    path = tmp_path / "rc.spec.yaml"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    return path
+
+
+def _built_from(tmp_path, params, outputs=None):
+    import contextlib
+
+    import ifcopenshell
+
+    from bimforge.author.families.registry import build_from_spec
+    path = _spec_path(tmp_path, params, outputs or {})
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        # 0: the pre and post gates passed, the formula check among them
+        assert build_from_spec(str(path)) == 0, err.getvalue()[-2000:]
+    return ifcopenshell.open(str(tmp_path / "out" / "rc.ifc")), tmp_path / "out"
+
+
+@pytest.fixture(scope="module")
+def steep_x3(tmp_path_factory):
+    return _built_from(tmp_path_factory.mktemp("steep"), STEEP)
+
+
+CORRIDOR_CLASSES = {"road-corridor-course", "road-corridor-cut",
+                    "road-corridor-fill", "road-corridor-guardrail"}
+
+
+def test_every_corridor_element_is_classed_and_dimensioned(steep_x3):
+    import ifcopenshell.util.element as E
+
+    from bimforge.author import family_dictionary as fd
+    from bimforge.bim.ifc_takeoff import family_class_of
+    f, _out = steep_x3
+    seen = set()
+    for el in f.by_type("IfcElement"):
+        if el.is_a("IfcGeographicElement"):
+            continue                                     # the TERRAIN
+        cls = family_class_of(el)
+        assert cls and cls["code"] in CORRIDOR_CLASSES, el.Name
+        dims = dict(E.get_pset(el, fd.DIMENSIONS) or {})
+        dims.pop("id", None)
+        assert set(fd.required_dimensions(cls["code"])) <= set(dims) \
+            <= set(fd.dimensions(cls["code"])), el.Name
+        assert dims["StartStationText"] == el.Name.split("STA ")[1].split(" to ")[0]
+        seen.add(cls["code"])
+    assert seen == CORRIDOR_CLASSES
+    # the steep road's cut has rock 8 ft down, so its cut carries RockDepth;
+    # its soil slope is 2:1. The fill under the guarded span is 2:1 too
+    cuts = f.by_type("IfcEarthworksCut")
+    assert cuts
+    for cut in cuts:
+        d = E.get_pset(cut, fd.DIMENSIONS)
+        assert d["RockDepth"] == pytest.approx(8.0 * US_FT)
+        assert d["SlopeRatio"] == pytest.approx(2.0)
+        assert 0.0 < d["MeanDepth"] <= d["MaxDepth"]
+    fill = next(e for e in f.by_type("IfcEarthworksFill")
+                if e.Name == "Fill STA 10+00.00 to 11+00.00")
+    assert E.get_pset(fill, fd.DIMENSIONS)["SlopeRatio"] == pytest.approx(2.0)
+
+
+def test_the_left_rail_s_dimensions_and_length(steep_x3):
+    import ifcopenshell.util.element as E
+
+    from bimforge.author import family_dictionary as fd
+    f, _out = steep_x3
+    rail = next(e for e in f.by_type("IfcRailing") if e.Name.startswith("Guardrail L "))
+    d = E.get_pset(rail, fd.DIMENSIONS)
+    assert d["StartStation"] == pytest.approx(1000.0 * US_FT)
+    assert d["EndStation"] == pytest.approx(1287.5 * US_FT)
+    assert (d["StartStationText"], d["EndStationText"]) == ("10+00.00", "12+87.50")
+    assert d["RailHeight"] == pytest.approx(31.0 / 12.0 * US_FT)
+    assert d["PostSpacing"] == pytest.approx(6.25 * US_FT)
+    q = E.get_psets(rail, qtos_only=True)["Qto_RailingBaseQuantities"]
+    assert q["Length"] == pytest.approx(287.5 * US_FT)
+    assert E.get_type(rail).Name == "Midwest guardrail system"
+
+
+def _course_volume(course):
+    (vol,) = [q for r in course.IsDefinedBy
+              if r.RelatingPropertyDefinition.is_a("IfcElementQuantity")
+              and r.RelatingPropertyDefinition.Name == "Qto_CourseBaseQuantities"
+              for q in r.RelatingPropertyDefinition.Quantities if q.Name == "Volume"]
+    return vol
+
+
+def test_every_formula_holds_and_every_steep_course_is_its_path_box(steep_x3):
+    import ifcopenshell.util.element as E
+
+    from bimforge.author import family_dictionary as fd
+    from bimforge.author.gate import _ifc_formula_check
+    f, out = steep_x3
+    assert _ifc_formula_check(None, str(out / "rc.ifc")) == []
+    found = {(qs.Name, q.Name, q.Formula) for qs in f.by_type("IfcElementQuantity")
+             for q in qs.Quantities if getattr(q, "Formula", None)}
+    for qset in ("Qto_CourseBaseQuantities", "Qto_EarthworksCutBaseQuantities",
+                 "Qto_EarthworksFillBaseQuantities", "Qto_RailingBaseQuantities"):
+        assert (qset, "Length", "EndStation - StartStation") in found
+    # no volume formula on earthwork: its section changes at every station
+    assert not [x for x in found if x[0].startswith("Qto_Earthworks")
+                and x[1] != "Length"]
+    # the steep road is a level tangent at constant widths: every course is
+    # its path box
+    for course in f.by_type("IfcCourse"):
+        assert _course_volume(course).Formula == "PathLength * Width * Thickness",             course.Name
+    # the lane, centroid (0, -0.32), on the level tangent: its path is the
+    # band's 100 ft (a dimension is written to 1e-9 m)
+    lane = next(c for c in f.by_type("IfcCourse")
+                if c.Name == "HMA lane STA 10+00.00 to 11+00.00")
+    d = E.get_pset(lane, fd.DIMENSIONS)
+    assert d["PathLength"] == pytest.approx(100.0 * US_FT, abs=1e-9)
+    assert d["Offset"] == pytest.approx(0.0, abs=1e-9)
+    assert d["Width"] == pytest.approx(24.0 * US_FT)
+    assert d["Thickness"] == pytest.approx(0.4 * US_FT)
+
+
+def test_courses_on_a_curve_and_a_grade_are_their_path_boxes(x3):
+    import ifcopenshell.util.element as E
+
+    from bimforge.author import family_dictionary as fd
+    from bimforge.author.gate import _ifc_formula_check
+    f, out = x3
+    assert _ifc_formula_check(None, str(out / "rc.ifc")) == []
+    # PARAMS curves at 500 ft and climbs 1% through two superelevation runs,
+    # every course at a constant width and both sides alike, so each
+    # course's centroid is on the centreline (Offset 0) and the curve does
+    # not lengthen its path: every course carries the formula
+    courses_ = f.by_type("IfcCourse")
+    assert courses_
+    for course in courses_:
+        assert _course_volume(course).Formula == "PathLength * Width * Thickness", \
+            course.Name
+        d = E.get_pset(course, fd.DIMENSIONS)
+        assert {"Offset", "PathLength", "Width"} <= set(d)
+        assert d["Offset"] == pytest.approx(0.0, abs=1e-9), course.Name
+
+
+def _lopsided(radius, delta, grade_pct):
+    """A 300 ft road whose middle 100 ft (11+00 to 12+00) is a right curve
+    of `radius`, on a constant `grade_pct`, its shoulder 1 ft on the left
+    and 9 ft on the right: the shoulder element's centroid well off the
+    line."""
+    from bimforge.author.families.road_corridor import build
+    p = copy.deepcopy(PARAMS)
+    p["alignment"]["run"] = [
+        {"kind": "tangent", "bearing": "N 0-0-0 E", "length": 100.0},
+        {"kind": "curve", "delta": delta, "radius": radius, "turn": "R",
+         "length": 100.0},
+        {"kind": "tangent", "bearing": f"N {delta} E", "length": 100.0}]
+    p["profile"]["curves"] = [{"bvc_station": 1000.0, "bvc_elev": 300.0,
+                               "g_in_pct": grade_pct, "g_out_pct": grade_pct,
+                               "length_ft": 300.0, "evc_station": 1300.0,
+                               "evc_elev": 300.0 + 3.0 * grade_pct}]
+    p["ground"] = {"source": "plane", "elevation": 290.0}
+    p["superelevation"] = [[1000, -0.02, -0.02], [1300, -0.02, -0.02]]
+    p["gaps"] = []
+    p["widths"] = [
+        {"component": "shoulder", "side": "L", "at": [[1000, 1.0], [1300, 1.0]]},
+        {"component": "shoulder", "side": "R", "at": [[1000, 9.0], [1300, 9.0]]}]
+    return build(p, CTX)
+
+
+def _box_over(el):
+    """PathLength x Width x Thickness over the declared volume, less one."""
+    q = el.standard_qto["Qto_CourseBaseQuantities"]
+    return (el.dimensions["PathLength"] * el.dimensions["Width"] * q["Thickness"][1]
+            / q["Volume"][1] - 1.0)
+
+
+def test_a_lopsided_shoulder_on_a_gentle_curve_takes_the_formula():
+    from bimforge.author.corridor import dimensions as dims
+    m = _lopsided(500.0, "11-27-33", 1.0)
+    el = m.element("HMA shoulder STA 11+00.00 to 12+00.00")
+    # 1 ft left at u = 12.5 and 9 ft right at u = -16.5, 0.4 ft thick:
+    # Offset = (1 x 12.5 - 9 x 16.5) / 10 = -13.6 ft (RT), inside the right
+    # curve. kappa = -1/500, g = 0.01: the centroid's speed along the 3D
+    # tangent is sqrt(1 + g^2) - 13.6 / 500 cos(gamma) = 0.972815, its
+    # sideways speed 13.6 / 500 sin(gamma) = 2.7199e-4, so the path box is
+    # over by (2.7199e-4)^2 / (2 x 0.972815^2) = 3.9e-8: under 1e-6
+    assert el.dimensions["Offset"] == pytest.approx(-13.6, abs=1e-9)
+    assert el.dimensions["Width"] == pytest.approx(10.0)
+    assert _box_over(el) == pytest.approx(3.9e-8, rel=0.02)
+    assert el.standard_qto["Qto_CourseBaseQuantities"]["Volume"][2] == dims.VOLUME
+
+
+def test_a_lopsided_shoulder_on_a_tight_steep_curve_does_not():
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.gate import FORMULA_TOLERANCE
+    m = _lopsided(300.0, "19-05-55", 6.0)
+    el = m.element("HMA shoulder STA 11+00.00 to 12+00.00")
+    # kappa = -1/300, g = 0.06: sqrt(1.0036) = 1.001798, cos(gamma) =
+    # 0.998205, sin(gamma) = 0.059892. Along the 3D tangent 1.001798 -
+    # 13.6 / 300 x 0.998205 = 0.956546; sideways 13.6 / 300 x 0.059892 =
+    # 2.7151e-3 (and 0.645 / 300 x 0.059892 = 1.29e-4 from the centroid's
+    # height): over by (2.7151e-3^2 + 1.29e-4^2) / (2 x 0.956546^2) =
+    # 4.04e-6, past the gate's 1e-6, so the family leaves the formula out
+    assert el.dimensions["Offset"] == pytest.approx(-13.6, abs=1e-9)
+    assert _box_over(el) == pytest.approx(4.04e-6, rel=0.01)
+    assert _box_over(el) > FORMULA_TOLERANCE
+    assert len(el.standard_qto["Qto_CourseBaseQuantities"]["Volume"]) == 2
+    # the lane on the same curve is centred (Offset 0), and the shoulder on
+    # the tangents either side has no curve: both keep it
+    for name in ("HMA lane STA 11+00.00 to 12+00.00",
+                 "HMA shoulder STA 10+00.00 to 11+00.00",
+                 "AB shoulder STA 12+00.00 to 13+00.00"):
+        assert m.element(name).standard_qto["Qto_CourseBaseQuantities"][
+            "Volume"][2] == dims.VOLUME, name
+    # Length holds on the curve as anywhere: by station
+    assert el.standard_qto["Qto_CourseBaseQuantities"]["Length"] == (
+        "length", pytest.approx(100.0), dims.LENGTH)
+
+
+def test_a_widening_shoulder_takes_the_trapezoid():
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.families.road_corridor import build
+    from bimforge.author.gate import FORMULA_TOLERANCE, formula_value
+    p = copy.deepcopy(PARAMS)
+    p["widths"] = [{"component": "shoulder", "side": "R",
+                    "at": [[1000, 5.0], [1100, 10.0]]}]
+    el = build(p, CTX).element("HMA shoulder STA 10+00.00 to 11+00.00")
+    # both shoulders together: 5 + 5 = 10 ft at 10+00, 5 + 10 = 15 ft at 11+00
+    assert (el.dimensions["StartWidth"], el.dimensions["EndWidth"]) == \
+        pytest.approx((10.0, 15.0))
+    assert "Width" not in el.dimensions
+    # on the tangent at 1%: PathLength = 100 x sqrt(1.0001) = 100.005 ft;
+    # Volume = 0.4 x 100.005 x (10 + 15) / 2 = 500.025 cf, the trapezoid exactly
+    assert el.dimensions["PathLength"] == pytest.approx(100.0 * 1.0001 ** 0.5, rel=1e-9)
+    vol = el.standard_qto["Qto_CourseBaseQuantities"]["Volume"]
+    assert vol[1] == pytest.approx(500.025, rel=1e-6)
+    assert vol[2] == dims.TRAPEZOID
+    assert formula_value(dims.TRAPEZOID, {**el.dimensions, "Thickness": 0.4}) == \
+        pytest.approx(vol[1], rel=FORMULA_TOLERANCE)
+    # its Qto Width is the band's mean, weighted by length: 12.5 ft
+    assert el.standard_qto["Qto_CourseBaseQuantities"]["Width"][1] == pytest.approx(12.5)
+
+
+def test_the_course_volume_entry():
+    from bimforge.author.corridor import dimensions as dims
+    # Task 10's shoulder on the curve: 89.8141498 x 5 x 0.4 is 1.6e-7 over
+    # its 179.6282711 cf: the box holds
+    assert dims.course_volume(179.6282711, 89.8141498, [5.0, 5.0, 5.0], 0.4) == (
+        {"Width": 5.0}, ("volume", 179.6282711, dims.VOLUME))
+    # a volume the box misses gets none
+    assert dims.course_volume(180.0, 89.8141498, [5.0, 5.0, 5.0], 0.4) == (
+        {"Width": 5.0}, ("volume", 180.0))
+    # 100 x (10 + 15) / 2 x 0.4 = 500
+    assert dims.course_volume(500.0, 100.0, [10.0, 12.5, 15.0], 0.4) == (
+        {"StartWidth": 10.0, "EndWidth": 15.0}, ("volume", 500.0, dims.TRAPEZOID))
+    assert dims.stations(1000.0, 1287.5) == {
+        "StartStation": 1000.0, "EndStation": 1287.5,
+        "StartStationText": "10+00.00", "EndStationText": "12+87.50"}
+
+
+def test_bidsheet_reads_the_dimensions_and_not_the_station_texts(steep_x3):
+    from bimforge.bim.model_elements import plan_modelled_elements
+    _f, out = steep_x3
+    plan = plan_modelled_elements(str(out / "rc.ifc"), all_elements=True)
+    assert not [w for w in plan["warnings"] if "StationText" in w]
+    rail = next(e for e in plan["elements"] if e["name"].startswith("Guardrail L "))
+    assert rail["parameters"]["StartStation"] == {"value": 1000.0, "unit": "FT"}
+    assert rail["parameters"]["RailHeight"] == {
+        "value": pytest.approx(31.0 / 12.0), "unit": "FT"}
+    assert "StartStationText" not in rail["parameters"]

@@ -245,9 +245,13 @@ def rail_element(rail, c, al, prof, ctx, segment):
     SweptSection along the alignment and profile, raised by the edge's
     height off the profile grade line (its camber, at the corridor's
     stations, linear between them as superelevation is). Posts, terminals,
-    AGTs and anchors are counted (BIMForge_Guardrail), not modelled. A rail
+    AGTs and anchors are counted (BIMForge_Guardrail), not modelled; its
+    class, BIMForge_Dimensions and Length formula are corridor.dimensions'.
+    A rail
     is one section, so a shoulder edge moving sideways under it (a width
     transition) is refused."""
+    from bimforge.author import family_dictionary as fd
+    from bimforge.author.corridor import dimensions as dims
     from bimforge.author.corridor import guardrail
     from bimforge.author.corridor.section import grade_edge
     from bimforge.author.model import Element
@@ -267,15 +271,19 @@ def rail_element(rail, c, al, prof, ctx, segment):
                          frame="plumb", ifc="IfcRailing", layer=LAYER, origin=ctx)
     return Element.from_geometry(
         name, sweep, ifc_class="IfcRailing", predefined_type="GUARDRAIL",
-        type_name=guardrail.TYPE_NAME, typed_late=True, material="Steel",
-        layer=LAYER, spatial_part=segment,
+        type_name=fd.type_name(dims.GUARDRAIL), typed_late=True,
+        family_class=dims.GUARDRAIL, material="Steel", layer=LAYER,
+        spatial_part=segment,
         quantities={"length_ft": rail.length},
+        dimensions={"RailHeight": guardrail.RAIL_TOP_FT,
+                    "PostSpacing": guardrail.POST_SPACING_FT,
+                    **dims.stations(rail.start, rail.end)},
         psets={"BIMForge_Guardrail": {
             "PostCount": rail.posts, "StartTreatment": rail.start_end,
             "EndTreatment": rail.end_end, "Terminals": rail.terminals,
             "AGTTransitions": rail.agts, "Anchors": rail.anchors}},
         standard_qto={"Qto_RailingBaseQuantities": {
-            "Length": ("length", rail.length)}})
+            "Length": ("length", rail.length, dims.LENGTH)}})
 
 
 def _rail_warnings(rail, c) -> list:
@@ -302,11 +310,12 @@ def _rail_warnings(rail, c) -> list:
 
 def build(params: dict, ctx) -> "StructureModel":
     from bimforge.author.alignment import Alignment, Profile, sta
+    from bimforge.author.corridor import dimensions as dims
     from bimforge.author.corridor import earthwork, guardrail, masshaul
     from bimforge.author.corridor import walls as auto_walls
     from bimforge.author.corridor.frame import densify, survey_point
     from bimforge.author.corridor.ground import from_params
-    from bimforge.author.corridor.loft import StationLoft
+    from bimforge.author.corridor.loft import StationLoft, pappus
     from bimforge.author.corridor.params import SIDES, parse
     from bimforge.author.corridor.section import NoDaylight, kind_changes, resolve
     from bimforge.author.model import Element, StructureModel
@@ -463,19 +472,31 @@ def build(params: dict, ctx) -> "StructureModel":
                     lofts = [StationLoft(n, al, prof, ctx, ss, rs,
                                          ifc="IfcCourse", layer=LAYER)
                              for n, rs in zip(names, rings)]
-                    vol = sum(lf.volume_cf for lf in lofts)
+                    # the bodies' exact volume and their combined
+                    # centroid's path (loft.pappus); the Volume formula
+                    # only where that path box is the volume
+                    centroid = pappus(lofts)
+                    vol = centroid.volume_cf
                     aea = sum(lf.average_end_area_cf for lf in lofts)
+                    shape, volume = dims.course_volume(
+                        vol, centroid.path_ft,
+                        [sum(ws) for ws in zip(*(lf.widths_ft for lf in lofts))],
+                        course.thickness)
                     model.add(Element(
                         name, ifc_class="IfcCourse", geometry=lofts,
                         predefined_type=course.type, type_name=course.name,
                         material=course.name, layer=LAYER, body="solids",
-                        spatial_part=parts[comp.kind],
+                        spatial_part=parts[comp.kind], family_class=dims.COURSE,
+                        dimensions={"Thickness": course.thickness, **shape,
+                                    "Offset": centroid.offset_ft,
+                                    "PathLength": centroid.path_ft,
+                                    **dims.stations(b0, b1)},
                         quantities={"length_ft": b1 - b0, "volume_cf": vol},
                         standard_qto={"Qto_CourseBaseQuantities": {
-                            "Length": ("length", b1 - b0),
+                            "Length": ("length", b1 - b0, dims.LENGTH),
                             "Width": ("length", sum(lf.mean_width_ft for lf in lofts)),
                             "Thickness": ("length", course.thickness),
-                            "Volume": ("volume", vol)}}))
+                            "Volume": volume}}))
                     # the exact volume (loft.pappus) against a figure that
                     # does not read it; the mesh is held to the exact
                     # volume by the pre gate's arc-faceting check, and the
@@ -496,27 +517,46 @@ def build(params: dict, ctx) -> "StructureModel":
             fill_cf = sum(p.volume_cf for p in fill)
             els = []
             if cut:
+                cut_dims = {"MaxDepth": cut_d,
+                            "MeanDepth": cut_cf / earthwork.plan_area_sf(cut),
+                            "SlopeRatio": c.slopes.cut_ratio,
+                            **dims.stations(b0, b1)}
+                if c.slopes.rock is not None:
+                    # how far down the rock lies, the band's sections' mean
+                    cut_dims["RockDepth"] = (sum(c.slopes.rock.depth_at(sec.s)
+                                                 for sec in bs) / len(bs))
                 els.append(model.add(Element(
                     f"Cut {tag}", ifc_class="IfcEarthworksCut",
                     geometry=earthwork.merge(f"Cut {tag}", "cut", cut),
                     predefined_type="CUT", layer=LAYER, body="solids",
                     spatial_part=segment, voids=host,
+                    family_class=dims.CUT, dimensions=cut_dims,
                     quantities={"length_ft": b1 - b0, "volume_cf": cut_cf},
                     standard_qto={"Qto_EarthworksCutBaseQuantities": {
-                        "Length": ("length", b1 - b0), "Width": ("length", width),
+                        "Length": ("length", b1 - b0, dims.LENGTH),
+                        "Width": ("length", width),
                         "Depth": ("length", cut_d),
                         "UndisturbedVolume": ("volume", cut_cf),
                         "LooseVolume": ("volume", cut_cf * (1.0 + c.swell))}})))
             if fill:
                 bank = fill_cf / (1.0 - c.shrink)
+                # the steepest fill slope the band's sections take
+                ratio = min([sec.sides[side].ratio for sec in bs for side in SIDES
+                             if sec.sides[side].kind == "fill"
+                             and sec.sides[side].ratio is not None]
+                            or [c.slopes.fill_ratio])
                 els.append(model.add(Element(
                     f"Fill {tag}", ifc_class="IfcEarthworksFill",
                     geometry=earthwork.merge(f"Fill {tag}", "fill", fill),
                     predefined_type="EMBANKMENT", layer=LAYER, body="solids",
-                    spatial_part=segment,
+                    spatial_part=segment, family_class=dims.FILL,
+                    dimensions={"MaxDepth": fill_d,
+                                "MeanDepth": fill_cf / earthwork.plan_area_sf(fill),
+                                "SlopeRatio": ratio, **dims.stations(b0, b1)},
                     quantities={"length_ft": b1 - b0, "volume_cf": fill_cf},
                     standard_qto={"Qto_EarthworksFillBaseQuantities": {
-                        "Length": ("length", b1 - b0), "Width": ("length", width),
+                        "Length": ("length", b1 - b0, dims.LENGTH),
+                        "Width": ("length", width),
                         "Depth": ("length", fill_d),
                         "CompactedVolume": ("volume", fill_cf),
                         "LooseVolume": ("volume", bank * (1.0 + c.swell))}})))

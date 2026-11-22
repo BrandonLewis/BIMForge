@@ -281,7 +281,12 @@ class StationLoft:
 
     @property
     def mean_width_ft(self) -> float:
-        return sum(self.widths_ft) / len(self.rings)
+        """The ring width's mean over the loft's length: each bay's mean
+        width weighted by its length, so densified bays of unequal length
+        do not tilt it."""
+        w, ss = self.widths_ft, self.stations
+        return sum(0.5 * (a + b) * (s1 - s0) for a, b, s0, s1
+                   in zip(w, w[1:], ss, ss[1:])) / (self.s1 - self.s0)
 
     @property
     def average_end_area_cf(self) -> float:

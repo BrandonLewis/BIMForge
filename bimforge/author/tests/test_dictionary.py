@@ -10,6 +10,10 @@ import pytest
 
 DICTIONARY = files("bimforge.author") / "dictionary" / "bimforge-families.bsdd.json"
 LINEAR_PSET = "BIMForge_LinearReference"
+#: the road corridor's classes (V1.1): its example is checked in
+#: test_road_corridor, since a course is typed by its spec's course name
+#: (HMA, AB), not by a class Name
+CORRIDOR = "road-corridor-"
 
 
 @pytest.fixture(scope="module")
@@ -104,8 +108,10 @@ def test_every_emitted_type_is_a_dictionary_class(dictionary, built):
                 pset = ue.get_pset(el, cp["PropertySet"]) or {}
                 if cp["Code"] in pset and "PredefinedValue" in cp:
                     assert pset[cp["Code"]] == cp["PredefinedValue"]
-    # every class but the optional D90 guardrail is exercised by the examples
-    assert seen == {c["Code"] for c in dictionary["Classes"]} - {"pipe-guardrail-d90"}
+    # every class but the optional D90 guardrail and the corridor's (typed
+    # by the spec's course names) is exercised by the examples
+    assert seen == {c["Code"] for c in dictionary["Classes"]
+                    if not c["Code"].startswith(CORRIDOR)} - {"pipe-guardrail-d90"}
 
 
 def test_every_standard_plan_reference_is_declared(dictionary, built):
@@ -221,8 +227,12 @@ def test_every_class_dimension_is_written(dictionary, built):
                 assert isinstance(prop.NominalValue.wrappedValue,
                                   measures[prop.NominalValue.is_a()])
             seen |= set(declared)
+    corridor = {cp["PropertyCode"] for c in dictionary["Classes"]
+                if c["Code"].startswith(CORRIDOR)
+                for cp in c.get("ClassProperties", [])
+                if cp.get("PropertySet") == fd.DIMENSIONS}
     assert seen == {p["Code"] for p in dictionary["Properties"]
-                    if fd.DIMENSIONS in p.get("Description", "")}
+                    if fd.DIMENSIONS in p.get("Description", "")} - corridor
 
 
 def ue_pset(el, name):

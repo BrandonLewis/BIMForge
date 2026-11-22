@@ -291,3 +291,11 @@ def test_a_listed_wall_turning_into_a_guarded_fill_merges_into_one_closed_body()
     edges = Counter(frozenset(e) for x, y, z in bodies[0].tris
                     for e in ((x, y), (y, z), (z, x)))
     assert set(edges.values()) == {2}
+
+
+def test_the_plan_area_of_columns_is_their_bases():
+    from bimforge.author.primitives import Prismatoid
+    # two columns on a 10 x 10 ft right triangle: 50 sf each
+    p = Prismatoid("t", [(0, 0, 0), (10, 0, 0), (0, 10, 0)],
+                   [(0, 0, 1), (10, 0, 1), (0, 10, 1)])
+    assert earthwork.plan_area_sf([p, p]) == pytest.approx(100.0)

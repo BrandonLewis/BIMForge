@@ -281,3 +281,20 @@ def test_a_vertical_curve_s_grade_change_bends_the_section_planes():
                 for a, b in zip(ss, ss[1:]))
     assert lf.volume_cf < 10.0 * along
     assert lf.volume_cf == pytest.approx(lf.faceted_volume_cf, rel=1e-6)
+
+
+def test_pappus_refuses_lofts_on_different_stations():
+    a = StationLoft("a", line(), level(), None, [0.0, 50.0, 100.0], [RECT] * 3)
+    b = StationLoft("b", line(), level(), None, [0.0, 100.0], [RECT] * 2)
+    with pytest.raises(ValueError, match="a: pappus needs lofts on the same stations"):
+        pappus([a, b])
+
+
+def test_the_mean_width_is_weighted_by_station_length():
+    # 10 ft wide over the first 90 ft, widening to 20 ft over the last 10:
+    # (90 x 10 + 10 x 15) / 100 = 10.5 ft, not the stations' mean 13.33
+    wide = [(10.0, 0.0), (-10.0, 0.0), (-10.0, -1.0), (10.0, -1.0)]
+    lf = StationLoft("w", line(), level(), None, [0.0, 90.0, 100.0],
+                     [RECT, RECT, wide])
+    assert lf.widths_ft == pytest.approx([10.0, 10.0, 20.0])
+    assert lf.mean_width_ft == pytest.approx(10.5)
