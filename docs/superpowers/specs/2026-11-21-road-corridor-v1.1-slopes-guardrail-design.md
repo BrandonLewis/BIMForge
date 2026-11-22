@@ -11,7 +11,8 @@ Sources, each cited where used: Caltrans Highway Design Manual (HDM, combined ed
 ## Spec format
 
 ```yaml
-side_slopes:
+section:   # side_slopes sits under section, as in V1
+  side_slopes:
   fill:  {ratio: 4.0, steep: {ratio: 2.0, above_height_ft: 10.0}}
   cut:
     ratio: 2.0
@@ -19,7 +20,7 @@ side_slopes:
     rock: {depth_ft: 8.0, ratio: 0.5, bench_ft: 6.0}   # depth_ft: a number or [station, depth] rows
   daylight_limit_ft: 150
   footprint_ft: {L: 120, R: 120}                      # optional
-walls: auto                                           # or a list of wall gaps, as V1
+walls: auto                                           # only `auto`; listed walls stay under gaps:
 max_wall_height_ft: 30
 guardrail: {design_speed_mph: 45, rail_depth_ft: 1.44}
 outputs:
@@ -50,7 +51,7 @@ Every new key is optional. A V1 spec builds exactly as before: one fill ratio, o
 - **Trigger:** no daylight within `daylight_limit_ft`, or a daylight point past `footprint_ft` on that side.
 - **Fill wall:** at the hinge, with no slope in front. It carries a barrier on top (a barrier slab), so its side gets no guardrail there.
 - **Cut wall:** HDM requires a 10 ft shoulder beside a wall in cut, so through the wall's stations that side's shoulder widens to 10 ft (with a linear transition over the 1 ft lead-in at each end) and the wall stands at its outer edge; no ditch.
-- **Runs:** failing stations on a side merge into runs, cut 1 ft outside each end as V1 wall gaps are. Each run is then a wall gap like a listed one.
+- **Runs:** failing stations on a side merge into runs, cut 1 ft outside each end as V1 wall gaps are. Walls of the same kind on a side closer than one station interval merge into one, so noisy ground gives one continuous wall. Each run is then a wall gap like a listed one.
 - **`outputs.walls`:** one row per run: side, kind (fill or cut), start and end station, offset, minimum and maximum exposed height, and whether it carries a barrier. The wall itself is the wall family's.
 - **Too tall:** a fill wall taller than `max_wall_height_ft` is kept and flagged, and its stretch becomes a structure candidate.
 
@@ -95,6 +96,8 @@ A Formula is written only where it is true: the family tests each against the el
 - `steep.above_height_ft`, `rock.depth_ft`, `rock.bench_ft`, `footprint_ft`, `max_wall_height_ft` non-positive or not finite;
 - `steep.ratio` not steeper than `fill.ratio`; `rock.ratio` not steeper than `cut.ratio`;
 - `walls: auto` together with a listed wall gap on the same side and stations;
+- a guardrail run over a width transition (its face would move under the rail);
+- automatic walls of different kinds on one side less than 2 ft apart (list a wall or a structure gap there).
 - `guardrail.design_speed_mph` outside the table (45, 50);
 - a requested output (`walls`, `structures`, `guardrail`) on a family that makes none.
 

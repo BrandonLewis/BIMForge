@@ -20,10 +20,12 @@ centroid's, left positive, as the linear reference's offsets are.
 - **Road corridor V1.1: slope rules, walls, guardrail, dimensions (P.6).**
   Held to Caltrans practice (HDM 08/08/2025, TSSM April 2025, 2025 Standard
   Plans A77N2 and A77N3):
-  - fill 4:1, switching to 2:1 above a fill height (`steep`); a cut runs
-    2:1 through the soil, then a bench and 0.5:1 in rock below a depth that
-    may vary by station (`rock`); an optional footprint line per side;
-  - `walls: auto` places a wall wherever a slope finds no daylight or runs
+  - a fill rule that switches to a steeper slope above a fill height
+    (`fill.steep`, e.g. 4:1, then 2:1 above 10 ft); a cut that runs through
+    the soil, then a bench and a rock face below a depth that may vary by
+    station (`cut.rock`, e.g. 2:1, then 0.5:1); an optional footprint line
+    per side (`footprint_ft`);
+  - `walls: auto` (the only value `walls:` takes) places a wall wherever a slope finds no daylight or runs
     past the footprint: a fill wall at the hinge carrying a barrier, a cut
     wall beside a shoulder widened to 10 ft; a fill wall taller than
     `max_wall_height_ft` becomes a structure candidate (a short bridge or a
@@ -42,6 +44,9 @@ centroid's, left positive, as the linear reference's offsets are.
     (its section times the path its centroid travels, along plan and grade),
     and `Volume = PathLength * Width * Thickness` (or the trapezoid through a
     taper) is written wherever it holds within the formula check's tolerance.
+
+  The shipped example uses them all and adds a `RAIL-MGS` pay code (no item
+  number); its GlobalIds were re-recorded. Other examples are unchanged.
 - **The `road-corridor` family (P.6).** A road from an alignment, a
   profile, a typical section and the ground:
   - pavement courses are `IfcCourse` elements typed by `IfcCourseType`,
