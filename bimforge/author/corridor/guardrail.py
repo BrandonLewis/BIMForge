@@ -246,7 +246,9 @@ def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
     run's ends, (station, AGT at a structure gap or TERMINAL at the
     alignment's end); `walls` [(start, end)] are the side's walls, which a
     run ties into. With `bridge_rail`, each AGT end also takes a run for
-    the bridge rail end, merged with the rest by the same join rules."""
+    the bridge rail end, merged with the rest by the same join rules. A
+    bay or run of no length (EDGE_TOL_FT or less: a wall ending on a
+    structure gap) is dropped, not refused."""
     near = need(l2, speed_mph)            # the lane beside the rail
     far = need(lc, speed_mph)             # the opposing lane
     # X for traffic travelling up-station (it extends a span's start) and
@@ -273,6 +275,9 @@ def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
         lo, hi = _bay(upper[0], upper[0], lower, upper, walls)
         cores.append(_Core(upper[0] - up, upper[0], TERMINAL, AGT, False,
                            True, lo, hi))
+    # a bay with no length (a wall ending on a structure gap: its barrier
+    # meets the bridge) takes no rail
+    cores = [k for k in cores if k.hi[0] - k.lo[0] > EDGE_TOL_FT]
     for k in cores:
         _clamp(k)
     cores.sort(key=lambda k: (k.start, k.end))
@@ -293,7 +298,7 @@ def lay_out(side: str, guarded: list, l2: float, lc: float, speed_mph: int,
                     tuple(sorted(p.guarded + n.guarded)))]
                 break
         else:
-            return runs
+            return [r for r in runs if r.length > EDGE_TOL_FT]
 
 
 def side_runs(side: str, guarded: list, l2: float, lc: float, speed_mph: int,

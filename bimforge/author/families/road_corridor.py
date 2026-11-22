@@ -196,7 +196,8 @@ def lay_rails(c, runs: list) -> list:
             out += guardrail.side_runs(side, spans, face - c.etw(side, min(at)),
                                        face, c.guard.speed_mph, [(s0, s1)],
                                        c.s_start, c.s_end, walls=walls)
-    return out
+    # side_runs drops empty runs; rail_element is never handed one
+    return [r for r in out if r.length > guardrail.EDGE_TOL_FT]
 
 
 def under_rail(c, rails: list, s: float) -> tuple:

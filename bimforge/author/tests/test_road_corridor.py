@@ -1514,3 +1514,37 @@ def test_check_only_writes_no_table(tmp_path):
     path = _spec_path(tmp_path, STEEP, {"guardrail": "out/rc.guardrail.csv"})
     assert build_from_spec(str(path), check_only=True) == 0
     assert not (tmp_path / "out").exists()
+
+
+def test_the_example_with_a_wall_ending_on_its_bridge_builds(tmp_path):
+    # with the left footprint at 64 ft (the example has 66), the widening
+    # behind the left bridge-approach rail adds an automatic fill wall
+    # 16+76 to 17+00, ending on the bridge gap: the rail re-laid there has
+    # no length left (the wall's barrier meets the bridge) and is dropped,
+    # and the build passes both gates
+    import contextlib
+    import pathlib
+    import shutil
+
+    import yaml
+
+    from bimforge.author.families.registry import build_from_spec
+    here = pathlib.Path(__file__).resolve().parents[1] / "examples"
+    spec = yaml.safe_load((here / "road-corridor.spec.yaml").read_text("utf-8"))
+    spec["params"]["section"]["side_slopes"]["footprint_ft"]["L"] = 64
+    spec["outputs"] = {"ifc": "out/rc.ifc", "walls": "out/rc.walls.csv",
+                       "guardrail": "out/rc.guardrail.csv"}
+    shutil.copy(here / "road-corridor.paycodes.yaml", tmp_path)
+    path = tmp_path / "rc.spec.yaml"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        # 0: the pre gate and the post gate both passed
+        assert build_from_spec(str(path)) == 0, err.getvalue()
+    walls = list(csv.DictReader(io.StringIO(
+        (tmp_path / "out" / "rc.walls.csv").read_text("utf-8"))))
+    assert any(w["side"] == "L" and float(w["end"]) == pytest.approx(1700.0)
+               for w in walls), walls
+    rails = list(csv.DictReader(io.StringIO(
+        (tmp_path / "out" / "rc.guardrail.csv").read_text("utf-8"))))
+    assert rails and all(float(r["length_ft"]) > 0.0 for r in rails)

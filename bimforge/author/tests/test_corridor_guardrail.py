@@ -141,6 +141,23 @@ def test_side_runs_splits_the_alignment_at_structure_gaps():
         RailRun("R", 1600.0, 1762.5, AGT, TERMINAL)]
 
 
+def test_a_wall_ending_on_a_structure_gap_leaves_no_bridge_rail():
+    # a wall 16+76 to 17+00 on the left ends on the bridge at 17+00: the
+    # bridge rail's bay there has no length (the wall's barrier meets the
+    # bridge), so there is no run, not an error. The bridge end at 10+00
+    # still takes its rail, 10+00 to 11+62.5 (above)
+    assert gr.lay_out("L", [], 5.0, 17.0, 45, (1000.0, AGT), (1700.0, AGT),
+                      walls=[(1676.0, 1700.0)], bridge_rail=True) == [
+        RailRun("L", 1000.0, 1162.5, AGT, TERMINAL)]
+    # the same through side_runs, the bridge 17+00 to 18+00
+    assert gr.side_runs("L", [], 5.0, 17.0, 45, [(1000.0, 1700.0), (1800.0, 2500.0)],
+                        1000.0, 2500.0, walls=[(1676.0, 1700.0)]) == [
+        RailRun("L", 1800.0, 1962.5, AGT, TERMINAL)]
+    # a guarded station on the wall's end, at the bridge, is in no bay either
+    assert gr.lay_out("L", [(1700.0, 1700.0)], 5.0, 17.0, 45, (1000.0, TERMINAL),
+                      (1700.0, AGT), walls=[(1676.0, 1700.0)]) == []
+
+
 def test_side_runs_clips_a_guarded_span_at_a_structure_gap():
     # guarded 14+00 to 17+00 across a bridge 15+00 to 16+00: 14+00 to 15+00
     # before it, 16+00 to 17+00 after. Before: LON 12+50 (14+00 - 150) to
