@@ -281,10 +281,33 @@ def record_check(model, global_id: str, set_name: str, name: str, *,
             "measure": measure}
 
 
+def standing(element, check: dict) -> tuple[str, float | None]:
+    """(standing, the file's value now) of `check` on `element`, as
+    ProjectCommand reads it (its records/checks.ts `lapsed`): "gone" when
+    the element no longer has what was checked, "lapsed" when its value has
+    moved from the check's model value by more than the tolerance, else
+    the check's own "agrees" or "differs". A size measured off the drawing,
+    naming no set, is not measured again here: its own result stands.
+    Values in project units."""
+    if not check.get("set"):
+        return check["status"], None
+    try:
+        _, now, _ = _target(element, check.get("set"), check.get("name"))
+    except ValueError:
+        return "gone", None
+    model, within = check.get("model_value"), check.get("tolerance")
+    if model is not None and abs(now - model) > \
+            (within if within is not None else 0.005) * abs(model) + 1e-9:
+        return "lapsed", now
+    return check["status"], now
+
+
 def read_checks(model) -> list[dict]:
     """Every measurement check in `model`, whoever recorded it: {identifier,
-    status, day, by, sheet, revision, sheet_value, model_value,
-    value_source, model_origin, tolerance} (values in project units)."""
+    global_ids, set, name, dim, status, day, by, sheet, revision,
+    sheet_value, model_value, value_source, model_origin, tolerance}
+    (values in project units; `global_ids` the elements it is on, `set` and
+    `name` what was measured, `dim` length, area or volume)."""
     out = []
     links = {link.RelatingApproval.id(): link
              for link in model.by_type("IfcResourceApprovalRelationship")
@@ -293,7 +316,9 @@ def read_checks(model) -> list[dict]:
         a = rel.RelatingApproval
         if a is None or a.Level != LEVEL:
             continue
-        rec = {"identifier": a.Identifier, "status": a.Status,
+        rec = {"identifier": a.Identifier,
+               "global_ids": [o.GlobalId for o in rel.RelatedObjects or []],
+               "status": a.Status,
                "day": (a.TimeOfApproval or "")[:10],
                "by": getattr(a.GivingApproval, "FamilyName", None)
                if a.GivingApproval is not None else None}
@@ -308,6 +333,12 @@ def read_checks(model) -> list[dict]:
                 elif m.Name == "ModelValue":
                     rec.update(model_value=v, value_source=m.ValueSource,
                                model_origin=m.ConstraintSource)
+                    path = m.ReferencePath
+                    if path is not None and path.InnerReference is not None:
+                        rec.update(set=path.InstanceName,
+                                   name=path.InnerReference.InstanceName)
+                    if m.DataValue is not None:
+                        rec["dim"] = PROPERTY_DIM.get(m.DataValue.is_a())
                 elif m.Name == "Tolerance":
                     rec["tolerance"] = v
         out.append(rec)
