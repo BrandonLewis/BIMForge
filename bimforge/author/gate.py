@@ -39,6 +39,8 @@ reports.
 """
 from __future__ import annotations
 
+import ast
+import operator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -540,28 +542,70 @@ def quantity_value(q):
     return getattr(q, q.attribute_name(3))
 
 
+#: the arithmetic a quantity Formula may use
+_FORMULA_OPS = {ast.Add: operator.add, ast.Sub: operator.sub,
+                ast.Mult: operator.mul, ast.Div: operator.truediv}
+
+
 def formula_value(formula: str, values: dict) -> float:
-    """A quantity Formula evaluated over its set's {name: value}. Only the
-    product of names is read (`Length * Width * Height`); anything else, or
-    a name not in the set, raises ValueError."""
-    out = 1.0
-    for term in formula.split("*"):
-        name = term.strip()
-        if not name.isidentifier():
-            raise ValueError(f"formula {formula!r}: {term.strip()!r} is not "
-                             f"a quantity name")
-        if name not in values:
-            raise ValueError(f"formula {formula!r}: no quantity {name!r} in "
-                             f"the set")
-        out *= values[name]
+    """A quantity Formula evaluated over {name: value}: names, numbers,
+    `+ - * /` and parentheses (`Length * Width * Height`, `EndStation -
+    StartStation`, `PathLength * (StartWidth + EndWidth) / 2 * Thickness`).
+    Anything else, or a name not in `values`, raises ValueError. Parsed by
+    ast and walked here, so nothing in it is run."""
+    grammar = (f"formula {formula!r}: not a quantity name, a number, or "
+               f"+ - * / ( ) of them")
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError:
+        raise ValueError(grammar) from None
+
+    def ev(node) -> float:
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.BinOp) and type(node.op) in _FORMULA_OPS:
+            try:
+                return _FORMULA_OPS[type(node.op)](ev(node.left), ev(node.right))
+            except ZeroDivisionError:
+                raise ValueError(f"formula {formula!r}: divides by zero") from None
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -ev(node.operand)
+        if (isinstance(node, ast.Constant) and isinstance(node.value, (int, float))
+                and not isinstance(node.value, bool)):
+            return float(node.value)
+        if isinstance(node, ast.Name):
+            if node.id not in values:
+                raise ValueError(f"formula {formula!r}: no quantity {node.id!r} "
+                                 f"in the set or the element's dimensions")
+            return values[node.id]
+        raise ValueError(f"{grammar} ({ast.unparse(node)!r})")
+
+    return ev(tree)
+
+
+def _dimension_values(product) -> dict:
+    """{name: value} of a product's BIMForge_Dimensions numbers (M.2), in
+    the file's units: what a Formula may read beside its own set."""
+    from bimforge.author.family_dictionary import DIMENSIONS
+    out = {}
+    for rel in getattr(product, "IsDefinedBy", None) or ():
+        pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is None or not pset.is_a("IfcPropertySet") or pset.Name != DIMENSIONS:
+            continue
+        for prop in pset.HasProperties or ():
+            nv = getattr(prop, "NominalValue", None)
+            if (nv is not None and isinstance(nv.wrappedValue, (int, float))
+                    and not isinstance(nv.wrappedValue, bool)):
+                out[prop.Name] = float(nv.wrappedValue)
     return out
 
 
 def _ifc_formula_check(model, ifc_path: str,
                        tol: float = FORMULA_TOLERANCE) -> list[str]:
     """Every quantity written with a Formula (roadmap M.3) is that formula
-    over the quantities of its own set, as the file states them: a reader
-    that recomputes gets the number in the file."""
+    over the quantities of its own set and its element's BIMForge_Dimensions,
+    as the file states them: a reader that recomputes gets the number in the
+    file."""
     import ifcopenshell
     f = ifcopenshell.open(str(ifc_path))
     fail = []
@@ -572,10 +616,15 @@ def _ifc_formula_check(model, ifc_path: str,
             formula = getattr(q, "Formula", None)
             if not formula:
                 continue
-            owners = ", ".join(o.Name for r in qset.DefinesOccurrence
-                               for o in r.RelatedObjects) or f"#{qset.id()}"
+            products = [o for r in qset.DefinesOccurrence for o in r.RelatedObjects]
+            owners = ", ".join(o.Name for o in products) or f"#{qset.id()}"
+            # the set's own quantities first, then the element's dimensions
+            names = {}
+            for o in products:
+                names.update(_dimension_values(o))
+            names.update(values)
             try:
-                got = formula_value(formula, values)
+                got = formula_value(formula, names)
             except ValueError as exc:
                 fail.append(f"{owners}: {q.Name} {exc}")
                 continue

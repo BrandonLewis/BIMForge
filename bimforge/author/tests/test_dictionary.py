@@ -202,7 +202,8 @@ def test_every_class_dimension_is_written(dictionary, built):
     gives it; a class that declares none writes no set."""
     from bimforge.author import family_dictionary as fd
     from bimforge.bim.ifc_takeoff import family_class_of
-    measures = {"IfcLengthMeasure": float, "IfcRatioMeasure": float}
+    measures = {"IfcLengthMeasure": float, "IfcRatioMeasure": float,
+                "IfcLabel": str}
     seen = set()
     for model in built:
         for el in model.by_type("IfcElement"):
@@ -212,8 +213,9 @@ def test_every_class_dimension_is_written(dictionary, built):
             if not declared:
                 assert pset is None, el.Name
                 continue
-            assert sorted(pset) == sorted(declared), el.Name
-            for code in declared:
+            assert set(fd.required_dimensions(cls["code"])) <= set(pset) \
+                <= set(declared), el.Name
+            for code in pset:
                 prop = pset[code]
                 assert prop.NominalValue.is_a() == fd.measure(code)[0]
                 assert isinstance(prop.NominalValue.wrappedValue,
@@ -277,3 +279,19 @@ def test_b3_volumes_are_boxes_over_their_own_quantities(built):
         assert vol.Formula == "Length * Width * Height", el.Name
         got = formula_value(vol.Formula, {n: quantity_value(x) for n, x in q.items()})
         assert abs(got - vol.VolumeValue) <= FORMULA_TOLERANCE * vol.VolumeValue
+
+
+def test_a_text_dimension_and_an_optional_one(monkeypatch):
+    from bimforge.author import family_dictionary as fd
+    doc = {"Classes": [{"Code": "x", "Name": "X", "ClassProperties": [
+        {"Code": p, "PropertyCode": p, "PropertySet": fd.DIMENSIONS,
+         "IsRequired": p != "O"} for p in ("A", "T", "O")]}],
+        "Properties": [{"Code": "A", "DataType": "Real", "PhysicalQuantity": "length"},
+                       {"Code": "T", "DataType": "String"},
+                       {"Code": "O", "DataType": "Real", "PhysicalQuantity": "ratio"}]}
+    monkeypatch.setattr(fd, "_document", lambda: doc)
+    assert fd.dimensions("x") == ["A", "T", "O"]
+    assert fd.required_dimensions("x") == ["A", "T"]
+    assert fd.measure("T") == ("IfcLabel", False)
+    assert fd.measure("A") == ("IfcLengthMeasure", True)
+    assert fd.measure("O") == ("IfcRatioMeasure", False)

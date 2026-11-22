@@ -553,7 +553,8 @@ def test_parameters_and_linear_reference_read_in_the_projects_foot():
         "alignment": "LINE A", "station_start": 1000.0,
         "station_end": 1064.0, "offset_left_min": -1.0,
         "offset_left_max": 0.0, "unit": "FT"}
-    assert any("Note" in w and "not sent" in w for w in plan["warnings"])
+    # a text (a station's IfcLabel twin) is skipped: its number is sent
+    assert not any("Note" in w for w in plan["warnings"])
     assert "family_class" not in entry
 
 

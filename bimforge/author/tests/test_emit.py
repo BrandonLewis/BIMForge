@@ -2061,7 +2061,7 @@ def test_formula_gate_catches_a_quantity_that_does_not_recompute(tmp_path):
     vol.Formula = "Length * Depth"
     f.write(str(bad))
     assert "no quantity 'Depth'" in _ifc_formula_check(m, str(bad))[0]
-    vol.Formula = "Length + Width"
+    vol.Formula = "Length ** Width"
     f.write(str(bad))
     assert "not a quantity name" in _ifc_formula_check(m, str(bad))[0]
     rep = run_post(m, {"ifc": str(bad)})
@@ -2209,3 +2209,90 @@ def test_a_pset_measure_is_written_typed_in_project_units(tmp_path):
     assert props["Bulk"].is_a("IfcVolumeMeasure")
     assert props["Bulk"].wrappedValue == pytest.approx(27.0 * k ** 3)
     assert props["Note"].is_a("IfcLabel")
+
+
+def test_a_standard_quantity_may_carry_its_formula(tmp_path):
+    import ifcopenshell
+    from bimforge.author.gate import _ifc_formula_check
+    m = _fixture_model()
+    # a 4 x 4 x 2 ft footing: GrossVolume 32 cf is its box
+    m.element("PS-1 footing").standard_qto = {"Qto_FootingBaseQuantities": {
+        "Length": ("length", 4.0), "Width": ("length", 4.0),
+        "Height": ("length", 2.0),
+        "GrossVolume": ("volume", 32.0, "Length * Width * Height")}}
+    out = tmp_path / "std.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    q = {x.Name: x for qs in f.by_type("IfcElementQuantity")
+         if qs.Name == "Qto_FootingBaseQuantities" for x in qs.Quantities}
+    assert q["GrossVolume"].Formula == "Length * Width * Height"
+    assert q["Length"].Formula is None
+    assert _ifc_formula_check(m, str(out)) == []
+
+
+def test_a_formula_is_arithmetic_over_names():
+    from bimforge.author.gate import formula_value
+    v = {"EndStation": 1275.0, "StartStation": 1000.0, "PathLength": 100.0,
+         "StartWidth": 10.0, "EndWidth": 15.0, "Thickness": 0.4}
+    assert formula_value("EndStation - StartStation", v) == 275.0
+    # the trapezoid: 100 x (10 + 15) / 2 x 0.4 = 500
+    assert formula_value("PathLength * (StartWidth + EndWidth) / 2 * Thickness",
+                         v) == pytest.approx(500.0)
+    for bad in ("Thickness ** 2", "__import__('os')", "Thickness[0]",
+                "Thickness +", "Thickness.real", "True * Thickness"):
+        with pytest.raises(ValueError, match="not a quantity name"):
+            formula_value(bad, v)
+    with pytest.raises(ValueError, match="no quantity 'Depth'"):
+        formula_value("Depth * 2", v)
+
+
+#: a family dictionary of one class, "x": two lengths, a text and an
+#: optional length
+_TEXT_DOC = {
+    "OrganizationCode": "bimforge", "DictionaryCode": "families",
+    "DictionaryVersion": "0.1",
+    "Classes": [{"Code": "x", "Name": "X", "ClassProperties": [
+        {"Code": p, "PropertyCode": p, "PropertySet": "BIMForge_Dimensions",
+         "IsRequired": p != "O"} for p in ("A", "B", "T", "O")]}],
+    "Properties": [{"Code": "A", "DataType": "Real", "PhysicalQuantity": "length"},
+                   {"Code": "B", "DataType": "Real", "PhysicalQuantity": "length"},
+                   {"Code": "T", "DataType": "String"},
+                   {"Code": "O", "DataType": "Real", "PhysicalQuantity": "length"}]}
+
+
+def test_dimensions_take_text_leave_out_an_optional_one_and_feed_a_formula(
+        tmp_path, monkeypatch):
+    import ifcopenshell
+    from bimforge.author import family_dictionary as fd
+    from bimforge.author.gate import _ifc_formula_check
+    monkeypatch.setattr(fd, "_document", lambda: _TEXT_DOC)
+    m = _fixture_model()
+    el = m.element("PS-1 footing")
+    el.family_class = "x"
+    el.dimensions = {"A": 12.0, "B": 2.5, "T": "12+50.00"}
+    # a Length over two dimensions in another set: 12 - 2.5 = 9.5 ft
+    el.standard_qto = {"Qto_FootingBaseQuantities": {
+        "Length": ("length", 9.5, "A - B")}}
+    out = tmp_path / "dims.ifc"
+    emit_ifc(m, str(out), PC)
+    f = ifcopenshell.open(str(out))
+    foot = next(e for e in f.by_type("IfcFooting") if e.Name == "PS-1 footing")
+    dims = {p.Name: p.NominalValue for r in foot.IsDefinedBy
+            if r.RelatingPropertyDefinition.is_a("IfcPropertySet")
+            and r.RelatingPropertyDefinition.Name == fd.DIMENSIONS
+            for p in r.RelatingPropertyDefinition.HasProperties}
+    assert set(dims) == {"A", "B", "T"}                   # O is optional
+    assert dims["T"].is_a("IfcLabel") and dims["T"].wrappedValue == "12+50.00"
+    assert dims["A"].wrappedValue == pytest.approx(12.0 * m.ctx.ft_to_m)
+    assert _ifc_formula_check(m, str(out)) == []
+    # a dimension the formula reads, changed in the file, fails it
+    a = next(p for p in f.by_type("IfcPropertySingleValue") if p.Name == "A")
+    a.NominalValue = f.create_entity("IfcLengthMeasure", 13.0 * m.ctx.ft_to_m)
+    bad = tmp_path / "bad.ifc"
+    f.write(str(bad))
+    (fail,) = _ifc_formula_check(m, str(bad))
+    assert "PS-1 footing: Length" in fail
+    # a required dimension left out is refused
+    el.dimensions = {"A": 12.0, "T": "12+50.00"}
+    with pytest.raises(ValueError, match=r"requires \['A', 'B', 'T'\]"):
+        emit_ifc(m, str(tmp_path / "missing.ifc"), PC)
