@@ -250,7 +250,6 @@ def rail_element(rail, c, al, prof, ctx, segment):
     A rail
     is one section, so a shoulder edge moving sideways under it (a width
     transition) is refused."""
-    from bimforge.author import family_dictionary as fd
     from bimforge.author.corridor import dimensions as dims
     from bimforge.author.corridor import guardrail
     from bimforge.author.corridor.section import grade_edge
@@ -271,7 +270,7 @@ def rail_element(rail, c, al, prof, ctx, segment):
                          frame="plumb", ifc="IfcRailing", layer=LAYER, origin=ctx)
     return Element.from_geometry(
         name, sweep, ifc_class="IfcRailing", predefined_type="GUARDRAIL",
-        type_name=fd.type_name(dims.GUARDRAIL), typed_late=True,
+        type_name=guardrail.TYPE_NAME, typed_late=True,
         family_class=dims.GUARDRAIL, material="Steel", layer=LAYER,
         spatial_part=segment,
         quantities={"length_ft": rail.length},
@@ -512,7 +511,8 @@ def build(params: dict, ctx) -> "StructureModel":
                 cut += cp
                 fill += fp
                 cut_d, fill_d = max(cut_d, cd), max(fill_d, fd)
-            width = sum(sec.width() for sec in bs) / len(bs)
+            # the band's mean width, weighted by length as a course's is
+            width = dims.band_mean(ss, [sec.width() for sec in bs])
             cut_cf = sum(p.volume_cf for p in cut)
             fill_cf = sum(p.volume_cf for p in fill)
             els = []
@@ -522,9 +522,9 @@ def build(params: dict, ctx) -> "StructureModel":
                             "SlopeRatio": c.slopes.cut_ratio,
                             **dims.stations(b0, b1)}
                 if c.slopes.rock is not None:
-                    # how far down the rock lies, the band's sections' mean
-                    cut_dims["RockDepth"] = (sum(c.slopes.rock.depth_at(sec.s)
-                                                 for sec in bs) / len(bs))
+                    # how far down the rock lies, the band's mean by length
+                    cut_dims["RockDepth"] = dims.band_mean(
+                        ss, [c.slopes.rock.depth_at(s) for s in ss])
                 els.append(model.add(Element(
                     f"Cut {tag}", ifc_class="IfcEarthworksCut",
                     geometry=earthwork.merge(f"Cut {tag}", "cut", cut),
@@ -540,19 +540,22 @@ def build(params: dict, ctx) -> "StructureModel":
                         "LooseVolume": ("volume", cut_cf * (1.0 + c.swell))}})))
             if fill:
                 bank = fill_cf / (1.0 - c.shrink)
-                # the steepest fill slope the band's sections take
-                ratio = min([sec.sides[side].ratio for sec in bs for side in SIDES
-                             if sec.sides[side].kind == "fill"
-                             and sec.sides[side].ratio is not None]
-                            or [c.slopes.fill_ratio])
+                # the steepest fill slope the band's sections take; none
+                # where every fill side is a wall (SlopeRatio is optional)
+                ratios = [sec.sides[side].ratio for sec in bs for side in SIDES
+                          if sec.sides[side].kind == "fill"
+                          and sec.sides[side].ratio is not None]
+                fill_dims = {"MaxDepth": fill_d,
+                             "MeanDepth": fill_cf / earthwork.plan_area_sf(fill),
+                             **dims.stations(b0, b1)}
+                if ratios:
+                    fill_dims["SlopeRatio"] = min(ratios)
                 els.append(model.add(Element(
                     f"Fill {tag}", ifc_class="IfcEarthworksFill",
                     geometry=earthwork.merge(f"Fill {tag}", "fill", fill),
                     predefined_type="EMBANKMENT", layer=LAYER, body="solids",
                     spatial_part=segment, family_class=dims.FILL,
-                    dimensions={"MaxDepth": fill_d,
-                                "MeanDepth": fill_cf / earthwork.plan_area_sf(fill),
-                                "SlopeRatio": ratio, **dims.stations(b0, b1)},
+                    dimensions=fill_dims,
                     quantities={"length_ft": b1 - b0, "volume_cf": fill_cf},
                     standard_qto={"Qto_EarthworksFillBaseQuantities": {
                         "Length": ("length", b1 - b0, dims.LENGTH),

@@ -872,7 +872,7 @@
           "Code": "SlopeRatio",
           "PropertyCode": "SlopeRatio",
           "PropertySet": "BIMForge_Dimensions",
-          "IsRequired": true,
+          "IsRequired": false,
           "Description": "A dimension that sizes the element (M.2)."
         },
         {
@@ -1263,7 +1263,7 @@
       "DataType": "Real",
       "Dimension": "0 0 0 0 0 0 0",
       "PhysicalQuantity": "ratio",
-      "Definition": "The side slope, horizontal per vertical: a cut's soil ratio, or the steepest fill ratio in the band.",
+      "Definition": "The side slope, horizontal per vertical: a cut's soil ratio, or the steepest fill ratio in the band (none where every fill side is a wall).",
       "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities."
     },
     {

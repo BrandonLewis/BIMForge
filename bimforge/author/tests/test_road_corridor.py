@@ -1419,3 +1419,74 @@ def test_bidsheet_reads_the_dimensions_and_not_the_station_texts(steep_x3):
     assert rail["parameters"]["RailHeight"] == {
         "value": pytest.approx(31.0 / 12.0), "unit": "FT"}
     assert "StartStationText" not in rail["parameters"]
+
+
+def test_the_rail_type_is_the_dictionary_s_guardrail_class():
+    from bimforge.author import family_dictionary as fd
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor import guardrail as gr
+    assert gr.TYPE_NAME == fd.type_name(dims.GUARDRAIL)
+
+
+def test_a_band_mean_is_weighted_by_length():
+    from bimforge.author.corridor import dimensions as dims
+    # 8 ft over the first 90 ft, rising to 18 ft over the last 10:
+    # (90 x 8 + 10 x 13) / 100 = 8.5, not the stations' mean 11.33
+    assert dims.band_mean([1000.0, 1090.0, 1100.0], [8.0, 8.0, 18.0]) == \
+        pytest.approx(8.5)
+
+
+def test_a_fill_with_no_fill_side_has_no_slope_ratio(model):
+    # PARAMS from 10+00 to 11+00: the ground rises east 5%, so the right is
+    # cut, and the left is cut to 10+50 and a wall from there: the band's
+    # fill is under the road only, with no fill slope to state
+    el = model.element("Fill STA 10+00.00 to 11+00.00")
+    assert "SlopeRatio" not in el.dimensions
+    assert {"MaxDepth", "MeanDepth", "StartStation", "EndStation"} <= set(el.dimensions)
+    # the next band's left is a 2:1 fill slope
+    assert model.element("Fill STA 11+00.00 to 12+00.00").dimensions[
+        "SlopeRatio"] == pytest.approx(2.0)
+
+
+def _dims_of(el):
+    """{name: IfcPropertySingleValue} of el's BIMForge_Dimensions."""
+    from bimforge.author import family_dictionary as fd
+    for rel in el.IsDefinedBy or ():
+        pset = rel.RelatingPropertyDefinition
+        if pset.is_a("IfcPropertySet") and pset.Name == fd.DIMENSIONS:
+            return {x.Name: x for x in pset.HasProperties}
+    return {}
+
+
+def test_each_dimension_is_written_as_its_measure_and_a_taper_as_its_ends(tmp_path):
+    import ifcopenshell.util.element  # noqa: F401
+
+    from bimforge.author import family_dictionary as fd
+    from bimforge.author.gate import _ifc_formula_check
+    from bimforge.bim.ifc_takeoff import family_class_of
+    p = copy.deepcopy(PARAMS)
+    p["widths"] = [{"component": "shoulder", "side": "R",
+                    "at": [[1000, 5.0], [1100, 10.0]]}]
+    f, out = _built_from(tmp_path, p)
+    assert _ifc_formula_check(None, str(out / "rc.ifc")) == []
+    kinds = {"IfcLengthMeasure": float, "IfcRatioMeasure": float, "IfcLabel": str}
+    checked = set()
+    for el in f.by_type("IfcElement"):
+        cls = family_class_of(el)
+        if cls is None:
+            continue                                     # the TERRAIN
+        for code, prop in _dims_of(el).items():
+            nv = prop.NominalValue
+            assert nv.is_a() == fd.measure(code)[0], (el.Name, code)
+            assert isinstance(nv.wrappedValue, kinds[nv.is_a()]), (el.Name, code)
+            checked.add((code, nv.is_a()))
+    assert {("SlopeRatio", "IfcRatioMeasure"), ("StartStationText", "IfcLabel"),
+            ("PathLength", "IfcLengthMeasure")} <= checked
+    taper = next(c for c in f.by_type("IfcCourse")
+                 if c.Name == "HMA shoulder STA 10+00.00 to 11+00.00")
+    d = {n: x.NominalValue.wrappedValue for n, x in _dims_of(taper).items()}
+    # 10 ft at 10+00 and 15 ft at 11+00, both shoulders together, in metres
+    assert (d["StartWidth"], d["EndWidth"]) == pytest.approx((10.0 * US_FT, 15.0 * US_FT))
+    assert "Width" not in d
+    assert _course_volume(taper).Formula == \
+        "PathLength * (StartWidth + EndWidth) / 2 * Thickness"

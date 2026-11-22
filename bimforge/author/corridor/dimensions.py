@@ -32,6 +32,14 @@ def stations(s0: float, s1: float) -> dict:
             "StartStationText": sta(s0), "EndStationText": sta(s1)}
 
 
+def band_mean(stations: list, values: list) -> float:
+    """The mean of `values` (one per station) over the band, each bay's
+    mean weighted by its length: densified bays are of unequal length."""
+    return sum(0.5 * (a + b) * (s1 - s0) for a, b, s0, s1
+               in zip(values, values[1:], stations, stations[1:])) / (
+        stations[-1] - stations[0])
+
+
 def course_volume(volume_cf: float, path_ft: float, widths: list,
                   thickness: float) -> tuple:
     """(width dimensions, Volume entry for Element.standard_qto) of a course
