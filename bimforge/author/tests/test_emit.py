@@ -2246,6 +2246,80 @@ def test_a_formula_is_arithmetic_over_names():
         formula_value("Depth * 2", v)
 
 
+def test_a_hostile_formula_is_a_value_error():
+    """A Formula read from a file someone else wrote is refused, never
+    raised past the gate: too long, too deep, too large, or not finite."""
+    import sys
+    from bimforge.author.gate import formula_value
+    v = {"A": 2.0}
+    with pytest.raises(ValueError, match="longer than 1000"):
+        formula_value(" + ".join(["A"] * 1200), v)        # a 1,200-term chain
+    with pytest.raises(ValueError, match="longer than 1000"):
+        formula_value("-" * 100_000 + "A", v)
+    with pytest.raises(ValueError, match="too large"):
+        formula_value("1" + "0" * 400, v)                 # a 400-digit literal
+    with pytest.raises(ValueError, match="not finite"):
+        formula_value("1e309 - 1e309", v)
+    with pytest.raises(ValueError, match="not finite"):
+        formula_value("1e308 * 10 * A", v)
+    # under the cap but deeper than the stack allows
+    limit = sys.getrecursionlimit()
+    sys.setrecursionlimit(200)
+    try:
+        with pytest.raises(ValueError, match="too deep"):
+            formula_value("-" * 900 + "A", v)
+    finally:
+        sys.setrecursionlimit(limit)
+    assert formula_value("-" * 10 + "A", v) == 2.0
+
+
+def test_one_hostile_formula_fails_only_its_own_quantity(tmp_path):
+    """The rest of the file is still checked: a GrossVolume that misses its
+    formula beside a Length whose formula is NaN fails as well."""
+    from bimforge.author.gate import _ifc_formula_check
+    m = _fixture_model()
+    m.element("PS-1 footing").standard_qto = {"Qto_FootingBaseQuantities": {
+        "Length": ("length", 4.0, "1e309 - 1e309"),
+        "Width": ("length", 4.0), "Height": ("length", 2.0),
+        "Depth": ("length", 2.0, "Height"),                   # holds
+        "GrossVolume": ("volume", 33.0, "Length * Width * Height")}}
+    out = tmp_path / "hostile.ifc"
+    emit_ifc(m, str(out), PC)
+    fails = _ifc_formula_check(m, str(out))
+    assert len(fails) == 2, fails
+    assert any("PS-1 footing: Length" in x and "not finite" in x for x in fails)
+    assert any("PS-1 footing: GrossVolume" in x for x in fails)
+
+
+def test_a_shared_quantity_set_is_checked_per_product(tmp_path):
+    """Two products sharing one set each read their own dimensions; one
+    whose dimension the formula misses fails, named alone."""
+    import ifcopenshell
+    import ifcopenshell.api.pset
+    import ifcopenshell.api.root
+    import ifcopenshell.guid
+    from bimforge.author.family_dictionary import DIMENSIONS
+    from bimforge.author.gate import _ifc_formula_check
+    f = ifcopenshell.file(schema="IFC4X3")
+    a, b = (ifcopenshell.api.root.create_entity(f, ifc_class="IfcFooting", name=n)
+            for n in ("F-a", "F-b"))
+    for prod, depth in ((a, 3.0), (b, 5.0)):
+        pset = ifcopenshell.api.pset.add_pset(f, product=prod, name=DIMENSIONS)
+        pset.HasProperties = [f.createIfcPropertySingleValue(
+            "D", None, f.createIfcLengthMeasure(depth))]
+    q = f.createIfcQuantityLength("Length", None, None, 3.0)
+    q.Formula = "D"
+    qset = f.createIfcElementQuantity(
+        ifcopenshell.guid.new(), None, "Qto_FootingBaseQuantities",
+        None, None, [q])
+    f.createIfcRelDefinesByProperties(ifcopenshell.guid.new(), None, None, None,
+                                      [a, b], qset)
+    path = tmp_path / "shared.ifc"
+    f.write(str(path))
+    (fail,) = _ifc_formula_check(None, str(path))
+    assert fail.startswith("F-b: Length")
+
+
 #: a family dictionary of one class, "x": two lengths, a text and an
 #: optional length
 _TEXT_DOC = {
