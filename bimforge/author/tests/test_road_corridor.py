@@ -1028,3 +1028,56 @@ def test_an_ifc4x3_build_with_rail_passes_the_gate(tmp_path):
             build(copy.deepcopy(params), CTX), str(tmp_path / "out" / "rc.ifc")))
     # only the courses' sectioned caps (test_every_body_is_solid_but_...)
     assert all("(IfcCourse)" in msg for msg in found), found
+
+
+def test_a_slope_the_widening_pushes_past_the_footprint_takes_a_wall():
+    from bimforge.author.corridor import guardrail as gr
+    from bimforge.author.families.road_corridor import build
+    p = copy.deepcopy(STEEP)
+    p["section"]["side_slopes"]["footprint_ft"]["L"] = 47
+    # Left (x west, d = s - 1000): the ground is 300 + 0.05 d + 0.1 x, the
+    # widening's hinge 20.94 west at 319.116.
+    # First pass: the guarded 2:1 from the widening's hinge, 329.586 - 0.5 x,
+    # meets the ground at x = (29.586 - 0.05 d) / 0.6, past 47 ft to
+    # d = 27.72: a fill wall from 10+00 to 10+27 (10+28 fits, 46.98 ft).
+    # The rail: guarded 10+28 to 11+25, 150 ft on and 37.5 ft back, ties
+    # into that wall at 10+27, made 250 ft (whole elements) to 12+77 and its
+    # nose to 12+89.50. Under it, past the guarded span (d over 128.2), the
+    # 4:1 runs from the widening's hinge, 324.351 - 0.25 x, to
+    # x = (24.351 - 0.05 d) / 0.35: 48.15 ft at 11+50 (42.46 without the
+    # widening), past 47 ft to d = 158.02. So a second fill wall, 11+29
+    # (11+28 is guarded, 10.01 ft of fill: 2:1, 38.04 ft) to 11+58 (11+59
+    # fits, 46.86 ft). The rail laid again runs wall to wall: 10+27 to
+    # 11+29, 102 ft, held short of 150 at both ends; 102 / 6.25 = 16.3, 17
+    # posts. Past 11+58 the left is not guarded and has no rail. Each wall's
+    # face, the shoulder edge (17 west, 319.51), is 17.81 - 0.05 d above
+    # the ground: 17.81 and 16.46; 11.36 and 9.91
+    m = build(p, CTX)
+    assert m.tables["guardrail"] == (
+        gr.HEADER + "\n"
+        "L,1027.00,1129.00,102.00,WALL,WALL,17,yes,no\n"
+        "R,1111.00,1197.00,86.00,WALL,WALL,14,yes,no\n")
+    rows = m.tables["walls"].splitlines()
+    assert "L,fill,1000.00,1027.00,17.00,16.46,17.81,yes,no" in rows
+    assert "L,fill,1129.00,1158.00,17.00,9.91,11.36,yes,no" in rows
+    _closed_earthwork(m)
+
+
+def test_without_walls_auto_a_widening_past_the_footprint_says_what_to_do():
+    from bimforge.author.families.road_corridor import build
+    p = copy.deepcopy(STEEP)
+    del p["walls"]
+    # the left's guarded 2:1 reaches 49.31 ft at most and its 4:1 without
+    # the widening 40.7 ft: both fit 49.5 ft. Under the rail, the 4:1 from
+    # the widening's hinge reaches (24.351 - 0.05 d) / 0.35 ft: 51.00 ft at
+    # 11+30, the first station (10 ft apart) past the guarded span. The road
+    # ends at 13+00, before the left's rock cut (55.6 ft)
+    p["alignment"]["run"][0]["length"] = 300.0
+    p["profile"]["curves"][0].update(length_ft=300.0, evc_station=1300.0)
+    p["section"]["side_slopes"]["footprint_ft"] = {"L": 49.5}
+    p["stations"]["interval"] = 10
+    with pytest.raises(ValueError, match=r"guardrail: the widening behind the rail "
+                       r"at 11\+30\.00 pushes the slope out: .*daylights 51\.00 ft "
+                       r"out.*; list a wall gap there, widen footprint_ft, or set "
+                       r"walls: auto"):
+        build(p, CTX)

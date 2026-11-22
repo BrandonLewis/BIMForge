@@ -63,12 +63,19 @@ class StructureRow:
     low_point: float       # the station where the ground is lowest
 
 
-def find(c, stations: list, ground_dz) -> list:
+def find(c, stations: list, ground_dz, rail=None) -> list:
     """Wall gaps (params.Gap, `auto` the wall's kind) for one run's
-    `stations` of corridor `c`, by start station."""
+    `stations` of corridor `c`, by start station. `rail(s, side)`, when
+    given, says whether a guardrail's widening stands on `side` at s (the
+    family's second pass), so a slope it pushes past the footprint takes a
+    wall too."""
+    def need(s, side):
+        return needs_wall(c, s, side, ground_dz,
+                          rail is not None and rail(s, side))
+
     out = []
     for side in SIDES:
-        kinds = [needs_wall(c, s, side, ground_dz) for s in stations]
+        kinds = [need(s, side) for s in stations]
         i = 0
         while i < len(stations):
             kind = kinds[i]
@@ -78,16 +85,16 @@ def find(c, stations: list, ground_dz) -> list:
             j = i
             while j + 1 < len(stations) and kinds[j + 1] == kind:
                 j += 1
-            start = _reach(c, side, ground_dz, kind, stations[i],
+            start = _reach(side, need, kind, stations[i],
                            stations[i - 1] if i > 0 else None, -1.0)
-            end = _reach(c, side, ground_dz, kind, stations[j],
+            end = _reach(side, need, kind, stations[j],
                          stations[j + 1] if j + 1 < len(stations) else None, 1.0)
             out.append(Gap(start, end, "wall", side, None, auto=kind))
             i = j + 1
     return sorted(out, key=lambda g: (g.start, g.side))
 
 
-def _reach(c, side: str, ground_dz, kind: str, s: float, neighbour, step: float) -> float:
+def _reach(side: str, need_at, kind: str, s: float, neighbour, step: float) -> float:
     """The wall's end, moved from station `s` toward `neighbour` (the next
     station, which does not need this wall; None at the run's end, where
     the wall ends at `s`) a foot at a time while the section a foot beyond
@@ -107,7 +114,7 @@ def _reach(c, side: str, ground_dz, kind: str, s: float, neighbour, step: float)
             if (e - first) * step >= -_EPS:
                 return e
             break
-        need = needs_wall(c, t, side, ground_dz)
+        need = need_at(t, side)
         if need is None:
             return s
         if need != kind:
@@ -118,7 +125,7 @@ def _reach(c, side: str, ground_dz, kind: str, s: float, neighbour, step: float)
                 f"{2 * WALL_TRANSITION_FT:g} ft apart: no slope fits between "
                 f"them; list a wall or a structure gap there")
         s = t
-    if needs_wall(c, t, side, ground_dz) is not None:
+    if need_at(t, side) is not None:
         raise ValueError(
             f"walls: auto: the {side} {kind} wall ending at {sta(s)} has no "
             f"room for its {WALL_TRANSITION_FT:g} ft lead-in: the slope fits "

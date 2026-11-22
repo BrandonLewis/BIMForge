@@ -33,6 +33,9 @@ AEA_TOL = 0.005
 #: no section is added where a side turns closer than this to a station,
 #: feet: the strip either side would be a sliver
 TURN_GAP_FT = 0.01
+#: how many times walls: auto may add walls the guardrail's widening needs
+#: and lay the rail again
+RAIL_WALL_ROUNDS = 5
 
 
 def bands(stations: list, s_start: float, band: float) -> list:
@@ -288,7 +291,7 @@ def build(params: dict, ctx) -> "StructureModel":
     from bimforge.author.corridor.ground import from_params
     from bimforge.author.corridor.loft import StationLoft
     from bimforge.author.corridor.params import SIDES, parse
-    from bimforge.author.corridor.section import kind_changes, resolve
+    from bimforge.author.corridor.section import NoDaylight, kind_changes, resolve
     from bimforge.author.model import Element, StructureModel
 
     missing = [k for k in REQUIRED if params.get(k) is None]
@@ -329,49 +332,96 @@ def build(params: dict, ctx) -> "StructureModel":
         c = c.with_walls([g for s0, s1 in c.runs()
                           for g in auto_walls.find(c, run_stations(s0, s1),
                                                    ground_dz)])
-    hauls, haul_elements, every, runs = [], [], [], []
-    for s0, s1 in c.runs():
-        stations = run_stations(s0, s1)
-        secs = [resolve(c, s, ground_dz) for s in stations]
-        # a section where a side turns between cut and fill
-        # (section.kind_changes), unless a station is already that close or
-        # it falls in an automatic wall's lead-in: walls.find checked only
-        # the lead-in's far end, and the slope inside it may not fit
-        turns = [t for a, b in zip(secs, secs[1:])
-                 for t in kind_changes(c, a, b, ground_dz)
-                 if min(t - a.s, b.s - t) > TURN_GAP_FT
-                 and not _in_lead_in(c, t)]
-        if turns:
-            stations = sorted(stations + turns)
+    def first_pass(c):
+        """Each corridor run's sections, with a section where a side turns."""
+        runs = []
+        for s0, s1 in c.runs():
+            stations = run_stations(s0, s1)
+            secs = [resolve(c, s, ground_dz) for s in stations]
+            # a section where a side turns between cut and fill
+            # (section.kind_changes), unless a station is already that close
+            # or it falls in an automatic wall's lead-in: walls.find checked
+            # only the lead-in's far end, and the slope inside it may not fit
+            turns = [t for a, b in zip(secs, secs[1:])
+                     for t in kind_changes(c, a, b, ground_dz)
+                     if min(t - a.s, b.s - t) > TURN_GAP_FT
+                     and not _in_lead_in(c, t)]
+            if turns:
+                stations = sorted(stations + turns)
+                known = {sec.s: sec for sec in secs}
+                secs = [known.get(s) or resolve(c, s, ground_dz) for s in stations]
+            runs.append(secs)
+        return runs
+
+    def with_rail_stations(c, runs, rails):
+        """Each run's stations, with rail_stations added."""
+        out = []
+        for secs in runs:
+            have = [sec.s for sec in secs]
+            more = [s for s in rail_stations(c, rails, have[0], have[-1])
+                    if min(abs(s - k) for k in have) > 1e-6]
+            out.append(sorted(have + more))
+        return out
+
+    def second_pass(c, runs, rails):
+        """`runs` with every section a rail runs past resolved again with
+        the widening behind it, and one at each rail_stations station.
+
+        The widening is full from the section at a rail's end (or a foot
+        past a wall's lead-in): beyond it, it tapers to nothing over the
+        station interval to the next section, lofted point to point."""
+        out = []
+        for secs, stations in zip(runs, with_rail_stations(c, runs, rails)):
             known = {sec.s: sec for sec in secs}
-            secs = [known.get(s) or resolve(c, s, ground_dz) for s in stations]
-        runs.append(secs)
+            done = []
+            for s in stations:
+                sides = under_rail(c, rails, s)
+                if not sides and s in known:
+                    done.append(known[s])
+                    continue
+                try:
+                    done.append(resolve(c, s, ground_dz, rail=sides))
+                except NoDaylight as exc:
+                    # with walls: auto, walls.find has placed a wall
+                    # wherever the widening does not fit (below)
+                    raise ValueError(
+                        f"guardrail: the widening behind the rail at {sta(s)} "
+                        f"pushes the slope out: {exc}; list a wall gap there, "
+                        f"widen footprint_ft, or set walls: auto") from None
+            out.append(done)
+        return out
+
+    hauls, haul_elements, every = [], [], []
+    runs = first_pass(c)
     rails = []
     if c.guard is not None:
         # V1.1: rail from the guarded spans and at the structure gaps, then
         # every section a rail runs past again, with the widening behind
         # it, and one at each rail end, so the widening starts and stops
         # there. The guarded flags are read at the subgrade hinge, which
-        # the widening does not move, so the rail it was laid from stands
-        rails = lay_rails(c, runs)
-        for i, secs in enumerate(runs):
-            s0, s1 = secs[0].s, secs[-1].s
-            known = {sec.s: sec for sec in secs}
-            for s in rail_stations(c, rails, s0, s1):
-                if min(abs(s - k) for k in known) > 1e-6:
-                    known[s] = None
-            out = []
-            for s in sorted(known):
-                sides = under_rail(c, rails, s)
-                if sides or known[s] is None:
-                    try:
-                        out.append(resolve(c, s, ground_dz, rail=sides))
-                    except ValueError as exc:
-                        raise ValueError(f"guardrail: the widening behind the "
-                                         f"rail at {sta(s)}: {exc}") from None
-                else:
-                    out.append(known[s])
-            runs[i] = out
+        # the widening does not move. Under walls: auto, a slope the
+        # widening pushes past the footprint takes a wall (walls.find with
+        # the rail), the rail is laid again to tie into it, and so on until
+        # no wall is added
+        for _round in range(RAIL_WALL_ROUNDS + 1):
+            rails = lay_rails(c, runs)
+            if not c.auto_walls:
+                break
+            new = [g for secs, stations in zip(runs, with_rail_stations(c, runs, rails))
+                   for g in auto_walls.find(
+                       c, stations, ground_dz,
+                       rail=lambda s, side: side in under_rail(c, rails, s))]
+            if not new:
+                break
+            if _round == RAIL_WALL_ROUNDS:
+                raise ValueError(
+                    f"guardrail: walls: auto still adds a {new[0].auto} wall on "
+                    f"the {new[0].side} side at {sta(new[0].start)} to "
+                    f"{sta(new[0].end)} behind the rail after "
+                    f"{RAIL_WALL_ROUNDS} rounds; list a wall gap there")
+            c = c.with_walls(new)
+            runs = first_pass(c)
+        runs = second_pass(c, runs, rails)
     for r, secs in enumerate(runs, start=1):
         segment, parts = _parts(r)
         stations = [sec.s for sec in secs]
