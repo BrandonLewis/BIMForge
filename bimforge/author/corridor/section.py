@@ -188,9 +188,13 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
         kind, pts = "cut", [hinge]
         pts += _widening(c, s, side, sign) if rail else collapsed
         if sl.ditch is not None:
-            # from the hinge, or under a rail from the widening's hinge
+            # the flowline is the ditch depth under the subgrade hinge,
+            # rail or no rail, so the base drains to it and it does not step
+            # at a rail's ends; the foreslope runs down to it from the hinge,
+            # or under a rail from the widening's hinge
             du, dv = pts[-1]
-            p1 = (du + sign * sl.cut_ratio * sl.ditch.depth, dv - sl.ditch.depth)
+            flow = hv - sl.ditch.depth
+            p1 = (du + sign * sl.cut_ratio * (dv - flow), flow)
             pts += [p1, (p1[0] + sign * sl.ditch.width, p1[1])]
         if sl.rock is not None:
             pts += _rock(c, s, side, sign, pts[-1], ground_dz,
@@ -298,16 +302,18 @@ def grade_edge(c, s: float, side: str) -> tuple:
     return _grade(c, s, side)[-1]
 
 
-def needs_wall(c, s: float, side: str, ground_dz) -> str | None:
+def needs_wall(c, s: float, side: str, ground_dz, rail: bool = False) -> str | None:
     """The wall `side` needs at station s, "cut" or "fill", when its slope
     does not fit (no daylight within the limit, or past the footprint);
-    None when it fits, or where a wall gap already stands."""
+    None when it fits, or where a wall gap already stands. With `rail`, the
+    slope behind a guardrail's widening (_slope)."""
     if c.wall(side, s) is not None:
         return None
     sign = 1.0 if side == "L" else -1.0
     u, v = grade_edge(c, s, side)
     try:
-        _slope(c, s, side, sign, (u, v - c.depth()), _named(ground_dz, side))
+        _slope(c, s, side, sign, (u, v - c.depth()), _named(ground_dz, side),
+               rail)
     except NoDaylight as exc:
         return exc.kind
     return None

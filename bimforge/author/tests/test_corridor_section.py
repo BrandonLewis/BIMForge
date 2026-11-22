@@ -458,26 +458,30 @@ def test_a_4_to_1_fill_under_the_rail_takes_the_widening():
 
 
 def test_a_cut_under_the_rail_moves_its_ditch_out_behind_the_widening():
-    # the widening to (20.94, -0.884); the ditch from there, down 1.5 at 2:1
-    # to (23.94, -2.384) and 4 ft across to (27.94, -2.384); the backslope
-    # rises 5.384 ft in 10.768 ft to the ground at 3: (38.708, 3)
+    # the widening to (20.94, -0.884); the ditch's flowline stays where it
+    # is without a rail, the ditch depth under the subgrade hinge: -1.89 -
+    # 1.5 = -3.39, so the base still drains to it and the flowline does not
+    # step at the rail's ends. The foreslope falls 2.506 ft at 2:1 from the
+    # widening's hinge, 5.012 ft, to (25.952, -3.39); 4 ft across to
+    # (29.952, -3.39); the backslope rises 6.39 ft in 12.78 ft to the ground
+    # at 3: (42.732, 3)
     sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(3.0), rail=("L",))
     side = sec.sides["L"]
     assert (side.kind, side.guarded, side.ratio) == ("cut", False, 2.0)
     assert flat(side.line) == pytest.approx(flat(
-        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (23.94, -2.384),
-         (27.94, -2.384), (38.708, 3.0)]))
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (25.952, -3.39),
+         (29.952, -3.39), (42.732, 3.0)]))
 
 
 def test_a_rock_cut_under_the_rail_and_the_line_s_count():
-    # the toe (27.94, -2.384) as above; rock 8 ft under the ground at 15
-    # (v = 7): the 0.5:1 face rises 9.384 ft in 4.692 ft to (32.632, 7), the
-    # bench to (38.632, 7), the soil 2:1 up 8 ft in 16 ft to (54.632, 15)
+    # the toe (29.952, -3.39) as above; rock 8 ft under the ground at 15
+    # (v = 7): the 0.5:1 face rises 10.39 ft in 5.195 ft to (35.147, 7), the
+    # bench to (41.147, 7), the soil 2:1 up 8 ft in 16 ft to (57.147, 15)
     c = sloped(fill=STEEP_FILL, cut=ROCK_CUT)
     sec = resolve(c, 500.0, level(15.0), rail=("L", "R"))
     assert flat(sec.sides["L"].line) == pytest.approx(flat(
-        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (23.94, -2.384),
-         (27.94, -2.384), (32.632, 7.0), (38.632, 7.0), (54.632, 15.0)]))
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (25.952, -3.39),
+         (29.952, -3.39), (35.147, 7.0), (41.147, 7.0), (57.147, 15.0)]))
     n = 2 * SIDE_SAMPLES - 1 + 2 * 2
     under = [resolve(c, 500.0, level(h), rail=("L", "R"))
              for h in (-5.0, -15.0, 3.0, 15.0)]
