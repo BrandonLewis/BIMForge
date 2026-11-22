@@ -1113,3 +1113,15 @@ def test_the_v1_1_preview_spec_builds_through_the_gate(tmp_path):
         # 0: the pre gate and the post gate both passed
         assert build_from_spec(str(path)) == 0, err.getvalue()
     assert "mesh did not sew" not in err.getvalue()
+
+
+def test_a_course_declares_its_exact_volume_and_its_mesh_is_held_to_it(model):
+    from bimforge.author.corridor.loft import pappus
+    from bimforge.author.gate import check_arc_faceting
+    for el in courses(model):
+        assert el.quantities["volume_cf"] == pytest.approx(
+            pappus(el.geometry).volume_cf, rel=1e-12), el.name
+        assert el.standard_qto["Qto_CourseBaseQuantities"]["Volume"][1] == \
+            el.quantities["volume_cf"]
+    # each loft's mesh within 0.5% of its exact volume (the pre gate's check)
+    assert check_arc_faceting(model) == []

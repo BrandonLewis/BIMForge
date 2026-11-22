@@ -28,7 +28,9 @@ import sys
 
 REQUIRED = ("alignment", "profile", "ground", "section")
 LAYER = "C-ROAD"
-#: how far a course's mesh volume may stray from its average end area
+#: how far a course's exact volume may stray from its average end areas,
+#: and its mesh from its exact volume (check_arc_faceting's
+#: FACET_TOLERANCE, the same 0.5%)
 AEA_TOL = 0.005
 #: no section is added where a side turns closer than this to a station,
 #: feet: the strip either side would be a sliver
@@ -474,11 +476,12 @@ def build(params: dict, ctx) -> "StructureModel":
                             "Width": ("length", sum(lf.mean_width_ft for lf in lofts)),
                             "Thickness": ("length", course.thickness),
                             "Volume": ("volume", vol)}}))
-                    # the mesh against a figure that does not read it: the
-                    # post gate's volume leg for an exact sweep is the
-                    # loft's own mesh volume, so this is the independent one
+                    # the exact volume (loft.pappus) against a figure that
+                    # does not read it; the mesh is held to the exact
+                    # volume by the pre gate's arc-faceting check, and the
+                    # post gate's exact-sweep leg sums the same exact figure
                     model.stated_quantities.append(
-                        (f"{name}: mesh volume vs average end area", vol, aea,
+                        (f"{name}: exact volume vs average end area", vol, aea,
                          AEA_TOL * max(aea, 1.0)))
             cut, fill, cut_d, fill_d = [], [], 0.0, 0.0
             for a, b in zip(bs, bs[1:]):
