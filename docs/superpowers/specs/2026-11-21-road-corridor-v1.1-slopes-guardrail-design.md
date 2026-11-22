@@ -6,7 +6,7 @@ Date: 2026-11-21. Roadmap row P.6 (V1.1). Builds on the V1 family (`docs/superpo
 
 Hold a corridor's side slopes to Caltrans practice on steep ground: fill 4:1, 2:1 behind guardrail above a fill height, soil over rock in cut, and a wall wherever a slope cannot fit. Write guardrail as elements with their length of need and end treatments, list every wall and every stretch a structure should take, and give courses, earthwork and guardrail the `BIMForge_Dimensions` and quantity `Formula`s ProjectCommand checks.
 
-Sources, each cited where used: Caltrans Highway Design Manual (HDM, combined edition of 08/08/2025), Traffic Safety Systems Manual (TSSM, April 2025) and its length-of-need calculator, and Standard Plans A77N3, A77N4 and A77P1 (2026).
+Sources, each cited where used: Caltrans Highway Design Manual (HDM, combined edition of 08/08/2025), Traffic Safety Systems Manual (TSSM, April 2025) and its length-of-need calculator, and Caltrans Standard Plans A77N2, A77N3, A77N4 and A77P1 (2025 edition as checked; the research cited the 2026 sheets).
 
 ## Spec format
 
@@ -21,7 +21,7 @@ side_slopes:
   footprint_ft: {L: 120, R: 120}                      # optional
 walls: auto                                           # or a list of wall gaps, as V1
 max_wall_height_ft: 30
-guardrail: {design_speed_mph: 45, rail_depth_ft: 1.75}
+guardrail: {design_speed_mph: 45, rail_depth_ft: 1.44}
 outputs:
   walls: out/<name>.walls.csv
   structures: out/<name>.structures.csv
@@ -60,7 +60,7 @@ Every new key is optional. A V1 spec builds exactly as before: one fill ratio, o
 ## Guardrail
 
 - **Where:** every guarded station (a 2:1 fill) on a side; consecutive guarded stations merge into a run. Cut sides and fill walls get none.
-- **Section behind the rail** (TSSM 3.6, Standard Plan A77N3 Detail A): MGS, rail face at the shoulder edge; a 10:1 widening behind it out to a hinge 30 in behind the back of post; then the 2:1 slope. Face to back of post is `rail_depth_ft`, to be confirmed against A77N3 before it is coded. The widening is earthwork.
+- **Section behind the rail** (TSSM 3.6, Standard Plan A77N3 Detail A): MGS, rail face at the shoulder edge; a 10:1 widening behind it out to a hinge 30 in behind the back of post; then the 2:1 slope. Face to back of post is `rail_depth_ft`, 1.44 ft by default: the 3 1/4 in W-beam, the standard 6 x 8 in block that holds the rail 8 in off the post, and a W6 post about 6 in deep (2025 Standard Plans A77N2, A77N3; the 12 in block, used with a 6 in Type A dike, makes it about 1.77 ft). Top of rail 31 in, posts at 6'-3", hinge at least 30 in behind the back of post (A77N3 Detail A). The widening is earthwork.
 - **Length of need** (TSSM length-of-need calculator), each run extended upstream and downstream, for each direction of travel on a two-lane road:
   - X = (LH − L2 − Y) / (LH / LR).
   - LR (runout length) from `design_speed_mph`: 195 ft at 45 mph, 230 ft at 50 mph.
