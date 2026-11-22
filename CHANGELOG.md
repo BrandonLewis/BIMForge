@@ -2,7 +2,13 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
-## Unreleased
+## 0.1.131 — 2026-11-22
+
+The check is recorded (M.5): every takeoff carries its sum checked against the model (#116), and `est-bim check` records a measurement made in Bonsai in the model, in ProjectCommand's shape (#117). A measurement check now comes through a rebuild whole.
+
+**For ProjectCommand:** a check written by `est-bim check` is the shape your `check.rs` writes, stamped with the application it was made in (`--app`, default Bonsai); recording one again replaces yours under its GlobalIds. A rebuild now carries the `Checked` IfcResourceApprovalRelationship, so a check reads back whole after `carry_forward`.
+
+**For estimating_tools and BidSheet.ai:** the takeoff JSON gains a top-level `check`; `CanonicalTakeoff.from_json` ignores it. Rows are unchanged.
 
 ### Added
 
