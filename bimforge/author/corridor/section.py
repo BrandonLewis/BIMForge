@@ -172,14 +172,21 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
     widening stands behind the rail whatever the side is: a 4:1 fill runs
     from the widening's hinge, and a cut's ditch moves out behind it. The
     side's kind and its guarded flag are read at the subgrade hinge as
-    without it, so the rail does not move the spans it was laid for."""
+    without it, so the rail does not move the spans it was laid for.
+
+    A corridor with guardrail gives every slope the widening's two points:
+    where no rail runs and the fill is not guarded they collapse onto the
+    hinge, so a side keeps one vertex for each point of its configuration
+    and a ditch lofts to the ditch moved out behind the widening, not onto
+    the widening."""
     hu, hv = hinge
     sl = c.slopes
     fill_ratio, guarded = sl.fill_ratio, False
+    # the widening's points, or the hinge twice where it has none
+    collapsed = [hinge, hinge] if c.guard is not None else []
     if ground_dz(s, hu, hv) > 0.0:
         kind, pts = "cut", [hinge]
-        if rail:
-            pts += _widening(c, s, side, sign)
+        pts += _widening(c, s, side, sign) if rail else collapsed
         if sl.ditch is not None:
             # from the hinge, or under a rail from the widening's hinge
             du, dv = pts[-1]
@@ -196,8 +203,7 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
         # height, measured from the shoulder
         if sl.steep is not None and -ground_dz(s, hu, hv) > sl.steep.above_height:
             fill_ratio, guarded = sl.steep.ratio, True
-        if guarded or rail:
-            pts += _widening(c, s, side, sign)
+        pts += _widening(c, s, side, sign) if guarded or rail else collapsed
     # up the backslope while the ground is above the slope's start; on a side
     # hill the ditch's outer edge can stand above the ground, and the side
     # then runs down at the fill ratio from there

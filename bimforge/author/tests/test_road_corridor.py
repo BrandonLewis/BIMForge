@@ -593,9 +593,20 @@ STEEP = {
 
 
 @pytest.fixture(scope="module")
-def steep():
+def steep_built():
+    """STEEP built, with what the build wrote to stderr."""
+    import contextlib
+
     from bimforge.author.families.road_corridor import build
-    return build(copy.deepcopy(STEEP), CTX)
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        m = build(copy.deepcopy(STEEP), CTX)
+    return m, err.getvalue()
+
+
+@pytest.fixture(scope="module")
+def steep(steep_built):
+    return steep_built[0]
 
 
 def test_the_steep_road_finds_its_walls(steep):
@@ -672,8 +683,11 @@ def test_walls_auto_with_no_failing_station_adds_no_walls():
     plain = copy.deepcopy(p)
     del plain["walls"]
     got, want = build(p, CTX), build(plain, CTX)
+    # the guardrail block makes the guardrail table either way
+    rail = want.tables.pop("guardrail")
     assert got.tables == {"walls": WALL_HEADER + "\n",
-                          "structures": STRUCTURE_HEADER + "\n"}
+                          "structures": STRUCTURE_HEADER + "\n",
+                          "guardrail": rail}
     assert want.tables == {}
     assert ([(e.name, e.quantities) for e in got.elements]
             == [(e.name, e.quantities) for e in want.elements])
@@ -768,3 +782,249 @@ def test_a_side_turning_inside_a_wall_s_lead_in_takes_no_section_there():
     stations = {s for el in courses(m) for lf in el.geometry for s in lf.stations}
     assert {1111.0, 1112.0} <= stations
     assert not [s for s in stations if 1111.0 < s < 1112.0]
+
+
+def flat(points):
+    return [c for p in points for c in p]
+
+
+def test_the_steep_road_s_guardrail(steep_built):
+    from bimforge.author.corridor import guardrail as gr
+    steep, log = steep_built
+    # The rail face is the shoulder edge, 17 ft out: L2 = 17 - 12 = 5 from
+    # the edge of traveled way, 17 from the centreline. At 45 mph the lane
+    # beside the rail needs 150 ft, the opposing lane 37.5 ft (by hand in
+    # test_corridor_guardrail.py).
+    # Left: 16.41 - 0.05 d ft of fill at the hinge (17 west, 318.11, over
+    # ground 301.7 + 0.05 d), over 10 ft to d = 128.2: guarded at the
+    # stations 10+00 to 11+25. Its own lane runs down-station: 150 ft past
+    # 11+25 to 12+75; the opposing 37.5 ft before 10+00 is off the
+    # alignment, so the run starts there, its terminal held at the
+    # alignment's start (short_end). 275 ft is 22 whole elements and over
+    # 150; the free end's nose is 12.5 ft on, at 12+87.50: 287.5 ft,
+    # 287.5 / 6.25 = 46 spaces, 47 posts.
+    # Right: guarded from 11+12 (past the first wall, 10+00 to 11+11) to
+    # 11+96 (before the second, from 11+97); 150 ft before and 37.5 ft
+    # after both reach a wall, so it ties into both with an AGT: 11+11 to
+    # 11+97, 86 ft, held at both ends under 150 (below_minimum); 86 / 6.25
+    # = 13.76, 14 posts
+    assert steep.tables["guardrail"] == (
+        gr.HEADER + "\n"
+        "L,1000.00,1287.50,287.50,TERMINAL,TERMINAL,47,no,yes\n"
+        "R,1111.00,1197.00,86.00,WALL,WALL,14,yes,no\n")
+    left = steep.element("Guardrail L STA 10+00.00 to 12+87.50")
+    assert (left.ifc_class, left.predefined_type) == ("IfcRailing", "GUARDRAIL")
+    assert left.type_name == gr.TYPE_NAME
+    assert left.quantities["length_ft"] == pytest.approx(287.5)
+    # the band, 3 1/4 in by 12 1/4 in, swept 287.5 ft on a level tangent
+    assert left.quantities["volume_cf"] == pytest.approx(
+        3.25 * 12.25 / 144.0 * 287.5, rel=1e-9)
+    assert left.psets["BIMForge_Guardrail"] == {
+        "PostCount": 47, "StartTreatment": "TERMINAL", "EndTreatment": "TERMINAL",
+        "Terminals": 2, "AGTTransitions": 0, "Anchors": 0}
+    assert left.standard_qto == {"Qto_RailingBaseQuantities": {
+        "Length": ("length", pytest.approx(287.5))}}
+    sweep = left.geometry
+    assert (sweep.s0, sweep.s1) == (1000.0, 1287.5)
+    assert flat(sweep.section) == pytest.approx(flat(gr.band("L", 17.0)))
+    # the top of rail 31 in over the shoulder edge, which is 0.49 ft under
+    # the PGL all along
+    assert max(z for _x, z in sweep.section) == pytest.approx(31.0 / 12.0)
+    assert {round(v, 9) for _s, v in sweep.camber} == {-0.49}
+    right = steep.element("Guardrail R STA 11+11.00 to 11+97.00")
+    assert flat(right.geometry.section) == pytest.approx(flat(gr.band("R", -17.0)))
+    assert right.psets["BIMForge_Guardrail"] == {
+        "PostCount": 14, "StartTreatment": "WALL", "EndTreatment": "WALL",
+        "Terminals": 0, "AGTTransitions": 2, "Anchors": 0}
+    assert right.spatial_part.name == "Segment 1"
+    # each flag is a warning
+    assert ("guardrail Guardrail R STA 11+11.00 to 11+97.00: 86.00 ft between "
+            "fixed ends, under the 150 ft minimum" in log)
+    assert ("guardrail Guardrail L STA 10+00.00 to 12+87.50: its terminal at "
+            "STA 10+00.00 is held at the alignment's end" in log)
+    assert log.count("guardrail Guardrail") == 2
+
+
+def _verts(m, name: str) -> list:
+    return [v for g in m.element(name).geometry for v in g.body_solids()[0]["verts"]]
+
+
+def test_the_widening_runs_the_whole_rail_and_stops_at_its_end(steep):
+    # past the guarded span the left is 4:1, the rail's widening behind it:
+    # at 12+00 its hinge 20.94 west at 320 - 0.884 = 319.116 (model z
+    # 19.116), and 4:1 from there meets the ground 310 + 0.1 x at
+    # 319.116 + (20.94 - x) / 4 = 310 + 0.1 x, x = 14.351 / 0.35 = 41.003
+    fill = _verts(steep, "Fill STA 12+00.00 to 13+00.00")
+
+    def at(x, y, z):
+        return any(abs(a - x) < 1e-3 and abs(b - y) < 1e-6 and abs(c - z) < 1e-3
+                   for a, b, c in fill)
+
+    assert at(-20.94, 200.0, 19.116)
+    assert at(-41.003, 200.0, 14.1003)
+    # a section at the rail's end, 12+87.50, still widened; at 13+00, past
+    # it, the 4:1 runs from the hinge (17 west, 318.11) to the ground,
+    # 315 + 0.1 x, at x = 7.36 / 0.35 = 21.029
+    assert at(-20.94, 287.5, 19.116)
+    assert not at(-20.94, 300.0, 19.116)
+    assert at(-21.029, 300.0, 17.1029)
+
+
+def test_bridge_rail_at_a_structure_gap_with_no_guarded_fill():
+    # PARAMS (V1's road) with a guardrail block: no steep rule, so nothing
+    # is guarded, but each end of the 13+50 to 14+00 structure gap takes
+    # approach and departure rail from an AGT. Left: its own lane runs
+    # down-station, so at 13+50 the traffic heading for the bridge is the
+    # opposing lane's, 37.5 ft, made 150 ft up-station of the AGT (the
+    # other end fixed), its nose 12.5 ft on at 11+87.50: 87.5 ft from the
+    # listed left wall (10+50 to 11+00), so it runs on and ties into it:
+    # 11+00 to 13+50, 250 ft, 41 posts. At 14+00 it is its own lane's,
+    # 150 ft, cut at the alignment's end, 15+00: 100 ft held at both ends (below_minimum) and
+    # its terminal held at the end (short_end), 17 posts. The right is the
+    # mirror: 150 ft before 13+50 and its nose, 11+87.50 to 13+50; 37.5 ft
+    # past 14+00, made 150, cut at 15+00
+    from bimforge.author.corridor import guardrail as gr
+    from bimforge.author.families.road_corridor import build
+    p = copy.deepcopy(PARAMS)
+    p["guardrail"] = {"design_speed_mph": 45}
+    m = build(p, CTX)
+    assert m.tables["guardrail"] == (
+        gr.HEADER + "\n"
+        "L,1100.00,1350.00,250.00,WALL,AGT,41,no,no\n"
+        "L,1400.00,1500.00,100.00,AGT,TERMINAL,17,yes,yes\n"
+        "R,1187.50,1350.00,162.50,TERMINAL,AGT,27,no,no\n"
+        "R,1400.00,1500.00,100.00,AGT,TERMINAL,17,yes,yes\n")
+    rails = [e for e in m.elements if e.ifc_class == "IfcRailing"]
+    assert [e.spatial_part.name for e in rails] == ["Segment 1", "Segment 2"] * 2
+    # the rail follows the superelevation: the left shoulder edge is
+    # 12 x -0.02 + 5 x -0.05 = -0.49 under normal crown, 12 x 0.04 - 0.25 =
+    # 0.23 under the full super from 12+00 to 13+00
+    camber = dict(m.element("Guardrail L STA 11+00.00 to 13+50.00").geometry.camber)
+    assert camber[1100.0] == pytest.approx(-0.49)
+    assert camber[1250.0] == pytest.approx(0.23)
+    # the courses and earthwork: V1's names, in V1's order, then the rails
+    v1 = build(copy.deepcopy(PARAMS), CTX)
+    assert [e.name for e in m.elements][:len(v1.elements)] == [e.name for e in v1.elements]
+    assert len(m.elements) == len(v1.elements) + 4
+    _closed_earthwork(m)
+
+
+def test_a_guardrail_block_with_no_guarded_fill_and_no_gap_lays_no_rail():
+    from bimforge.author.corridor import guardrail as gr
+    from bimforge.author.families.road_corridor import build
+    p = copy.deepcopy(STEEP)
+    del p["section"]["side_slopes"]["fill"]["steep"]
+    del p["section"]["side_slopes"]["footprint_ft"]
+    del p["walls"]
+    m = build(p, CTX)
+    assert m.tables == {"guardrail": gr.HEADER + "\n"}
+    assert not [e for e in m.elements if e.ifc_class == "IfcRailing"]
+
+
+def test_a_rail_over_a_moving_shoulder_edge_is_refused():
+    from bimforge.author.alignment import Alignment, Profile
+    from bimforge.author.corridor.guardrail import TERMINAL, RailRun
+    from bimforge.author.corridor.params import parse
+    from bimforge.author.families.road_corridor import rail_element
+    p = copy.deepcopy(STEEP)
+    p["widths"] = [{"component": "shoulder", "side": "L", "at": [[1100, 5.0], [1200, 8.0]]}]
+    al = Alignment(p["alignment"]["pob"], p["alignment"]["run"])
+    prof = Profile(p["profile"]["curves"])
+    c = parse(p, al.s_start, al.s_end)
+    # the edge goes from 17 to 20 ft out under 10+00 to 12+75: 3 ft
+    with pytest.raises(ValueError, match=r"Guardrail L STA 10\+00\.00 to 12\+75\.00: "
+                       r"the shoulder edge moves 3\.00 ft under the rail"):
+        rail_element(RailRun("L", 1000.0, 1275.0, TERMINAL, TERMINAL), c, al, prof,
+                     CTX, None)
+
+
+def test_a_rail_near_a_cut_wall_ends_at_its_lead_in():
+    from bimforge.author.corridor.guardrail import WALL
+    from bimforge.author.corridor.params import Gap, parse
+    from bimforge.author.families.road_corridor import lay_rails
+    from bimforge.author.corridor.section import resolve
+    al_s, al_e = 1000.0, 1600.0
+    p = copy.deepcopy(STEEP)
+    del p["section"]["side_slopes"]["footprint_ft"]
+    c = parse(p, al_s, al_e).with_walls(
+        [Gap(1400.0, 1450.0, "wall", "L", None, auto="cut")])
+    # the left guarded at 10+00 to 11+25 (STEEP's ground) runs down-station
+    # to 12+75 and its nose to 12+87.50: within 200 ft of the cut wall, so
+    # it ties in, at the foot before the wall where the 10 ft shoulder's
+    # widening starts (13+99), not at the wall (14+00)
+    stations = c.stations(al_s, al_e)
+
+    def ground_dz(s, u, v):
+        # STEEP's plane, on the level road at 320: x east = -u
+        return 300.0 + 0.05 * (s - 1000.0) + 0.1 * u - (320.0 + v)
+
+    secs = [resolve(c, s, ground_dz) for s in stations]
+    (left,) = [r for r in lay_rails(c, [secs]) if r.side == "L"]
+    assert (left.start, left.end, left.end_end) == (1000.0, 1399.0, WALL)
+
+
+@pytest.mark.parametrize("schema", ["IFC4X3_ADD2", "IFC4"])
+def test_the_steep_road_s_rails_are_ifc_guardrails(steep, tmp_path, schema):
+    import dataclasses
+
+    import ifcopenshell
+    import ifcopenshell.util.element as E
+
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.gate import schema_issues
+    from bimforge.author.model import StructureModel
+    # IfcRailing GUARDRAIL is in both schemas: no proxy fallback in IFC4
+    one = StructureModel("rails", dataclasses.replace(CTX, schema=schema))
+    for el in steep.elements:
+        if el.ifc_class == "IfcRailing":
+            one.add(el)
+    out = tmp_path / "rails.ifc"
+    emit_ifc(one, str(out))
+    f = ifcopenshell.open(str(out))
+    assert not schema_issues(f)
+    rails = f.by_type("IfcRailing")
+    assert len(rails) == 2
+    for rail in rails:
+        assert E.get_predefined_type(rail) == "GUARDRAIL"
+        assert E.get_type(rail).Name == "Midwest guardrail system"
+        assert "Qto_RailingBaseQuantities" in E.get_psets(rail, qtos_only=True)
+
+
+def test_an_ifc4x3_build_with_rail_passes_the_gate(tmp_path):
+    import contextlib
+
+    import ifcopenshell
+    import yaml
+
+    from bimforge.author.families.registry import build_from_spec
+    from bimforge.author.gate import _ifc_solid_body_check, schema_issues
+    from bimforge.bim.ifc_mesh import quiet_stdout
+    paycodes = PAYCODES.replace(
+        "groups:\n", '  - {match: "(?i)^Guardrail ", group: rc_rail}\ngroups:\n'
+                     "  rc_rail: {measure: Length}\n") + (
+        '  RC-RAIL: {group: rc_rail, measure: Length, unit: LF, item_number: "0003",\n'
+        '            description: "Guardrail"}\n')
+    (tmp_path / "rc.paycodes.yaml").write_text(paycodes, "utf-8")
+    params = copy.deepcopy(PARAMS)
+    params["guardrail"] = {"design_speed_mph": 45}
+    spec = {"family": "road-corridor", "params": params,
+            "paycodes": "./rc.paycodes.yaml",
+            "outputs": {"ifc": "out/rc.ifc"},
+            "project": {"name": "Corridor fixture", "epsg": 2226,
+                        "base": [E0, N0, 300.0], "guid_ns": str(uuid.UUID(int=9)),
+                        "schema": "IFC4X3_ADD2", "facility": {"kind": "road"}}}
+    path = tmp_path / "rc.spec.yaml"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        # 0: the pre gate and the post gate both passed
+        assert build_from_spec(str(path)) == 0, err.getvalue()
+    f = ifcopenshell.open(str(tmp_path / "out" / "rc.ifc"))
+    assert not schema_issues(f)
+    assert len(f.by_type("IfcRailing")) == 4
+    from bimforge.author.families.road_corridor import build
+    with quiet_stdout():
+        found = _only_point_contacts(_ifc_solid_body_check(
+            build(copy.deepcopy(params), CTX), str(tmp_path / "out" / "rc.ifc")))
+    # only the courses' sectioned caps (test_every_body_is_solid_but_...)
+    assert all("(IfcCourse)" in msg for msg in found), found

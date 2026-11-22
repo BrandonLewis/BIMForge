@@ -229,11 +229,14 @@ def test_the_shoulder_edge_is_the_grade_s_outer_point():
 
 def test_fill_under_the_height_limit_takes_4_to_1():
     # 3.11 ft of fill at the hinge (17, -1.89) over ground at -5: not over
-    # 10 ft, so 4:1, falling 3.11 ft in 4 x 3.11 = 12.44 ft: (29.44, -5)
+    # 10 ft, so 4:1, falling 3.11 ft in 4 x 3.11 = 12.44 ft: (29.44, -5).
+    # The steep rule brings guardrail, so the widening's two points are
+    # there, collapsed onto the hinge where no rail runs
     sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(-5.0))
     side = sec.sides["L"]
     assert (side.kind, side.guarded, side.ratio) == ("fill", False, 4.0)
-    assert flat(side.line) == pytest.approx(flat([(17, -1.89), (29.44, -5.0)]))
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17, -1.89), (17, -1.89), (29.44, -5.0)]))
 
 
 def test_fill_over_the_height_limit_takes_2_to_1_behind_the_rail_s_widening():
@@ -446,8 +449,9 @@ def test_a_4_to_1_fill_under_the_rail_takes_the_widening():
     assert (side.kind, side.guarded, side.ratio) == ("fill", False, 4.0)
     assert flat(side.line) == pytest.approx(flat(
         [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (37.404, -5.0)]))
-    # the right has no rail: 4:1 from its hinge, as before
-    assert flat(sec.sides["R"].line) == pytest.approx(flat([(-17, -1.89), (-29.44, -5.0)]))
+    # the right has no rail: 4:1 from its hinge, the widening collapsed
+    assert flat(sec.sides["R"].line) == pytest.approx(flat(
+        [(-17, -1.89), (-17, -1.89), (-17, -1.89), (-29.44, -5.0)]))
     # a guarded side under its rail is the guarded side
     assert (resolve(sloped(fill=STEEP_FILL), 500.0, level(-15.0), rail=("L",)).sides["L"]
             == resolve(sloped(fill=STEEP_FILL), 500.0, level(-15.0)).sides["L"])
@@ -485,3 +489,12 @@ def test_a_wall_under_the_rail_is_the_wall():
                                        "side": "L", "offset": 30.0}])
     assert (resolve(c, 1000.0, level(-15.0), rail=("L",)).sides["L"]
             == resolve(c, 1000.0, level(-15.0)).sides["L"])
+
+
+def test_a_cut_with_guardrail_but_no_rail_keeps_the_widening_s_points_at_the_hinge():
+    # as test_cut_runs_through_the_ditch_then_up_the_backslope, with the
+    # widening's two points on the hinge: the ditch at the next station
+    # under a rail lofts to its own ditch, moved out
+    side = resolve(sloped(fill=STEEP_FILL), 500.0, level(3.0)).sides["L"]
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17, -1.89), (17, -1.89), (20, -3.39), (24, -3.39), (36.78, 3.0)]))

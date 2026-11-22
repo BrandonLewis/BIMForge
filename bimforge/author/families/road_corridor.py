@@ -13,6 +13,11 @@ the gap.
 V1.1: with `walls: auto` the family first finds where no slope fits
 (corridor.walls) and adds a wall gap there, built as a listed wall is, then
 writes the wall and structure-candidate tables (StructureModel.tables).
+With a steep rule or a `guardrail:` block it lays guardrail
+(corridor.guardrail) from the sections' guarded spans and at the structure
+gaps, re-resolves every section a rail runs past with the 10:1 widening
+behind it (section.resolve's `rail`), and writes each run as an IfcRailing
+GUARDRAIL and the guardrail table.
 
 Spec: docs/superpowers/specs/2026-11-21-road-corridor-design.md.
 """
@@ -137,9 +142,147 @@ def _parts(r: int) -> tuple:
                  for kind, pt in PART_TYPES.items()}
 
 
+def lay_rails(c, runs: list) -> list:
+    """The guardrail runs (corridor.guardrail.RailRun) of corridor `c`, from
+    `runs`, each corridor run's sections (section.Section) by station: each
+    side's guarded spans, run by run so none straddles a structure gap, and
+    bridge rail at each structure gap's ends, tied into the side's walls.
+
+    The rail face is the shoulder edge; its offsets (L2 from the edge of
+    traveled way, L from the centreline) are read in each corridor run at
+    the first station it needs them: its first guarded span's start, else
+    its first end at a structure gap. A run with neither lays no rail. An
+    automatic cut wall's 10 ft shoulder widens over its 1 ft lead-ins, so a
+    rail tying into one ends at the lead-in's far end, the shoulder edge not
+    moving under it (rail_element)."""
+    from bimforge.author.corridor import guardrail
+    from bimforge.author.corridor.params import SIDES, WALL_TRANSITION_FT
+    from bimforge.author.corridor.section import grade_edge
+    out = []
+    for side in SIDES:
+        walls = [(g.start - WALL_TRANSITION_FT, g.end + WALL_TRANSITION_FT)
+                 if g.auto == "cut" else (g.start, g.end)
+                 for g in c.gaps if g.kind == "wall" and g.side == side]
+        for secs in runs:
+            s0, s1 = secs[0].s, secs[-1].s
+            spans = guardrail.spans([sec.s for sec in secs],
+                                    [sec.sides[side].guarded for sec in secs])
+            at = [a for a, _b in spans[:1]] + [
+                s for s in (s0, s1) if min(abs(s - c.s_start), abs(s - c.s_end)) > 1e-6]
+            if not at:
+                continue
+            u, _v = grade_edge(c, min(at), side)
+            face = abs(u)
+            out += guardrail.side_runs(side, spans, face - c.etw(side, min(at)),
+                                       face, c.guard.speed_mph, [(s0, s1)],
+                                       c.s_start, c.s_end, walls=walls)
+    return out
+
+
+def under_rail(c, rails: list, s: float) -> tuple:
+    """The sides a rail of `rails` runs past at station s, its ends
+    included, that take its widening there: not in a wall's 1 ft lead-in
+    on that side (WALL_TRANSITION_FT), whose far end is the slope
+    walls.find checked fits, and which turns into the wall as V1's does.
+    The widening starts a foot further out (rail_stations)."""
+    from bimforge.author.corridor.params import WALL_TRANSITION_FT
+    lead = WALL_TRANSITION_FT + 1e-6
+
+    def in_lead_in(side):
+        return any(g.start - lead <= s < g.start - 1e-6
+                   or g.end + 1e-6 < s <= g.end + lead
+                   for g in c.gaps if g.kind == "wall" and g.side == side)
+
+    return tuple(sorted({r.side for r in rails
+                         if r.start - 1e-6 <= s <= r.end + 1e-6
+                         and not in_lead_in(r.side)}))
+
+
+def rail_stations(c, rails: list, s0: float, s1: float) -> list:
+    """The stations on [s0, s1] a section is cut at for `rails`: each rail's
+    ends, and a foot past each wall lead-in under a rail, so the widening
+    starts and stops at them."""
+    from bimforge.author.corridor.params import WALL_TRANSITION_FT
+    out = [s for r in rails for s in (r.start, r.end)]
+    for g in c.gaps:
+        if g.kind != "wall":
+            continue
+        for s in (g.start - 2 * WALL_TRANSITION_FT, g.end + 2 * WALL_TRANSITION_FT):
+            if any(r.side == g.side and r.start - 1e-6 <= s <= r.end + 1e-6
+                   for r in rails):
+                out.append(s)
+    return [s for s in out if s0 - 1e-6 <= s <= s1 + 1e-6]
+
+
+def rail_name(rail) -> str:
+    from bimforge.author.alignment import sta
+    return f"Guardrail {rail.side} STA {sta(rail.start)} to {sta(rail.end)}"
+
+
+def rail_element(rail, c, al, prof, ctx, segment):
+    """`rail` (corridor.guardrail.RailRun) as an IfcRailing GUARDRAIL: the
+    W-beam band at the shoulder edge, 31 in to the top of rail, a plumb
+    SweptSection along the alignment and profile, raised by the edge's
+    height off the profile grade line (its camber, at the corridor's
+    stations, linear between them as superelevation is). Posts, terminals,
+    AGTs and anchors are counted (BIMForge_Guardrail), not modelled. A rail
+    is one section, so a shoulder edge moving sideways under it (a width
+    transition) is refused."""
+    from bimforge.author.corridor import guardrail
+    from bimforge.author.corridor.section import grade_edge
+    from bimforge.author.model import Element
+    from bimforge.author.sweep import SweptSection
+    name = rail_name(rail)
+    stations = c.stations(rail.start, rail.end)
+    edges = [grade_edge(c, s, rail.side) for s in stations]
+    faces = [abs(u) for u, _v in edges]
+    if max(faces) - min(faces) > guardrail.EDGE_TOL_FT:
+        raise ValueError(
+            f"{name}: the shoulder edge moves {max(faces) - min(faces):.2f} ft "
+            f"under the rail (a width transition); a rail is one section, so "
+            f"end the transition outside the run")
+    sweep = SweptSection(name, guardrail.band(rail.side, edges[0][0]), al,
+                         rail.start, rail.end, profile=prof,
+                         camber=[(s, v) for s, (_u, v) in zip(stations, edges)],
+                         frame="plumb", ifc="IfcRailing", layer=LAYER, origin=ctx)
+    return Element.from_geometry(
+        name, sweep, ifc_class="IfcRailing", predefined_type="GUARDRAIL",
+        type_name=guardrail.TYPE_NAME, typed_late=True, material="Steel",
+        layer=LAYER, spatial_part=segment,
+        quantities={"length_ft": rail.length},
+        psets={"BIMForge_Guardrail": {
+            "PostCount": rail.posts, "StartTreatment": rail.start_end,
+            "EndTreatment": rail.end_end, "Terminals": rail.terminals,
+            "AGTTransitions": rail.agts, "Anchors": rail.anchors}},
+        standard_qto={"Qto_RailingBaseQuantities": {
+            "Length": ("length", rail.length)}})
+
+
+def _rail_warnings(rail, c) -> list:
+    """What the build warns of for `rail`: a run held short of its minimum,
+    a terminal held at the alignment's end."""
+    from bimforge.author.alignment import sta
+    from bimforge.author.corridor import guardrail
+    from bimforge.author.corridor.guardrail import TERMINAL
+    name = rail_name(rail)
+    out = []
+    if rail.below_minimum:
+        out.append(f"road-corridor: guardrail {name}: {rail.length:.2f} ft "
+                   f"between fixed ends, under the {guardrail.MIN_RUN_FT:g} ft "
+                   f"minimum length of need (TSSM 3.6(1))")
+    if rail.short_end:
+        for s, kind in ((rail.start, rail.start_end), (rail.end, rail.end_end)):
+            if kind != TERMINAL or min(abs(s - c.s_start), abs(s - c.s_end)) > 1e-6:
+                continue
+            out.append(f"road-corridor: guardrail {name}: its terminal at STA "
+                       f"{sta(s)} is held at the alignment's end, with no room "
+                       f"for its gating; its length of need may run past it")
+    return out
+
+
 def build(params: dict, ctx) -> "StructureModel":
     from bimforge.author.alignment import Alignment, Profile, sta
-    from bimforge.author.corridor import earthwork, masshaul
+    from bimforge.author.corridor import earthwork, guardrail, masshaul
     from bimforge.author.corridor import walls as auto_walls
     from bimforge.author.corridor.frame import densify, survey_point
     from bimforge.author.corridor.ground import from_params
@@ -156,8 +299,11 @@ def build(params: dict, ctx) -> "StructureModel":
     prof = Profile(params["profile"]["curves"])
     c = parse(params, al.s_start, al.s_end)
     model = StructureModel("road-corridor", ctx)
+    def log(msg):
+        print(msg, file=sys.stderr)
+
     ground = from_params(params["ground"], al, ctx, ground_reach(c), model,
-                         log=lambda m: print(m, file=sys.stderr))
+                         log=log)
     divide = per_component(c, ground)
     # a cut is ground taken out of the TERRAIN (emit_ifc #364), when there
     # is one to void and a schema with IfcEarthworksCut to void it with
@@ -183,9 +329,8 @@ def build(params: dict, ctx) -> "StructureModel":
         c = c.with_walls([g for s0, s1 in c.runs()
                           for g in auto_walls.find(c, run_stations(s0, s1),
                                                    ground_dz)])
-    hauls, haul_elements, every = [], [], []
-    for r, (s0, s1) in enumerate(c.runs(), start=1):
-        segment, parts = _parts(r)
+    hauls, haul_elements, every, runs = [], [], [], []
+    for s0, s1 in c.runs():
         stations = run_stations(s0, s1)
         secs = [resolve(c, s, ground_dz) for s in stations]
         # a section where a side turns between cut and fill
@@ -200,6 +345,36 @@ def build(params: dict, ctx) -> "StructureModel":
             stations = sorted(stations + turns)
             known = {sec.s: sec for sec in secs}
             secs = [known.get(s) or resolve(c, s, ground_dz) for s in stations]
+        runs.append(secs)
+    rails = []
+    if c.guard is not None:
+        # V1.1: rail from the guarded spans and at the structure gaps, then
+        # every section a rail runs past again, with the widening behind
+        # it, and one at each rail end, so the widening starts and stops
+        # there. The guarded flags are read at the subgrade hinge, which
+        # the widening does not move, so the rail it was laid from stands
+        rails = lay_rails(c, runs)
+        for i, secs in enumerate(runs):
+            s0, s1 = secs[0].s, secs[-1].s
+            known = {sec.s: sec for sec in secs}
+            for s in rail_stations(c, rails, s0, s1):
+                if min(abs(s - k) for k in known) > 1e-6:
+                    known[s] = None
+            out = []
+            for s in sorted(known):
+                sides = under_rail(c, rails, s)
+                if sides or known[s] is None:
+                    try:
+                        out.append(resolve(c, s, ground_dz, rail=sides))
+                    except ValueError as exc:
+                        raise ValueError(f"guardrail: the widening behind the "
+                                         f"rail at {sta(s)}: {exc}") from None
+                else:
+                    out.append(known[s])
+            runs[i] = out
+    for r, secs in enumerate(runs, start=1):
+        segment, parts = _parts(r)
+        stations = [sec.s for sec in secs]
         every.extend(secs)
         for i0, i1 in bands(stations, al.s_start, c.band):
             b0, b1 = stations[i0], stations[i1]
@@ -280,6 +455,13 @@ def build(params: dict, ctx) -> "StructureModel":
                         "LooseVolume": ("volume", bank * (1.0 + c.swell))}})))
             hauls.append((b0, b1, cut_cf, fill_cf))
             haul_elements.append(els)
+    # after every run's courses and earthwork, so their order is V1's
+    for rail in rails:
+        r = next(r for r, secs in enumerate(runs, start=1)
+                 if secs[0].s - 1e-6 <= rail.start <= secs[-1].s + 1e-6)
+        model.add(rail_element(rail, c, al, prof, ctx, _parts(r)[0]))
+        for msg in _rail_warnings(rail, c):
+            log(msg)
     model.mass_haul = masshaul.mass_haul(hauls, c.shrink)
     for els, row in zip(haul_elements, model.mass_haul):
         for el in els:
@@ -301,4 +483,6 @@ def build(params: dict, ctx) -> "StructureModel":
         model.tables["structures"] = auto_walls.structures_csv(
             auto_walls.structures(rows, sorted(sec.s for sec in every),
                                   lambda s: ground.z(*survey(s, 0.0, 0.0)[:2])))
+    if c.guard is not None:
+        model.tables["guardrail"] = guardrail.to_csv(rails)
     return model
