@@ -448,8 +448,9 @@ def test_a_widened_shoulder_moves_the_path_out():
 
 
 def test_near_the_deck_the_inner_shoulder_narrows_to_the_separation():
-    # 1.5 ft from the edge: the inner shoulder is 1.49 ft (STEP_FT short),
-    # so q stays outside the road's edge of shoulder
+    # 1.5 ft from the edge: the inner shoulder is 1.49 ft wide (STEP_FT less
+    # than the separation), so q is 0.01 ft out from the road's edge of
+    # shoulder, never on it
     c = corridor(deck_path(), gaps=GAP)
     sf = surface(c, 1400.0)
     assert sf.q[0] == pytest.approx(17.0 + 0.01)
@@ -472,8 +473,128 @@ def test_cos_theta_is_the_road_s_tangent_against_the_path_s():
     # each course thickness / cos theta deep in the plane, top down
     (ui, vi), (uo, vo) = sf.inner, sf.outer
     d0, d1 = 0.25 / want, 0.5 / want
-    assert rings[0] == pytest.approx([(ui, vi), (uo, vo), (uo, vo - d0),
-                                      (ui, vi - d0)])
-    assert rings[1] == pytest.approx([(ui, vi - d0), (uo, vo - d0),
-                                      (uo, vo - d0 - d1), (ui, vi - d0 - d1)])
+    flat = lambda ring: [x for pt_ in ring for x in pt_]  # noqa: E731
+    assert flat(rings[0]) == pytest.approx(flat([(ui, vi), (uo, vo), (uo, vo - d0),
+                                                 (ui, vi - d0)]))
+    assert flat(rings[1]) == pytest.approx(flat([(ui, vi - d0), (uo, vo - d0),
+                                                 (uo, vo - d0 - d1),
+                                                 (ui, vi - d0 - d1)]))
     assert sf.depth == pytest.approx(d0 + d1)
+
+
+# -- follow-ups: curves, mirrors, convergence, edge points ------------------
+
+from bimforge.author.corridor.frame import survey_point, tangent3  # noqa: E402
+
+
+def curved(turn, side, radius=60.0, road_pct=0.0, path_pct=0.0, **over):
+    """A 90 degree curve of `radius` from 1000 on a corridor 1000-1090, the
+    path on `side`, the road at road_pct and the path at path_pct."""
+    length = math.pi * radius / 2.0
+    al = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0,
+                    "azimuth": 0.0},
+                   [{"kind": "curve", "delta": "90-0-0", "turn": turn,
+                     "radius": radius, "length": length}], name="C")
+    road = Profile(grade(100.0, pct=road_pct, s1=1000.0 + length)["curves"])
+    pp = path(side=side, profile=grade(99.51, pct=path_pct, s1=1000.0 + length),
+              **over)
+    params = copy.deepcopy(BASE)
+    params["path"] = pp
+    return parse(params, 1000.0, 1000.0 + length, alignment=al, profile=road)
+
+
+def test_cos_theta_on_a_tight_curve_agrees_with_a_fine_chord():
+    c = curved("L", "L", 60.0, road_pct=8.0, path_pct=-6.0)
+    for s in (1010.0, 1040.0, 1080.0):
+        assert cos_theta(c, s) == pytest.approx(cos_theta(c, s, 1e-4), abs=1e-8)
+
+
+def test_tangent3_is_the_unit_road_tangent():
+    road = Profile(grade(100.0, pct=3.0)["curves"])
+    t = tangent3(AL, road, 1500.0)
+    root = math.sqrt(1.0009)
+    assert t == pytest.approx((1 / root, 0.0, 0.03 / root), abs=1e-12)
+    assert math.sqrt(sum(x * x for x in t)) == pytest.approx(1.0)
+
+
+def test_a_right_path_mirrors_a_left_one_on_a_graded_road():
+    road = Profile(grade(100.0, pct=3.0)["curves"])
+    pf = grade(99.51, pct=5.0)
+    left = corridor(path(profile=pf), prof=road)
+    right = corridor(path(side="R", profile=pf), prof=road)
+    assert cos_theta(right, 1500.0) == pytest.approx(cos_theta(left, 1500.0),
+                                                     abs=1e-12)
+    sl, sr = surface(left, 1500.0), surface(right, 1500.0)
+    for a, b in ((sl.q, sr.q), (sl.outer, sr.outer), (sl.o, sr.o),
+                 (sl.inner, sr.inner)):
+        assert (-b[0], b[1]) == pytest.approx(a, abs=1e-10)
+    rl, rr = course_rings(left.path, sl), course_rings(right.path, sr)
+    for k in rl:
+        got = [x for u, v in rr[k] for x in (-u, v)]
+        assert got == pytest.approx([x for pt_ in rl[k] for x in pt_], abs=1e-10)
+
+
+def test_a_path_inside_a_curve_differs_from_one_outside_it():
+    ll = curved("L", "L", road_pct=3.0, path_pct=5.0)
+    rr = curved("R", "R", road_pct=3.0, path_pct=5.0)
+    lr = curved("L", "R", road_pct=3.0, path_pct=5.0)
+    s = 1040.0
+    a, b = surface(ll, s), surface(rr, s)
+    assert cos_theta(ll, s) == pytest.approx(cos_theta(rr, s), abs=1e-10)
+    for x, y in ((a.q, b.q), (a.outer, b.outer), (a.inner, b.inner)):
+        assert (-y[0], y[1]) == pytest.approx(x, abs=1e-10)
+    assert abs(cos_theta(lr, s) - cos_theta(ll, s)) > 1e-5
+    assert abs(surface(lr, s).outer[1] - a.outer[1]) > 1e-4
+
+
+def test_section_v_on_a_curve_lands_on_the_path_s_profile():
+    c = curved("L", "L", road_pct=6.0, path_pct=6.0)
+    p = c.path
+    sf = surface(c, 1040.0)
+    # the point survey_point places at (u, v) is at the profile's elevation
+    # where it lies; its station is found by the lean back v sin(gamma) / (1 - ku)
+    ui, vi = sf.inner
+    pt3 = survey_point(p.alignment, p.road_profile, 1040.0, ui, vi)
+    g = p.road_profile.grade(1040.0)
+    sg = g / math.sqrt(1 + g * g)
+    st = 1040.0 - vi * sg / (1 - p.alignment.curvature(1040.0) * ui)
+    assert pt3[2] == pytest.approx(p.profile.elev(st), abs=1e-9)
+
+
+def test_section_v_refuses_a_point_at_the_centre_of_curvature():
+    c = curved("L", "L", radius=60.0)
+    with pytest.raises(ValueError, match="curvature"):
+        section_v(c.path, 1040.0, 61.0, lambda st: 100.0)
+
+
+def test_a_path_beyond_the_centre_of_curvature_is_refused():
+    # the outer shoulder is 41 ft out: parse runs validate
+    with pytest.raises(ValueError, match=r"10\+00.*centre of curvature"):
+        curved("L", "L", radius=40.0)
+
+
+def test_edge_points_are_found_in_their_own_planes():
+    road = Profile(grade(100.0, pct=8.0)["curves"])
+    c = corridor(path(profile=grade(99.51, pct=8.0)), prof=road)
+    p = c.path
+    sf = surface(c, 1500.0)
+    g = 0.08
+    sg = g / math.sqrt(1 + g * g)
+    u, v = sf.outer
+    pt3 = survey_point(p.alignment, p.road_profile, 1500.0, u, v)
+    st = 1500.0 - v * sg
+    assert pt3[2] == pytest.approx(p.profile.elev(st) + p.cross_slope * p.width,
+                                   abs=1e-9)
+
+
+def test_cg_is_the_cosine_of_the_road_s_grade():
+    road = Profile(grade(100.0, pct=8.0)["curves"])
+    c = corridor(path(profile=grade(99.51, pct=8.0)), prof=road)
+    assert surface(c, 1500.0).cg == pytest.approx(1 / math.sqrt(1.0064), abs=1e-12)
+
+
+def test_cos_theta_with_a_drifting_separation():
+    # the separation grows 0.2 ft per ft: the path's centre drifts 0.2 sideways
+    # for each foot on: cos theta = 1 / sqrt(1.04) on a level road and path
+    c = corridor(path(separation=[[1000, 10.0], [2000, 210.0]]))
+    assert cos_theta(c, 1500.0) == pytest.approx(1 / math.sqrt(1.04), rel=1e-9)

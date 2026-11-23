@@ -27,6 +27,17 @@ def survey_point(alignment, profile, s: float, u: float, v: float) -> tuple:
             profile.elev(s) + v * cg)
 
 
+def tangent3(alignment, profile, s: float) -> tuple:
+    """The road's unit 3D tangent at station s, (north, east, up): the
+    normal of the section plane `survey_point` builds. Analytic (the plan
+    azimuth and the grade), so exact; a chord of survey points is not."""
+    _n, _e, az = alignment.point_az(s)
+    a = math.radians(az)
+    g = profile.grade(s)
+    cg = 1.0 / math.sqrt(1.0 + g * g)
+    return (math.cos(a) * cg, math.sin(a) * cg, g * cg)
+
+
 def densify(alignment, profile, stations: list) -> list:
     """`stations` with more between them where a plan curve or a vertical
     curve needs them, by the sweep engine's own step rules (SweptSection.
