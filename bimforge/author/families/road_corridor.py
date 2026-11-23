@@ -162,6 +162,15 @@ def _parts(r: int) -> tuple:
                  for kind, pt in PART_TYPES.items()}
 
 
+def road_walls(c, side: str) -> list:
+    """The wall gaps on `side` that bound the road's guardrail: listed walls,
+    V1.1's automatic road walls, and a strip wall at the road's hinge
+    (V1.2 C). A wall on the path's outer side, or one at the path's
+    shoulder, is not the road's."""
+    return [g for g in c.gaps if g.kind == "wall" and g.side == side
+            and g.auto in (None, "fill", "cut", "strip-road")]
+
+
 def lay_rails(c, runs: list) -> list:
     """The guardrail runs (corridor.guardrail.RailRun) of corridor `c`, from
     `runs`, each corridor run's sections (section.Section) by station: each
@@ -183,7 +192,7 @@ def lay_rails(c, runs: list) -> list:
     for side in SIDES:
         walls = [(g.start - WALL_TRANSITION_FT, g.end + WALL_TRANSITION_FT)
                  if g.auto == "cut" else (g.start, g.end)
-                 for g in c.gaps if g.kind == "wall" and g.side == side]
+                 for g in road_walls(c, side)]
         for secs in runs:
             s0, s1 = secs[0].s, secs[-1].s
             spans = guardrail.spans([sec.s for sec in secs],
@@ -213,7 +222,7 @@ def under_rail(c, rails: list, s: float) -> tuple:
     def in_lead_in(side):
         return any(g.start - lead <= s < g.start - 1e-6
                    or g.end + 1e-6 < s <= g.end + lead
-                   for g in c.gaps if g.kind == "wall" and g.side == side)
+                   for g in road_walls(c, side))
 
     return tuple(sorted({r.side for r in rails
                          if r.start - 1e-6 <= s <= r.end + 1e-6
@@ -224,15 +233,15 @@ def rail_stations(c, rails: list, s0: float, s1: float) -> list:
     """The stations on [s0, s1] a section is cut at for `rails`: each rail's
     ends, and a foot past each wall lead-in under a rail, so the widening
     starts and stops at them."""
-    from bimforge.author.corridor.params import WALL_TRANSITION_FT
+    from bimforge.author.corridor.params import SIDES, WALL_TRANSITION_FT
     out = [s for r in rails for s in (r.start, r.end)]
-    for g in c.gaps:
-        if g.kind != "wall":
-            continue
-        for s in (g.start - 2 * WALL_TRANSITION_FT, g.end + 2 * WALL_TRANSITION_FT):
-            if any(r.side == g.side and r.start - 1e-6 <= s <= r.end + 1e-6
-                   for r in rails):
-                out.append(s)
+    for side in SIDES:
+        for g in road_walls(c, side):
+            for s in (g.start - 2 * WALL_TRANSITION_FT,
+                      g.end + 2 * WALL_TRANSITION_FT):
+                if any(r.side == g.side and r.start - 1e-6 <= s <= r.end + 1e-6
+                       for r in rails):
+                    out.append(s)
     return [s for s in out if s0 - 1e-6 <= s <= s1 + 1e-6]
 
 

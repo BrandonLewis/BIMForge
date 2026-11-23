@@ -677,12 +677,26 @@ def _top(c, sf: Surface) -> list:
             (uo, vo - sf.depth), (uo + p.sign * STEP_FT, vo + k), sf.o]
 
 
+#: the automatic walls that stand on the path's outer side, at o
+OUTER_WALLS = ("path-fill", "path-cut")
+
+
+def outer_wall(c, s: float):
+    """The wall gap on the path's outer side at station s, or None. Only a
+    `path-fill` or `path-cut` wall stands there: a listed wall gap is
+    refused over the path's stations (validate), and a road `fill` or `cut`
+    wall on the path's side (one ending on the path's first or last
+    station) is the road's, whose side there is the strip."""
+    g = c.wall(c.path.side, s)
+    return g if g is not None and g.auto in OUTER_WALLS else None
+
+
 def _outer(c, s: float, sf: Surface, ground_dz) -> list:
     """The path's outer slope from o by V1.1's rules, with no MGS widening,
-    or [o, o] at an automatic wall on the path's outer side."""
+    or [o, o] at a wall on the path's outer side (outer_wall)."""
     from bimforge.author.corridor.section import _slope
     p = c.path
-    if c.wall(p.side, s) is not None:
+    if outer_wall(c, s) is not None:
         return [sf.o, sf.o]
     return _slope(c, s, p.side, p.sign, sf.o, ground_dz, widen=False).line
 
@@ -712,7 +726,7 @@ def needs_wall(c, s: float, hinge: tuple, ground_dz, rail: bool = False,
     from bimforge.author.corridor.section import NoDaylight
     p = c.path
     strip = location == "strip"
-    if c.wall(p.side, s, strip=strip) is not None:
+    if (c.wall(p.side, s, strip=True) if strip else outer_wall(c, s)) is not None:
         return None
     sf = surface(c, s)
     try:

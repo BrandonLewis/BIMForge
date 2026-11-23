@@ -320,6 +320,18 @@ class Corridor:
                         f"from {sta(w.start)} to {sta(w.end)}, against the "
                         f"listed wall gap {sta(g.start)} to {sta(g.end)}; list "
                         f"the wall or let walls: auto place it, not both")
+            path = self.path
+            if (path is not None and w.side == path.side and not w.strip
+                    and not w.auto.startswith("path-")
+                    and w.start < path.s_end - _EPS and w.end > path.s_start + _EPS):
+                # find never places one there (section.needs_wall asks the
+                # path's side for path- and strip- walls); the road's side
+                # on the path's stations is the strip
+                raise ValueError(
+                    f"walls: auto: a road {w.auto} wall on the {w.side} side from "
+                    f"{sta(w.start)} to {sta(w.end)} overlaps the path's stations "
+                    f"({sta(path.s_start)} to {sta(path.s_end)}), where that side is "
+                    f"the strip and the path")
             if w.auto == "cut" and self.widened() is None:
                 raise ValueError(
                     f"walls: auto puts a cut wall on the {w.side} side from "
@@ -329,9 +341,10 @@ class Corridor:
         # each ending on a slope that fits; closer, the side has neither a
         # wall nor a slope there, and a cut wall's widening reaches under
         # its neighbour
-        autos = sorted(walls, key=lambda g: (g.side, g.start))
+        autos = sorted(walls, key=lambda g: (g.side, g.strip, g.start))
         for p, q in zip(autos, autos[1:]):
-            if p.side == q.side and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS:
+            if (p.side == q.side and p.strip == q.strip
+                    and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS):
                 raise ValueError(
                     f"walls: auto puts a {p.auto} wall on the {p.side} side from "
                     f"{sta(p.start)} to {sta(p.end)} and a {q.auto} wall from "
@@ -343,14 +356,21 @@ class Corridor:
 
     def _merged(self, walls: tuple) -> tuple:
         """`walls` (automatic) with each side's walls of one kind under one
-        station interval apart, no structure gap between, made one."""
+        station interval apart, no structure gap between, made one. A road
+        wall on the path's side is not merged over the path's stations
+        (V1.2 C): there that side is the strip and the path."""
+        path = self.path
         out = []
-        for w in sorted(walls, key=lambda g: (g.side, g.auto, g.start)):
+        for w in sorted(walls, key=lambda g: (g.side, g.strip, g.auto, g.start)):
             p = out[-1] if out else None
             if (p is not None and p.side == w.side and p.auto == w.auto
                     and w.start - p.end < self.interval - _EPS
                     and not any(g.kind == "structure" and g.start < w.start + _EPS
-                                and g.end > p.end - _EPS for g in self.gaps)):
+                                and g.end > p.end - _EPS for g in self.gaps)
+                    and not (path is not None and w.side == path.side
+                             and not w.strip and not w.auto.startswith("path-")
+                             and path.s_start < w.start + _EPS
+                             and path.s_end > p.end - _EPS)):
                 out[-1] = replace(p, end=max(p.end, w.end))
             else:
                 out.append(w)

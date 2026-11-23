@@ -630,10 +630,10 @@ def test_the_steep_road_finds_its_walls(steep):
     # 45.57 ft, its rock cut by 55.6 ft)
     assert steep.tables["walls"] == (
         WALL_HEADER + "\n"
-        "R,fill,1000.00,1111.00,17.00,15.66,21.21,yes,yes\n"
-        "R,fill,1197.00,1267.00,17.00,7.86,11.36,yes,no\n")
+        "R,fill,outer,1000.00,1111.00,17.00,15.66,21.21,yes,yes\n"
+        "R,fill,outer,1197.00,1267.00,17.00,7.86,11.36,yes,no\n")
     assert steep.tables["structures"] == (
-        STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00\n")
+        STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00,road\n")
 
 
 def test_the_steep_road_benches_its_tall_rock_faces():
@@ -763,7 +763,7 @@ def test_a_cut_wall_widens_only_its_side_s_shoulder():
     p["section"]["side_slopes"]["footprint_ft"] = {"L": 150, "R": 40}
     m = build(p, CTX)
     assert m.tables["walls"] == (
-        WALL_HEADER + "\n" "R,cut,1133.00,1600.00,22.00,5.39,28.74,no,no\n")
+        WALL_HEADER + "\n" "R,cut,outer,1133.00,1600.00,22.00,5.39,28.74,no,no\n")
     assert m.tables["structures"] == STRUCTURE_HEADER + "\n"
     outer = {}
     for el in courses(m):
@@ -828,7 +828,7 @@ def test_a_side_turning_inside_a_wall_s_lead_in_takes_no_section_there():
     # turn takes none (the strip across it is lofted from 11+11 to 11+12)
     m = build(copy.deepcopy(TURN_IN_LEAD_IN), CTX)
     assert m.tables["walls"].splitlines()[1:] == [
-        "R,fill,1000.00,1111.00,17.00,6.17,11.72,yes,no"]
+        "R,fill,outer,1000.00,1111.00,17.00,6.17,11.72,yes,no"]
     stations = {s for el in courses(m) for lf in el.geometry for s in lf.stations}
     assert {1111.0, 1112.0} <= stations
     assert not [s for s in stations if 1111.0 < s < 1112.0]
@@ -1108,8 +1108,8 @@ def test_a_slope_the_widening_pushes_past_the_footprint_takes_a_wall():
         "L,1027.00,1129.00,102.00,WALL,WALL,17,0,2,0,yes,no\n"
         "R,1111.00,1197.00,86.00,WALL,WALL,14,0,2,0,yes,no\n")
     rows = m.tables["walls"].splitlines()
-    assert "L,fill,1000.00,1027.00,17.00,16.46,17.81,yes,no" in rows
-    assert "L,fill,1129.00,1158.00,17.00,9.91,11.36,yes,no" in rows
+    assert "L,fill,outer,1000.00,1027.00,17.00,16.46,17.81,yes,no" in rows
+    assert "L,fill,outer,1129.00,1158.00,17.00,9.91,11.36,yes,no" in rows
     _closed_earthwork(m)
 
 
