@@ -321,3 +321,79 @@ def test_a_drifting_ring_s_centroid_runs_long():
                      [_box(20.0, 0.0), _box(28.5, 0.0)])
     assert centroid_path([lf]).path_ft == pytest.approx(
         100.0 * math.sqrt(1.0 + 0.085 ** 2), rel=1e-9)
+
+
+def test_two_lofts_centroid_is_their_area_weighted_mean():
+    # a 12 x 0.5 box at u 20 (6 sf, centroid (26, -0.25)) and a 4 x 1 at
+    # u -10 (4 sf, centroid (-8, -0.5)) on a level tangent: offset
+    # (6 x 26 - 4 x 8) / 10 = 12.4, height (-1.5 - 2) / 10 = -0.35
+    ss = [0.0, 100.0]
+    a = StationLoft("a", line(), level(), None, ss, [_box(20.0, 0.0)] * 2)
+    b = StationLoft("b", line(), level(), None, ss,
+                    [_box(-10.0, 0.0, w=4.0, t=1.0)] * 2)
+    got = centroid_path([a, b])
+    assert got.path_ft == pytest.approx(100.0, rel=1e-12)
+    assert got.volume_cf == pytest.approx(1000.0, rel=1e-12)
+    assert got.offset_ft == pytest.approx(12.4, rel=1e-12)
+    assert got.height_ft == pytest.approx(-0.35, rel=1e-12)
+
+
+def test_centroid_path_refuses_lofts_on_different_stations():
+    a = StationLoft("a", line(), level(), None, [0.0, 100.0], [_box(20.0, 0.0)] * 2)
+    b = StationLoft("b", line(), level(), None, [0.0, 50.0, 100.0],
+                    [_box(20.0, 0.0)] * 3)
+    with pytest.raises(ValueError, match=r"a: centroid_path needs lofts on the "
+                                         r"same stations"):
+        centroid_path([a, b])
+
+
+@pytest.mark.parametrize("h", [0.0, -0.01])
+def test_centroid_path_refuses_a_chord_that_is_not_positive(h):
+    lf = StationLoft("r", line(), level(), None, [0.0, 100.0], [_box(20.0, 0.0)] * 2)
+    with pytest.raises(ValueError, match=r"r: centroid_path's chord h must be "
+                                         r"positive"):
+        centroid_path([lf], h=h)
+
+
+FLAT = [(1.0, 0.0), (0.0, 0.0), (0.5, 0.0)]      # no area
+
+
+def test_a_loft_with_no_area_is_refused_by_name_and_stations():
+    lf = StationLoft("z", line(), level(), None, [0.0, 100.0], [FLAT, FLAT])
+    for f in (pappus, centroid_path):
+        with pytest.raises(ValueError, match=r"z: no area from 0\+00\.00 to "
+                                             r"1\+00\.00"):
+            f([lf])
+
+
+def test_a_band_with_next_to_no_area_is_refused_by_its_stations():
+    sliver = [(12.0, 0.0), (0.0, 0.0), (0.0, -1e-14), (12.0, -1e-14)]
+    lf = StationLoft("z", line(), level(), None, [0.0, 50.0, 100.0],
+                     [_box(20.0, 0.0), sliver, sliver])
+    with pytest.raises(ValueError, match=r"z: no area from 0\+50\.00 to "
+                                         r"1\+00\.00"):
+        centroid_path([lf])
+
+
+def _true_arc():
+    """10 ft tangent, a 100 ft right curve of radius 500 stationed at its
+    arc (0.2 rad), 10 ft tangent."""
+    return Alignment(POB, [
+        {"kind": "tangent", "bearing": "N 0-0-0 E", "length": 10.0},
+        {"kind": "curve", "delta": "11-27-32.961249419", "radius": 500.0,
+         "turn": "R", "length": 100.0},
+        {"kind": "tangent", "bearing": "N 11-27-32.961249419 E", "length": 10.0}],
+        name="A")
+
+
+@pytest.mark.parametrize("stations, h", [([10.0, 11.0, 60.0, 110.0], 0.05),
+                                         ([10.0, 10.01, 60.0, 110.0], 0.01)])
+def test_a_short_bay_at_the_pc_keeps_its_chord_inside(stations, h):
+    # the chord is held to 0.04 of the bay (0.04 and 0.0004 ft here), so it
+    # does not reach back over the PC onto the tangent: the centroid 26 ft
+    # outside a 500 ft right curve runs 100 x 526 / 500 = 105.2 ft. The
+    # chord's own error is O(h^2), (h / 526)^2 / 6 = 1.5e-9 at h = 0.05;
+    # unclamped, the chords over the PC miss by 1.8e-6 and 1.2e-6
+    lf = StationLoft("p", _true_arc(), level(), None, stations,
+                     [_box(20.0, 0.0)] * len(stations))
+    assert centroid_path([lf], h=h).path_ft == pytest.approx(105.2, rel=1e-8)

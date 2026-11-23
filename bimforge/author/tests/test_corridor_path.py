@@ -901,7 +901,7 @@ def test_with_natural_ground_between_it_is_the_road_s_plus_the_path_s():
 
 # -- Task 8: a course's centroid line on its own grade -----------------------
 
-from bimforge.author.corridor.loft import StationLoft, centroid_path  # noqa: E402
+from bimforge.author.corridor.loft import StationLoft, centroid_path, pappus  # noqa: E402
 from bimforge.author.gate import FORMULA_TOLERANCE  # noqa: E402
 
 
@@ -926,9 +926,13 @@ def test_a_path_2_percent_off_the_road_s_grade_is_its_path_box():
 
 
 def test_a_path_on_a_graded_curve_is_its_path_box():
-    # a 500 ft right curve at 7 %, the path on the right 10 ft out and
-    # parallel: its centre about 33 ft out, where V1.1's road courses miss
-    # by (kappa g r)^2 / 2 = 1.1e-5; theta takes the twist in as well.
+    # a 500 ft right curve with the road at 7 %, the path on the right at
+    # 3 %, level with the plain strip at 11+50 (99.48 + 0.07 x 150 = 109.98,
+    # so 105.48 at 10+00): 1.6 ft above it at 11+10, 1.6 below at 11+90, its
+    # centre about 33 ft out, its bands inside the curve. theta takes in
+    # the grade difference and the twist on the curve together; pappus's
+    # line, parallel to the road's grade, misses by 7.0e-4, about the
+    # grades' 3.8 % difference squared over 2.
     # The arc is stationed at its length on purpose: 500 x 0.2 rad = 100 ft
     al = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0},
                    [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 100.0},
@@ -939,10 +943,15 @@ def test_a_path_on_a_graded_curve_is_its_path_box():
                    name="C")
     road = Profile(grade(100.0, pct=7.0)["curves"])
     params = copy.deepcopy(BASE)
-    params["path"] = path(side="R", profile=grade(99.48, pct=7.0))
+    params["path"] = path(side="R", profile=grade(105.48, pct=3.0))
     c = parse(params, 1000.0, 2000.0, alignment=al, profile=road)
-    vol, box = _course_box(c, 1, [1110.0 + 5.0 * i for i in range(17)])
+    stations = [1110.0 + 5.0 * i for i in range(17)]
+    vol, box = _course_box(c, 1, stations)
     assert abs(box - vol) <= FORMULA_TOLERANCE * vol
+    rings = [course_rings(c.path, surface(c, s))[1] for s in stations]
+    held = pappus([StationLoft("t", al, road, None, stations, rings)])
+    held_box = held.path_ft * c.path.width * c.path.courses[1].thickness
+    assert abs(held_box - vol) > 100 * FORMULA_TOLERANCE * vol
 
 
 def test_a_strip_wall_s_fill_is_its_hand_polygon():
