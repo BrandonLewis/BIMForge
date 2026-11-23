@@ -298,3 +298,26 @@ def test_the_mean_width_is_weighted_by_station_length():
                      [RECT, RECT, wide])
     assert lf.widths_ft == pytest.approx([10.0, 10.0, 20.0])
     assert lf.mean_width_ft == pytest.approx(10.5)
+
+
+from bimforge.author.corridor.loft import centroid_path  # noqa: E402
+
+
+def _box(u0, v0, w=12.0, t=0.5):
+    return [(u0 + w, v0), (u0, v0), (u0, v0 - t), (u0 + w, v0 - t)]
+
+
+def test_a_rising_ring_s_centroid_climbs_on_its_own_grade():
+    lf = StationLoft("r", line(), level(), None, [0.0, 50.0, 100.0],
+                     [_box(20.0, 0.0), _box(20.0, 1.0), _box(20.0, 2.0)])
+    got = centroid_path([lf])
+    assert got.path_ft == pytest.approx(100.0 * math.sqrt(1.0004), rel=1e-9)
+    assert got.volume_cf == pytest.approx(pappus([lf]).volume_cf, rel=1e-12)
+    assert got.offset_ft == pytest.approx(26.0)
+
+
+def test_a_drifting_ring_s_centroid_runs_long():
+    lf = StationLoft("d", line(), level(), None, [0.0, 100.0],
+                     [_box(20.0, 0.0), _box(28.5, 0.0)])
+    assert centroid_path([lf]).path_ft == pytest.approx(
+        100.0 * math.sqrt(1.0 + 0.085 ** 2), rel=1e-9)

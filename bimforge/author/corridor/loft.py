@@ -106,6 +106,52 @@ def pappus(lofts: list) -> Pappus:
     return Pappus(volume, path, ub, vb)
 
 
+def centroid_path(lofts: list, h: float = 0.01) -> Pappus:
+    """pappus, the centroid's line following the blended rings' own
+    centroid at each station rather than held parallel to the profile
+    grade line: a path course rises and falls on its own profile and
+    drifts with its separation (V1.2 C). The volume is pappus's exact one;
+    the path is 5-point Gauss-Legendre per bay of the centroid's speed, the
+    chord of its survey points over station +/- h, as path.cos_theta takes
+    the paved centre's tangent (so a course's depth, thickness / cos theta,
+    and its centroid's line read the same tangent); h is held to 0.04 of a
+    short bay, so the chord stays inside it (the outer nodes sit 0.047 of
+    a bay in). Offset and height are the centroid's area-weighted means."""
+    first = lofts[0]
+    al, prof, ss = first.alignment, first.profile, first.stations
+    if any(lf.stations != ss for lf in lofts[1:]):
+        raise ValueError(f"{first.name}: centroid_path needs lofts on the same "
+                         f"stations")
+    volume = pappus(lofts).volume_cf
+    path = weight = usum = vsum = 0.0
+    for i, (a, b) in enumerate(zip(ss, ss[1:])):
+        bay = b - a
+        pairs = [(lf.rings[i], lf.rings[i + 1]) for lf in lofts]
+
+        def centroid(t, pairs=pairs):
+            area = qu = qv = 0.0
+            for ra, rb in pairs:
+                da, du, dv = _moments([(ua + t * (ub - ua), va + t * (vb - va))
+                                       for (ua, va), (ub, vb) in zip(ra, rb)])
+                area, qu, qv = area + da, qu + du, qv + dv
+            return area, qu / area, qv / area
+
+        d = min(h, 0.04 * bay)
+        dt = d / bay
+        for x, w in _GAUSS:
+            t = 0.5 * (1.0 + x)
+            area, u, v = centroid(t)
+            p0 = survey_point(al, prof, a + bay * t - d, *centroid(t - dt)[1:])
+            p1 = survey_point(al, prof, a + bay * t + d, *centroid(t + dt)[1:])
+            speed = math.dist(p0, p1) / (2.0 * d)
+            dw = 0.5 * bay * w
+            path += dw * speed
+            weight += dw * area
+            usum += dw * area * u
+            vsum += dw * area * v
+    return Pappus(volume, path, usum / weight, vsum / weight)
+
+
 class StationLoft:
     """Rings `rings[i]` at `stations[i]`, lofted point to point and capped."""
 

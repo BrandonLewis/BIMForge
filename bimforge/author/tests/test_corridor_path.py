@@ -897,3 +897,73 @@ def test_with_natural_ground_between_it_is_the_road_s_plus_the_path_s():
     road = parse(copy.deepcopy(BASE), 1000.0, 2000.0)
     assert fill_area(road, ground) == pytest.approx(50.3342, abs=1e-6)
     assert fill_area(with_path, ground) == pytest.approx(50.3342 + 39.5495, abs=1e-6)
+
+
+# -- Task 8: a course's centroid line on its own grade -----------------------
+
+from bimforge.author.corridor.loft import StationLoft, centroid_path  # noqa: E402
+from bimforge.author.gate import FORMULA_TOLERANCE  # noqa: E402
+
+
+def _course_box(c, k, stations):
+    """(exact volume, PathLength x Width x Thickness) of path course k as
+    the family lofts it over `stations`."""
+    al, prof = c.path.alignment, c.path.road_profile
+    rings = [course_rings(c.path, surface(c, s))[k] for s in stations]
+    got = centroid_path([StationLoft("t", al, prof, None, stations, rings)])
+    return got.volume_cf, got.path_ft * c.path.width * c.path.courses[k].thickness
+
+
+def test_a_path_2_percent_off_the_road_s_grade_is_its_path_box():
+    road = Profile(grade(100.0, pct=3.0)["curves"])
+    c = corridor(path(profile=grade(99.51, pct=5.0)), prof=road)
+    for k in (0, 1):
+        vol, box = _course_box(c, k, [1400.0 + 25.0 * i for i in range(5)])
+        assert abs(box - vol) <= FORMULA_TOLERANCE * vol
+    want = (1 + 0.03 * 0.05) / math.sqrt(1.0009 * 1.0025)
+    # without the correction the box misses by 1 / cos(theta) - 1
+    assert 1.0 / want - 1.0 == pytest.approx(1.9938e-4, rel=1e-3)
+
+
+def test_a_path_on_a_graded_curve_is_its_path_box():
+    # a 500 ft right curve at 7 %, the path on the right 10 ft out and
+    # parallel: its centre about 33 ft out, where V1.1's road courses miss
+    # by (kappa g r)^2 / 2 = 1.1e-5; theta takes the twist in as well.
+    # What it misses by, 9.4e-7, is nearly all the alignment's own: the
+    # arc, 500 x 11-27-33 = 100.000094 ft, is stationed over 100 ft, so a
+    # point moves 1 + 9.4e-7 ft per station where pappus takes 1. On an arc
+    # stationed at its length the box holds to 1e-8.
+    al = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0},
+                   [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 100.0},
+                    {"kind": "curve", "delta": "11-27-33", "radius": 500.0,
+                     "turn": "R", "length": 100.0},
+                    {"kind": "tangent", "bearing": "N 11-27-33 E", "length": 800.0}],
+                   name="C")
+    road = Profile(grade(100.0, pct=7.0)["curves"])
+    params = copy.deepcopy(BASE)
+    params["path"] = path(side="R", profile=grade(99.48, pct=7.0))
+    c = parse(params, 1000.0, 2000.0, alignment=al, profile=road)
+    vol, box = _course_box(c, 1, [1110.0 + 5.0 * i for i in range(17)])
+    assert abs(box - vol) <= FORMULA_TOLERANCE * vol
+
+
+def test_a_strip_wall_s_fill_is_its_hand_polygon():
+    # the path 12 ft below (87.51), the wall at the road's hinge, the ground
+    # at 85 (v = -15), so the fill is the line's height h = v + 15 over u.
+    # The road: subgrade (0, -1.40), (+-12, -1.64), hinge (+-17, -1.89); its
+    # R fill 2:1 down 13.11 to (-43.22, -15). The wall from the hinge to
+    # (17.01, -12.59), level to q (25, -12.59); the inner shoulder up 5 %
+    # to (26.99, -12.4905), the courses' 0.75 down to (27, -13.24) and
+    # (39, -13.48), up to (39.01, -12.7305), the outer shoulder to
+    # (41, -12.83), 2:1 down 2.17 to (45.34, -15). Trapezoids, R to L:
+    #   26.22 x 6.555 = 171.8721      5 x 13.235 = 66.175 (twice)
+    #   12 x 13.48 = 161.76 (twice)    0.01 x 7.76 = 0.0776 (the wall)
+    #   7.99 x 2.41 = 19.2559         1.99 x 2.45975 = 4.8949025
+    #   0.01 x 2.13475 = 0.0213475    12 x 1.64 = 19.68
+    #   0.01 x 1.89475 = 0.0189475    1.99 x 2.21975 = 4.4173025
+    #   4.34 x 1.085 = 4.7089                             total 680.817
+    c = corridor(path(profile=grade(87.51)), walls="auto").with_walls(
+        [Gap(1400.0, 1600.0, "wall", "L", None, auto="strip-road")])
+    ground = PlaneGround(85.0)
+    assert resolve(c, 1500.0, level(-15.0)).path.strip == "wall-road"
+    assert fill_area(c, ground) == pytest.approx(680.817, abs=1e-6)
