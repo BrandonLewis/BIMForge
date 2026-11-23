@@ -14,13 +14,14 @@ Sources: Caltrans Highway Design Manual (HDM, 08/08/2025 combined edition), Chap
 
 These were made with the user on 2026-11-22.
 
-1. **Part of the road section.** The path is not a second corridor. It is the outer part of one side of the road's section, with its own offset and its own profile.
+1. **Part of the road section while it is beside the road.** There the path is the outer part of one side of the road's section, with its own offset and its own profile. Its separation can grow, so the path can drift away from the road and stay part of its section.
 2. **The profile is designed and given in the spec**, in the same form as `params.profile`. The family builds it and checks it; it does not fit grades. A project fits the path's grade in its own design work and writes the result into the spec.
 3. **Between the road and the path:**
    - a straight slope, where one at 2:1 or flatter fits;
    - otherwise a wall holding up whichever of the two is higher.
 4. **On structures the path follows the deck by default.** Its profile must meet the deck at each structure gap's ends. A deck grade over 5 % is an advisory deviation, because HDM 1003.1(14) says "should".
 5. **The path may have its own bridge** wherever it makes sense, for example where a deck is steeper than 5 % or a strip wall gets too tall. A path gap (below) marks where it goes. Inside it, the path keeps its own profile and is off the road's deck.
+6. **The path may wander off on its own corridor.** Bike and equestrian paths can meander away from the road. Where one does, it becomes its own corridor in the same build: its own alignment and profile, a path section, its own earthwork and walls. It hands over to and from the road's section at stations the spec names. The footprints of the two never overlap, so earthwork is still counted once.
 
 ## Spec format
 
@@ -46,6 +47,13 @@ params:
     rail_height_ft: 3.5             # the path's rail on a wall (42 in)
     gaps:                           # the path's own structures
       - {from: 3440, to: 4660, kind: structure}   # a separate path bridge
+    own:                            # stretches where the path leaves the road
+      - from: 6000                  # road station of the hand-over
+        to: 7400                    # road station where it rejoins
+        run:                        # the path's own horizontal, from the
+          - {kind: curve, delta: "30-0-0", radius: 300.0, turn: R, length: 157.08}
+          - ...                     # hand-over point, the road's form
+        profile: {curves: [...]}    # on the path's own stationing
 outputs:
   path: out/<name>.path.csv
   path_checks: out/<name>.path-checks.csv
@@ -83,9 +91,10 @@ Outward from the road's crown, the path's side is:
 
 ## The strip between road and path
 
-The strip runs from the road's hinge to the outer edge of the path's inner shoulder.
+The strip runs from the road's hinge to the outer edge of the path's inner shoulder. It is resolved in this order, at each station:
 
-- **A slope.** The strip is a straight line between those two points if its slope is `strip.max_ratio` (2:1) or flatter, up or down. It may lie in cut or in fill. The earthwork measures it against the ground with the rest of the section.
+- **Natural ground between.** First, the road's outer slope is tried at V1.1's rules, and the path's inner slope at the same rules mirrored. If both daylight before they meet, the ground between them is left as it is. This is what lets the separation grow: the path drifts away and the strip becomes two slopes with ground between.
+- **A slope.** Otherwise, The strip is a straight line between those two points if its slope is `strip.max_ratio` (2:1) or flatter, up or down. It may lie in cut or in fill. The earthwork measures it against the ground with the rest of the section.
 - **Road higher, slope too steep:** a **fill wall at the road's hinge**, carrying a barrier, as V1.1's automatic fill wall does. The strip is level at the path's shoulder-edge elevation from the wall's foot to the path.
 - **Path higher, slope too steep:** a **wall at the outer edge of the path's inner shoulder**, retaining the path, with the path's rail on top (`rail_height_ft`, HDM's 42 in). The strip is level at the road's hinge elevation from the road to the wall's foot.
   - The road faces this wall at least 5 ft beyond its edge of shoulder, so its shoulder is 13 ft or more from the wall. That is wider than V1.1's 10 ft cut-wall shoulder (HDM 309.1(3)(b)), so the road's shoulder does not widen.
@@ -118,6 +127,46 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 - In a structure gap the path is on the deck. The family builds nothing there for the path, just as it builds nothing for the road.
 - **Meeting the deck.** At each end of the gap, the path's profile must equal the road's cross slope at that station (superelevation included), extended from the road's edge of shoulder to the path's paved edge, within 0.01 ft. Otherwise the build fails with the station, both elevations and the difference.
 - **Deck grade.** The deck's grade along the path is the road profile's grade. Any stretch of a gap where it is over 5 % is listed as advisory.
+
+## Where the path wanders off (own stretches)
+
+`path.own` lists stretches where the path leaves the road and runs on a corridor of its own. Each stretch gives the road stations where it hands over (`from`) and rejoins (`to`), the path's own horizontal `run` and its own `profile`.
+
+**The horizontal**
+
+- The run starts at the hand-over point: the path's centreline at road station `from`, at that station's separation, heading the road's way. The family derives that point and heading; the spec gives no POB.
+- **Rejoining.** The run must end on the path's centreline at road station `to`, at that station's separation, heading the road's way.
+  - The tolerance is 0.1 ft in position and 0.1° in heading.
+  - Otherwise it is an error naming both points.
+
+**The profile**
+
+- It is on the path's own stationing, which starts at 0+00 at the hand-over.
+- It must meet `path.profile` at both ends within 0.01 ft. `path.profile` is on road stations.
+
+**The section and earthwork**
+
+- **The section:** the path's paved width, courses and shoulders, crowned or one-way by `cross_slope`, with V1.1's side slopes on both sides. Those are fill 4:1 or 2:1 by the steep rule, and soil over rock with benches.
+- **Walls:** automatic, with the path's rail on fill walls.
+- **Footprint:** `footprint_ft`, if given, applies to it as well.
+- **Earthwork:** its own cut and fill elements, separate from the road's.
+- **The road's section through the stretch:** the same as if there were no path on that side, as in a path gap.
+
+**Hand-over**
+
+- Each hand-over and rejoin station must be one where the beside section resolves to **natural ground between** (see the strip), so the two footprints are already apart. Otherwise it is an error naming the station. Move the hand-over or widen the separation.
+- **No overlap.** Along the own stretch, the path's plan footprint (daylight to daylight) must not cross the road's footprint at any station. The check is a polygon test in plan; a crossing is an error naming the path station and the road station. This is what keeps the earthwork counted once.
+
+**Checks on own stretches.** The grade, crest and deck checks apply as they do beside the road. These apply as well:
+
+- **Horizontal radius** under the 1003.1(10) minimum for the design speed (90 / 160 / 260 ft at 20 / 25 / 30 mph): advisory ("should").
+- **Radius under the no-superelevation radius** (100 / 180 / 320 ft): advisory. The path's cross slope stays at most 2 %, which is the HDM's maximum superelevation for a path.
+- **Path gaps inside an own stretch** are on the path's own stationing. Use `own[].gaps` for a path bridge across a creek.
+
+**IFC**
+
+- **The alignment:** each own stretch has its own `IfcAlignment`, horizontal and vertical, aggregated to the project as C.12 requires. Its solids are swept along that alignment's `IfcGradientCurve`. Short path profiles have two PVIs, so `add_alignments` must be fixed for them first: it crashes on a profile with two PVIs today.
+- **The path's parts:** its courses and rails belong to the same path `IfcRoadPart`. Its earthwork is `IfcEarthworksCut` and `IfcEarthworksFill`, named for the path, and voids TERRAIN as the road's does.
 
 ## The path's own structures (path gaps)
 
@@ -158,6 +207,10 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 - A strip that does not fit without `walls: auto`.
 - A listed wall gap on the path's side overlapping the path's stations. Its offset would be ambiguous; use `walls: auto`.
 - A path gap outside the path's stations, overlapping another path gap, or of a kind other than `structure`.
+- Own stretches that overlap each other or a path gap.
+- An own stretch whose run does not rejoin.
+- A hand-over without natural ground between.
+- A path footprint that crosses the road's.
 - A requested `path` or `path_checks` output with no `path`.
 
 **Advisory, listed in `path_checks`, one row per stretch:** check, from station, to station, value, limit, HDM reference.
@@ -172,7 +225,7 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 - **Separation under 5 ft** on an approach.
 - **A wall in the strip**, with its side and height.
 
-The path follows the road's horizontal alignment at an offset. Its radii are the road's, give or take the offset: 500 ft or more on the driving route, far above the 90–260 ft minimums of 1003.1(10). So horizontal curvature and the 1003.1(13) sight line are not checked; they are out of scope.
+Beside the road, the path follows the road's horizontal alignment at an offset. Its radii are the road's, give or take the offset: 500 ft or more on the driving route, far above the 90–260 ft minimums of 1003.1(10). So radius is checked only on own stretches.
 
 ## IFC
 
@@ -241,6 +294,14 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
   - an approach narrowing to 1.5 ft at a gap end builds;
   - a gap end with the wrong separation is an error.
 - **Deck meeting:** a path profile 0.02 ft off the deck at a gap end is an error naming the station; at 0.005 ft off it builds.
+- **Strip, natural ground:** a path drifting out to 60 ft on a cross slope gives two slopes with ground between, and its earthwork equals the road's alone plus the path's alone.
+- **Own stretches:**
+  - the derived hand-over point and heading match a hand computation;
+  - a run ending 0.2 ft off the rejoin point is an error;
+  - a hand-over at a station without natural ground between is an error;
+  - a run that swings back into the road's footprint is an error naming both stations;
+  - a 150 ft radius is listed at 25 mph and 30 mph but not at 20;
+  - its IfcAlignment passes `gate.alignment_issues`, and a two-PVI path profile builds.
 - **Path gaps:**
   - inside one, the section and earthwork equal those of the same corridor with no path;
   - a path gap over a road structure gap waives the deck-meeting and approach rules there, and its profile is checked for grade;
@@ -260,9 +321,8 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
 
 ## Out of scope
 
-- A path that leaves the road horizontally, on its own alignment.
-- Writing the path's line as its own `IfcAlignment`.
-- The path's horizontal curvature and its horizontal sight lines.
+- Horizontal sight lines on the path's own curves (1003.1(13)), which need the obstruction surface. Radius is checked.
+- A path stretch that crosses the road at grade or under it. A crossing is its own design.
 - Drainage in the strip (the drainage study).
 - Concrete barrier as its own element, carried over from V1.1.
 - Path crossings and ramps.
