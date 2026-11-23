@@ -96,7 +96,13 @@ when the file has it, all in the units BidSheet.ai stores (never m):
   "tolerance", "result" ("agrees"/"differs" as recorded), "standing"
   (`checks.standing`: the result, or "lapsed" when the file's value has
   moved past the tolerance since, or "gone"), "value_source", "sheet",
-  "revision", "day", "by", "model_origin"}].
+  "revision", "day", "by", "model_origin"}];
+- `route`, `based_on`, `differences` (M.8): `BIMForge_Route`, the route
+  the element was built by (standard, modified-by-value, modified-by-part,
+  modified-by-section, bespoke), the class it is based on, and each value
+  it changed: [{"name", "standard" (absent for an added row), "actual",
+  "unit" (FT or RATIO, absent for text and other numbers), "source"}],
+  lengths in the project's foot.
 
 and once per call, `model`: the file's `BIMForge_Model` identity,
 {"build_id", "bimforge_version", "ifc_schema", "source"}; and, given a
@@ -373,16 +379,59 @@ def model_record(model) -> dict | None:
     return out
 
 
+def _route_of(pset, ft: float) -> dict:
+    """What a BIMForge_Route set says (M.8): route, based_on, and each
+    difference's name, standard, actual (a length in the project's feet),
+    unit and source."""
+    from bimforge.author.modified import DIFFERENCE
+    out: dict = {}
+    diffs = []
+    for prop in pset.HasProperties:
+        if prop.is_a("IfcPropertySingleValue") and prop.NominalValue is not None:
+            key = {"Route": "route", "BasedOn": "based_on"}.get(prop.Name)
+            if key:
+                out[key] = prop.NominalValue.wrappedValue
+        elif prop.is_a("IfcComplexProperty") and prop.UsageName == DIFFERENCE:
+            d: dict = {"name": prop.Name}
+            for part in prop.HasProperties:
+                nv = getattr(part, "NominalValue", None)
+                if nv is None:
+                    continue
+                if part.Name == "Source":
+                    d["source"] = nv.wrappedValue
+                    continue
+                key = {"Standard": "standard", "Actual": "actual"}.get(part.Name)
+                if key is None:
+                    continue
+                if nv.is_a() in ("IfcLabel", "IfcText"):
+                    d[key] = nv.wrappedValue
+                    continue
+                unit = PARAMETER_UNITS.get(nv.is_a())
+                value = float(nv.wrappedValue) * (ft if unit and unit[1] else 1.0)
+                if not math.isfinite(value):
+                    continue
+                d[key] = round(value, 6)
+                if unit:
+                    d["unit"] = unit[0]
+            diffs.append({k: d[k] for k in ("name", "standard", "actual",
+                                            "unit", "source") if k in d})
+    if diffs:
+        out["differences"] = diffs
+    return out
+
+
 def described(element, ft: float, linear: dict, warnings: list,
               label: str) -> dict:
     """What the model says about `element` (M.6): family class, type,
-    standard plan, parameters and linear reference, in BidSheet.ai's units.
+    standard plan, parameters, route and linear reference, in BidSheet.ai's
+    units.
     Only the keys the file has. `ft` takes the file's length unit to the
     project's foot (`alignment_station.foot_m`), so an 8 ft design height
     authored in US survey feet reads 8.0, not 8.000016."""
     import ifcopenshell.util.element as ue
 
     from bimforge.author.family_dictionary import DIMENSIONS
+    from bimforge.author.modified import ROUTE_PSET
     out: dict = {}
     fam = family_class_of(element)
     if fam and fam["code"]:
@@ -401,6 +450,10 @@ def described(element, ft: float, linear: dict, warnings: list,
     params = {}
     for rel in getattr(element, "IsDefinedBy", None) or []:
         pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is not None and pset.is_a("IfcPropertySet") \
+                and pset.Name == ROUTE_PSET:
+            out.update(_route_of(pset, ft))
+            continue
         if pset is None or not pset.is_a("IfcPropertySet") \
                 or pset.Name != DIMENSIONS:
             continue
