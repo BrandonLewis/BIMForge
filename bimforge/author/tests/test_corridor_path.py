@@ -854,3 +854,46 @@ def test_fixed_names_the_station_when_there_are_too_many_points():
     with pytest.raises(ValueError, match=r"station 15\+00\.00: the path's strip "
                                          r"has 5 points, more than its 3"):
         _fixed([(float(i), 0.0) for i in range(5)], 3, 1500.0)
+
+
+from bimforge.author.corridor import earthwork  # noqa: E402
+from bimforge.author.corridor.ground import PlaneGround  # noqa: E402
+
+
+def fill_area(c, ground, s=1500.0):
+    """The section's fill area at s: trapezoids along its earthwork line,
+    down to the ground (earthwork tests' signed_area, negated)."""
+    def dz(st, u, v):
+        n, e, z = survey_point(AL, PROF, st, u, v)
+        return ground.z(n, e) - z
+    sec = resolve(c, s, dz)
+    d = [(u, dz(s, u, v)) for u, v in sec.earthwork_line()]
+    return -sum(0.5 * (d0 + d1) * abs(u1 - u0) for (u0, d0), (u1, d1) in zip(d, d[1:]))
+
+
+def prism_fill(c, ground, s0=1400.0, s1=1500.0):
+    """The fill earthwork.strip builds between two sections."""
+    def survey(st, u, v):
+        return survey_point(AL, PROF, st, u, v)
+
+    def dz(st, u, v):
+        n, e, z = survey(st, u, v)
+        return ground.z(n, e) - z
+    _cut, fill, _cd, _fd = earthwork.strip("t", resolve(c, s0, dz), resolve(c, s1, dz),
+                                           survey, ground.z, None)
+    return sum(p.volume_cf for p in fill)
+
+
+def test_the_section_s_fill_is_its_hand_polygon():
+    c = corridor()
+    ground = PlaneGround(95.0)
+    assert fill_area(c, ground) == pytest.approx(234.0435, abs=1e-6)
+    assert prism_fill(c, ground) == pytest.approx(23404.35, rel=1e-9)
+
+
+def test_with_natural_ground_between_it_is_the_road_s_plus_the_path_s():
+    ground = PlaneGround(97.0)
+    with_path = corridor(path(separation=[[1000, 10.0], [1100, 60.0]]))
+    road = parse(copy.deepcopy(BASE), 1000.0, 2000.0)
+    assert fill_area(road, ground) == pytest.approx(50.3342, abs=1e-6)
+    assert fill_area(with_path, ground) == pytest.approx(50.3342 + 39.5495, abs=1e-6)
