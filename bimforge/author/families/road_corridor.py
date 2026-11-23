@@ -816,11 +816,12 @@ def build(params: dict, ctx) -> "StructureModel":
                 "EndStationText": sta(row.station),
                 "CumulativeVolume": ("volume",
                                      row.cumulative_cy * masshaul.CF_PER_CY)}
+    wall_rows = []
     if c.auto_walls:
         # outputs.walls and outputs.structures (the registry writes them);
         # a structure candidate's low point is the lowest ground on the
         # centreline among the stations cut
-        rows = auto_walls.rows(c, every, ground_dz)
+        rows = wall_rows = auto_walls.rows(c, every, ground_dz)
         model.tables["walls"] = auto_walls.walls_csv(rows)
         model.tables["structures"] = auto_walls.structures_csv(
             auto_walls.structures(rows, sorted(sec.s for sec in every),
@@ -829,7 +830,6 @@ def build(params: dict, ctx) -> "StructureModel":
         model.tables["guardrail"] = guardrail.to_csv(rails)
     if c.path is not None:
         from bimforge.author.corridor import path_checks
-        wall_rows = auto_walls.rows(c, every, ground_dz) if c.auto_walls else []
         model.tables["path"] = path_checks.path_csv(c, sorted(every, key=lambda x: x.s),
                                                     rails)
         model.tables["path_checks"] = path_checks.checks_csv(

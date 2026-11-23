@@ -12,6 +12,8 @@ offset.
 """
 from __future__ import annotations
 
+import csv
+import io
 import math
 from dataclasses import dataclass
 
@@ -160,6 +162,8 @@ def _beside(profile, s0: float, s1: float, i: int, after: bool) -> tuple:
     """(grade %, length): the grade beside curve i of `profile`, after its
     EVC or before its BVC, through constant-grade curves to the next grade
     change or the end of [s0, s1]."""
+    # a steep run stops at the next vertical curve (a grade change), even
+    # where the grade after it is as steep: conservative, it may under-count
     curves = profile.curves
     if after:
         g, start, end = curves[i]["g_out_pct"], curves[i]["evc_station"], s1
@@ -262,10 +266,14 @@ def checks(c, rails, walls_) -> list:
 
 
 def checks_csv(rows: list) -> str:
-    return "\n".join([CHECK_HEADER] + [
-        f"{r.check},{r.start:.2f},{r.end:.2f},{r.value:.2f},"
-        f"{'' if r.limit is None else format(r.limit, '.2f')},{r.reference}"
-        for r in rows]) + "\n"
+    """The rows as CSV; a field with a comma (a reference) is quoted."""
+    out = io.StringIO()
+    w = csv.writer(out, lineterminator="\n")
+    w.writerow(CHECK_HEADER.split(","))
+    for r in rows:
+        w.writerow([r.check, f"{r.start:.2f}", f"{r.end:.2f}", f"{r.value:.2f}",
+                    "" if r.limit is None else format(r.limit, ".2f"), r.reference])
+    return out.getvalue()
 
 
 def _strip_label(ps) -> str:
@@ -293,9 +301,10 @@ def path_csv(c, secs: list, rails) -> str:
                    else "yes" if under else "no")
         note = ";".join(x for x, on in (("approach", on_approach(c, s)),
                                         ("grade>5%", abs(g) > MAX_GRADE + 1e-12)) if on)
-        rows.append((s, f"{s:.2f},{p.side},{sf.separation:.2f},{centre_u(c, s):.2f},"
-                        f"{hinge:.3f},{pz:.3f},{pz - hinge:.3f},{100.0 * g:.2f},"
-                        f"{_strip_label(ps)},{barrier},{note}"))
+        rows.append((s, ",".join([
+            f"{s:.2f}", p.side, f"{sf.separation:.2f}", f"{centre_u(c, s):.2f}",
+            f"{hinge:.3f}", f"{pz:.3f}", f"{pz - hinge:.3f}", f"{100.0 * g:.2f}",
+            _strip_label(ps), barrier, note])))
     for gap in c.gaps:
         if gap.kind != "structure":
             continue
@@ -303,7 +312,8 @@ def path_csv(c, secs: list, rails) -> str:
             if not p.covers(s):
                 continue
             pz = p.profile.elev(s)
-            rows.append((s, f"{s:.2f},{p.side},{p.separation_at(s):.2f},"
-                            f"{centre_u(c, s):.2f},,{pz:.3f},,"
-                            f"{100.0 * prof.grade(s):.2f},deck,deck,deck"))
+            rows.append((s, ",".join([
+                f"{s:.2f}", p.side, f"{p.separation_at(s):.2f}",
+                f"{centre_u(c, s):.2f}", "", f"{pz:.3f}", "",
+                f"{100.0 * prof.grade(s):.2f}", "deck", "deck", "deck"])))
     return "\n".join([PATH_HEADER] + [r for _s, r in sorted(rows)]) + "\n"

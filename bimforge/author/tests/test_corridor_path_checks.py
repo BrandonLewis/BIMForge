@@ -1,9 +1,12 @@
 """road-corridor V1.2 part C: the path's advisory checks (HDM 1003.1)."""
+import csv
+import io
+
 import pytest
 
 from bimforge.author.corridor import path_checks as pc
-from bimforge.author.tests.test_corridor_path import (GAP, NARROW, corridor,
-                                                      deck_path, grade, path)
+from bimforge.author.tests.test_corridor_path import (GAP, corridor, deck_path,
+                                                      grade, path)
 
 
 def curves(rows, s=1000.0, z=100.0):
@@ -83,3 +86,51 @@ def test_the_tables_have_their_headers():
     row = pc.CheckRow("grade>5%", 1000.0, 1100.0, 6.0, 5.0, "HDM 1003.1(14)")
     assert pc.checks_csv([row]).splitlines()[1] == (
         "grade>5%,1000.00,1100.00,6.00,5.00,HDM 1003.1(14)")
+
+
+def test_every_csv_row_has_the_headers_columns():
+    short = curves([(5, 5, 490), (5, -3, 20), (-3, -3, 490)])
+    found = pc.crest_rows(corridor(path(profile=short)))
+    assert found and "," in found[0].reference
+    parsed = list(csv.reader(io.StringIO(pc.checks_csv(found))))
+    assert len(parsed) == 1 + len(found)
+    assert all(len(r) == len(pc.CHECK_HEADER.split(",")) for r in parsed)
+    assert parsed[1][5] == "HDM 1003.1(11), (12)"
+
+
+def test_no_checks_is_the_header_only():
+    assert pc.checks_csv([]) == pc.CHECK_HEADER + chr(10)
+
+
+def test_a_path_with_no_curve_has_no_crest_rows():
+    flat = curves([(2, 2, 1000)])
+    assert pc.crest_rows(corridor(path(profile=flat))) == []
+    assert pc.crest_rows(corridor(path(profile=grade(99.51)))) == []
+
+
+def test_a_steep_grade_before_the_crest_makes_it_30_mph():
+    # +4.5 % for 600 ft up to the crest: a steep run on the before side
+    before = curves([(4.5, 4.5, 600), (4.5, -3, 100), (-3, -3, 300)])
+    (row,) = pc.crest_rows(corridor(path(profile=before)))
+    assert row.check == "crest VC short of SSD at 30 mph"
+    short = curves([(4.5, 4.5, 400), (4.5, -3, 100), (-3, -3, 500)])
+    assert pc.crest_rows(corridor(path(profile=short))) == []
+
+
+def test_a_grade_at_exactly_5_percent_is_not_listed():
+    assert pc.grade_rows(corridor(path(profile=grade(99.51, pct=5.0)))) != []  # 2 % rule
+    assert rows(pc.grade_rows(corridor(path(profile=grade(99.51, pct=5.0)))),
+                "grade>5%") == []
+    over = pc.grade_rows(corridor(path(profile=grade(99.51, pct=5.0001))))
+    assert len(rows(over, "grade>5%")) == 1
+
+
+def test_a_deck_graded_over_5_percent_is_listed():
+    from bimforge.author.alignment import Profile
+    road = Profile(grade(100.0, pct=6.0)["curves"])
+    p = deck_path()
+    p["profile"] = grade(99.4809, pct=6.0)
+    c = corridor(p, gaps=GAP, prof=road)
+    found = pc.deck_rows(c)
+    assert [(r.check, r.start, r.end) for r in found] == [("deck grade>5%", 1400.0, 1500.0)]
+    assert found[0].value == pytest.approx(6.0)
