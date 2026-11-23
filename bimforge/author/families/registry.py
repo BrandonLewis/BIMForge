@@ -59,6 +59,7 @@ pre (refuse-to-write; --check-only stops here) -> emitters -> gate post
 """
 from __future__ import annotations
 
+import copy
 import importlib
 import sys
 from pathlib import Path
@@ -169,6 +170,23 @@ TABLE_OUTPUTS = ("walls", "structures", "guardrail")
 # `load_ref(ref)` returns the table.
 TABLE_PACKS = {"caltrans": "bimforge.caltrans"}
 
+# The packaged tables a family is the standard of: a spec that names no
+# `tables_pack` is compared with these (M.9), so a project's `tables_file`
+# that copies them reports nothing and one that changes a value says so.
+DEFAULT_TABLES_PACKS = {"standard-plan": "caltrans/b3-retaining-wall"}
+
+
+def _pack_label(ref) -> str:
+    """`caltrans/b3-retaining-wall` -> `caltrans/2025/b3-retaining-wall`:
+    the ref with the edition it resolved to."""
+    pack, _, rest = str(ref).partition("/")
+    if "/" not in rest:
+        edition = getattr(importlib.import_module(TABLE_PACKS[pack]),
+                          "EDITION", None)
+        if edition:
+            rest = f"{edition}/{rest}"
+    return f"{pack}/{rest}"
+
 
 def _load_tables_pack(spec_name: str, ref) -> dict:
     """The packaged table `<pack>/<ref>` names, e.g.
@@ -227,8 +245,18 @@ def load_spec(path: Path | str) -> dict:
         # packaged tables first, in the order named; the project's own file
         # last, so its rows (a field-varied schedule, say) land on top
         tables: dict = {}
-        for ref in ([tp] if isinstance(tp, str) else tp or []):
+        refs = [tp] if isinstance(tp, str) else list(tp or [])
+        for ref in refs:
             _merge_tables(tables, _load_tables_pack(path.name, ref))
+        # the standard the project's file is compared with (M.9): the packs
+        # it named, else its family's own
+        standard_refs = refs or ([DEFAULT_TABLES_PACKS[spec["family"]]]
+                                 if spec["family"] in DEFAULT_TABLES_PACKS
+                                 else [])
+        baseline: dict = copy.deepcopy(tables)
+        if not refs:
+            for ref in standard_refs:
+                _merge_tables(baseline, _load_tables_pack(path.name, ref))
         if tf:
             tf_path = (base / tf).resolve()
             if not tf_path.exists():
@@ -238,6 +266,12 @@ def load_spec(path: Path | str) -> dict:
                 tf_path.read_text(encoding="utf-8")) or {})
         params["tables"] = tables
         spec["params"] = params
+        if standard_refs:
+            from bimforge.author.modified import table_differences
+            spec["_tables_standard"] = " + ".join(
+                _pack_label(r) for r in standard_refs)
+            spec["_tables_differences"] = (
+                table_differences(baseline, tables) if tf else [])
     proj = spec.get("project") or {}
     if proj.get("alignments"):
         ap = (base / proj["alignments"]).resolve()
@@ -263,6 +297,11 @@ def load_spec(path: Path | str) -> dict:
     if unread is not None and str(unread).lower() not in UNREAD_PARAM_MODES:
         raise ValueError(f"{path.name}: gate.unread_params {unread!r} must be "
                          f"one of {UNREAD_PARAM_MODES}")
+    from bimforge.author.modified import MODIFIED_MODES
+    modified = (spec.get("gate") or {}).get("modified")
+    if modified is not None and str(modified).lower() not in MODIFIED_MODES:
+        raise ValueError(f"{path.name}: gate.modified {modified!r} must be "
+                         f"one of {MODIFIED_MODES}")
     if spec.get("spatial_parts") is not None:
         from bimforge.author.spatial import parse_rules
         parse_rules(spec["spatial_parts"], f"{path.name}: spatial_parts")
