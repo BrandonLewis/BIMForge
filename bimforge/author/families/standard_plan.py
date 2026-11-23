@@ -144,6 +144,7 @@ def build(params: dict, ctx) -> StructureModel:
     align = Alignment(_resolve_pob(pl), pl["run"], name=pl.get("name", "P"))
     tables = params["tables"]
     model = StructureModel("standard-plan", ctx)
+    model.row_lookup = WallSection._lookup_key      # how a row is chosen
 
     for w in params["walls"]:
         tag = w["name"]
@@ -176,6 +177,7 @@ def build(params: dict, ctx) -> StructureModel:
                 typed_late=True,
                 dimensions=_dimensions(foot_cls, ws), volume_formula="box",
                 table_reads=_table_reads(foot_cls, ws, _FOOTING_PARTS),
+                table_rows=dict(ws.rows),
                 quantities={"length_ft": b - a, "width_ft": ws.W,
                             "height_ft": ws.F, "volume_cf": p.volume_cf}))
             # stem at MID-HEIGHT thickness: the prism volume IS the trapezoid's
@@ -198,6 +200,7 @@ def build(params: dict, ctx) -> StructureModel:
                 typed_late=True,
                 dimensions=_dimensions(stem_cls, ws), volume_formula="box",
                 table_reads=_table_reads(stem_cls, ws, _STEM_PARTS),
+                table_rows=dict(ws.rows),
                 layer_thickness_ft=th if layered else None, **place,
                 quantities={"length_ft": b - a, "width_ft": th,
                             "height_ft": h, "volume_cf": p.volume_cf}))

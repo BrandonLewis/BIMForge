@@ -197,3 +197,31 @@ def test_gate_modified_must_be_a_mode(tmp_path):
     path.write_text(text, "utf-8")
     with pytest.raises(ValueError, match="gate.modified"):
         load_spec(path)
+
+
+def test_tables_a_family_does_not_check_are_said_once(tmp_path, capsys):
+    """A pipe headwall reads no table it can name (M.9): a project's added
+    values are summarised, and the build says their routes are not kept."""
+    from bimforge.author.families.registry import build_from_spec
+    examples = files("bimforge.author") / "examples"
+    for entry in examples.iterdir():
+        if entry.name.endswith(".yaml"):
+            (tmp_path / entry.name).write_text(entry.read_text("utf-8"), "utf-8")
+    path = tmp_path / "caltrans-pipe-headwall.spec.yaml"
+    spec = yaml.safe_load(path.read_text("utf-8"))
+    tf = tmp_path / spec["params"]["tables_file"]
+    rows = yaml.safe_load(tf.read_text("utf-8"))
+    row = next(iter(rows["headwall"].values()))
+    row.update(note_a_ft=1.0, note_b_ft=2.0)
+    tf.write_text(yaml.safe_dump(rows), "utf-8")
+    spec["params"]["tables_pack"] = "caltrans/2025/d89-pipe-headwall"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    build_from_spec(str(path), check_only=True)
+    err = capsys.readouterr().err
+    assert ("tables: 2 values added that the standard does not have "
+            "(caltrans/2025/d89-pipe-headwall)") in err
+    assert "note_a_ft" not in err
+    assert err.count("warning: tables differ from "
+                     "caltrans/2025/d89-pipe-headwall but family "
+                     "pipe-headwall does not say which values its "
+                     "elements read; their routes are not recorded") == 1

@@ -112,3 +112,22 @@ def test_the_route_set_is_keyed_and_moves_no_other_id(emitted_footing):
 def test_an_unknown_route_is_refused(emitted_footing):
     with pytest.raises(ValueError, match="route 'mod'"):
         emitted_footing(route="mod")
+
+
+def test_a_row_difference_is_a_real_or_a_label_and_reads_back(emitted_footing):
+    from bimforge.bim.model_elements import _route_of
+    _, product = emitted_footing(route="modified-by-value", differences=[
+        {"name": "Row", "standard": 10, "actual": 12,
+         "source": "s type_1a_case_1.table"},
+        {"name": "Row", "standard": None, "actual": "3-11", "source": "s t"}])
+    p = _route_pset(product)
+    num, text = [q for q in p.HasProperties if q.is_a("IfcComplexProperty")]
+    vals = {q.Name: q.NominalValue for q in num.HasProperties}
+    assert vals["Standard"].is_a("IfcReal") and vals["Standard"].wrappedValue == 10
+    assert vals["Actual"].is_a("IfcReal") and vals["Actual"].wrappedValue == 12
+    vals = {q.Name: q.NominalValue for q in text.HasProperties}
+    assert vals["Actual"].is_a("IfcLabel") and "Standard" not in vals
+    assert _route_of(p, 1.0)["differences"] == [
+        {"name": "Row", "standard": 10.0, "actual": 12.0,
+         "source": "s type_1a_case_1.table"},
+        {"name": "Row", "actual": "3-11", "source": "s t"}]

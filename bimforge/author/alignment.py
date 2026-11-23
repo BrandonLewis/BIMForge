@@ -476,6 +476,9 @@ class WallSection:
         #: {section attribute: [table paths it was read from]} (M.9): which
         #: of the project's changes to the tables reach which part
         self.sources = src
+        #: {table path: (design H, the row key chosen for it)} (M.9): the
+        #: build checks the packaged table would choose the same row
+        self.rows = {(tkey, "table"): (self.H, k)}
 
         self.stem_base_thickness = self.T + self.batter * self.H
 

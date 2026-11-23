@@ -56,8 +56,9 @@ def _modified_spec(tmp_path, gate: str = ""):
     """The B3 spec over the packaged tables with row 8's footing 7 ft wide,
     not 6.5833, its heel taking the 5 in (W == C + B): its paycodes the
     example's own, by absolute path."""
-    import yaml
     from importlib.resources import files
+
+    import yaml
     pack = _tables()
     pack["type_1_case_1"]["table"][8].update(W_ft=7.0, B_ft=4.6667)
     (tmp_path / "t.yaml").write_text(yaml.safe_dump(pack), "utf-8")
@@ -99,3 +100,71 @@ def test_gate_modified_off_says_nothing(tmp_path, capsys):
     path = _modified_spec(tmp_path, "gate: {modified: off}\n")
     assert build_from_spec(str(path), check_only=True) == 0
     assert "modified: " not in capsys.readouterr().err
+
+
+def test_a_section_names_the_row_it_chose_and_for_which_H():
+    tables = _tables()
+    del tables["type_1a_case_1"]["table"][10]
+    ws = WallSection("1a", 10.0, tables)
+    assert ws.rows == {("type_1a_case_1", "table"): (10.0, 12)}
+
+
+#: A Type 1a wall at design H 8 ft over the packaged tables less Type 1a's
+#: row 8 (as the shipped example lacks rows 10 and 6): the project's tables
+#: choose row 10 where the pack chooses 8, and no value differs
+WALL_1A_8FT_PARAMS = WALL_8FT_PARAMS.replace("wall_type: 1,", "wall_type: 1a,")
+
+
+def _row_spec(tmp_path):
+    from importlib.resources import files
+
+    import yaml
+    tables = _tables()
+    del tables["type_1a_case_1"]["table"][8]
+    (tmp_path / "t.yaml").write_text(yaml.safe_dump(tables), "utf-8")
+    paycodes = (files("bimforge.author") / "examples"
+                / "caltrans-b3-retaining-wall.paycodes.yaml")
+    path = tmp_path / "s.yaml"
+    path.write_text(
+        "family: standard-plan\n"
+        f"params: {WALL_1A_8FT_PARAMS}\n"
+        f"paycodes: '{paycodes}'\n"
+        "outputs: {dxf: out.dxf}\n"
+        "project: {name: n, epsg: 2226, "
+        "base: [6594000.0, 1943000.0, 100.0], "
+        "guid_ns: 3b7a5c2e-0000-4000-8000-0000000000b3}\n", encoding="utf-8")
+    return path
+
+
+def test_the_elements_carry_the_row_and_the_model_how_one_is_chosen(tmp_path):
+    from bimforge.author.families import standard_plan
+    from bimforge.author.families.registry import load_spec
+    from bimforge.author.project import ProjectContext
+    spec = load_spec(_row_spec(tmp_path))
+    assert "_tables_baseline" not in spec["params"]
+    assert (spec["_tables_baseline"]["type_1a_case_1"]["table"].keys()
+            == _tables()["type_1a_case_1"]["table"].keys())
+    model = standard_plan.build(spec["params"],
+                                ProjectContext.from_spec(spec["project"]))
+    assert model.row_lookup is WallSection._lookup_key
+    assert {tuple(el.table_rows.items()) for el in model.elements} == {
+        ((("type_1a_case_1", "table"), (8.0, 10)),)}
+
+
+def test_a_row_the_pack_would_not_choose_modifies_the_wall(tmp_path, capsys):
+    from bimforge.author.families.registry import build_from_spec
+    assert build_from_spec(str(_row_spec(tmp_path)), check_only=True) == 0
+    err = capsys.readouterr().err
+    assert "tables: " not in err                   # no value differs
+    assert ("modified: 4 elements (R1 retaining wall footing 0+00.00, ...) "
+            "modified-by-value of retaining-wall-b3-type-1a-footing: "
+            "Row 8 -> 10") in err
+    assert "of retaining-wall-b3-type-1a: Row 8 -> 10" in err
+
+
+def test_an_empty_gate_modified_is_warn(tmp_path, capsys):
+    from bimforge.author.families.registry import build_from_spec, load_spec
+    path = _modified_spec(tmp_path, "gate: {modified: }\n")
+    assert load_spec(path)["gate"] == {"modified": None}
+    assert build_from_spec(str(path), check_only=True) == 0
+    assert "modified: 4 elements" in capsys.readouterr().err

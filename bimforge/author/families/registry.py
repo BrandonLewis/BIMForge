@@ -274,6 +274,10 @@ def load_spec(path: Path | str) -> dict:
                 _pack_label(r) for r in standard_refs)
             spec["_tables_differences"] = (
                 table_differences(baseline, tables) if tf else [])
+            # the standard's own rows, so the build can say where the
+            # project's tables choose another row (M.9); on the spec, not in
+            # params, so the unread-params check never sees it
+            spec["_tables_baseline"] = baseline
     proj = spec.get("project") or {}
     if proj.get("alignments"):
         ap = (base / proj["alignments"]).resolve()
@@ -413,16 +417,21 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
     if unread != "off":
         params = TrackedParams(params)
     model = builder(params, ctx)
-    # the project's changes to the packaged tables, then every typed
-    # element's route (M.8, M.9), before anything reads the elements
+    # the project's changes to the packaged tables, then the route of every
+    # element its family checks (M.8, M.9), before anything reads them
     from bimforge.author import modified as mod
     diffs = spec.get("_tables_differences") or []
-    for d in diffs:
-        print(f"tables: {mod.path_text(d.path)} {mod.fmt_value(d.standard)} "
-              f"-> {mod.fmt_value(d.actual)} "
-              f"(standard: {spec['_tables_standard']})", file=sys.stderr)
-    mod.assign_routes(model, diffs, spec.get("_tables_standard", ""))
-    modified = mod.modified_mode(gate_cfg.get("modified", "warn"))
+    standard = spec.get("_tables_standard", "")
+    for line in mod.tables_lines(diffs, standard):
+        print(line, file=sys.stderr)
+    mod.assign_routes(model, diffs, standard,
+                      baseline=spec.get("_tables_baseline"))
+    if diffs and not any(el.table_reads or el.table_rows
+                         for el in model.elements):
+        print(f"warning: tables differ from {standard} but family "
+              f"{spec['family']} does not say which values its elements "
+              f"read; their routes are not recorded", file=sys.stderr)
+    modified = mod.modified_mode(gate_cfg.get("modified"))
     if spec["outputs"].get("masshaul") and not model.mass_haul:
         raise ValueError(f"{Path(spec_path).name}: outputs.masshaul is set, but "
                          f"family {spec['family']!r} makes no mass haul (only a "
