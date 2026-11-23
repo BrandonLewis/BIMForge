@@ -163,6 +163,8 @@ class Corridor:
     #: the guardrail a steep fill takes; None without a steep rule or a
     #: `guardrail:` block
     guard: Guard | None = None
+    #: V1.2 C: the shared-use path beside the road (corridor.path.Path)
+    path: object = None
 
     def width(self, comp: Component, side: str, s: float) -> float:
         """The component's width; through an automatic cut wall the
@@ -234,6 +236,16 @@ class Corridor:
             out.append((s, self.s_end))
         return out
 
+    def path_at(self, s: float) -> bool:
+        """Whether the path is part of the section at station s (V1.2 C): on
+        its stations, and not strictly inside a structure gap (there it is
+        on the deck, and no section is cut)."""
+        p = self.path
+        if p is None or not p.covers(s):
+            return False
+        return not any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
+                       for g in self.gaps)
+
     def stations(self, s0: float, s1: float, extra=()) -> list:
         """Where to cut sections on [s0, s1]: every `interval` and `band`
         from the alignment's start, every table and gap station, 1 ft
@@ -251,6 +263,9 @@ class Corridor:
             if g.kind == "wall":
                 cuts.update((g.start - WALL_TRANSITION_FT,
                              g.end + WALL_TRANSITION_FT))
+        if self.path is not None:
+            from bimforge.author.corridor.path import stations_extra
+            cuts.update(stations_extra(self))
         cuts.update(extra)
         out = []
         for s in sorted(x for x in cuts if s0 - _EPS <= x <= s1 + _EPS):
@@ -582,9 +597,12 @@ def _gaps(params: dict, s_start: float, s_end: float) -> list:
     return out
 
 
-def parse(params: dict, s_start: float, s_end: float) -> Corridor:
+def parse(params: dict, s_start: float, s_end: float, alignment=None,
+          profile=None) -> Corridor:
     """The corridor `params` describe on an alignment from `s_start` to
-    `s_end`; ValueError names the first field that is wrong."""
+    `s_end`; ValueError names the first field that is wrong. A `path:`
+    (V1.2 C) is placed against the road's `alignment` and `profile`
+    (bimforge.author.alignment.Alignment and Profile), which it needs."""
     if not float(s_end) > float(s_start):
         raise ValueError(f"alignment: ends at {sta(s_end)}, not past its "
                          f"start {sta(s_start)}")
@@ -608,7 +626,7 @@ def parse(params: dict, s_start: float, s_end: float) -> Corridor:
         raise ValueError(f"walls: {walls!r} is not 'auto'; a wall at stations "
                          f"you choose is a gap (gaps: [{{kind: wall, side, "
                          f"offset, from, to}}])")
-    return Corridor(
+    c = Corridor(
         s_start=float(s_start), s_end=float(s_end),
         components=tuple(comps), courses=tuple(_courses(sec)),
         slopes=slopes,
@@ -621,4 +639,11 @@ def parse(params: dict, s_start: float, s_end: float) -> Corridor:
         auto_walls=walls == "auto",
         max_wall_height=_num(params.get("max_wall_height_ft", 30.0),
                              "max_wall_height_ft"),
-        guard=_guard(params.get("guardrail"), slopes.steep is not None))
+        guard=_guard(params.get("guardrail"),
+                     slopes.steep is not None or params.get("path") is not None))
+    if params.get("path") is None:
+        return c
+    from bimforge.author.corridor.path import parse_path, validate
+    c = replace(c, path=parse_path(params["path"], c, alignment, profile))
+    validate(c)
+    return c
