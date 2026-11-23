@@ -19,7 +19,8 @@ These were made with the user on 2026-11-22.
 3. **Between the road and the path:**
    - a straight slope, where one at 2:1 or flatter fits;
    - otherwise a wall holding up whichever of the two is higher.
-4. **On structures the path follows the deck.** Its profile must meet the deck at each structure gap's ends. A deck grade over 5 % is an advisory deviation, because HDM 1003.1(14) says "should".
+4. **On structures the path follows the deck by default.** Its profile must meet the deck at each structure gap's ends. A deck grade over 5 % is an advisory deviation, because HDM 1003.1(14) says "should".
+5. **The path may have its own bridge** wherever it makes sense, for example where a deck is steeper than 5 % or a strip wall gets too tall. A path gap (below) marks where it goes. Inside it, the path keeps its own profile and is off the road's deck.
 
 ## Spec format
 
@@ -43,6 +44,8 @@ params:
     approach_ft: 100                # see Separation
     deck_separation_ft: 1.5         # the deck's barrier between traffic and path
     rail_height_ft: 3.5             # the path's rail on a wall (42 in)
+    gaps:                           # the path's own structures
+      - {from: 3440, to: 4660, kind: structure}   # a separate path bridge
 outputs:
   path: out/<name>.path.csv
   path_checks: out/<name>.path-checks.csv
@@ -116,6 +119,29 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 - **Meeting the deck.** At each end of the gap, the path's profile must equal the road's cross slope at that station (superelevation included), extended from the road's edge of shoulder to the path's paved edge, within 0.01 ft. Otherwise the build fails with the station, both elevations and the difference.
 - **Deck grade.** The deck's grade along the path is the road profile's grade. Any stretch of a gap where it is over 5 % is listed as advisory.
 
+## The path's own structures (path gaps)
+
+`path.gaps` lists stretches where the path is on a structure of its own, such as a separate path bridge or a path culvert. Each is `{from, to, kind: structure}`.
+
+**Inside a path gap**
+
+- The family builds nothing for the path: no path courses, no strip, no path walls. The structure belongs to its own family.
+- The path's side of the road's section ends at the road's hinge and takes V1.1's outer slope, with its automatic walls and guardrail. The section is the one the road would have without a path.
+- **Inside a road gap too:** where a path gap overlaps a road structure gap, the road's deck carries no path there. Its width is the bridge family's business. The family only lists the overlap.
+- **The path's profile still runs through the gap.** It is the path structure's grade, so the grade and crest checks apply to it as anywhere else, and the deck's grade does not.
+- The separation through the gap is the path structure's offset from the road. It is kept in `outputs.path` but not held to the 5 ft rule, since a bridge is separated by its own edge.
+
+**At a path gap's ends**
+
+- The path's section is built up to 1 ft outside each end, as V1 wall gaps are.
+- **The deck-meeting check is waived** at a road structure gap's end that lies inside a path gap.
+- **The approach rule is waived** at a road structure gap's end that lies inside a path gap. The separation need not narrow to `deck_separation_ft` there.
+
+**Where one makes sense.** The family does not place path gaps itself; the designer adds them. It does point out where one would help:
+
+- **Too-tall walls:** a strip wall or a path outer wall taller than `max_wall_height_ft` becomes a structure candidate in `outputs.structures`, as V1.1's walls do. Its `carries` column is set to `path`.
+- **Steep decks:** a deck stretch over 5 % is listed in `path_checks` with the note "or a separate path structure".
+
 ## Checks (HDM 1003.1)
 
 **Errors**
@@ -131,6 +157,7 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 - The path not meeting a deck at a gap end.
 - A strip that does not fit without `walls: auto`.
 - A listed wall gap on the path's side overlapping the path's stations. Its offset would be ambiguous; use `walls: auto`.
+- A path gap outside the path's stations, overlapping another path gap, or of a kind other than `structure`.
 - A requested `path` or `path_checks` output with no `path`.
 
 **Advisory, listed in `path_checks`, one row per stretch:** check, from station, to station, value, limit, HDM reference.
@@ -214,6 +241,10 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
   - an approach narrowing to 1.5 ft at a gap end builds;
   - a gap end with the wrong separation is an error.
 - **Deck meeting:** a path profile 0.02 ft off the deck at a gap end is an error naming the station; at 0.005 ft off it builds.
+- **Path gaps:**
+  - inside one, the section and earthwork equal those of the same corridor with no path;
+  - a path gap over a road structure gap waives the deck-meeting and approach rules there, and its profile is checked for grade;
+  - a strip wall taller than `max_wall_height_ft` becomes a structure candidate with `carries: path`.
 - **Checks:**
   - a 6 % path grade is listed;
   - a crest VC short of 125 ft SSD at 20 mph is listed, and so is one that is enough at 20 mph but short at 30 mph on a 4.5 % downgrade 600 ft long;
