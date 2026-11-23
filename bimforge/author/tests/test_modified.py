@@ -52,3 +52,67 @@ def test_difference_measure_names_the_unit():
     assert difference_measure("W_ft") == ("IfcLengthMeasure", 1.0)
     assert difference_measure("chamfer_in") == ("IfcLengthMeasure", 1.0 / 12.0)
     assert difference_measure("deck_slope_pct") == ("IfcReal", None)
+
+
+from bimforge.author.model import Element  # noqa: E402
+
+
+def _el(name, cls="retaining-wall-b3-type-1-footing", reads=None, **kw):
+    return Element(name, "IfcFooting", family_class=cls,
+                   table_reads=reads or {}, **kw)
+
+
+class _Model:
+    def __init__(self, *els):
+        self.elements = list(els)
+
+
+def test_assign_routes_gives_each_typed_element_its_route():
+    from bimforge.author.modified import assign_routes
+    w = ("type_1_case_1", "table", 8, "W_ft")
+    b = ("type_1_case_1", "table", 8, "batter")
+    hit = _el("f8", reads={w: "W_ft"})
+    stem = _el("s8", cls="retaining-wall-b3-type-1", reads={b: "Batter"})
+    plain = Element("loose", "IfcBuildingElementProxy")
+    kept = _el("barrier", route="modified-by-section")
+    m = _Model(hit, stem, plain, kept)
+    assign_routes(m, [Difference(w, 6.5833, 7.0)],
+                  "caltrans/2025/b3-retaining-wall")
+    assert hit.route == "modified-by-value"
+    assert hit.differences == [{"name": "W_ft", "standard": 6.5833,
+                                "actual": 7.0, "source":
+                                "caltrans/2025/b3-retaining-wall "
+                                "type_1_case_1.table.8.W_ft"}]
+    assert stem.route == "standard" and stem.differences == []
+    assert plain.route is None
+    assert kept.route == "modified-by-section"
+
+
+def test_a_batter_difference_is_a_ratio():
+    from bimforge.author.modified import assign_routes
+    b = ("type_1_case_1", "table", 8, "batter")
+    stem = _el("s8", cls="retaining-wall-b3-type-1", reads={b: "Batter"})
+    assign_routes(_Model(stem), [Difference(b, "0.5:12", "NONE")], "pack")
+    assert stem.differences[0]["standard"] == 0.5 / 12
+    assert stem.differences[0]["actual"] == 0.0
+
+
+def test_values_print_as_written_and_an_added_one_says_so():
+    from bimforge.author.modified import fmt_value
+    assert fmt_value(7.0) == "7"
+    assert fmt_value(6.5833) == "6.5833"
+    assert fmt_value("0.5:12") == "0.5:12"
+    assert fmt_value(None) == "(added)"
+
+
+def test_modified_lines_group_alike_elements():
+    from bimforge.author.modified import modified_check, modified_lines
+    d = [{"name": "W_ft", "standard": 6.5833, "actual": 7.0, "source": "s"}]
+    m = _Model(_el("a", route="modified-by-value", differences=d),
+               _el("b", route="modified-by-value", differences=list(d)),
+               _el("c", route="standard"))
+    lines = modified_lines(m)
+    assert lines == ["2 elements (a, ...) modified-by-value of "
+                     "retaining-wall-b3-type-1-footing: W_ft 6.5833 -> 7"]
+    assert modified_check(m)(m) == lines
+    assert modified_check(_Model(_el("c", route="standard")))(None) == []

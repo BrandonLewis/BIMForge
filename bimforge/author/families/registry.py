@@ -29,7 +29,9 @@ The spec file:
       - {match: "(?i)abut", part: ABUTMENT}
     gate: {solid_bodies: warn,   # optional: warn (default) | error | off
            unread_params: warn, # optional: off (default) | warn | error -
-           ignore: [notes]}     #  params the family never reads (params_tracking)
+           ignore: [notes],     #  params the family never reads (params_tracking)
+           modified: warn}      # optional: warn (default) | error | off - the
+                                #  elements a project's tables modified (M.8)
     style_pack: ./palette   # optional: this job's palette (a pack directory,
                             #  relative to the spec, or a package), in place of
                             #  the org pack (#65)
@@ -297,9 +299,9 @@ def load_spec(path: Path | str) -> dict:
     if unread is not None and str(unread).lower() not in UNREAD_PARAM_MODES:
         raise ValueError(f"{path.name}: gate.unread_params {unread!r} must be "
                          f"one of {UNREAD_PARAM_MODES}")
-    from bimforge.author.modified import MODIFIED_MODES
+    from bimforge.author.modified import MODIFIED_MODES, modified_mode
     modified = (spec.get("gate") or {}).get("modified")
-    if modified is not None and str(modified).lower() not in MODIFIED_MODES:
+    if modified is not None and modified_mode(modified) not in MODIFIED_MODES:
         raise ValueError(f"{path.name}: gate.modified {modified!r} must be "
                          f"one of {MODIFIED_MODES}")
     if spec.get("spatial_parts") is not None:
@@ -411,6 +413,16 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
     if unread != "off":
         params = TrackedParams(params)
     model = builder(params, ctx)
+    # the project's changes to the packaged tables, then every typed
+    # element's route (M.8, M.9), before anything reads the elements
+    from bimforge.author import modified as mod
+    diffs = spec.get("_tables_differences") or []
+    for d in diffs:
+        print(f"tables: {mod.path_text(d.path)} {mod.fmt_value(d.standard)} "
+              f"-> {mod.fmt_value(d.actual)} "
+              f"(standard: {spec['_tables_standard']})", file=sys.stderr)
+    mod.assign_routes(model, diffs, spec.get("_tables_standard", ""))
+    modified = mod.modified_mode(gate_cfg.get("modified", "warn"))
     if spec["outputs"].get("masshaul") and not model.mass_haul:
         raise ValueError(f"{Path(spec_path).name}: outputs.masshaul is set, but "
                          f"family {spec['family']!r} makes no mass haul (only a "
@@ -438,6 +450,8 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
         model.ifc_sweeps = str(spec["ifc"]["sweeps"]).lower()
 
     extra_pre = [unread_params_check(params, ignore)] if unread == "error" else []
+    if modified == "error":
+        extra_pre.append(mod.modified_check(model))
     rep = gate.run_pre(model, pc, extra_checks=extra_pre)
     print(rep.format("pre"), file=sys.stderr)
     if unread == "warn":
@@ -445,6 +459,9 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
         for p in find_unread(params, ignore):
             print(f"warning: spec declares {p!r} but the family never reads it",
                   file=sys.stderr)
+    if modified == "warn":
+        for line in mod.modified_lines(model):
+            print(f"modified: {line}", file=sys.stderr)
     if not rep.passed:
         return 1
     if check_only:
