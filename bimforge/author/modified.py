@@ -27,6 +27,15 @@ DIFFERENCE = "Difference"
 #: What `gate.modified` may be: report, fail the build, or ignore.
 MODIFIED_MODES = ("warn", "error", "off")
 
+#: A packaged table field that is a dictionary dimension, by the dimension's
+#: Code: a difference in it is named by the Code when the element's class
+#: declares that dimension, else by the field.
+FIELD_DIMENSIONS = {"C_ft": "ToeWidth", "toe_ft": "ToeWidth",
+                    "B_ft": "HeelWidth", "T_ft": "StemThickness",
+                    "stem_thickness_ft": "StemThickness",
+                    "stem_top_thickness_ft": "StemThickness",
+                    "batter": "Batter"}
+
 
 @dataclass(frozen=True)
 class Difference:

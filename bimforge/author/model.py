@@ -115,6 +115,23 @@ class Element:
     #: ones its `family_class` declares, written as BIMForge_Dimensions with
     #: the measure the dictionary gives each ({"DesignHeight": 8.0}).
     dimensions: dict = field(default_factory=dict)
+    #: The route the element was built by (roadmap M.8), one of
+    #: `modified.ROUTES`; `build_from_spec` gives every typed element one.
+    #: None = no route written (an untyped element), unless `based_on`
+    #: is set, which makes it "bespoke".
+    route: str | None = None
+    #: The class a modified or bespoke element is based on, by dictionary
+    #: Code; None = its `family_class`.
+    based_on: str | None = None
+    #: What it changed from its standard (M.8): [{"name", "standard",
+    #: "actual", "source"}], a dimension Code or the table field as name,
+    #: values in the author domain (feet, a ratio, text); "standard" None
+    #: for a row the project added.
+    differences: list = field(default_factory=list)
+    #: The packaged table values it was built from (M.9), {table path:
+    #: name}: `modified.assign_routes` turns the ones the project changed
+    #: into `differences`.
+    table_reads: dict = field(default_factory=dict)
     #: How the element's GrossVolume was derived (roadmap M.3), written as
     #: its `Formula` over names in the same quantity set: "box" (Length *
     #: Width * Height, a prism the family sized), "section" (CrossSectionArea
