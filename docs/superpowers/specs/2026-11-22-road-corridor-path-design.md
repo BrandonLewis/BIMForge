@@ -8,7 +8,20 @@ Carry a separated shared-use path beside the road, on one side, on its own profi
 
 The driver is a test route held to the HDM at 45 mph. Its road climbs at up to 7 %, and the path keeps to 5 % on its own profile wherever the road is steeper.
 
-Sources: Caltrans Highway Design Manual (HDM, 08/08/2025 combined edition), Chapter 1000, Index 1003.1 (pages 1000-5 to 1000-15, rev. July 1, 2020).
+The path may carry an equestrian tread beside its paved width, as one shared-use corridor with separate treads.
+
+Sources:
+
+- **HDM:** Caltrans Highway Design Manual, 08/08/2025 combined edition.
+  - Chapter 1000, Index 1003.1 (pages 1000-5 to 1000-15, rev. July 1, 2020) and Index 1003.4.
+  - Index 208.7 (equestrian under- and overcrossings).
+- **USFS-EDG:** USDA Forest Service, *Equestrian Design Guidebook for Trails, Trailheads, and Campgrounds*, 0723-2816-MTDC, December 2007.
+  - Ch. 3: shared-use, separate-tread trails; trails beside roads.
+  - Ch. 4: Tables 4-1 to 4-4.
+  - Ch. 5: bridges.
+- **CSP-TH:** California State Parks *Trails Handbook*, Ch. 7 (2019), Ch. 9 (2018) and Ch. 18 (railings, 2018).
+
+The HDM's figures are standards. The equestrian figures are guidance, so the family makes them defaults and advisories, never errors.
 
 ## Decisions
 
@@ -21,7 +34,8 @@ These were made with the user on 2026-11-22.
    - otherwise a wall holding up whichever of the two is higher.
 4. **On structures the path follows the deck by default.** Its profile must meet the deck at each structure gap's ends. A deck grade over 5 % is an advisory deviation, because HDM 1003.1(14) says "should".
 5. **The path may have its own bridge** wherever it makes sense, for example where a deck is steeper than 5 % or a strip wall gets too tall. A path gap (below) marks where it goes. Inside it, the path keeps its own profile and is off the road's deck.
-6. **The path may wander off on its own corridor.** Bike and equestrian paths can meander away from the road. Where one does, it becomes its own corridor in the same build: its own alignment and profile, a path section, its own earthwork and walls. It hands over to and from the road's section at stations the spec names. The footprints of the two never overlap, so earthwork is still counted once.
+6. **An equestrian tread can be part of the shared-use path.** It is unpaved and lies beside the paved width, away from the road, with a buffer between them. It shares the path's profile, side, gaps and own stretches. Horses are not allowed on a Class I path (HDM Ch. 200, before 208.7), so the tread is separate from it.
+7. **The path may wander off on its own corridor.** Bike and equestrian paths can meander away from the road. Where one does, it becomes its own corridor in the same build: its own alignment and profile, a path section, its own earthwork and walls. It hands over to and from the road's section at stations the spec names. The footprints of the two never overlap, so earthwork is still counted once.
 
 ## Spec format
 
@@ -54,6 +68,16 @@ params:
           - {kind: curve, delta: "30-0-0", radius: 300.0, turn: R, length: 157.08}
           - ...                     # hand-over point, the road's form
         profile: {curves: [...]}    # on the path's own stationing
+    equestrian:                     # optional: a tread beyond the paved path
+      width: 8.0                    # two-way tread (USFS-EDG Table 4-2: 8-12)
+      buffer: 6.0                   # paved edge to tread edge (USFS-EDG Ch. 3)
+      clear_ft: 3.0                 # graded clear each side (USFS-EDG Table 4-1)
+      cross_slope: -0.02            # away from the road (Table 4-4: 2-5 %)
+      courses:                      # DG surfacing; depth per the geotech report
+        - {name: EQ-DG, type: PAVEMENT, thickness: 0.33}
+      fence: true                   # open rail fence on the tread side of the buffer
+      fence_height_ft: 4.5
+      rail_height_ft: 4.5           # on walls along the tread (54 in)
 outputs:
   path: out/<name>.path.csv
   path_checks: out/<name>.path-checks.csv
@@ -88,6 +112,39 @@ Outward from the road's crown, the path's side is:
 - The earthwork's top surface follows the subgrade under the path's courses and the finished surface on its shoulders.
 
 **The road's other side** is unchanged from V1.1.
+
+## The equestrian tread
+
+Where `path.equestrian` is given, the path's outer shoulder is replaced by the tread. Outward from the paved path, the section is:
+
+1. **The buffer**, `buffer` wide from the paved path's outer edge to the tread's edge.
+   - It is graded at `shoulder.slope`, away from the road. The paved path's 2 ft graded shoulder and the tread's inner clear strip lie within it.
+   - It is earth, left for planting.
+2. **The tread**, `width` wide, at `cross_slope`, with its `courses` below it.
+   - Each course's thickness is held normal to the path's grade, as the paved courses are.
+3. **The outer clear strip**, `clear_ft` wide, at `shoulder.slope`.
+4. **The outer slope**, under the same rules as without a tread.
+
+**Levels.** The tread has no profile of its own. Its elevation follows from the path's profile, through the paved cross slope, the buffer and its own cross slope. So it leaves the road with the path, onto a path gap or an own stretch, and stays beside the paved width.
+
+**The fence.** With `fence: true`, an open rail fence runs along the buffer, `clear_ft` in from the tread's inner edge, over the tread's stations. It is HDM 1003.4's open fence on the equestrian side, keeping sight lines open. It stops at gaps.
+
+**Rails.** A wall along the tread's outer side, or a strip wall where the tread is the higher side, carries a rail of `rail_height_ft`, 54 in (USFS-EDG Ch. 3 and 5; CSP-TH 18.2.1). The paved path keeps its 42 in rail where it is on the wall side.
+
+**On a road deck.** In a road structure gap the whole path, tread included, is on the deck, so the deck must be wide enough for it. `path_checks` lists, for each gap, the width the deck has to carry, measured from the road's edge of shoulder to the tread's outer clear edge, and the 54 in rail the tread side needs. The bridge family sizes the deck from that.
+
+**Advisory checks** (`path_checks`, guidance, never errors):
+
+- `buffer` under 6 ft (USFS-EDG Ch. 3; 2–3 ft only where constrained);
+- tread `width` under 8 ft (two-way, USFS-EDG Table 4-2);
+- `clear_ft` under 3 ft (Table 4-1);
+- tread cross slope outside 2–5 % (Table 4-4);
+- the path's grade over 10 % sustained, or over 15 % for more than 200 ft (USFS-EDG Table 4-3; HDM 208.7 gives 10 % at crossings). These are listed for the tread in addition to the paved path's 5 % rows.
+
+**Errors:**
+
+- a non-positive `width`, `buffer`, `clear_ft`, course thickness, `fence_height_ft` or `rail_height_ft`;
+- a `buffer` narrower than `shoulder.width`, which would leave no room for the paved path's graded shoulder (HDM 1003.1(1), a "shall").
 
 ## The strip between road and path
 
@@ -243,6 +300,11 @@ Beside the road, the path follows the road's horizontal alignment at an offset. 
   - Its own type, `road-corridor-path-rail`, sets it apart from the road's MGS.
   - It carries `BIMForge_Guardrail` with its height and stations.
 - **Walls** are written as V1.1's automatic walls are.
+- **The equestrian tread** is its own `IfcRoadPart` beside the path's.
+  - `PredefinedType` USERDEFINED, `ObjectType` `EQUESTRIANTRAIL`, dictionary class `road-corridor-equestrian-tread`.
+  - Its DG courses are `IfcCourse` PAVEMENT, with the same quantities, dimensions and formulas as the paved courses.
+  - Its 54 in rail is an `IfcRailing` GUARDRAIL of type `road-corridor-equestrian-rail`.
+  - Its fence is an `IfcRailing` FENCE of type `road-corridor-path-fence`. It carries `BIMForge_Guardrail` with its height and stations, and `Length` as `EndStation - StartStation`.
 
 ## Dimensions and formulas
 
@@ -302,6 +364,15 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
   - a run that swings back into the road's footprint is an error naming both stations;
   - a 150 ft radius is listed at 25 mph and 30 mph but not at 20;
   - its IfcAlignment passes `gate.alignment_issues`, and a two-PVI path profile builds.
+- **Equestrian tread:**
+  - the section with a tread is hand-worked, covering the buffer, the tread, the clear strip and the outer slope;
+  - its elevation follows the path's profile through the cross slopes;
+  - it goes with the path onto an own stretch;
+  - the fence runs over the tread's stations and stops at gaps;
+  - a wall along the tread carries a 54 in rail;
+  - a 4 ft buffer is listed as advisory, and a 1.5 ft buffer is an error;
+  - a deck gap lists the width it must carry;
+  - the tread's road part and its courses, rail and fence pass `schema_issues` and the bsi rules.
 - **Path gaps:**
   - inside one, the section and earthwork equal those of the same corridor with no path;
   - a path gap over a road structure gap waives the deck-meeting and approach rules there, and its profile is checked for grade;
@@ -322,7 +393,10 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
 ## Out of scope
 
 - Horizontal sight lines on the path's own curves (1003.1(13)), which need the obstruction surface. Radius is checked.
-- A path stretch that crosses the road at grade or under it. A crossing is its own design.
+- A path stretch that crosses the road at grade or under it. A crossing is its own design. Equestrian crossings need a 10 x 10 ft opening (HDM 208.7), with 12 ft preferred (USFS-EDG).
+- Vertical clearance over the treads: 8 ft for the path and 10–12 ft for riders. Nothing in the corridor is overhead.
+- An equestrian tread that splits from the paved path onto its own line, or one on the road side of the paved path. That needs a 54–60 in barrier toward traffic (USFS-EDG Ch. 3).
+- An equestrian center or trailhead. These are site features.
 - Drainage in the strip (the drainage study).
 - Concrete barrier as its own element, carried over from V1.1.
 - Path crossings and ramps.
