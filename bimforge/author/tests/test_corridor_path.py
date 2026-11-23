@@ -339,7 +339,8 @@ def test_the_deck_takes_the_road_s_superelevation():
     # 5 ft at 12+80 to 1.5 at 14+00: 4.42 ft at 13+00, where the approach
     # starts, so a hair outside it too
     ([[1000, 10.0], [1280, 5.0], [1400, 1.5], [1500, 1.5], [1600, 10.0]],
-     r"path\.separation: 4\.42 ft at 13\+00\.00 is under the 5 ft minimum"),
+     r"path\.separation: 4\.42 ft just before the approach that starts at "
+     r"13\+00\.00 is under the 5 ft minimum"),
     ([[1000, 10.0], [1300, 10.0], [1350, 1.0], [1400, 1.5], [1500, 1.5],
       [1600, 10.0]],
      r"path\.separation: 1\.00 ft at 13\+50\.00 is under deck_separation_ft 1\.5"),
@@ -364,3 +365,47 @@ def test_a_path_0_02_ft_off_the_deck_is_refused_and_0_005_builds():
 def test_a_gap_off_the_path_s_stations_is_no_approach():
     c = corridor(path(stations=[1000, 1300]), gaps=GAP)
     assert approaches(c) == []
+
+
+def test_exactly_0_01_ft_off_the_deck_and_in_separation_passes():
+    # the tolerance is inclusive: 0.01 ft is within "within 0.01 ft"
+    corridor(deck_path(DECK + 0.01), gaps=GAP)
+    near = [[1000, 10.0], [1300, 10.0], [1400, 1.51], [1500, 1.51], [1600, 10.0]]
+    corridor(deck_path(99.4798, separation=near), gaps=GAP)
+
+
+def test_a_right_path_meets_a_superelevated_deck():
+    # +4 % left, -4 % right: the right edge of shoulder is 12 x -0.04 +
+    # 5 x -0.05 = -0.73 down, and -0.04 x 1.5 = -0.06 more to the path's edge
+    se = [[1000, 0.04, -0.04], [2000, 0.04, -0.04]]
+    c = corridor(deck_path(99.21, side="R"), gaps=GAP, superelevation=se)
+    assert deck_elevation(c, 1500.0) == pytest.approx(99.21)
+    with pytest.raises(ValueError, match=r"path\.profile: at the structure gap's end"):
+        corridor(deck_path(99.23, side="R"), gaps=GAP, superelevation=se)
+
+
+def test_two_gaps_closer_than_the_approach_have_overlapping_windows():
+    two = [{"from": 1400, "to": 1500, "kind": "structure"},
+           {"from": 1550, "to": 1650, "kind": "structure"}]
+    rows = [[1000, 10.0], [1300, 10.0], [1400, 1.5], [1650, 1.5], [1750, 10.0]]
+    c = corridor(deck_path(separation=rows), gaps=two)
+    assert approaches(c) == [(1300.0, 1400.0, 1400.0), (1500.0, 1600.0, 1500.0),
+                             (1450.0, 1550.0, 1550.0), (1650.0, 1750.0, 1650.0)]
+    assert on_approach(c, 1525.0)
+    # a gap end off the deck's separation is refused, windows overlapping or not
+    with pytest.raises(ValueError, match=r"is not deck_separation_ft"):
+        corridor(deck_path(separation=[[1000, 10.0], [1300, 10.0], [1400, 1.5],
+                                       [1500, 4.0], [1750, 10.0]]), gaps=two)
+
+
+def test_an_approach_may_start_before_the_path_does():
+    rows = [[1000, 1.5], [1150, 1.5], [1250, 10.0]]
+    g = [{"from": 1050, "to": 1150, "kind": "structure"}]
+    c = corridor(deck_path(separation=rows), gaps=g)
+    assert approaches(c) == [(950.0, 1050.0, 1050.0), (1150.0, 1250.0, 1150.0)]
+
+
+def test_a_gap_straddling_the_path_s_end_has_one_approach():
+    rows = [[1000, 10.0], [1300, 10.0], [1400, 1.5]]
+    c = corridor(deck_path(separation=rows, stations=[1000, 1450]), gaps=GAP)
+    assert approaches(c) == [(1300.0, 1400.0, 1400.0)]

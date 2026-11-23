@@ -54,7 +54,9 @@ def test_ft_in_rounds_near_whole():
         (99.999, 2, "1+00.00"),
         (1299.6, 0, "13+00"),
         # negative values keep their behaviour
-        (-5.5, 2, "-1+94.50"),
+        (-5.5, 2, "-0+05.50"),
+        (-0.001, 2, "0+00.00"),
+        (-1299.999999, 2, "-13+00.00"),
     ],
 )
 def test_station(sta, decimals, expected):
