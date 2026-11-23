@@ -149,7 +149,10 @@ def _reach(side: str, need_at, kind: str, s: float, neighbour, step: float,
     V1.2 C: the path's first and last stations (`edge`, _path_edge) are a
     break in the section: a road wall running into the path's stretch,
     where the path's side needs a wall of its own, ends there, and a path
-    or strip wall begins there, each on its own side of it."""
+    or strip wall begins there, each on its own side of it. A road cut
+    wall ends its lead-in short of it, so the shoulder it widens
+    (params.Corridor.width) is back to its width there and the path is
+    placed from the unwidened edge from its first station."""
     if neighbour is None:
         return s
     first, t = s, s
@@ -159,7 +162,16 @@ def _reach(side: str, need_at, kind: str, s: float, neighbour, step: float,
         if b is not None and (neighbour - b) * step >= -_EPS:
             need = need_at(t, side)
             if need is not None and need != kind:
-                return b
+                if kind != "cut":
+                    return b
+                e = b - step * WALL_TRANSITION_FT
+                if (e - first) * step >= -_EPS:
+                    return e
+                raise ValueError(
+                    f"walls: auto: the {side} cut wall ending at {sta(first)} "
+                    f"has no room for its {WALL_TRANSITION_FT:g} ft lead-in "
+                    f"before the path's stations at {sta(b)}; list a wall or "
+                    f"a structure gap there")
         if (t - neighbour) * step > _EPS:
             # a foot on passes the neighbour: end the wall a foot short of
             # it, unless that is back inside the failing stations

@@ -473,3 +473,31 @@ def test_an_unknown_wall_token_is_refused():
     c = replace(c, gaps=(_Gap(400.0, 450.0, "wall", "L", None, auto="strip-bad"),))
     with pytest.raises(ValueError, match="'strip-bad' is not one of"):
         W.rows(c, [], level(-5.0))
+
+
+def _high_left(s, u, v):
+    # ground far above on the left: every left slope needs a cut wall
+    return (500.0 if u > 0.0 else -5.0) - v
+
+
+@pytest.mark.parametrize("stations, at, expect", [
+    # the path from 14+00: the road's cut wall ends a lead-in short of it
+    ([1400.0, 2000.0], [1350.0, 1375.0, 1399.0, 1400.0, 1425.0, 1450.0],
+     [("cut", 1350.0, 1399.0), ("path-cut", 1400.0, 1450.0)]),
+    # the path to 14+00: the road's cut wall starts a lead-in past it
+    ([1000.0, 1400.0], [1350.0, 1375.0, 1400.0, 1401.0, 1425.0, 1450.0],
+     [("path-cut", 1350.0, 1400.0), ("cut", 1401.0, 1450.0)])])
+def test_a_cut_wall_s_widening_ends_before_the_path_s_stretch(stations, at, expect):
+    from bimforge.author.corridor import path as path_mod
+    c = _path_corridor(99.51, path={"stations": stations})
+    found = W.find(c, at, _high_left)
+    assert [(g.auto, g.start, g.end) for g in found if g.side == "L"] == expect
+    c = c.with_walls(found)                                # nothing raises
+    # the path is placed from the unwidened edge over its end's first foot
+    near = (1400.0, 1400.5, 1401.0) if stations[0] == 1400.0 else (
+        1399.0, 1399.5, 1400.0)
+    for s in near:
+        sf = path_mod.surface(c, s)
+        assert (sf.edge[0], sf.q[0], sf.inner[0]) == pytest.approx((17.0, 25.0, 27.0))
+    for s in (1399.0, 1400.0, 1401.0):
+        resolve(c, s, _high_left)

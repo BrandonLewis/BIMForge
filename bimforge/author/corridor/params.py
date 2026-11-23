@@ -377,16 +377,20 @@ class Corridor:
         """Whether automatic walls p and q (q after p, one side) meet at the
         path's first or last station (V1.2 C): a road wall ending there and
         the path's outer wall starting there, or the other way round
-        (walls.find ends them so). The section changes there, and each has
-        its own lead-in on its own side; anywhere else the 2 ft rule
-        holds."""
+        (walls.find ends them so). A road cut wall ends its lead-in there
+        instead, WALL_TRANSITION_FT short of it, so its shoulder is back to
+        width on the path's first station. The section changes there, and
+        each has its own lead-in on its own side; anywhere else the 2 ft
+        rule holds."""
         path = self.path
         if path is None or p.side != path.side:
             return False
         ours = [g.auto.startswith("path-") for g in (p, q)]
         if ours[0] == ours[1]:
             return False
-        return any(abs(p.end - b) <= _EPS and abs(q.start - b) <= _EPS
+        lead = [WALL_TRANSITION_FT if g.auto == "cut" else 0.0 for g in (p, q)]
+        return any(abs(p.end + lead[0] - b) <= _EPS
+                   and abs(q.start - lead[1] - b) <= _EPS
                    for b in (path.s_start, path.s_end))
 
     def _merged(self, walls: tuple) -> tuple:
