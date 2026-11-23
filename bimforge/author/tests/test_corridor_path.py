@@ -409,3 +409,71 @@ def test_a_gap_straddling_the_path_s_end_has_one_approach():
     rows = [[1000, 10.0], [1300, 10.0], [1400, 1.5]]
     c = corridor(deck_path(separation=rows, stations=[1000, 1450]), gaps=GAP)
     assert approaches(c) == [(1300.0, 1400.0, 1400.0)]
+
+
+from bimforge.author.corridor.path import (course_rings, cos_theta, section_v,  # noqa: E402
+                                           surface)
+
+
+def pt(xy):
+    return pytest.approx(xy, abs=1e-9)
+
+
+def test_the_path_s_surface_on_a_level_road():
+    sf = surface(corridor(), 1500.0)
+    assert sf.edge == pt((17.0, -0.49))
+    assert sf.inner == pt((27.0, -0.49))
+    assert sf.outer == pt((39.0, -0.73))
+    assert sf.q == pt((25.0, -0.59))
+    assert sf.o == pt((41.0, -0.83))
+    assert (sf.separation, sf.cg) == (10.0, 1.0)
+    assert sf.cos_theta == pytest.approx(1.0, abs=1e-12)
+    assert sf.depth == pytest.approx(0.75)
+
+
+def test_on_the_right_the_path_mirrors():
+    sf = surface(corridor(path(side="R")), 1500.0)
+    assert sf.inner == pt((-27.0, -0.49))
+    assert sf.o == pt((-41.0, -0.83))
+
+
+def test_a_widened_shoulder_moves_the_path_out():
+    # the left shoulder is 10 ft from 11+00: the edge of shoulder 22 ft out
+    # and 0.24 + 0.50 down; the path keeps its 10 ft from it
+    c = corridor(widths=[{"component": "shoulder", "side": "L",
+                          "at": [[1000, 5.0], [1100, 10.0]]}])
+    sf = surface(c, 1150.0)
+    assert sf.edge == pt((22.0, -0.74))
+    assert (sf.inner[0], sf.q[0], sf.o[0]) == pytest.approx((32.0, 30.0, 46.0))
+
+
+def test_near_the_deck_the_inner_shoulder_narrows_to_the_separation():
+    # 1.5 ft from the edge: the inner shoulder is 1.49 ft (STEP_FT short),
+    # so q stays outside the road's edge of shoulder
+    c = corridor(deck_path(), gaps=GAP)
+    sf = surface(c, 1400.0)
+    assert sf.q[0] == pytest.approx(17.0 + 0.01)
+
+
+def test_section_v_finds_an_elevation_in_the_leaning_plane():
+    road = Profile(grade(100.0, pct=3.0)["curves"])
+    c = corridor(path(profile=grade(97.51, pct=3.0)), prof=road)
+    got = section_v(c.path, 1500.0, 30.0, lambda st: road.elev(st) - 2.0)
+    assert got == pytest.approx(-2.0 / math.sqrt(1.0009), rel=1e-9)
+
+
+def test_cos_theta_is_the_road_s_tangent_against_the_path_s():
+    road = Profile(grade(100.0, pct=3.0)["curves"])
+    c = corridor(path(profile=grade(99.51, pct=5.0)), prof=road)
+    want = (1 + 0.03 * 0.05) / math.sqrt(1.0009 * 1.0025)
+    assert cos_theta(c, 1500.0) == pytest.approx(want, rel=1e-9)
+    sf = surface(c, 1500.0)
+    rings = course_rings(c.path, sf)
+    # each course thickness / cos theta deep in the plane, top down
+    (ui, vi), (uo, vo) = sf.inner, sf.outer
+    d0, d1 = 0.25 / want, 0.5 / want
+    assert rings[0] == pytest.approx([(ui, vi), (uo, vo), (uo, vo - d0),
+                                      (ui, vi - d0)])
+    assert rings[1] == pytest.approx([(ui, vi - d0), (uo, vo - d0),
+                                      (uo, vo - d0 - d1), (ui, vi - d0 - d1)])
+    assert sf.depth == pytest.approx(d0 + d1)

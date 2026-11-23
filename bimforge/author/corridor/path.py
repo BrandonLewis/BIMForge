@@ -340,3 +340,106 @@ def validate(c) -> None:
                 f"path.profile: at the structure gap's end {sta(e)} the path is at "
                 f"{got:.4f} ft and the deck at its paved edge {deck:.4f} ft, "
                 f"{abs(got - deck):.4f} ft off (more than {MEET_TOL_FT:g} ft)")
+
+
+@dataclass(frozen=True)
+class Surface:
+    """The path's finished surface at a station, in section coordinates."""
+    edge: tuple            # the road's outer edge of shoulder
+    q: tuple               # the road-side edge of the path's inner shoulder
+    inner: tuple           # the paved inner edge, `separation` out from edge
+    outer: tuple           # the paved outer edge
+    o: tuple               # the outer edge of the outer shoulder
+    separation: float
+    cos_theta: float       # the plane's normal against the path's tangent
+    depth: float           # the courses' depth in the plane: sum t / cos theta
+    cg: float              # cos of the road's grade: v to elevation
+
+
+def section_v(p, s: float, u: float, z_at) -> float:
+    """v of the point at offset u in station s's section plane whose
+    elevation is z_at(station), read at the station where the point lies:
+    the plane leans back v sin(gamma) along the road (frame.survey_point),
+    (1 - kappa u) to a foot of the road's on a curve. Fixed point; four
+    rounds take it to 1e-10 at grades under 10 %."""
+    prof = p.road_profile
+    g = prof.grade(s)
+    root = math.sqrt(1.0 + g * g)
+    cg, sg = 1.0 / root, g / root
+    scale = 1.0 - p.alignment.curvature(s) * u
+    z0 = prof.elev(s)
+    v = (z_at(s) - z0) / cg
+    for _ in range(4):
+        v = (z_at(s - v * sg / scale) - z0) / cg
+    return v
+
+
+def _centre(c, s: float) -> tuple:
+    """(u, v) of the paved path's centre at finished grade, station s."""
+    from bimforge.author.corridor.section import grade_edge
+    p = c.path
+    u = grade_edge(c, s, p.side)[0] + p.sign * (p.separation_at(s) + 0.5 * p.width)
+    half = 0.5 * p.width * p.cross_slope
+    return u, section_v(p, s, u, lambda st: p.profile.elev(st) + half)
+
+
+def cos_theta(c, s: float, h: float = 0.5) -> float:
+    """cos of the angle between station s's section plane's normal (the
+    road's 3D tangent) and the paved centre's 3D tangent there: its grade
+    against the road's, its drift as the separation changes, and its twist
+    on a graded curve, all in one. The tangent is the chord over s +/- h,
+    which on a curve of constant curvature and grade is parallel to it."""
+    from bimforge.author.corridor.frame import survey_point
+    p = c.path
+    al, prof = p.alignment, p.road_profile
+    a, b = (survey_point(al, prof, x, *_centre(c, x)) for x in (s - h, s + h))
+    d = [y - x for x, y in zip(a, b)]
+    _n, _e, az = al.point_az(s)
+    t = math.radians(az)
+    g = prof.grade(s)
+    cg = 1.0 / math.sqrt(1.0 + g * g)
+    t3 = (math.cos(t) * cg, math.sin(t) * cg, g * cg)
+    return sum(x * y for x, y in zip(t3, d)) / math.sqrt(sum(x * x for x in d))
+
+
+def surface(c, s: float) -> Surface:
+    """The path's finished surface at station s: the paved inner edge
+    `separation` ft out from the road's outer edge of shoulder (so it moves
+    out where the road widens) at the path's profile, the paved width at
+    `cross_slope`, a shoulder each side at `shoulder.slope` falling away
+    from the paved path. The inner shoulder is no wider than the
+    separation less STEP_FT, so near a deck q stays off the road."""
+    from bimforge.author.corridor.section import grade_edge
+    p = c.path
+    edge = grade_edge(c, s, p.side)
+    sep = p.separation_at(s)
+    g = p.road_profile.grade(s)
+    cg = 1.0 / math.sqrt(1.0 + g * g)
+    ui = edge[0] + p.sign * sep
+    vi = section_v(p, s, ui, p.profile.elev)
+
+    def at(du, dz):
+        return (ui + p.sign * du, vi + dz / cg)
+
+    w, sw = p.width, p.shoulder_width
+    inner_sw = min(sw, max(sep - STEP_FT, 0.0))
+    cos_t = cos_theta(c, s)
+    return Surface(edge=edge, q=at(-inner_sw, p.shoulder_slope * inner_sw),
+                   inner=(ui, vi), outer=at(w, p.cross_slope * w),
+                   o=at(w + sw, p.cross_slope * w + p.shoulder_slope * sw),
+                   separation=sep, cos_theta=cos_t,
+                   depth=p.depth() / cos_t, cg=cg)
+
+
+def course_rings(p, sf: Surface) -> dict:
+    """{course index: 4-point ring}: the path's courses under its paved
+    width, top down, each thickness / cos theta deep in the section plane
+    (its thickness held normal to the path's grade)."""
+    (ui, vi), (uo, vo) = sf.inner, sf.outer
+    out, above = {}, 0.0
+    for k, course in enumerate(p.courses):
+        d = course.thickness / sf.cos_theta
+        out[k] = [(ui, vi - above), (uo, vo - above), (uo, vo - above - d),
+                  (ui, vi - above - d)]
+        above += d
+    return out
