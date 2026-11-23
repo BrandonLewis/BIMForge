@@ -77,6 +77,7 @@ STANDARD_DIMS = {"stem_h_ft": _H, "top_slope_x_ft": _X_TOPSLOPE,
                  "step_x_ft": _X_BACK_LOWER,
                  "step_from_top_ft": _STEP_FROM_TOP, "chamfer_in": 0.0}
 
+
 def type_842_profile(row: dict, *, base_kind: str = "deck",
                      face: str = "sloping") -> list[tuple[float, float]]:
     if face not in ("sloping", "vertical"):

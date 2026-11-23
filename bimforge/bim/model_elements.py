@@ -101,8 +101,10 @@ when the file has it, all in the units BidSheet.ai stores (never m):
   the element was built by (standard, modified-by-value, modified-by-part,
   modified-by-section, bespoke), the class it is based on, and each value
   it changed: [{"name", "standard" (absent for an added row), "actual",
-  "unit" (FT or RATIO, absent for text and other numbers), "source"}],
-  lengths in the project's foot.
+  "unit" (FT or RATIO, absent for text and other numbers, a "Row"
+  difference's tabulated key among them), "source"}]. A value is sent in
+  the unit given: FT for any length, so a `chamfer_in` difference is in
+  feet (0.75 in reads 0.0625), in the project's foot.
 
 and once per call, `model`: the file's `BIMForge_Model` identity,
 {"build_id", "bimforge_version", "ifc_schema", "source"}; and, given a

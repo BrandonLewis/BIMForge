@@ -40,7 +40,7 @@ class BarrierTemplate:
     #: The standard section's dimensions a run may Mod, {key: value} (M.8):
     #: a run giving one at another value is "modified-by-value", a run with
     #: its own `profile` "modified-by-section". None = no route set here.
-    standard_dims: Optional[dict] = None
+    standard_dims: dict | None = None
 
 
 def bar_elements(sname: str, label: str, bars: list) -> list:
