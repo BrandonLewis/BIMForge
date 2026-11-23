@@ -140,7 +140,7 @@ def test_a_path_vertical_curve_is_densified():
     ({"deck_separation_ft": 0}, r"path\.deck_separation_ft: must be positive"),
     ({"strip": {"max_ratio": 0}}, r"path\.strip\.max_ratio: must be positive"),
     ({"stations": [1200, 2500]}, r"path\.stations: station 25\+00\.00 is off the alignment"),
-    ({"stations": [1500, 1200]}, r"path\.stations: 'to' must be past 'from'"),
+    ({"stations": [1500, 1200]}, r"path\.stations: 'to' 12\+00\.00 must be past 'from' 15\+00\.00"),
     ({"separation": [[2500, 10.0]]}, r"path\.separation: station 25\+00\.00 is off"),
     ({"separation": []}, r"path\.separation: needs \[station, ft\] rows"),
     ({"profile": grade(99.51, s0=1100.0)},
@@ -172,3 +172,128 @@ def test_a_listed_wall_gap_on_the_path_s_side_is_refused():
                         "offset": 40.0}])
     corridor(gaps=[{"from": 1200, "to": 1300, "kind": "wall", "side": "R",
                     "offset": 40.0}])                    # the other side
+
+
+@pytest.mark.parametrize("gap_end, refused", [
+    (1198.0, True),        # 2 ft before the path starts: V1.1's margin, touching
+    (1199.0, True),
+    (1197.5, False),       # just outside the margin
+])
+def test_a_listed_wall_gap_near_the_path_s_start_is_refused_within_the_margin(
+        gap_end, refused):
+    gaps = [{"from": 1100, "to": gap_end, "kind": "wall", "side": "L",
+             "offset": 40.0}]
+    if refused:
+        with pytest.raises(ValueError, match=r"overlaps the path's stations"):
+            corridor(path(stations=[1200, 1800]), gaps=gaps)
+    else:
+        corridor(path(stations=[1200, 1800]), gaps=gaps)
+
+
+@pytest.mark.parametrize("gap_start, refused", [
+    (1802.0, True), (1801.0, True), (1802.5, False)])
+def test_a_listed_wall_gap_near_the_path_s_end_is_refused_within_the_margin(
+        gap_start, refused):
+    gaps = [{"from": gap_start, "to": 1900, "kind": "wall", "side": "L",
+             "offset": 40.0}]
+    if refused:
+        with pytest.raises(ValueError, match=r"overlaps the path's stations"):
+            corridor(path(stations=[1200, 1800]), gaps=gaps)
+    else:
+        corridor(path(stations=[1200, 1800]), gaps=gaps)
+
+
+@pytest.mark.parametrize("courses, match", [
+    ("HMA", r"path\.courses: a list of"),
+    ({"name": "X"}, r"path\.courses: a list of"),
+    (["HMA"], r"path\.courses\[0\]: a mapping"),
+    ([{"name": "X", "type": "PAVEMENT", "thickness": 0.25}, 5],
+     r"path\.courses\[1\]: a mapping"),
+    (None, r"path\.courses: needs at least one course"),
+])
+def test_bad_course_shapes_are_value_errors(courses, match):
+    with pytest.raises(ValueError, match=match):
+        corridor(path(courses=courses))
+
+
+@pytest.mark.parametrize("cs", [-0.01, -0.02, 0.01, 0.02])
+def test_cross_slope_boundaries_pass_and_a_positive_one_is_a_magnitude(cs):
+    # the sign is not read: the cross slope always falls away from the road
+    assert corridor(path(cross_slope=cs)).path.cross_slope == cs
+
+
+@pytest.mark.parametrize("cs", [-0.0099, -0.0201, 0.0099, 0.0201])
+def test_cross_slope_outside_the_boundaries_is_refused(cs):
+    with pytest.raises(ValueError, match=r"path\.cross_slope: .* is outside 1-2 %"):
+        corridor(path(cross_slope=cs))
+
+
+def test_a_stations_error_echoes_both_stations():
+    with pytest.raises(ValueError, match=r"'to' 12\+00\.00 must be past 'from' 15\+00\.00"):
+        corridor(path(stations=[1500, 1200]))
+
+
+def test_a_long_station_in_a_profile_error_is_not_cut_short():
+    bad = dict(grade(99.51)["curves"][0], evc_station=1234567.5)
+    with pytest.raises(ValueError, match=r"evc_station 12345\+67\.50 is not"):
+        corridor(path(profile={"curves": [bad]}))
+
+
+def two_curves(**second):
+    """Two flat curves, 10+00 to 15+00 and 15+00 to 20+00 at elevation 99.51,
+    the second's fields overridden."""
+    a = grade(99.51, s0=1000.0, s1=1500.0)["curves"][0]
+    b = dict(grade(99.51, s0=1500.0, s1=2000.0)["curves"][0])
+    b.update(second)
+    return {"curves": [a, b]}
+
+
+def test_two_whole_curves_are_a_profile():
+    assert corridor(path(profile=two_curves())).path.profile.elev(1700.0) == \
+        pytest.approx(99.51)
+
+
+@pytest.mark.parametrize("second, match", [
+    ({"g_in_pct": 1.0, "g_out_pct": 1.0, "evc_elev": 104.51},
+     r"path\.profile\.curves\[1\]: g_in_pct 1 is not the grade before it, 0"),
+    ({"bvc_station": 1400.0, "evc_station": 1900.0},
+     r"path\.profile\.curves\[1\]: starts at 14\+00\.00, inside the curve before it"),
+    ({"bvc_elev": 99.7, "evc_elev": 99.7},
+     r"path\.profile\.curves\[1\]: bvc_elev 99\.7 is off the tangent before it"),
+])
+def test_a_profile_s_curves_must_join(second, match):
+    with pytest.raises(ValueError, match=match):
+        corridor(path(profile=two_curves(**second)))
+
+
+def test_a_profile_ending_before_the_path_does_is_refused():
+    with pytest.raises(ValueError, match=r"path\.profile: covers 10\+00\.00 to "
+                       r"19\+00\.00, not the path's 10\+00\.00 to 20\+00\.00"):
+        corridor(path(profile=grade(99.51, s1=1900.0)))
+
+
+def test_separation_rows_must_ascend():
+    with pytest.raises(ValueError, match=r"path\.separation: stations must be "
+                       r"strictly ascending"):
+        corridor(path(separation=[[1300, 10.0], [1100, 12.0]]))
+    with pytest.raises(ValueError, match=r"path\.separation: stations must be "
+                       r"strictly ascending"):
+        corridor(path(separation=[[1100, 10.0], [1100, 12.0]]))
+
+
+def test_path_at_inside_at_the_edge_of_and_outside_a_structure_gap():
+    c = corridor(gaps=[{"from": 1400, "to": 1500, "kind": "structure"}])
+    assert not c.path_at(1450.0)                      # on the deck
+    assert c.path_at(1400.0) and c.path_at(1500.0)    # the gap's ends are sections
+    assert c.path_at(1399.0) and c.path_at(1501.0)
+
+
+def test_an_explicit_guardrail_block_overrides_the_path_s_default():
+    c = corridor(guardrail={"design_speed_mph": 50, "rail_depth_ft": 1.6})
+    assert c.guard == Guard(speed_mph=50, rail_depth=1.6)
+
+
+def test_the_path_s_vertical_curve_ends_are_the_curves_own_stations():
+    from bimforge.author.corridor.path import stations_extra
+    c = corridor(path(profile=two_curves()))
+    assert {1000.0, 1500.0, 2000.0} <= set(stations_extra(c))

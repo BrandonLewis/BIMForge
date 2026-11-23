@@ -16,8 +16,8 @@ import math
 from dataclasses import dataclass
 
 from bimforge.author.alignment import Profile, sta
-from bimforge.author.corridor.params import (COURSE_TYPES, SIDES, Course,
-                                             _ascending, _name, _num,
+from bimforge.author.corridor.params import (COURSE_TYPES, SIDES, WALL_TRANSITION_FT,
+                                             Course, _ascending, _name, _num,
                                              _on_alignment, _row, interp)
 
 #: the least separation from the road's edge of shoulder to the path's
@@ -59,7 +59,8 @@ class Path:
     separation: tuple              # ((station, ft), ...): the road's outer
                                    # edge of shoulder to the paved inner edge
     width: float                   # paved, feet
-    cross_slope: float             # one way; negative: down away from the road
+    cross_slope: float             # one way; parse takes the magnitude as falling
+                                   # away from the road, whatever sign is given
     shoulder_width: float          # each graded shoulder, feet
     shoulder_slope: float          # negative: down away from the paved path
     courses: tuple                 # params.Course, top down, under the paved width
@@ -100,11 +101,15 @@ def _separation(value, s0: float, s1: float) -> tuple:
 
 def _courses(value, where: str = "path.courses") -> list:
     out = []
+    if value is not None and not isinstance(value, (list, tuple)):
+        raise ValueError(f"{where}: a list of {{name, type, thickness}}, got {value!r}")
     for i, x in enumerate(value or []):
         at = f"{where}[{i}]"
-        ctype = str((x or {}).get("type", "")).upper()
+        if not isinstance(x, dict):
+            raise ValueError(f"{at}: a mapping ({{name, type, thickness}}), got {x!r}")
+        ctype = str(x.get("type", "")).upper()
         if ctype not in COURSE_TYPES:
-            raise ValueError(f"{at}: type {(x or {}).get('type')!r} is not one of "
+            raise ValueError(f"{at}: type {x.get('type')!r} is not one of "
                              f"{COURSE_TYPES}")
         out.append(Course(_name(x, at), ctype,
                           _num(x.get("thickness"), f"{at}.thickness")))
@@ -130,7 +135,7 @@ def _profile(value, where: str, s0: float, s1: float) -> Profile:
         row = {k: _num(cv.get(k), f"{at}.{k}", positive=(k == "length_ft"))
                for k in keys}
         if abs(row["bvc_station"] + row["length_ft"] - row["evc_station"]) > MEET_TOL_FT:
-            raise ValueError(f"{at}: evc_station {row['evc_station']:g} is not "
+            raise ValueError(f"{at}: evc_station {sta(row['evc_station'])} is not "
                              f"bvc_station + length_ft")
         g1, g2 = row["g_in_pct"] / 100.0, row["g_out_pct"] / 100.0
         length = row["length_ft"]
@@ -180,7 +185,8 @@ def parse_path(pp, c, alignment, profile) -> Path:
         s0 = _on_alignment(st[0], "path.stations", c.s_start, c.s_end)
         s1 = _on_alignment(st[1], "path.stations", c.s_start, c.s_end)
         if not s1 > s0:
-            raise ValueError("path.stations: 'to' must be past 'from'")
+            raise ValueError(f"path.stations: 'to' {sta(s1)} must be past 'from' "
+                             f"{sta(s0)}")
     separation = _separation(pp.get("separation"), c.s_start, c.s_end)
     width = _num(pp.get("width"), "path.width")
     cs = _num(pp.get("cross_slope", -0.02), "path.cross_slope", positive=False)
@@ -235,7 +241,7 @@ def stations_extra(c) -> list:
     out += [s for s, _v in p.separation]
     for cv in p.profile.curves:
         a, length = cv["bvc_station"], cv["length_ft"]
-        out += [a, a + 0.5 * length, a + length]
+        out += [a, a + 0.5 * length, cv["evc_station"]]
         dg = abs(cv["g_out_pct"] - cv["g_in_pct"]) / 100.0
         if dg > 1e-12:
             n = math.ceil(length / math.sqrt(8.0 * VC_SAGITTA_FT * length / dg) - _EPS)
@@ -249,7 +255,8 @@ def validate(c) -> None:
     p = c.path
     for g in c.gaps:
         if (g.kind == "wall" and g.auto is None and g.side == p.side
-                and g.start < p.s_end - _EPS and g.end > p.s_start + _EPS):
+                and g.start < p.s_end + 2 * WALL_TRANSITION_FT + _EPS
+                and g.end > p.s_start - 2 * WALL_TRANSITION_FT - _EPS):
             raise ValueError(
                 f"gaps: a listed wall gap on the {g.side} side, {sta(g.start)} to "
                 f"{sta(g.end)}, overlaps the path's stations ({sta(p.s_start)} to "
