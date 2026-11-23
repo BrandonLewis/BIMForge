@@ -2,7 +2,11 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
-## Unreleased
+## 0.1.132 — 2026-11-22
+
+The road corridor (P.6): pavement courses, cut and fill to daylight and mass haul (#118), then slope rules, automatic walls, guardrail and dimensions with arithmetic formulas (#122). `model-elements` now sends each element's measurement checks and, with `--checked-takeoff`, the takeoff's sum (#121), closing M.6's check.
+
+**For BidSheet.ai:** a `model-elements` element may carry `checks` (a list, each with `what`, `unit`, `sheet_value`, `model_value`, `value_now`, `tolerance`, `result`, `standing`, `value_source`, `sheet`, `revision`, `day`, `by`, `model_origin`; a key with no value is left out) and the call may carry `takeoff_check`; both are left out when empty. Only `standing` `agrees` is a check that still holds.
 
 **For ProjectCommand and BidSheet.ai:** quantity `Formula`s are now
 arithmetic (`+ - * /`, numbers, parentheses) and may name the element's
