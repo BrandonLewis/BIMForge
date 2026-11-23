@@ -821,6 +821,26 @@ def test_on_an_approach_a_steep_strip_is_taken_as_it_is():
     assert sec.path.ratio == pytest.approx(0.35 / 1.27)
 
 
+def test_at_the_deck_a_rail_s_widening_has_no_room_and_the_strip_does_not_fold():
+    # 14+00, the deck's end: 1.5 ft out, q 0.01 ft past the edge (17.01,
+    # -0.5945). A rail runs past (the bridge rail): its widening has no room
+    # in the strip, so it collapses onto the hinge and the strip runs
+    # straight up to q; it does not climb to the finished grade at 17.01 and
+    # come back down to q on the same offset (a fold the earthwork's columns
+    # cannot close)
+    c = corridor(deck_path(), gaps=GAP)
+    sec = resolve(c, 1400.0, level(-5.0), rail=("L",))
+    line = sec.sides["L"].line[:strip_count(c)]
+    assert line[0] == pt((17.0, -1.89)) and line[-1] == pt((17.01, -0.5945))
+    assert all(b[0] >= a[0] - 1e-12 for a, b in zip(line, line[1:]))
+    # the line runs one way only: no point is above q
+    assert max(v for _u, v in line) == pytest.approx(-0.5945)
+    # (q stays 0.01 ft past the edge until the separation passes 2.01 ft.)
+    # At 15+10, 2.35 ft out, there is room, and the widening is as it was
+    sec = resolve(c, 1510.0, level(-5.0), rail=("L",))
+    assert sec.sides["L"].line[1] == pt((17.01, -0.491))
+
+
 def test_gap_strip_and_carries():
     def gap(auto):
         return Gap(1400.0, 1600.0, "wall", "L", None, auto=auto)
@@ -974,3 +994,80 @@ def test_a_strip_wall_s_fill_is_its_hand_polygon():
     ground = PlaneGround(85.0)
     assert resolve(c, 1500.0, level(-15.0)).path.strip == "wall-road"
     assert fill_area(c, ground) == pytest.approx(680.817, abs=1e-6)
+
+
+# -- Task 9: a curve's ends ----------------------------------------------------
+
+#: a 100 ft left curve of radius 500 from 11+00 (its PC) to 12+00 (its PT),
+#: stationed at its length (500 x 0.2 rad)
+PC_AL = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0},
+                  [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 100.0},
+                   {"kind": "curve", "delta": "11-27-32.961249419",
+                    "radius": 500.0, "turn": "L", "length": 100.0},
+                   {"kind": "tangent", "bearing": "N 11-27-32.961249419 W",
+                    "length": 800.0}], name="C")
+
+
+def pc_corridor():
+    """The road at 7 %, the path on the left (inside the curve) at 3 %."""
+    road = Profile(grade(100.0, pct=7.0)["curves"])
+    params = copy.deepcopy(BASE)
+    params["path"] = path(profile=grade(99.51, pct=3.0))
+    return parse(params, 1000.0, 2000.0, alignment=PC_AL, profile=road)
+
+
+def test_curvature_toward_reads_one_side_of_a_segment_end():
+    k = 1.0 / 500.0
+    # point_az's rule at a join: the segment before it
+    assert (PC_AL.curvature(1100.0), PC_AL.curvature(1200.0)) == (0.0, k)
+    assert (PC_AL.curvature(1100.0, toward=1.0),
+            PC_AL.curvature(1100.0, toward=-1.0)) == (k, 0.0)
+    assert (PC_AL.curvature(1200.0, toward=1.0),
+            PC_AL.curvature(1200.0, toward=-1.0)) == (0.0, k)
+    # inside a segment, or within its 1e-6 ft of a join, as before
+    assert PC_AL.curvature(1150.0, toward=-1.0) == k
+    assert PC_AL.curvature(1100.0 + 5e-7, toward=-1.0) == 0.0
+    assert PC_AL.curvature(1000.0, toward=-1.0) == 0.0     # the POB
+
+
+def test_cos_theta_toward_takes_the_path_s_tangent_on_one_side_of_the_pc():
+    # on the tangent the path's centre runs at 3 % and the road at 7 %:
+    # cos theta = (1 + 0.07 x 0.03) / sqrt(1.0049 x 1.0009). Inside the
+    # curve it is steeper along its own length, 0.03 / (1 - 33 / 500),
+    # nearer the road's 7 %, so theta steps down at the PC: each side's
+    # value is the one a chord wholly on that side reads. The two-sided
+    # chord across the PC is neither: its ends' points are solved with
+    # different curvatures (section_v), a step it reads as a slope
+    c = pc_corridor()
+    tangent = (1 + 0.07 * 0.03) / math.sqrt(1.0049 * 1.0009)
+    before, after = cos_theta(c, 1100.0, toward=-1.0), cos_theta(c, 1100.0, toward=1.0)
+    assert before == pytest.approx(tangent, abs=1e-10)
+    assert before == pytest.approx(cos_theta(c, 1099.9), abs=1e-10)
+    assert after == pytest.approx(cos_theta(c, 1100.1), abs=1e-9)
+    assert after - before > 5e-5
+    across = cos_theta(c, 1100.0)
+    assert min(abs(across - before), abs(across - after)) > 1e-5
+    # at the PT the other way round (inside the curve theta drifts a
+    # little as the path falls away from the road and the plane's lean
+    # reaches further)
+    assert cos_theta(c, 1200.0, toward=-1.0) == pytest.approx(
+        cos_theta(c, 1199.95), abs=1e-9)
+    assert cos_theta(c, 1200.0, toward=1.0) == pytest.approx(tangent, abs=1e-10)
+    # away from a segment end the one-sided chord agrees with the two-sided
+    for toward in (-1.0, 1.0):
+        assert cos_theta(c, 1150.0, toward=toward) == pytest.approx(
+            cos_theta(c, 1150.0), abs=1e-9)
+
+
+def test_a_surface_toward_one_side_of_the_pc_is_that_side_s():
+    # its points are solved with that side's curvature, its depth read
+    # with that side's theta (constant on each side: a chord 0.05 ft off)
+    c = pc_corridor()
+    for toward in (-1.0, 1.0):
+        sf, ref = surface(c, 1100.0, toward=toward), surface(c, 1100.0 + toward * 1e-5)
+        assert sf.inner == pytest.approx(ref.inner, abs=1e-6)
+        assert sf.outer == pytest.approx(ref.outer, abs=1e-6)
+        assert sf.cos_theta == pytest.approx(
+            cos_theta(c, 1100.0 + toward * 0.05), abs=1e-9)
+    assert abs(surface(c, 1100.0, toward=1.0).inner[1]
+               - surface(c, 1100.0, toward=-1.0).inner[1]) > 1e-4

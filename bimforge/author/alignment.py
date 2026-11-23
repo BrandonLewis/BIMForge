@@ -132,12 +132,26 @@ class Alignment:
                 return s
         return self.segments[0] if station < self.s_start else self.segments[-1]
 
-    def curvature(self, station: float) -> float:
+    def _seg_toward(self, station: float, toward: float) -> dict:
+        """The segment on the `toward` side of a station (+: up station, the
+        one starting there at a join; -: down station, the one ending
+        there), with _seg_at's 1e-6 ft at a join; _seg_at's off the ends."""
+        for s in self.segments:
+            if (toward > 0.0 and s["s0"] - 1e-6 <= station < s["s1"] - 1e-6
+                    or toward < 0.0 and s["s0"] + 1e-6 < station <= s["s1"] + 1e-6):
+                return s
+        return self._seg_at(station)
+
+    def curvature(self, station: float, toward: float = 0.0) -> float:
         """Signed plan curvature 1/R: positive = curving LEFT, negative =
         right, 0.0 on tangents. Left-positive pairs with `left_normal` so
         a point at +x offset under kappa > 0 lies toward the centre of
-        curvature (its swept path is SHORTER: factor 1 - kappa*x)."""
-        seg = self._seg_at(station)
+        curvature (its swept path is SHORTER: factor 1 - kappa*x).
+
+        At a join (a PC, a PT) it steps: by point_az's rule it is the
+        segment's before it; `toward` +1 or -1 reads it on that side, the
+        segment after or before."""
+        seg = self._seg_at(station) if not toward else self._seg_toward(station, toward)
         if seg["kind"] == "tangent":
             return 0.0
         return -seg["sign"] / seg["radius"]

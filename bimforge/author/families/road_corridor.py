@@ -106,7 +106,14 @@ def ground_reach(c) -> float:
     half = max(sum(_widest(c, comp, side) for comp in c.components)
                for side in SIDES)
     walls = [g.offset for g in c.gaps if g.kind == "wall" and g.offset is not None]
-    return max([half + c.slopes.daylight_limit] + walls)
+    out = max([half + c.slopes.daylight_limit] + walls)
+    if c.path is not None:
+        p = c.path
+        # the road's widest side, the path's farthest separation, its paved
+        # width and both shoulders, then the daylight limit
+        far = max(v for _s, v in p.separation) + p.width + 2.0 * p.shoulder_width
+        out = max(out, half + far + c.slopes.daylight_limit)
+    return out
 
 
 def _widest(c, comp, side: str) -> float:
@@ -160,6 +167,120 @@ def _parts(r: int) -> tuple:
     return seg, {kind: {"name": f"Segment {r} {kind}", "predefined_type": pt,
                         "usage_type": "LATERAL", "parent": seg}
                  for kind, pt in PART_TYPES.items()}
+
+
+def path_part(segment: dict, r: int) -> dict:
+    """Run r's shared-use path (V1.2 C): an IfcRoadPart beside its
+    CARRIAGEWAY and SHOULDER, USERDEFINED SHAREDUSEPATH (IfcRoadPartTypeEnum
+    has no path value; SIDEWALK is for pedestrians)."""
+    return {"name": f"Segment {r} shared-use path",
+            "predefined_type": "SHAREDUSEPATH", "usage_type": "LATERAL",
+            "parent": segment}
+
+
+def path_runs(secs: list, breaks=()) -> list:
+    """[(i0, i1)]: the index ranges of `secs` (one band's sections) the path
+    is built over: consecutive sections that carry it, two at least, cut
+    again at each station of `breaks` (the alignment's segment ends inside
+    the band: the path's courses step there, path_rings). Each break must
+    be a section's station, as geometry_stations makes it; one that is not
+    is a ValueError, as a stretch across it would blend over the step."""
+    from bimforge.author.alignment import sta
+    for b in breaks:
+        if not any(abs(sec.s - b) <= STATION_TOL_FT for sec in secs):
+            raise ValueError(f"road-corridor: the alignment's segment end at "
+                             f"{sta(b)} is no section's station")
+
+    def cut(i):
+        return any(abs(secs[i].s - b) <= STATION_TOL_FT for b in breaks)
+
+    out, start = [], None
+    for i, sec in enumerate(list(secs) + [None]):
+        has = sec is not None and sec.path is not None
+        if has and start is None:
+            start = i
+        elif has and cut(i) and i > start:
+            out.append((start, i))
+            start = i
+        elif not has and start is not None:
+            if i - 1 > start:
+                out.append((start, i - 1))
+            start = None
+    return out
+
+
+def at_break(al, s: float) -> bool:
+    """Whether station s is one of the alignment's segment ends (a PC, a
+    PT, a change of curvature), within STATION_TOL_FT."""
+    return any(abs(s - b) <= STATION_TOL_FT
+               for b in al.seg_breaks(s - 1.0, s + 1.0))
+
+
+def path_rings(c, al, ss: list, bs: list) -> list:
+    """[[ring per station] per path course] over one stretch of a band:
+    each section's own (section.Section.path), but at an alignment segment
+    end the stretch starts or ends on (a PC, a PT), the ring on the
+    stretch's own side (path.surface's `toward`). The road's curvature
+    steps there, and with it the path's grade along its own length and
+    theta: a ring read across the step (the section's, its chord over
+    s +/- h solved with both curvatures) is neither side's, and the bay's
+    blend from it misses PathLength * Width * Thickness by 1e-4 and more
+    (a 3 % path on a 7 % road at R 500, 33 ft out)."""
+    from bimforge.author.corridor.path import course_rings, surface
+    out = [[sec.path.courses[k] for sec in bs] for k in range(len(c.path.courses))]
+    for i, toward in ((0, 1.0), (len(ss) - 1, -1.0)):
+        if at_break(al, ss[i]):
+            one = course_rings(c.path, surface(c, ss[i], toward=toward))
+            for k, rings in enumerate(out):
+                rings[i] = one[k]
+    return out
+
+
+def add_path_courses(model, c, al, prof, ctx, ss: list, bs: list, part: dict,
+                     log) -> None:
+    """The path's courses over one stretch of a band: stations `ss`, their
+    sections `bs`, each course one body under the paved width (path_rings).
+    Its exact volume and its centroid's line are loft.centroid_path's; the
+    Volume formula is written where it holds and logged where it does not
+    (a separation row's kink inside the stretch: the bays' blend cannot
+    follow theta's step there)."""
+    from bimforge.author.alignment import sta
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor.loft import StationLoft, centroid_path
+    from bimforge.author.gate import FORMULA_TOLERANCE
+    from bimforge.author.model import Element
+    b0, b1 = ss[0], ss[-1]
+    rings = path_rings(c, al, ss, bs)
+    for k, course in enumerate(c.path.courses):
+        name = f"{course.name} path STA {sta(b0)} to {sta(b1)}"
+        lofts = [StationLoft(name, al, prof, ctx, ss, rings[k], ifc="IfcCourse",
+                             layer=LAYER)]
+        centroid = centroid_path(lofts)
+        vol = centroid.volume_cf
+        aea = lofts[0].average_end_area_cf
+        shape, volume = dims.course_volume(vol, centroid.path_ft,
+                                           lofts[0].widths_ft, course.thickness)
+        if len(volume) == 2:
+            log(f"road-corridor: {name}: Volume formula withheld: PathLength * "
+                f"Width * Thickness is not its exact volume within "
+                f"{FORMULA_TOLERANCE:g}")
+        model.add(Element(
+            name, ifc_class="IfcCourse", geometry=lofts,
+            predefined_type=course.type, type_name=course.name,
+            material=course.name, layer=LAYER, body="solids",
+            spatial_part=part, family_class=dims.COURSE,
+            dimensions={"Thickness": course.thickness, **shape,
+                        "Offset": centroid.offset_ft,
+                        "PathLength": centroid.path_ft, **dims.stations(b0, b1)},
+            quantities={"length_ft": b1 - b0, "volume_cf": vol},
+            standard_qto={"Qto_CourseBaseQuantities": {
+                "Length": ("length", b1 - b0, dims.LENGTH),
+                "Width": ("length", lofts[0].mean_width_ft),
+                "Thickness": ("length", course.thickness),
+                "Volume": volume}}))
+        model.stated_quantities.append(
+            (f"{name}: exact volume vs average end area", vol, aea,
+             AEA_TOL * max(aea, 1.0)))
 
 
 def road_walls(c, side: str) -> list:
@@ -359,7 +480,7 @@ def build(params: dict, ctx) -> "StructureModel":
     al_p = params["alignment"]
     al = Alignment(al_p["pob"], al_p["run"], name=al_p.get("name", "ML"))
     prof = Profile(params["profile"]["curves"])
-    c = parse(params, al.s_start, al.s_end)
+    c = parse(params, al.s_start, al.s_end, alignment=al, profile=prof)
     model = StructureModel("road-corridor", ctx)
     def log(msg):
         print(msg, file=sys.stderr)
@@ -537,6 +658,11 @@ def build(params: dict, ctx) -> "StructureModel":
                     model.stated_quantities.append(
                         (f"{name}: exact volume vs average end area", vol, aea,
                          AEA_TOL * max(aea, 1.0)))
+            if c.path is not None:
+                # cut at the alignment's segment ends as well: theta steps
+                for p0, p1 in path_runs(bs, al.seg_breaks(b0, b1)):
+                    add_path_courses(model, c, al, prof, ctx, ss[p0:p1 + 1],
+                                     bs[p0:p1 + 1], path_part(segment, r), log)
             cut, fill, cut_d, fill_d = [], [], 0.0, 0.0
             for a, b in zip(bs, bs[1:]):
                 cp, fp, cd, fd = earthwork.strip(f"{tag} {sta(a.s)}", a, b,

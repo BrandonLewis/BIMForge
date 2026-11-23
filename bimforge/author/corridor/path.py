@@ -382,7 +382,7 @@ class Surface:
     cg: float              # cos of the road's grade: v to elevation
 
 
-def section_v(p, s: float, u: float, z_at) -> float:
+def section_v(p, s: float, u: float, z_at, toward: float = 0.0) -> float:
     """v of the point at offset u in station s's section plane whose
     elevation is z_at(station), read at the station where the point lies:
     the plane leans back v sin(gamma) along the road (frame.survey_point),
@@ -390,18 +390,19 @@ def section_v(p, s: float, u: float, z_at) -> float:
     `road_profile` and `alignment`. Fixed point, iterated until the step is
     under 1e-12 (the map contracts by about |g_z' sg / (cg scale)|, well
     under 1 at road grades); ValueError names the station if it does not
-    settle, or if the point is at or past the centre of curvature."""
+    settle, or if the point is at or past the centre of curvature. At a
+    PC or PT kappa is the `toward` side's (Alignment.curvature)."""
     prof = p.road_profile
     g = prof.grade(s)
     root = math.sqrt(1.0 + g * g)
     cg, sg = 1.0 / root, g / root
-    scale = 1.0 - p.alignment.curvature(s) * u
+    k = p.alignment.curvature(s, toward)
+    scale = 1.0 - k * u
     if scale <= MIN_CURVE_SCALE:
         raise ValueError(
             f"path: at {sta(s)} the point {u:.2f} ft out is at or beyond the "
             f"centre of curvature of a plan curve of radius "
-            f"{1.0 / abs(p.alignment.curvature(s)):.1f} ft (curvature factor "
-            f"{scale:.3g})")
+            f"{1.0 / abs(k):.1f} ft (curvature factor {scale:.3g})")
     z0 = prof.elev(s)
     v = (z_at(s) - z0) / cg
     for _ in range(SECTION_V_ROUNDS):
@@ -414,16 +415,16 @@ def section_v(p, s: float, u: float, z_at) -> float:
                      f"not settle in {SECTION_V_ROUNDS} rounds")
 
 
-def _centre(c, s: float) -> tuple:
+def _centre(c, s: float, toward: float = 0.0) -> tuple:
     """(u, v) of the paved path's centre at finished grade, station s."""
     from bimforge.author.corridor.section import grade_edge  # section imports path
     p = c.path
     u = grade_edge(c, s, p.side)[0] + p.sign * (p.separation_at(s) + 0.5 * p.width)
     half = 0.5 * p.width * p.cross_slope
-    return u, section_v(p, s, u, lambda st: p.profile.elev(st) + half)
+    return u, section_v(p, s, u, lambda st: p.profile.elev(st) + half, toward)
 
 
-def cos_theta(c, s: float, h: float = 0.01) -> float:
+def cos_theta(c, s: float, h: float = 0.01, toward: float = 0.0) -> float:
     """cos of the angle between station s's section plane's normal (the
     road's 3D tangent, frame.tangent3) and the paved centre's 3D tangent
     there: its grade against the road's, its drift as the separation
@@ -432,23 +433,41 @@ def cos_theta(c, s: float, h: float = 0.01) -> float:
     of order (h / R)^2 / 6 in direction, so about 1e-8 rad at R = 40 ft
     and h = 0.01, against 1e-6 at h = 0.5; round-off (coordinates near
     1e6 ft) is about 1e-10 / h. cos theta is within 1e-8 of an h = 1e-4
-    chord on R = 60 ft at 8 % and -6 %."""
+    chord on R = 60 ft at 8 % and -6 %.
+
+    theta steps where the road's curvature does (a PC, a PT): the path's
+    grade along its own length is its profile's over (1 - kappa u). With
+    `toward` +1 or -1 the tangent is the one on that side, the one-sided
+    difference (-3 P(s) + 4 P(s + h) - P(s + 2 h)) / 2h toward it (its
+    error O(h^2), as the chord's; its round-off about 4e-10 / h), so a
+    chord across the step does not average the two sides."""
     from bimforge.author.corridor.frame import survey_point, tangent3
     p = c.path
     al, prof = p.alignment, p.road_profile
-    a, b = (survey_point(al, prof, x, *_centre(c, x)) for x in (s - h, s + h))
-    d = [y - x for x, y in zip(a, b)]
+
+    def at(x):
+        return survey_point(al, prof, x, *_centre(c, x, toward))
+
+    if toward:
+        p0, p1, p2 = (at(s + toward * i * h) for i in (0, 1, 2))
+        d = [toward * (4.0 * y - 3.0 * x - z) for x, y, z in zip(p0, p1, p2)]
+    else:
+        a, b = at(s - h), at(s + h)
+        d = [y - x for x, y in zip(a, b)]
     t3 = tangent3(al, prof, s)
     return sum(x * y for x, y in zip(t3, d)) / math.sqrt(sum(x * x for x in d))
 
 
-def surface(c, s: float) -> Surface:
+def surface(c, s: float, toward: float = 0.0) -> Surface:
     """The path's finished surface at station s: the paved inner edge
     `separation` ft out from the road's outer edge of shoulder (so it moves
     out where the road widens) at the path's profile, the paved width at
     `cross_slope`, a shoulder each side at `shoulder.slope` falling away
     from the paved path. The inner shoulder is no wider than the
-    separation less STEP_FT, so near a deck q stays off the road."""
+    separation less STEP_FT, so near a deck q stays off the road. At a PC
+    or PT, `toward` +1 or -1 solves it on that side (section_v, cos_theta):
+    the courses' depth steps there, so a band ending at one and the band
+    starting at it read it each on its own side."""
     from bimforge.author.corridor.section import grade_edge  # section imports path
     p = c.path
     edge = grade_edge(c, s, p.side)
@@ -456,16 +475,16 @@ def surface(c, s: float) -> Surface:
     g = p.road_profile.grade(s)
     cg = 1.0 / math.sqrt(1.0 + g * g)
     ui = edge[0] + p.sign * sep
-    vi = section_v(p, s, ui, p.profile.elev)
+    vi = section_v(p, s, ui, p.profile.elev, toward)
 
     def at(du, dz):
         # solved in its own plane offset, at the path's profile + dz
         u = ui + p.sign * du
-        return (u, section_v(p, s, u, lambda st: p.profile.elev(st) + dz))
+        return (u, section_v(p, s, u, lambda st: p.profile.elev(st) + dz, toward))
 
     w, sw = p.width, p.shoulder_width
     inner_sw = min(sw, max(sep - STEP_FT, 0.0))
-    cos_t = cos_theta(c, s)
+    cos_t = cos_theta(c, s, toward=toward)
     return Surface(edge=edge, q=at(-inner_sw, p.shoulder_slope * inner_sw),
                    inner=(ui, vi), outer=at(w, p.cross_slope * w),
                    o=at(w + sw, p.cross_slope * w + p.shoulder_slope * sw),
@@ -562,13 +581,20 @@ def _no_fit(c, s: float, a: tuple, q: tuple, cg: float) -> str:
             f"for a wall there")
 
 
-def _widening(c, s: float, room: float) -> list:
+def _widening(c, s: float, hinge: tuple, room: float) -> list:
     """The road's guardrail widening (section._widening) on the path's
     side, held inside the strip: its hinge no farther out than STEP_FT
-    short of q."""
+    short of q. Where the strip has no room for it (q within GUARD_STEP_FT
+    + STEP_FT of the hinge: the path at the deck, beside its barrier) it
+    collapses onto `hinge` and the strip runs straight on to q: the first
+    point would stand at q's own offset, at finished grade, and the strip
+    would fold back down to q, a fold the earthwork's columns cannot
+    close."""
     from bimforge.author.corridor.params import WIDENING_SLOPE
     from bimforge.author.corridor.section import GUARD_STEP_FT, grade_edge
     p = c.path
+    if room < GUARD_STEP_FT + STEP_FT - _EPS:
+        return [hinge, hinge]
     eu, ev = grade_edge(c, s, p.side)
     far = max(min(c.guard.widening, room - STEP_FT), GUARD_STEP_FT)
     return [(eu + p.sign * w, ev - WIDENING_SLOPE * w) for w in (GUARD_STEP_FT, far)]
@@ -655,7 +681,7 @@ def _strip(c, s: float, sf: Surface, hinge: tuple, ground_dz,
     if guarded or (rail and c.guard is not None):
         # a rail's widening stands behind it whichever side is higher, as
         # V1.1's does on a cut (section._slope); the rest runs on to q
-        w = _widening(c, s, room)
+        w = _widening(c, s, hinge, room)
         rest = _ratio(w[-1], q, sf.cg)
         if not approach and _steeper(rest, p.strip_ratio):
             raise NoDaylight(_no_fit(c, s, w[-1], q, sf.cg), kind)
