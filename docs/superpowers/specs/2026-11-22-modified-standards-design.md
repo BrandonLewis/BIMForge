@@ -32,7 +32,7 @@ A modified standard, the plans' "(MOD)", is its standard class plus recorded dif
 - The build log lists every difference: `tables: 3 values differ from caltrans:b3-retaining-wall (2025): type_1_case_1.table.8.W_ft 6.5 -> 7.0, ...`.
 - A project file equal to the pack reports none, so every shipped example's IFC is unchanged.
 
-The baseline and the differences ride on the params as `params["tables_standard"]` (the pack's name and edition) and `params["tables_differences"]`, so a family reads them as it reads `tables`.
+The baseline's label (pack, edition, table) and the differences ride on the spec as `spec["_tables_standard"]` and `spec["_tables_differences"]`, not on the params, so the unread-params check never sees them. A family only says which table paths each element read (`Element.table_reads`); `build_from_spec` then gives every typed element its route and the differences it read (`modified.assign_routes`), keeping a route the family set itself (the barriers).
 
 ## Per element (M.8)
 
@@ -69,7 +69,8 @@ A new gate key `modified: warn | error | off` (default `warn`): `warn` prints ea
 ## Testing
 
 - `table_differences`: equal tables, a changed field, an added row, int vs float keys, text values.
-- B3 from the pack plus a project file changing row 8's W_ft: the 8 ft footing slices are `modified-by-value` with `W_ft 6.5 -> 7.0`, the stems and other heights `standard`; the build log lists the difference.
+- B3 from the pack plus a project file changing row 8's W_ft: the 8 ft footing slices are `modified-by-value` with `W_ft 6.5833 -> 7.0`, the stems and other heights `standard`; the build log lists the difference.
+- The shipped B3 examples' `caltrans-b3-tables.example.yaml` differs from the 2025 pack in 13 values (row 8 of Type 1, among them a vertical stem where the pack batters it): those examples' elements become `modified-by-value`, which is what they are.
 - Every shipped example's IFC is byte-identical apart from the new `BIMForge_Route` sets on typed elements (route `standard`), and `test_pack`'s pack-vs-example identity holds.
 - An 842 run with `stem_h_ft` changed is `modified-by-value`; with a `profile` ring, `modified-by-section`; both still classified as the 842 class.
 - `gate: {modified: error}` fails a modified build and passes a standard one.
