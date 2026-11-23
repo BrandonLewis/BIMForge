@@ -7,6 +7,7 @@ import pytest
 
 from bimforge.author.alignment import Alignment, Profile
 from bimforge.author.corridor.params import Gap, Guard, parse
+from bimforge.author.corridor.path import approaches, deck_elevation, on_approach
 
 AL = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0},
                [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 1000.0}],
@@ -218,8 +219,8 @@ def test_bad_course_shapes_are_value_errors(courses, match):
 
 @pytest.mark.parametrize("cs", [-0.01, -0.02, 0.01, 0.02])
 def test_cross_slope_boundaries_pass_and_a_positive_one_is_a_magnitude(cs):
-    # the sign is not read: the cross slope always falls away from the road
-    assert corridor(path(cross_slope=cs)).path.cross_slope == cs
+    # the sign is not read: the cross slope is stored falling away from the road
+    assert corridor(path(cross_slope=cs)).path.cross_slope == -abs(cs)
 
 
 @pytest.mark.parametrize("cs", [-0.0099, -0.0201, 0.0099, 0.0201])
@@ -282,7 +283,8 @@ def test_separation_rows_must_ascend():
 
 
 def test_path_at_inside_at_the_edge_of_and_outside_a_structure_gap():
-    c = corridor(gaps=[{"from": 1400, "to": 1500, "kind": "structure"}])
+    # a path beside a structure gap meets the deck at its ends (Task 3)
+    c = corridor(deck_path(), gaps=GAP)
     assert not c.path_at(1450.0)                      # on the deck
     assert c.path_at(1400.0) and c.path_at(1500.0)    # the gap's ends are sections
     assert c.path_at(1399.0) and c.path_at(1501.0)
@@ -297,3 +299,68 @@ def test_the_path_s_vertical_curve_ends_are_the_curves_own_stations():
     from bimforge.author.corridor.path import stations_extra
     c = corridor(path(profile=two_curves()))
     assert {1000.0, 1500.0, 2000.0} <= set(stations_extra(c))
+
+
+GAP = [{"from": 1400, "to": 1500, "kind": "structure"}]
+#: the deck at its paved edge on the level road: the left edge of shoulder
+#: (99.51) and the lane's -2 % over the 1.5 ft deck separation, 0.03 down
+DECK = 99.48
+#: 10 ft, narrowing over each 100 ft approach to the deck's 1.5 ft
+NARROW = [[1000, 10.0], [1300, 10.0], [1400, 1.5], [1500, 1.5], [1600, 10.0]]
+
+
+def deck_path(elev=DECK, separation=NARROW, **over):
+    return path(separation=separation, profile=grade(elev), **over)
+
+
+def test_an_approach_narrowing_to_the_deck_builds():
+    c = corridor(deck_path(), gaps=GAP)
+    assert approaches(c) == [(1300.0, 1400.0, 1400.0), (1500.0, 1600.0, 1500.0)]
+    assert on_approach(c, 1350.0) and on_approach(c, 1600.0)
+    assert not on_approach(c, 1250.0)
+    assert deck_elevation(c, 1400.0) == pytest.approx(DECK)
+    # the path is on the deck inside the gap: no section is cut there
+    assert c.path_at(1400.0) and not c.path_at(1450.0) and c.path_at(1500.0)
+
+
+def test_the_deck_takes_the_road_s_superelevation():
+    # +4 % on the left through the gap: the edge of shoulder 12 x 0.04 -
+    # 5 x 0.05 = +0.23 up, and +0.04 x 1.5 = +0.06 more to the path's edge
+    se = [[1000, 0.04, -0.04], [2000, 0.04, -0.04]]
+    c = corridor(deck_path(100.29), gaps=GAP, superelevation=se)
+    assert deck_elevation(c, 1500.0) == pytest.approx(100.29)
+
+
+@pytest.mark.parametrize("separation, match", [
+    ([[1000, 10.0], [1200, 4.0], [1300, 10.0], [1400, 1.5], [1500, 1.5],
+      [1600, 10.0]],
+     r"path\.separation: 4\.00 ft at 12\+00\.00 is under the 5 ft minimum "
+     r"\(HDM 1003\.1\(7\)\) outside an approach to a structure gap"),
+    # 5 ft at 12+80 to 1.5 at 14+00: 4.42 ft at 13+00, where the approach
+    # starts, so a hair outside it too
+    ([[1000, 10.0], [1280, 5.0], [1400, 1.5], [1500, 1.5], [1600, 10.0]],
+     r"path\.separation: 4\.42 ft at 13\+00\.00 is under the 5 ft minimum"),
+    ([[1000, 10.0], [1300, 10.0], [1350, 1.0], [1400, 1.5], [1500, 1.5],
+      [1600, 10.0]],
+     r"path\.separation: 1\.00 ft at 13\+50\.00 is under deck_separation_ft 1\.5"),
+    ([[1000, 10.0]],
+     r"path\.separation: 10\.00 ft at the structure gap's end 14\+00\.00 is not "
+     r"deck_separation_ft 1\.5"),
+])
+def test_bad_separations_are_refused(separation, match):
+    with pytest.raises(ValueError, match=match):
+        corridor(deck_path(separation=separation), gaps=GAP)
+
+
+def test_a_path_0_02_ft_off_the_deck_is_refused_and_0_005_builds():
+    with pytest.raises(ValueError, match=(
+            r"path\.profile: at the structure gap's end 14\+00\.00 the path is "
+            r"at 99\.5000 ft and the deck at its paved edge 99\.4800 ft, "
+            r"0\.0200 ft off \(more than 0\.01 ft\)")):
+        corridor(deck_path(DECK + 0.02), gaps=GAP)
+    corridor(deck_path(DECK + 0.005), gaps=GAP)
+
+
+def test_a_gap_off_the_path_s_stations_is_no_approach():
+    c = corridor(path(stations=[1000, 1300]), gaps=GAP)
+    assert approaches(c) == []

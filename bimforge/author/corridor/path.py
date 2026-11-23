@@ -59,7 +59,7 @@ class Path:
     separation: tuple              # ((station, ft), ...): the road's outer
                                    # edge of shoulder to the paved inner edge
     width: float                   # paved, feet
-    cross_slope: float             # one way; parse takes the magnitude as falling
+    cross_slope: float             # negative: parse takes the magnitude, falling
                                    # away from the road, whatever sign is given
     shoulder_width: float          # each graded shoulder, feet
     shoulder_slope: float          # negative: down away from the paved path
@@ -193,6 +193,7 @@ def parse_path(pp, c, alignment, profile) -> Path:
     if not CROSS_SLOPE[0] - _EPS <= abs(cs) <= CROSS_SLOPE[1] + _EPS:
         raise ValueError(f"path.cross_slope: {cs:g} is outside 1-2 % "
                          f"(HDM 1003.1(16), DIB 82)")
+    cs = -abs(cs)                  # always falling away from the road
     sh = pp.get("shoulder") or {}
     if not isinstance(sh, dict):
         raise ValueError("path.shoulder: a mapping ({width, slope})")
@@ -249,6 +250,44 @@ def stations_extra(c) -> list:
     return out
 
 
+def approaches(c) -> list:
+    """[(a, b, end)]: the stretches within approach_ft of a structure gap's
+    end on the path's stations, where the separation may narrow to the
+    deck's (HDM 1003.1(7)); `end` is the gap end each leads to."""
+    p = c.path
+    out = []
+    for g in c.gaps:
+        if g.kind != "structure":
+            continue
+        if p.covers(g.start):
+            out.append((g.start - p.approach, g.start, g.start))
+        if p.covers(g.end):
+            out.append((g.end, g.end + p.approach, g.end))
+    return out
+
+
+def on_approach(c, s: float) -> bool:
+    return any(a - _EPS <= s <= b + _EPS for a, b, _e in approaches(c))
+
+
+def deck_elevation(c, s: float) -> float:
+    """The deck at the path's paved edge at station s: the road's edge of
+    shoulder, then the road's cross slope there (superelevation included)
+    over the separation."""
+    from bimforge.author.corridor.section import grade_edge
+    p = c.path
+    prof = p.road_profile
+    g = prof.grade(s)
+    _u, v = grade_edge(c, s, p.side)
+    return (prof.elev(s) + v / math.sqrt(1.0 + g * g)
+            + c.cross_slope(p.side, s) * p.separation_at(s))
+
+
+def _on_deck(c, s: float) -> bool:
+    return any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
+               for g in c.gaps)
+
+
 def validate(c) -> None:
     """The path's checks that need the whole corridor `c`; ValueError names
     the field and the station."""
@@ -261,3 +300,38 @@ def validate(c) -> None:
                 f"gaps: a listed wall gap on the {g.side} side, {sta(g.start)} to "
                 f"{sta(g.end)}, overlaps the path's stations ({sta(p.s_start)} to "
                 f"{sta(p.s_end)}): its offset would be ambiguous; use walls: auto")
+    zones = approaches(c)
+    near = 1e-6                    # just outside an approach
+    at = {s for s, _v in p.separation} | {p.s_start, p.s_end}
+    for a, b, _e in zones:
+        at |= {a, b, a - near, b + near}
+    for g in c.gaps:
+        if g.kind == "structure":
+            at |= {g.start, g.end}
+    for s in sorted(at):
+        if not p.covers(s) or _on_deck(c, s):
+            continue
+        sep = p.separation_at(s)
+        at_s = sta(round(s, 2))    # the hair outside an approach prints as its edge
+        if sep < p.deck_separation - _EPS:
+            raise ValueError(f"path.separation: {sep:.2f} ft at {at_s} is under "
+                             f"deck_separation_ft {p.deck_separation:g}")
+        if (sep < MIN_SEPARATION_FT - _EPS
+                and not any(a - _EPS <= s <= b + _EPS for a, b, _e in zones)):
+            raise ValueError(
+                f"path.separation: {sep:.2f} ft at {at_s} is under the "
+                f"{MIN_SEPARATION_FT:g} ft minimum (HDM 1003.1(7)) outside an "
+                f"approach to a structure gap")
+    for e in sorted({e for _a, _b, e in zones}):
+        sep = p.separation_at(e)
+        if abs(sep - p.deck_separation) > MEET_TOL_FT:
+            raise ValueError(
+                f"path.separation: {sep:.2f} ft at the structure gap's end "
+                f"{sta(e)} is not deck_separation_ft {p.deck_separation:g}: the "
+                f"path meets the deck there")
+        got, deck = p.profile.elev(e), deck_elevation(c, e)
+        if abs(got - deck) > MEET_TOL_FT:
+            raise ValueError(
+                f"path.profile: at the structure gap's end {sta(e)} the path is at "
+                f"{got:.4f} ft and the deck at its paved edge {deck:.4f} ft, "
+                f"{abs(got - deck):.4f} ft off (more than {MEET_TOL_FT:g} ft)")
