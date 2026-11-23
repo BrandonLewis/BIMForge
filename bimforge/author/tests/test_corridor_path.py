@@ -929,15 +929,13 @@ def test_a_path_on_a_graded_curve_is_its_path_box():
     # a 500 ft right curve at 7 %, the path on the right 10 ft out and
     # parallel: its centre about 33 ft out, where V1.1's road courses miss
     # by (kappa g r)^2 / 2 = 1.1e-5; theta takes the twist in as well.
-    # What it misses by, 9.4e-7, is nearly all the alignment's own: the
-    # arc, 500 x 11-27-33 = 100.000094 ft, is stationed over 100 ft, so a
-    # point moves 1 + 9.4e-7 ft per station where pappus takes 1. On an arc
-    # stationed at its length the box holds to 1e-8.
+    # The arc is stationed at its length on purpose: 500 x 0.2 rad = 100 ft
     al = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0},
                    [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 100.0},
-                    {"kind": "curve", "delta": "11-27-33", "radius": 500.0,
-                     "turn": "R", "length": 100.0},
-                    {"kind": "tangent", "bearing": "N 11-27-33 E", "length": 800.0}],
+                    {"kind": "curve", "delta": "11-27-32.961249419",
+                     "radius": 500.0, "turn": "R", "length": 100.0},
+                    {"kind": "tangent", "bearing": "N 11-27-32.961249419 E",
+                     "length": 800.0}],
                    name="C")
     road = Profile(grade(100.0, pct=7.0)["curves"])
     params = copy.deepcopy(BASE)
