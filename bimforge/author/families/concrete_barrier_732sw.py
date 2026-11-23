@@ -170,7 +170,10 @@ _TEMPLATE = BarrierTemplate(
     endblock_len_ft=ENDBLOCK_LEN, default_run_name="732SW",
     section_fn=_section_732, rebar_fn=_rebar_732,
     endblock_fn=_endblock_732, extras_fn=_extras_732,
-    endblock_rings_fn=_endblock_rings_732)
+    endblock_rings_fn=_endblock_rings_732,
+    # the deck's cross slope is where the barrier sits, not a Mod (M.8)
+    standard_dims={k: v for k, v in SECTION_DEFAULTS.items()
+                   if k != "deck_slope_pct"})
 
 
 def template() -> BarrierTemplate:
