@@ -110,7 +110,9 @@ def ground_reach(c) -> float:
     if c.path is not None:
         p = c.path
         # the road's widest side, the path's farthest separation, its paved
-        # width and both shoulders, then the daylight limit
+        # width and both shoulders, then the daylight limit: conservative,
+        # as the widest side and the farthest separation need not be at
+        # one station, and the strip lies inside it
         far = max(v for _s, v in p.separation) + p.width + 2.0 * p.shoulder_width
         out = max(out, half + far + c.slopes.daylight_limit)
     return out
@@ -181,8 +183,8 @@ def path_part(segment: dict, r: int) -> dict:
 def path_runs(secs: list, breaks=()) -> list:
     """[(i0, i1)]: the index ranges of `secs` (one band's sections) the path
     is built over: consecutive sections that carry it, two at least, cut
-    again at each station of `breaks` (the alignment's segment ends inside
-    the band: the path's courses step there, path_rings). Each break must
+    again at each station of `breaks` (curvature_steps inside the band: the
+    path's courses step there, path_rings). Each break must
     be a section's station, as geometry_stations makes it; one that is not
     is a ValueError, as a stretch across it would blend over the step."""
     from bimforge.author.alignment import sta
@@ -209,17 +211,25 @@ def path_runs(secs: list, breaks=()) -> list:
     return out
 
 
+def curvature_steps(al, s0: float, s1: float) -> list:
+    """The alignment's segment ends strictly inside (s0, s1) where its
+    curvature steps (a PC, a PT, a curve into one of another radius): not
+    a join of two tangents, or of two curves alike."""
+    return [b for b in al.seg_breaks(s0, s1)
+            if al.curvature(b, 1.0) != al.curvature(b, -1.0)]
+
+
 def at_break(al, s: float) -> bool:
-    """Whether station s is one of the alignment's segment ends (a PC, a
-    PT, a change of curvature), within STATION_TOL_FT."""
+    """Whether station s is one of curvature_steps, within STATION_TOL_FT."""
     return any(abs(s - b) <= STATION_TOL_FT
-               for b in al.seg_breaks(s - 1.0, s + 1.0))
+               for b in curvature_steps(al, s - 1.0, s + 1.0))
 
 
 def path_rings(c, al, ss: list, bs: list) -> list:
     """[[ring per station] per path course] over one stretch of a band:
-    each section's own (section.Section.path), but at an alignment segment
-    end the stretch starts or ends on (a PC, a PT), the ring on the
+    each section's own (section.Section.path), but at a step in the
+    alignment's curvature the stretch starts or ends on (a PC, a PT;
+    curvature_steps), the ring on the
     stretch's own side (path.surface's `toward`). The road's curvature
     steps there, and with it the path's grade along its own length and
     theta: a ring read across the step (the section's, its chord over
@@ -659,8 +669,9 @@ def build(params: dict, ctx) -> "StructureModel":
                         (f"{name}: exact volume vs average end area", vol, aea,
                          AEA_TOL * max(aea, 1.0)))
             if c.path is not None:
-                # cut at the alignment's segment ends as well: theta steps
-                for p0, p1 in path_runs(bs, al.seg_breaks(b0, b1)):
+                # cut where the alignment's curvature steps as well: so
+                # does theta
+                for p0, p1 in path_runs(bs, curvature_steps(al, b0, b1)):
                     add_path_courses(model, c, al, prof, ctx, ss[p0:p1 + 1],
                                      bs[p0:p1 + 1], path_part(segment, r), log)
             cut, fill, cut_d, fill_d = [], [], 0.0, 0.0

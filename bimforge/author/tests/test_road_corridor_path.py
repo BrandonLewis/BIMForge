@@ -271,3 +271,34 @@ def test_path_runs_cut_at_a_segment_end_and_refuse_one_with_no_section():
     assert path_runs(secs(0, 1, 1, 0, 1, 1)) == [(1, 2), (4, 5)]
     with pytest.raises(ValueError, match=r"segment end at 10\+40.00 is no section"):
         path_runs(secs(1, 1, 1), [1040.0])
+
+
+def test_only_a_step_in_curvature_is_a_break():
+    from bimforge.author.alignment import Alignment
+    from bimforge.author.families.road_corridor import at_break, curvature_steps
+    pob = {"station": 1000.0, "northing": 0.0, "easting": 0.0}
+    arc = {"kind": "curve", "delta": "5-43-46.480624710", "radius": 500.0,
+           "turn": "L", "length": 50.0}
+    al = Alignment(pob, [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 100.0},
+                         {"kind": "tangent", "bearing": "N 0-0-0 E", "length": 100.0},
+                         arc, dict(arc),
+                         dict(arc, radius=1000.0, delta="2-51-53.240312355")])
+    # two tangents meet at 11+00, two like arcs at 12+50: no step there
+    assert al.seg_breaks(1000.0, 1350.0) == [1100.0, 1200.0, 1250.0, 1300.0]
+    assert curvature_steps(al, 1000.0, 1350.0) == [1200.0, 1300.0]
+    assert [at_break(al, s) for s in (1100.0, 1200.0, 1250.0, 1300.0)] == [
+        False, True, False, True]
+
+
+def test_the_one_sided_tangent_refuses_a_stencil_across_a_segment_end():
+    from bimforge.author.alignment import Alignment, Profile
+    from bimforge.author.corridor.params import parse
+    from bimforge.author.corridor.path import cos_theta
+    al_p = CURVE["alignment"]
+    al = Alignment(al_p["pob"], al_p["run"], name="ML")
+    prof = Profile(CURVE["profile"]["curves"])
+    c = parse(copy.deepcopy(CURVE), al.s_start, al.s_end, alignment=al, profile=prof)
+    cos_theta(c, 1125.0, toward=1.0)
+    cos_theta(c, 1124.98, toward=-1.0)
+    with pytest.raises(ValueError, match=r"11\+24.99.*reaches past a segment end"):
+        cos_theta(c, 1124.99, toward=1.0)

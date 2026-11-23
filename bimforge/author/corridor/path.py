@@ -391,7 +391,11 @@ def section_v(p, s: float, u: float, z_at, toward: float = 0.0) -> float:
     under 1e-12 (the map contracts by about |g_z' sg / (cg scale)|, well
     under 1 at road grades); ValueError names the station if it does not
     settle, or if the point is at or past the centre of curvature. At a
-    PC or PT kappa is the `toward` side's (Alignment.curvature)."""
+    PC or PT kappa is the `toward` side's (Alignment.curvature), taken for
+    the whole plane: an idealisation, since a point the plane leans onto
+    may lie on the other side of the PC (its station is s - v sg / scale),
+    which shifts it by about g (v sg) kappa u, 1e-4 ft at 3 %, v = -0.5 ft
+    and kappa u = 0.07."""
     prof = p.road_profile
     g = prof.grade(s)
     root = math.sqrt(1.0 + g * g)
@@ -449,6 +453,13 @@ def cos_theta(c, s: float, h: float = 0.01, toward: float = 0.0) -> float:
         return survey_point(al, prof, x, *_centre(c, x, toward))
 
     if toward:
+        # the stencil reads s to s + 2h on `toward`'s side: no segment end
+        # may lie inside it, or it reads across the step it is there to
+        # keep out of (the alignment's segments are far longer than 2h)
+        if any(0.0 < toward * (b - s) <= 2.0 * h + 1e-9
+               for b in al.seg_breaks(s - 2.0 * h - 1.0, s + 2.0 * h + 1.0)):
+            raise ValueError(f"path: at {sta(s)} the one-sided tangent's "
+                             f"{2.0 * h:g} ft reaches past a segment end")
         p0, p1, p2 = (at(s + toward * i * h) for i in (0, 1, 2))
         d = [toward * (4.0 * y - 3.0 * x - z) for x, y, z in zip(p0, p1, p2)]
     else:
