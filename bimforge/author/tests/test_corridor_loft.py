@@ -1,9 +1,11 @@
 """StationLoft and the corridor frame (P.6)."""
+import math
+
 import pytest
 
 from bimforge.author.alignment import Alignment, Profile
 from bimforge.author.corridor.frame import densify, survey_point
-from bimforge.author.corridor.loft import StationLoft
+from bimforge.author.corridor.loft import StationLoft, pappus
 from bimforge.author.primitives import exact_of
 from bimforge.author.sweep import MAX_ARC_STEP_RAD
 
@@ -192,3 +194,107 @@ def test_a_drawn_loft_passes_the_exact_sweep_check(tmp_path):
     emit_ifc(m, str(out))
     assert gate._exact_sweep_names(out) == {"course"}
     assert gate._ifc_exact_sweep_check(m, out) == []
+
+
+#: 10 degrees of a 500 ft curve: 500 x pi / 18 = 87.266463 ft
+LS = 500.0 * math.pi / 18.0
+SHOULDER = [(12.0, -0.24), (17.0, -0.49), (17.0, -0.89), (12.0, -0.64)]
+LANE = [(0.0, 0.0), (12.0, -0.24), (12.0, -0.64), (0.0, -0.4), (-12.0, -0.64),
+        (-12.0, -0.24)]
+
+
+def arc():
+    """10 ft tangent, 10 degrees of a 500 ft right curve, 10 ft tangent: the
+    curve's length is its radius x delta exactly."""
+    return Alignment(POB, [
+        {"kind": "tangent", "bearing": "N 0-0-0 E", "length": 10.0},
+        {"kind": "curve", "delta": "10-0-0", "radius": 500.0, "turn": "R",
+         "length": LS},
+        {"kind": "tangent", "bearing": "N 10-0-0 E", "length": 10.0}], name="A")
+
+
+def _on_the_curve(ring):
+    al, prof = arc(), level(grade_pct=2.0)
+    ss = densify(al, prof, [10.0, 10.0 + LS])
+    return StationLoft("c", al, prof, None, ss, [ring] * len(ss))
+
+
+def test_a_shoulder_on_a_curve_at_2_percent_is_its_area_times_its_centroid_s_path():
+    lf = _on_the_curve(SHOULDER)
+    p = pappus([lf])
+    # A = 5 x 0.4 = 2.0 sf; centroid (14.5, -0.565), left of a right curve
+    # (kappa = -1/500). sqrt(1 + 0.02^2) = 1.00019998, cos = 0.99980006.
+    # V = A x LS x (1.00019998 + 14.5 / 500 x 0.99980006)
+    #   = 2.0 x 87.266463 x 1.02919418 = 179.628271 cf
+    assert (p.offset_ft, p.height_ft) == pytest.approx((14.5, -0.565))
+    assert lf.volume_cf == pytest.approx(179.628271, rel=1e-8)
+    # the centroid's line is a helix: 87.266463 x 514.5 / 500 = 89.797190 ft
+    # in plan, rising 0.02 x 87.266463 = 1.745329 ft:
+    # sqrt(89.797190^2 + 1.745329^2) = 89.814150 ft
+    assert p.path_ft == pytest.approx(89.814150, rel=1e-8)
+    # PathLength x Width x Thickness = 89.814150 x 5 x 0.4 = 179.628300:
+    # 1.6e-7 over the volume, inside the gate's 1e-6
+    assert abs(p.path_ft * 5.0 * 0.4 - lf.volume_cf) <= 1e-6 * lf.volume_cf
+    # the mesh, chorded over 3 bays of 3.33 degrees, is 5.6e-4 short:
+    # inside 0.5%
+    assert lf.faceted_volume_cf < lf.volume_cf
+    assert lf.faceted_volume_cf == pytest.approx(lf.volume_cf, rel=5e-3)
+
+
+def test_a_lane_across_the_crown_rides_the_profile_grade_line():
+    lf = _on_the_curve(LANE)
+    p = pappus([lf])
+    # A = 24 x 0.4 = 9.6 sf, centroid (0, -0.32): on the centreline, so the
+    # curve does not lengthen it: PathLength = 87.266463 x 1.00019998 =
+    # 87.283914 ft; V = 9.6 x 87.283914 = 837.925576 cf
+    assert (p.offset_ft, p.height_ft) == pytest.approx((0.0, -0.32), abs=1e-12)
+    assert p.path_ft == pytest.approx(87.283914, rel=1e-8)
+    assert lf.volume_cf == pytest.approx(837.925576, rel=1e-8)
+    assert p.path_ft * 24.0 * 0.4 == pytest.approx(lf.volume_cf, rel=1e-9)
+
+
+def test_an_element_s_bodies_both_sides_share_one_centroid():
+    al, prof = arc(), level(grade_pct=2.0)
+    ss = densify(al, prof, [10.0, 10.0 + LS])
+    right = [(-u, v) for u, v in SHOULDER]
+    lofts = [StationLoft(n, al, prof, None, ss, [r] * len(ss))
+             for n, r in (("L", SHOULDER), ("R", right))]
+    p = pappus(lofts)
+    # left at +14.5 and right at -14.5, equal areas: the centroid on the line
+    assert p.offset_ft == pytest.approx(0.0, abs=1e-12)
+    assert p.volume_cf == pytest.approx(sum(lf.volume_cf for lf in lofts), rel=1e-12)
+    assert [round(w, 9) for w in lofts[0].widths_ft] == [5.0] * len(ss)
+
+
+def test_a_vertical_curve_s_grade_change_bends_the_section_planes():
+    # a crest on a tangent: the section planes close in below the grade
+    # line (gamma' < 0), so a slab under it holds less than its area times
+    # the grade line's length; pappus integrates that, and a fine mesh of
+    # the same solid agrees
+    al = line(200.0)
+    prof = Profile([{"bvc_station": 50.0, "bvc_elev": 100.0, "g_in_pct": 4.0,
+                     "g_out_pct": -4.0, "length_ft": 100.0,
+                     "evc_station": 150.0, "evc_elev": 100.0}])
+    ss = [50.0 + i for i in range(101)]
+    lf = StationLoft("slab", al, prof, None, ss, [RECT] * len(ss))
+    along = sum(math.hypot(b - a, prof.elev(b) - prof.elev(a))
+                for a, b in zip(ss, ss[1:]))
+    assert lf.volume_cf < 10.0 * along
+    assert lf.volume_cf == pytest.approx(lf.faceted_volume_cf, rel=1e-6)
+
+
+def test_pappus_refuses_lofts_on_different_stations():
+    a = StationLoft("a", line(), level(), None, [0.0, 50.0, 100.0], [RECT] * 3)
+    b = StationLoft("b", line(), level(), None, [0.0, 100.0], [RECT] * 2)
+    with pytest.raises(ValueError, match="a: pappus needs lofts on the same stations"):
+        pappus([a, b])
+
+
+def test_the_mean_width_is_weighted_by_station_length():
+    # 10 ft wide over the first 90 ft, widening to 20 ft over the last 10:
+    # (90 x 10 + 10 x 15) / 100 = 10.5 ft, not the stations' mean 13.33
+    wide = [(10.0, 0.0), (-10.0, 0.0), (-10.0, -1.0), (10.0, -1.0)]
+    lf = StationLoft("w", line(), level(), None, [0.0, 90.0, 100.0],
+                     [RECT, RECT, wide])
+    assert lf.widths_ft == pytest.approx([10.0, 10.0, 20.0])
+    assert lf.mean_width_ft == pytest.approx(10.5)

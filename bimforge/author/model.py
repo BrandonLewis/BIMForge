@@ -129,11 +129,13 @@ class Element:
     #: domain, is written as that IFC measure in the file's metres.
     psets: dict = field(default_factory=dict)
     #: The class's standard quantity set (roadmap M.17), {set name:
-    #: {quantity name: (measure, value)}}, measure one of "length", "area",
-    #: "volume", values in the feet domain: emit_ifc writes each as an
-    #: IfcElementQuantity beside Qto_BaseQuantities, which consumers read
-    #: until M.17 retires it ({"Qto_CourseBaseQuantities": {"Thickness":
-    #: ("length", 0.4)}}).
+    #: {quantity name: (measure, value) or (measure, value, formula)}},
+    #: measure one of "length", "area", "volume", values in the feet
+    #: domain: emit_ifc writes each as an IfcElementQuantity beside
+    #: Qto_BaseQuantities, which consumers read until M.17 retires it, a
+    #: formula as the quantity's Formula (M.3), over names in the same set or
+    #: the element's BIMForge_Dimensions ({"Qto_CourseBaseQuantities":
+    #: {"Length": ("length", 100.0, "EndStation - StartStation")}}).
     standard_qto: dict = field(default_factory=dict)
     #: The element this one is a PART of (IfcRelAggregates), by name: a
     #: post or rail of a handrail run, an end block of a barrier run. The
@@ -277,6 +279,12 @@ class StructureModel:
     #: A road corridor's mass-haul table (corridor.masshaul.HaulRow per
     #: station band), written to `outputs.masshaul` as a CSV; [] otherwise.
     mass_haul: list = field(default_factory=list)
+    #: Tables a family writes as CSV outputs, {output key: CSV text}: a
+    #: road corridor's "walls" and "structures" (walls: auto) and
+    #: "guardrail" (a steep fill rule or a guardrail: block); {} otherwise.
+    #: The registry writes each to outputs.<key> and refuses an output
+    #: key the model has no table for.
+    tables: dict = field(default_factory=dict)
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

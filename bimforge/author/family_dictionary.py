@@ -90,6 +90,9 @@ DIMENSIONS = "BIMForge_Dimensions"
 MEASURES = {"length": ("IfcLengthMeasure", True),
             "ratio": ("IfcRatioMeasure", False)}
 
+#: A dictionary property whose DataType is String: written as text, unscaled
+TEXT = ("IfcLabel", False)
+
 
 def dimensions(code: str) -> list:
     """The dimension properties a class declares, by Code, in order."""
@@ -97,10 +100,19 @@ def dimensions(code: str) -> list:
             if cp.get("PropertySet") == DIMENSIONS]
 
 
+def required_dimensions(code: str) -> list:
+    """The dimension properties a class requires (IsRequired, true unless
+    the class says false), by Code, in order."""
+    return [cp["PropertyCode"] for cp in _class(code).get("ClassProperties", [])
+            if cp.get("PropertySet") == DIMENSIONS and cp.get("IsRequired", True)]
+
+
 def measure(prop: str) -> tuple:
     """(IFC measure type, scales by the foot) of a dictionary property."""
     for p in _document()["Properties"]:
         if p["Code"] == prop:
+            if p.get("DataType") == "String":
+                return TEXT
             return MEASURES[p["PhysicalQuantity"]]
     raise KeyError(f"no property {prop!r} in the family dictionary "
                    f"({DICTIONARY.name})")

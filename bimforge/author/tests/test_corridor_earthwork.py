@@ -211,3 +211,150 @@ def test_bases_meeting_at_a_point_have_two_outlines():
     assert tuple(got[0]) in _rotations([0, 1, 2])
     assert tuple(got[1]) in _rotations([2, 3, 4])
     assert tuple(got[2]) in _rotations([5, 6, 7, 8])
+
+
+ROCK = parse({"section": {**SECTION, "side_slopes": {
+    "cut": {"ratio": 2.0, "ditch": {"width": 4.0, "depth": 1.5},
+            "rock": {"depth_ft": 8.0, "ratio": 0.5, "bench_ft": 6.0}},
+    "fill": {"ratio": 2.0}}}}, 0.0, 100.0)
+
+
+def assert_one_closed_body(columns):
+    """`columns` merge into one closed mesh, each edge shared by exactly
+    two triangles, holding the columns' volume."""
+    bodies = earthwork.merge("t", "cut", columns)
+    assert len(bodies) == 1
+    tris = bodies[0].tris
+    edges = Counter(frozenset(e) for a, b, c in tris
+                    for e in ((a, b), (b, c), (c, a)))
+    assert set(edges.values()) == {2}
+    assert bodies[0].volume_cf == pytest.approx(
+        sum(p.volume_cf for p in columns), rel=1e-9)
+
+
+def test_a_rock_cut_with_its_bench_merges_into_one_closed_body():
+    # ground at 115, 15 ft over the PGL; hinge (10, -1), ditch (13, -2.5) to
+    # (17, -2.5), rock at v = 7: the face rises 9.5 ft in 4.75 ft to
+    # (21.75, 7), the bench to (27.75, 7), the soil 8 ft in 16 to (43.75, 15).
+    # Depths under the ground, each side: 10 x 16 + 3 x 16.75 + 4 x 17.5
+    # + 4.75 x 12.75 + 6 x 8 + 16 x 4 = 452.8125 sf; both sides over
+    # 100 ft: 90,562.5 cf
+    ground = PlaneGround(115.0)
+    a, b = sections(ground, ROCK)
+    assert a.sides["L"].line[4] == pytest.approx((27.75, 7.0))
+    cut, fill, _cd, _fd = earthwork.strip("t", a, b, survey, ground.z, None)
+    assert fill == []
+    assert sum(p.volume_cf for p in cut) == pytest.approx(90562.5, rel=1e-9)
+    assert_closed(cut)
+    assert_one_closed_body(cut)
+
+
+def test_a_bench_appearing_between_stations_merges_into_one_closed_body():
+    # ground 105 at 0+00, rising 1 in 10 to 115 at 1+00: the ditch's edge
+    # (v -2.5) is 7.5 ft under the ground at 0+00, inside the 8 ft of soil,
+    # so the bench is collapsed onto it; at 1+00 it is 17.5 ft under, and
+    # the face and bench stand as above
+    ground = PlaneGround(105.0, slope_n=0.1)
+    a, b = sections(ground, ROCK)
+    assert a.sides["L"].line[3] == a.sides["L"].line[4] == pytest.approx((17.0, -2.5))
+    assert b.sides["L"].line[4] == pytest.approx((27.75, 7.0))
+    cut, fill, _cd, _fd = earthwork.strip("t", a, b, survey, ground.z, None)
+    assert fill == []
+    assert_closed(cut)
+    assert_one_closed_body(cut)
+
+
+def flat(points):
+    return [c for p in points for c in p]
+
+
+#: ROCK whose faces bench every 10 ft of height, 4 ft wide (up to the
+#: default 4), a face taller than 10 ft taking a 6 ft wide, 3 ft deep ditch
+TALL_ROCK = parse({"section": {**SECTION, "side_slopes": {
+    "cut": {"ratio": 2.0, "ditch": {"width": 4.0, "depth": 1.5},
+            "rock": {"depth_ft": 8.0, "ratio": 0.5, "bench_ft": 6.0,
+                     "face_bench": {"every_ft": 10.0, "width_ft": 4.0},
+                     "catchment": {"width_ft": 6.0, "depth_ft": 3.0}}},
+    "fill": {"ratio": 2.0}}}}, 0.0, 100.0)
+
+
+def test_a_benched_rock_cut_merges_into_one_closed_body():
+    # ground at 135, 35 ft over the PGL; rock at v = 27. With the ditch the
+    # face would rise 29.5 ft from (17, -2.5), over 10 ft, so the ditch is
+    # the catchment's: (10, -1) down 3 ft at 2:1 to (16, -4), 6 ft across to
+    # (22, -4). The face rises 31 ft: benches at v = 6, 16 and 26, (27, 6)
+    # to (31, 6), (36, 16) to (40, 16), (45, 26) to (49, 26), then 1 ft to
+    # (49.5, 27); the soil bench to (55.5, 27) and the soil 8 ft in 16 to
+    # (71.5, 35). Depths under the ground, each side: 10 x 36 + 6 x 37.5
+    # + 6 x 39 + 5 x 34 + 4 x 29 + 5 x 24 + 4 x 19 + 5 x 14 + 4 x 9
+    # + 0.5 x 8.5 + 6 x 8 + 16 x 4 = 1523.25 sf; both sides over 100 ft:
+    # 304,650 cf
+    ground = PlaneGround(135.0)
+    a, b = sections(ground, TALL_ROCK)
+    assert flat(a.sides["L"].line[2:12]) == pytest.approx(flat(
+        [(22.0, -4.0), (27.0, 6.0), (31.0, 6.0), (36.0, 16.0), (40.0, 16.0),
+         (45.0, 26.0), (49.0, 26.0), (49.5, 27.0), (49.5, 27.0), (49.5, 27.0)]))
+    cut, fill, _cd, _fd = earthwork.strip("t", a, b, survey, ground.z, None)
+    assert fill == []
+    assert sum(p.volume_cf for p in cut) == pytest.approx(304650.0, rel=1e-9)
+    assert_closed(cut)
+    assert_one_closed_body(cut)
+
+
+@pytest.mark.parametrize("at_0", [
+    # 0+00 at 115: the 9.5 ft face from the ditch's edge (17, -2.5) takes no
+    # bench and no catchment; its four benches collapse onto its top
+    115.0,
+    # 0+00 at 105: the ditch's edge is 7.5 ft under, in soil; the face, its
+    # benches and the soil bench collapse onto the toe
+    105.0,
+])
+def test_benches_appearing_between_stations_merge_into_one_closed_body(at_0):
+    # rising to 135 at 1+00: three benches and the catchment, as above
+    ground = PlaneGround(at_0, slope_n=(135.0 - at_0) / 100.0)
+    a, b = sections(ground, TALL_ROCK)
+    top = (21.75, 7.0) if at_0 == 115.0 else (17.0, -2.5)
+    assert flat(a.sides["L"].line[3:12]) == pytest.approx(flat([top] * 9))
+    assert b.sides["L"].line[3] == pytest.approx((27.0, 6.0))
+    assert len(a.earthwork_line()) == len(b.earthwork_line())
+    cut, fill, _cd, _fd = earthwork.strip("t", a, b, survey, ground.z, None)
+    assert fill == []
+    assert_closed(cut)
+    assert_one_closed_body(cut)
+
+
+def test_a_listed_wall_turning_into_a_guarded_fill_merges_into_one_closed_body():
+    # a listed left wall to 0+50, 30 ft out; past it, ground 15 ft under
+    # the PGL, 14 ft of fill at the hinge (10, -1): over 10 ft, so 2:1
+    # behind the widening. The wall's line keeps the widening's two points,
+    # collapsed on the hinge, so its level run lofts to the guarded slope
+    # and not up onto the widening
+    import copy
+    sec = copy.deepcopy(SECTION)
+    sec["side_slopes"]["fill"] = {"ratio": 4.0,
+                                  "steep": {"ratio": 2.0, "above_height_ft": 10.0}}
+    c = parse({"section": sec, "gaps": [{"from": 0, "to": 50, "kind": "wall",
+                                         "side": "L", "offset": 30.0}]}, 0.0, 100.0)
+    ground = PlaneGround(85.0)
+
+    def dz(s, u, v):
+        n, e, z = survey(s, u, v)
+        return ground.z(n, e) - z
+
+    a, b = resolve(c, 50.0, dz), resolve(c, 51.0, dz)
+    assert a.sides["L"].line == [(10.0, -1.0)] * 3 + [(30.0, -1.0)]
+    assert b.sides["L"].guarded
+    _cut, fill, _cd, _fd = earthwork.strip("t", a, b, survey, ground.z, None)
+    bodies = earthwork.merge("t", "fill", fill)
+    assert len(bodies) == 1
+    edges = Counter(frozenset(e) for x, y, z in bodies[0].tris
+                    for e in ((x, y), (y, z), (z, x)))
+    assert set(edges.values()) == {2}
+
+
+def test_the_plan_area_of_columns_is_their_bases():
+    from bimforge.author.primitives import Prismatoid
+    # two columns on a 10 x 10 ft right triangle: 50 sf each
+    p = Prismatoid("t", [(0, 0, 0), (10, 0, 0), (0, 10, 0)],
+                   [(0, 0, 1), (10, 0, 1), (0, 10, 1)])
+    assert earthwork.plan_area_sf([p, p]) == pytest.approx(100.0)

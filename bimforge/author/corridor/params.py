@@ -8,7 +8,7 @@ crown, negative down. Offsets and stations are feet.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from bimforge.author.alignment import sta
 
@@ -24,6 +24,19 @@ NORMAL_CROWN = -0.02
 #: sections are cut this far outside each wall gap, so the side slope turns
 #: into the wall within it, feet
 WALL_TRANSITION_FT = 1.0
+#: the shoulder beside a wall in cut, feet (HDM Index 309.1(3)(b))
+CUT_WALL_SHOULDER_FT = 10.0
+#: guardrail runout length LR by design speed, feet (TSSM length-of-need
+#: calculator, "Tables")
+RUNOUT_FT = {45: 195.0, 50: 230.0}
+#: MGS rail face to back of post: the 3 1/4 in W-beam, the 6 x 8 in block
+#: holding the rail 8 in off the post, and a W6 post (2025 Standard Plans
+#: A77N2, A77N3), feet
+RAIL_DEPTH_FT = 1.44
+#: back of post to the hinge, 30 in at least (A77N3 Detail A), feet
+HINGE_BEHIND_POST_FT = 2.5
+#: the widening behind the rail falls 1 in 10 (TSSM 3.6(5))
+WIDENING_SLOPE = 0.1
 _EPS = 1e-9
 
 
@@ -60,11 +73,62 @@ class Ditch:
 
 
 @dataclass(frozen=True)
+class Steep:
+    """Fill steeper than `Slopes.fill_ratio` over a height, behind guardrail."""
+    ratio: float                   # horizontal per vertical, e.g. 2.0
+    above_height: float            # fill at the hinge over this takes it, feet
+
+
+@dataclass(frozen=True)
+class FaceBench:
+    """Benches breaking a tall rock face, one each `every` ft of its height."""
+    every: float                   # face height between benches, feet
+    width: float                   # each level bench's width, feet
+    max: int = 4                   # the most a face may take
+
+
+@dataclass(frozen=True)
+class Catchment:
+    """The least ditch under a rock face taller than `FaceBench.every`."""
+    width: float                   # feet
+    depth: float                   # below the subgrade hinge, feet
+
+
+@dataclass(frozen=True)
+class Rock:
+    """Rock under the soil in cut: its face, a bench at its surface."""
+    depth: tuple                   # ((station, depth below ground), ...)
+    ratio: float                   # the rock face, horizontal per vertical
+    bench: float                   # the level bench's width, feet
+    face_bench: FaceBench | None = None    # tall faces' benches
+    catchment: Catchment | None = None     # a tall face's ditch
+
+    def depth_at(self, s: float) -> float:
+        return interp(list(self.depth), s)
+
+
+@dataclass(frozen=True)
+class Guard:
+    """The guardrail a steep fill takes (TSSM 3.6, A77N3)."""
+    speed_mph: int                 # a RUNOUT_FT key
+    rail_depth: float              # rail face to back of post, feet
+
+    @property
+    def widening(self) -> float:
+        """Horizontal, from the shoulder edge (the rail face) to the hinge,
+        falling at 10:1, feet."""
+        return self.rail_depth + HINGE_BEHIND_POST_FT
+
+
+@dataclass(frozen=True)
 class Slopes:
     cut_ratio: float               # horizontal per vertical
     fill_ratio: float
     ditch: Ditch | None
     daylight_limit: float          # horizontal feet from the hinge
+    steep: Steep | None = None     # V1.1: 2:1 behind guardrail over a height
+    rock: Rock | None = None       # V1.1: rock in cut, with a bench
+    footprint: dict | None = None  # V1.1: side -> farthest daylight, feet
 
 
 @dataclass(frozen=True)
@@ -73,7 +137,9 @@ class Gap:
     end: float
     kind: str                      # "structure" or "wall"
     side: str | None = None        # a wall's side
-    offset: float | None = None    # a wall's face, feet from the centreline
+    offset: float | None = None    # a listed wall's face, feet from the
+                                   # centreline; None: at the hinge
+    auto: str | None = None        # an automatic wall's kind: "fill", "cut"
 
 
 @dataclass(frozen=True)
@@ -90,10 +156,35 @@ class Corridor:
     band: float
     shrink: float
     swell: float
+    #: V1.1: walls wherever a slope cannot fit (`walls: auto`)
+    auto_walls: bool = False
+    #: a fill wall taller than this is a structure candidate, feet
+    max_wall_height: float = 30.0
+    #: the guardrail a steep fill takes; None without a steep rule or a
+    #: `guardrail:` block
+    guard: Guard | None = None
 
     def width(self, comp: Component, side: str, s: float) -> float:
+        """The component's width; through an automatic cut wall the
+        outermost shoulder is CUT_WALL_SHOULDER_FT, reached linearly over
+        the WALL_TRANSITION_FT lead-in at each end (HDM 309.1(3)(b))."""
         table = self.widths.get((comp.name, side))
-        return interp(table, s) if table else comp.width
+        w = interp(table, s) if table else comp.width
+        if not self.auto_walls or comp.name != self.widened():
+            return w
+        for g in self.gaps:
+            if g.auto != "cut" or g.side != side:
+                continue
+            a, b = g.start - WALL_TRANSITION_FT, g.end + WALL_TRANSITION_FT
+            if not a - _EPS <= s <= b + _EPS:
+                continue
+            full = max(w, CUT_WALL_SHOULDER_FT)
+            if s < g.start:
+                return w + (full - w) * (s - a) / WALL_TRANSITION_FT
+            if s > g.end:
+                return w + (full - w) * (b - s) / WALL_TRANSITION_FT
+            return full
+        return w
 
     def cross_slope(self, side: str, s: float) -> float:
         if not self.superelevation:
@@ -112,8 +203,19 @@ class Corridor:
                 return g
         return None
 
+    def etw(self, side: str, s: float) -> float:
+        """The edge of traveled way: the outer edge of the outermost
+        carriageway component, feet from the crown."""
+        out = edge = 0.0
+        for comp in self.components:
+            out += self.width(comp, side, s)
+            if comp.kind == "carriageway":
+                edge = out
+        return edge
+
     def max_half_width(self) -> float:
-        """The widest a side's components get anywhere, feet."""
+        """The widest a side's components get anywhere in their width
+        tables, feet; a cut wall's 10 ft shoulder is not counted."""
         return max(sum(max([comp.width] + [w for _s, w in
                                             self.widths.get((comp.name, side), ())])
                        for comp in self.components)
@@ -156,6 +258,71 @@ class Corridor:
                 out.append(min(max(s, s0), s1))
         out[-1] = s1
         return out
+
+    def widened(self) -> str | None:
+        """The component a cut wall widens: the outermost shoulder."""
+        names = [comp.name for comp in self.components if comp.kind == "shoulder"]
+        return names[-1] if names else None
+
+    def with_walls(self, walls) -> "Corridor":
+        """This corridor with automatic wall gaps (`walls: auto`) added. A
+        wall whose stations, its 1 ft lead-ins included, touch a listed wall
+        gap on its side is refused, as is a cut wall with no shoulder to
+        widen beside it.
+
+        Automatic walls of one kind on a side, these and those already
+        added, closer than one station interval and with no structure gap
+        between are one wall: a ground that fails, fits for a few feet and
+        fails again gets one continuous wall, not short walls with slivers
+        of slope between."""
+        walls = self._merged(tuple(g for g in self.gaps if g.auto is not None)
+                             + tuple(walls))
+        listed = tuple(g for g in self.gaps if g.auto is None)
+        for w in walls:
+            for g in self.gaps:
+                if (g.kind == "wall" and g.auto is None and g.side == w.side
+                        and w.start - 2 * WALL_TRANSITION_FT < g.end + _EPS
+                        and g.start - _EPS < w.end + 2 * WALL_TRANSITION_FT):
+                    raise ValueError(
+                        f"walls: auto puts a {w.auto} wall on the {w.side} side "
+                        f"from {sta(w.start)} to {sta(w.end)}, against the "
+                        f"listed wall gap {sta(g.start)} to {sta(g.end)}; list "
+                        f"the wall or let walls: auto place it, not both")
+            if w.auto == "cut" and self.widened() is None:
+                raise ValueError(
+                    f"walls: auto puts a cut wall on the {w.side} side from "
+                    f"{sta(w.start)} to {sta(w.end)}; the 10 ft shoulder beside "
+                    f"it needs a shoulder component to widen")
+        # two automatic walls on a side need both lead-ins between them,
+        # each ending on a slope that fits; closer, the side has neither a
+        # wall nor a slope there, and a cut wall's widening reaches under
+        # its neighbour
+        autos = sorted(walls, key=lambda g: (g.side, g.start))
+        for p, q in zip(autos, autos[1:]):
+            if p.side == q.side and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS:
+                raise ValueError(
+                    f"walls: auto puts a {p.auto} wall on the {p.side} side from "
+                    f"{sta(p.start)} to {sta(p.end)} and a {q.auto} wall from "
+                    f"{sta(q.start)} to {sta(q.end)}, under "
+                    f"{2 * WALL_TRANSITION_FT:g} ft apart: no slope fits between "
+                    f"them; list a wall or a structure gap there")
+        return replace(self, gaps=tuple(sorted(listed + walls,
+                                               key=lambda g: (g.start, g.side or ""))))
+
+    def _merged(self, walls: tuple) -> tuple:
+        """`walls` (automatic) with each side's walls of one kind under one
+        station interval apart, no structure gap between, made one."""
+        out = []
+        for w in sorted(walls, key=lambda g: (g.side, g.auto, g.start)):
+            p = out[-1] if out else None
+            if (p is not None and p.side == w.side and p.auto == w.auto
+                    and w.start - p.end < self.interval - _EPS
+                    and not any(g.kind == "structure" and g.start < w.start + _EPS
+                                and g.end > p.end - _EPS for g in self.gaps)):
+                out[-1] = replace(p, end=max(p.end, w.end))
+            else:
+                out.append(w)
+        return tuple(out)
 
 
 def _num(value, where: str, positive: bool = True) -> float:
@@ -232,7 +399,7 @@ def _courses(sec: dict) -> list:
     return out
 
 
-def _slopes(sec: dict) -> Slopes:
+def _slopes(sec: dict, s_start: float, s_end: float) -> Slopes:
     ss = sec.get("side_slopes") or {}
     cut, fill = ss.get("cut") or {}, ss.get("fill") or {}
     ditch = None
@@ -242,11 +409,108 @@ def _slopes(sec: dict) -> Slopes:
         if width < 0.0:
             raise ValueError("side_slopes.cut.ditch.width: must not be negative")
         ditch = Ditch(width, _num(d.get("depth"), "side_slopes.cut.ditch.depth"))
-    return Slopes(_num(cut.get("ratio", 2.0), "side_slopes.cut.ratio"),
-                  _num(fill.get("ratio", 2.0), "side_slopes.fill.ratio"),
-                  ditch,
+    cut_ratio = _num(cut.get("ratio", 2.0), "side_slopes.cut.ratio")
+    fill_ratio = _num(fill.get("ratio", 2.0), "side_slopes.fill.ratio")
+    steep = None
+    if fill.get("steep") is not None:
+        st = fill["steep"]
+        if not isinstance(st, dict):
+            raise ValueError("side_slopes.fill.steep: a mapping "
+                             "({ratio, above_height_ft})")
+        steep = Steep(_num(st.get("ratio"), "side_slopes.fill.steep.ratio"),
+                      _num(st.get("above_height_ft"),
+                           "side_slopes.fill.steep.above_height_ft"))
+        if not steep.ratio < fill_ratio:
+            raise ValueError(f"side_slopes.fill.steep.ratio: {steep.ratio:g} is "
+                             f"not steeper than fill.ratio {fill_ratio:g}")
+    rock = None
+    if cut.get("rock") is not None:
+        rk = cut["rock"]
+        if not isinstance(rk, dict):
+            raise ValueError("side_slopes.cut.rock: a mapping "
+                             "({depth_ft, ratio, bench_ft})")
+        rock = Rock(_depth_rows(rk.get("depth_ft"), s_start, s_end),
+                    _num(rk.get("ratio"), "side_slopes.cut.rock.ratio"),
+                    _num(rk.get("bench_ft"), "side_slopes.cut.rock.bench_ft"),
+                    *_tall_rock(rk, ditch))
+        if not rock.ratio < cut_ratio:
+            raise ValueError(f"side_slopes.cut.rock.ratio: {rock.ratio:g} is "
+                             f"not steeper than cut.ratio {cut_ratio:g}")
+    footprint = None
+    if ss.get("footprint_ft") is not None:
+        fp = ss["footprint_ft"]
+        if not isinstance(fp, dict) or not set(fp) <= set(SIDES):
+            raise ValueError("side_slopes.footprint_ft: a mapping of L and R "
+                             "offsets from the centreline, feet")
+        footprint = {side: _num(fp[side], f"side_slopes.footprint_ft.{side}")
+                     for side in SIDES if side in fp}
+    return Slopes(cut_ratio, fill_ratio, ditch,
                   _num(ss.get("daylight_limit_ft", 150.0),
-                       "side_slopes.daylight_limit_ft"))
+                       "side_slopes.daylight_limit_ft"),
+                  steep=steep, rock=rock, footprint=footprint)
+
+
+def _tall_rock(rk: dict, ditch: Ditch | None) -> tuple:
+    """(FaceBench or None, Catchment or None) from a rock block."""
+    where = "side_slopes.cut.rock"
+    face = catch = None
+    if rk.get("face_bench") is not None:
+        fb = rk["face_bench"]
+        if not isinstance(fb, dict):
+            raise ValueError(f"{where}.face_bench: a mapping "
+                             "({every_ft, width_ft, max})")
+        most = fb.get("max", 4)
+        if isinstance(most, bool) or not isinstance(most, int) or most < 1:
+            raise ValueError(f"{where}.face_bench.max: a whole number of at "
+                             f"least 1, got {most!r}")
+        face = FaceBench(_num(fb.get("every_ft"), f"{where}.face_bench.every_ft"),
+                         _num(fb.get("width_ft"), f"{where}.face_bench.width_ft"),
+                         most)
+    if rk.get("catchment") is not None:
+        ct = rk["catchment"]
+        if not isinstance(ct, dict):
+            raise ValueError(f"{where}.catchment: a mapping ({{width_ft, depth_ft}})")
+        catch = Catchment(_num(ct.get("width_ft"), f"{where}.catchment.width_ft"),
+                          _num(ct.get("depth_ft"), f"{where}.catchment.depth_ft"))
+        # it is for a face taller than face_bench.every_ft, and it widens
+        # and deepens the cut's ditch
+        if face is None:
+            raise ValueError(f"{where}.catchment: needs rock.face_bench, whose "
+                             f"every_ft is the face height it starts at")
+        if ditch is None:
+            raise ValueError(f"{where}.catchment: needs a cut.ditch to widen "
+                             f"and deepen")
+    return face, catch
+
+
+def _depth_rows(value, s_start: float, s_end: float) -> tuple:
+    """Rock depth: one number, or [station, depth] rows on the alignment
+    (read as widths are: linear, the end values holding)."""
+    where = "side_slopes.cut.rock.depth_ft"
+    if isinstance(value, (list, tuple)):
+        rows = tuple((_on_alignment(s, where, s_start, s_end), _num(d, where))
+                     for s, d in (_row(r, 2, where, "[station, depth]")
+                                  for r in value))
+        if not rows:
+            raise ValueError(f"{where}: needs [station, depth] rows")
+        _ascending([s for s, _d in rows], where)
+        return rows
+    return ((float(s_start), _num(value, where)),)
+
+
+def _guard(gp, steep: bool) -> Guard | None:
+    """The `guardrail:` block; a steep rule brings one at its defaults."""
+    if gp is not None and not isinstance(gp, dict):
+        raise ValueError("guardrail: a mapping ({design_speed_mph: 45})")
+    if gp is None and not steep:
+        return None
+    gp = gp or {}
+    speed = _num(gp.get("design_speed_mph", 45), "guardrail.design_speed_mph")
+    if speed not in RUNOUT_FT:
+        raise ValueError(f"guardrail.design_speed_mph: {speed:g} mph is not in "
+                         f"the runout table ({', '.join(str(k) for k in RUNOUT_FT)} mph)")
+    return Guard(int(speed), _num(gp.get("rail_depth_ft", RAIL_DEPTH_FT),
+                                  "guardrail.rail_depth_ft"))
 
 
 def _widths(params: dict, names: list, s_start: float, s_end: float) -> dict:
@@ -338,13 +602,23 @@ def parse(params: dict, s_start: float, s_end: float) -> Corridor:
         raise ValueError("mass_haul.shrink: must be at least 0 and below 1")
     if swell < 0.0:
         raise ValueError("mass_haul.swell: must not be negative")
+    slopes = _slopes(sec, s_start, s_end)
+    walls = params.get("walls")
+    if walls is not None and walls != "auto":
+        raise ValueError(f"walls: {walls!r} is not 'auto'; a wall at stations "
+                         f"you choose is a gap (gaps: [{{kind: wall, side, "
+                         f"offset, from, to}}])")
     return Corridor(
         s_start=float(s_start), s_end=float(s_end),
         components=tuple(comps), courses=tuple(_courses(sec)),
-        slopes=_slopes(sec),
+        slopes=slopes,
         widths=_widths(params, [c.name for c in comps], s_start, s_end),
         superelevation=tuple(_superelevation(params, s_start, s_end)),
         gaps=tuple(_gaps(params, s_start, s_end)),
         interval=_num(st.get("interval", 25.0), "stations.interval"),
         band=_num(st.get("band", 100.0), "stations.band"),
-        shrink=shrink, swell=swell)
+        shrink=shrink, swell=swell,
+        auto_walls=walls == "auto",
+        max_wall_height=_num(params.get("max_wall_height_ft", 30.0),
+                             "max_wall_height_ft"),
+        guard=_guard(params.get("guardrail"), slopes.steep is not None))

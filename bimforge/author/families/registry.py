@@ -14,6 +14,9 @@ The spec file:
               takeoff_map: CAD/x-takeoff-map.yaml,
               qto: CAD/x-QTO.xlsx, step: null,
               masshaul: CAD/x.masshaul.csv,   # a road corridor's mass haul
+              walls: CAD/x.walls.csv,   # a road corridor's automatic walls
+              structures: CAD/x.structures.csv,   # its structure candidates
+              guardrail: CAD/x.guardrail.csv,     # its guardrail runs
               ifc_allow_local: false,
               ifc_sweeps: exact}    # overrides ifc.sweeps for this emit
     ifc: {sweeps: exact}    # exact (default) | mesh: how alignment sweeps
@@ -156,7 +159,10 @@ def get(name: str, family_paths=()):
 
 
 REQUIRED_SPEC_KEYS = ("family", "params", "paycodes", "outputs", "project")
-OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs", "masshaul")
+OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs", "masshaul",
+               "walls", "structures", "guardrail")
+#: outputs a family writes from StructureModel.tables, as CSV
+TABLE_OUTPUTS = ("walls", "structures", "guardrail")
 
 
 # Packs a spec's `params.tables_pack` can name: pack -> the module whose
@@ -370,6 +376,13 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
         raise ValueError(f"{Path(spec_path).name}: outputs.masshaul is set, but "
                          f"family {spec['family']!r} makes no mass haul (only a "
                          f"road corridor does)")
+    for key in TABLE_OUTPUTS:
+        if spec["outputs"].get(key) and key not in model.tables:
+            raise ValueError(
+                f"{Path(spec_path).name}: outputs.{key} is set, but family "
+                f"{spec['family']!r} makes no {key} table here (a road "
+                f"corridor makes walls and structures with walls: auto, and "
+                f"guardrail with a steep fill rule or a guardrail: block)")
     place_from_spec(model, spec, alignments,
                     log=lambda m: print(m, file=sys.stderr))
     if spec.get("spatial_parts"):
@@ -447,6 +460,13 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
             p.write_text(to_csv(model.mass_haul), encoding="utf-8")
             print(f"mass haul written to {p}", file=sys.stderr)
             written["masshaul"] = str(p)
+        for key in TABLE_OUTPUTS:
+            if outs.get(key):
+                p = Path(outs[key])
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(model.tables[key], encoding="utf-8")
+                print(f"{key} table written to {p}", file=sys.stderr)
+                written[key] = str(p)
     except Exception:
         # refuse-partial: an emitter failing mid-loop (unwritable path, disk
         # full) must not orphan the outputs already written — the same

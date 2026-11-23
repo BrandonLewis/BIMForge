@@ -39,6 +39,9 @@ reports.
 """
 from __future__ import annotations
 
+import ast
+import math
+import operator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -540,28 +543,94 @@ def quantity_value(q):
     return getattr(q, q.attribute_name(3))
 
 
+#: the arithmetic a quantity Formula may use
+_FORMULA_OPS = {ast.Add: operator.add, ast.Sub: operator.sub,
+                ast.Mult: operator.mul, ast.Div: operator.truediv}
+
+#: the longest Formula read: one from a file someone else wrote is refused
+#: past this rather than parsed (ours are a few names long)
+FORMULA_MAX_CHARS = 1000
+
+
 def formula_value(formula: str, values: dict) -> float:
-    """A quantity Formula evaluated over its set's {name: value}. Only the
-    product of names is read (`Length * Width * Height`); anything else, or
-    a name not in the set, raises ValueError."""
-    out = 1.0
-    for term in formula.split("*"):
-        name = term.strip()
-        if not name.isidentifier():
-            raise ValueError(f"formula {formula!r}: {term.strip()!r} is not "
-                             f"a quantity name")
-        if name not in values:
-            raise ValueError(f"formula {formula!r}: no quantity {name!r} in "
-                             f"the set")
-        out *= values[name]
+    """A quantity Formula evaluated over {name: value}: names, numbers,
+    `+ - * /` and parentheses (`Length * Width * Height`, `EndStation -
+    StartStation`, `PathLength * (StartWidth + EndWidth) / 2 * Thickness`).
+    Anything else, or a name not in `values`, raises ValueError. Parsed by
+    ast and walked here, so nothing in it is run.
+
+    A number is unitless: it is not scaled to the file's units, so `2` in
+    `Width / 2` is right in any file, but a constant meant as a length (`Depth
+    + 0.5`, half a foot) is wrong in a metre file. A Formula is a file's to
+    state, so one that is too long, too deep, too large or not finite
+    (`1e309 - 1e309`) is a ValueError too: it fails its own quantity only."""
+    if len(formula) > FORMULA_MAX_CHARS:
+        raise ValueError(f"formula of {len(formula)} characters: longer than "
+                         f"{FORMULA_MAX_CHARS}")
+    grammar = (f"formula {formula!r}: not a quantity name, a number, or "
+               f"+ - * / ( ) of them")
+    try:
+        tree = ast.parse(formula, mode="eval")
+    except SyntaxError:
+        raise ValueError(grammar) from None
+    except (RecursionError, MemoryError):
+        raise ValueError(f"formula {formula!r}: too deep to read") from None
+
+    def ev(node) -> float:
+        if isinstance(node, ast.Expression):
+            return ev(node.body)
+        if isinstance(node, ast.BinOp) and type(node.op) in _FORMULA_OPS:
+            try:
+                return _FORMULA_OPS[type(node.op)](ev(node.left), ev(node.right))
+            except ZeroDivisionError:
+                raise ValueError(f"formula {formula!r}: divides by zero") from None
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -ev(node.operand)
+        if (isinstance(node, ast.Constant) and isinstance(node.value, (int, float))
+                and not isinstance(node.value, bool)):
+            return float(node.value)
+        if isinstance(node, ast.Name):
+            if node.id not in values:
+                raise ValueError(f"formula {formula!r}: no quantity {node.id!r} "
+                                 f"in the set or the element's dimensions")
+            return values[node.id]
+        raise ValueError(f"{grammar} ({ast.unparse(node)!r})")
+
+    try:
+        got = ev(tree)
+    except (RecursionError, MemoryError):
+        raise ValueError(f"formula {formula!r}: too deep to read") from None
+    except OverflowError:
+        raise ValueError(f"formula {formula!r}: a number too large") from None
+    if not math.isfinite(got):
+        raise ValueError(f"formula {formula!r}: = {got}, not finite")
+    return got
+
+
+def _dimension_values(product) -> dict:
+    """{name: value} of a product's BIMForge_Dimensions numbers (M.2), in
+    the file's units: what a Formula may read beside its own set."""
+    from bimforge.author.family_dictionary import DIMENSIONS
+    out = {}
+    for rel in getattr(product, "IsDefinedBy", None) or ():
+        pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is None or not pset.is_a("IfcPropertySet") or pset.Name != DIMENSIONS:
+            continue
+        for prop in pset.HasProperties or ():
+            nv = getattr(prop, "NominalValue", None)
+            if (nv is not None and isinstance(nv.wrappedValue, (int, float))
+                    and not isinstance(nv.wrappedValue, bool)):
+                out[prop.Name] = float(nv.wrappedValue)
     return out
 
 
 def _ifc_formula_check(model, ifc_path: str,
                        tol: float = FORMULA_TOLERANCE) -> list[str]:
     """Every quantity written with a Formula (roadmap M.3) is that formula
-    over the quantities of its own set, as the file states them: a reader
-    that recomputes gets the number in the file."""
+    over the quantities of its own set and its element's BIMForge_Dimensions,
+    as the file states them: a reader that recomputes gets the number in the
+    file. A set shared by several products is checked for each, over that
+    product's dimensions, so one that does not hold is named alone."""
     import ifcopenshell
     f = ifcopenshell.open(str(ifc_path))
     fail = []
@@ -572,17 +641,23 @@ def _ifc_formula_check(model, ifc_path: str,
             formula = getattr(q, "Formula", None)
             if not formula:
                 continue
-            owners = ", ".join(o.Name for r in qset.DefinesOccurrence
-                               for o in r.RelatedObjects) or f"#{qset.id()}"
-            try:
-                got = formula_value(formula, values)
-            except ValueError as exc:
-                fail.append(f"{owners}: {q.Name} {exc}")
-                continue
+            products = [o for r in qset.DefinesOccurrence for o in r.RelatedObjects]
             want = quantity_value(q)
-            if abs(got - want) > tol * max(abs(want), 1e-12):
-                fail.append(f"{owners}: {q.Name} {want:.9g} is not its "
-                            f"formula {formula} = {got:.9g} (tol {tol:g})")
+            for o in products or [None]:
+                owner = o.Name if o is not None else f"#{qset.id()}"
+                # the set's own quantities first, then the element's dimensions
+                names = _dimension_values(o) if o is not None else {}
+                names.update(values)
+                try:
+                    got = formula_value(formula, names)
+                    if not math.isfinite(want):
+                        raise ValueError(f"= {want}, not finite")
+                except ValueError as exc:
+                    fail.append(f"{owner}: {q.Name} {exc}")
+                    continue
+                if abs(got - want) > tol * max(abs(want), 1e-12):
+                    fail.append(f"{owner}: {q.Name} {want:.9g} is not its "
+                                f"formula {formula} = {got:.9g} (tol {tol:g})")
     return fail
 
 

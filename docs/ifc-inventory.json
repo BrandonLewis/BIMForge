@@ -1,4 +1,24 @@
 {
+ "applies|pset|BIMForge_Dimensions|IfcBuildingElementProxy": {
+  "IFC4": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_Dimensions|IfcCourse": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_Dimensions|IfcEarthworksCut": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_Dimensions|IfcEarthworksFill": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "applies|pset|BIMForge_Dimensions|IfcFooting": {
   "IFC4": [
    "build"
@@ -7,7 +27,23 @@
    "build"
   ]
  },
+ "applies|pset|BIMForge_Dimensions|IfcRailing": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "applies|pset|BIMForge_Dimensions|IfcWall": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_Guardrail|IfcRailing": {
   "IFC4": [
    "build"
   ],
@@ -46,6 +82,11 @@
   ]
  },
  "applies|pset|BIMForge_LinearReference|IfcPlate": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_LinearReference|IfcRailing": {
   "IFC4X3": [
    "build"
   ]
@@ -308,6 +349,14 @@
   ]
  },
  "applies|qset|Qto_EarthworksFillBaseQuantities|IfcEarthworksFill": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|qset|Qto_RailingBaseQuantities|IfcRailing": {
+  "IFC4": [
+   "build"
+  ],
   "IFC4X3": [
    "build"
   ]
@@ -1540,7 +1589,119 @@
    "build"
   ]
  },
+ "pset|BIMForge_Dimensions|EndStation": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|EndStationText": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|EndWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "pset|BIMForge_Dimensions|HeelWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|MaxDepth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|MeanDepth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|Offset": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|PathLength": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|PostSpacing": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|RailHeight": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|RockDepth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|SlopeRatio": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|StartStation": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|StartStationText": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|StartWidth": {
   "IFC4": [
    "build"
   ],
@@ -1564,7 +1725,79 @@
    "build"
   ]
  },
+ "pset|BIMForge_Dimensions|Thickness": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "pset|BIMForge_Dimensions|ToeWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Dimensions|Width": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Guardrail": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Guardrail|AGTTransitions": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Guardrail|Anchors": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Guardrail|EndTreatment": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Guardrail|PostCount": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Guardrail|StartTreatment": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Guardrail|Terminals": {
   "IFC4": [
    "build"
   ],
@@ -2391,6 +2624,22 @@
   ]
  },
  "qset|Qto_EarthworksFillBaseQuantities|Width|IfcQuantityLength": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_RailingBaseQuantities": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "qset|Qto_RailingBaseQuantities|Length|IfcQuantityLength": {
+  "IFC4": [
+   "build"
+  ],
   "IFC4X3": [
    "build"
   ]

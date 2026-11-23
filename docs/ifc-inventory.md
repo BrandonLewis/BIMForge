@@ -156,8 +156,9 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 
 | Set | Properties | Applied to | Written by | Schema |
 |---|---|---|---|---|
-| BIMForge_Dimensions | Batter, DesignHeight, HeelWidth, StemBaseThickness, StemThickness, ToeWidth | IfcFooting, IfcWall | build | both |
-| BIMForge_LinearReference | Alignment, OffsetLeftMax, OffsetLeftMin, OffsetText, StationEnd, StationEndText, StationStart, StationStartText, StationUnit | IfcBeam, IfcColumn, IfcCourse, IfcEarthworksCut, IfcEarthworksFill, IfcGeographicElement, IfcPlate, IfcSlab, IfcWall | build | IFC4X3 |
+| BIMForge_Dimensions | Batter, DesignHeight, EndStation, EndStationText, EndWidth, HeelWidth, MaxDepth, MeanDepth, Offset, PathLength, PostSpacing, RailHeight, RockDepth, SlopeRatio, StartStation, StartStationText, StartWidth, StemBaseThickness, StemThickness, Thickness, ToeWidth, Width | IfcBuildingElementProxy, IfcCourse, IfcEarthworksCut, IfcEarthworksFill, IfcFooting, IfcRailing, IfcWall | build | both |
+| BIMForge_Guardrail | AGTTransitions, Anchors, EndTreatment, PostCount, StartTreatment, Terminals | IfcRailing | build | both |
+| BIMForge_LinearReference | Alignment, OffsetLeftMax, OffsetLeftMin, OffsetText, StationEnd, StationEndText, StationStart, StationStartText, StationUnit | IfcBeam, IfcColumn, IfcCourse, IfcEarthworksCut, IfcEarthworksFill, IfcGeographicElement, IfcPlate, IfcRailing, IfcSlab, IfcWall | build | IFC4X3 |
 | BIMForge_MassHaul | CumulativeVolume, EndStation, EndStationText, StartStation, StartStationText | IfcBuildingElementProxy, IfcEarthworksCut, IfcEarthworksFill | build | both |
 | BIMForge_Model | BimforgeVersion, BuildId, Schema, Source | IfcProject | build, dxf2bim | both |
 | BidSheet_Activity | ActivityId, Cost, CostCode, HomeItemId, Kind, Manhours | IfcTask | estimate-model | both |
@@ -181,6 +182,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | Qto_CourseBaseQuantities | Length (IfcQuantityLength), Thickness (IfcQuantityLength), Volume (IfcQuantityVolume), Width (IfcQuantityLength) | IfcCourse | build | IFC4X3 |
 | Qto_EarthworksCutBaseQuantities | Depth (IfcQuantityLength), Length (IfcQuantityLength), LooseVolume (IfcQuantityVolume), UndisturbedVolume (IfcQuantityVolume), Width (IfcQuantityLength) | IfcEarthworksCut | build | IFC4X3 |
 | Qto_EarthworksFillBaseQuantities | CompactedVolume (IfcQuantityVolume), Depth (IfcQuantityLength), Length (IfcQuantityLength), LooseVolume (IfcQuantityVolume), Width (IfcQuantityLength) | IfcEarthworksFill | build | IFC4X3 |
+| Qto_RailingBaseQuantities | Length (IfcQuantityLength) | IfcRailing | build | both |
 | Qto_SlabBaseQuantities | GrossArea (IfcQuantityArea), GrossVolume (IfcQuantityVolume), Perimeter (IfcQuantityLength), Width (IfcQuantityLength) | IfcSlab | dxf2bim | both |
 | Qto_TakeoffBaseQuantities | Count (IfcQuantityCount), GrossArea (IfcQuantityArea), GrossVolume (IfcQuantityVolume), Height (IfcQuantityLength), Length (IfcQuantityLength), Perimeter (IfcQuantityLength), Width (IfcQuantityLength) | IfcBuildingElementProxy, IfcColumn, IfcCovering | dxf2bim | both |
 | Qto_WallBaseQuantities | GrossVolume (IfcQuantityVolume), Height (IfcQuantityLength), Length (IfcQuantityLength), Width (IfcQuantityLength) | IfcWall | dxf2bim | both |

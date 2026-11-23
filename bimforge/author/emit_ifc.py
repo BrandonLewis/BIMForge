@@ -307,14 +307,17 @@ _STANDARD_MEASURES = {"length": ("IfcQuantityLength", 1),
 
 
 def _standard_quantity(f, name: str, measure: str, value: float,
-                       ft_to_m: float):
-    """One quantity of an Element.standard_qto set, converted to metres."""
+                       ft_to_m: float, formula: str | None = None):
+    """One quantity of an Element.standard_qto set, converted to metres,
+    with its Formula (M.3) when the family gives one."""
     if measure not in _STANDARD_MEASURES:
         raise ValueError(f"standard quantity {name}: measure {measure!r} is "
                          f"not one of {sorted(_STANDARD_MEASURES)}")
     ent, power = _STANDARD_MEASURES[measure]
     q = f.create_entity(ent, Name=name)
     setattr(q, _QTY_ATTR[ent], float(value) * ft_to_m ** power)
+    if formula:
+        q.Formula = formula
     return q
 
 #: Element.psets measure -> (IFC measure type, power of ft_to_m)
@@ -1448,22 +1451,31 @@ def _material_layers(run, f, ctx, mctx, layered: list) -> None:
 def _dimensions(run, f, ctx, dimensioned: list) -> None:
     """Write each element's Element.dimensions (M.2) as BIMForge_Dimensions,
     each property the measure the family dictionary gives it, a length
-    scaled from feet. An element carries exactly what its class declares:
-    a class that declares a dimension the family did not size, or a
-    dimension no class declares, fails the build. After the sweep, the set
+    scaled from feet. An element carries every dimension its class requires
+    and none it does not declare; anything else fails the build. A text
+    dimension is an IfcLabel. After the sweep, the set
     keyed by its owner and name, its IfcRelDefinesByProperties by the set."""
     from bimforge.author import family_dictionary as fd
     for product, el in dimensioned:
         declared = fd.dimensions(el.family_class) if el.family_class else []
-        if set(el.dimensions) != set(declared):
+        required = (fd.required_dimensions(el.family_class)
+                    if el.family_class else [])
+        given = set(el.dimensions)
+        if not set(required) <= given <= set(declared):
             raise ValueError(
-                f"{el.name}: dimensions {sorted(el.dimensions)}, but its class "
-                f"{el.family_class!r} declares {sorted(declared)}")
-        if not declared:
+                f"{el.name}: dimensions {sorted(given)}, but its class "
+                f"{el.family_class!r} requires {sorted(required)} and "
+                f"declares {sorted(declared)}")
+        if not given:
             continue
         props = {}
         for code in declared:
+            if code not in given:
+                continue                    # an optional dimension
             ifc_type, scales = fd.measure(code)
+            if ifc_type == fd.TEXT[0]:
+                props[code] = f.create_entity(ifc_type, str(el.dimensions[code]))
+                continue
             value = float(el.dimensions[code]) * (ctx.ft_to_m if scales else 1.0)
             props[code] = f.create_entity(ifc_type, round(value, 9))
         pset = run("pset.add_pset", f, product=product, name=fd.DIMENSIONS)
@@ -2367,8 +2379,9 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                     continue        # a set needs at least one quantity
                 sq = run("pset.add_qto", f, product=product, name=qset)
                 sq.Quantities = tuple(
-                    _standard_quantity(f, qname, measure, value, ctx.ft_to_m)
-                    for qname, (measure, value) in values.items())
+                    _standard_quantity(f, qname, spec[0], spec[1], ctx.ft_to_m,
+                                       spec[2] if len(spec) > 2 else None)
+                    for qname, spec in values.items())
 
             # provenance rides the solids dict (smallest carrier: no new Element
             # field) and emits as a Pset on the product — terrain's source/

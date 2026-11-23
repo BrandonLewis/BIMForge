@@ -537,7 +537,9 @@ def test_parameters_and_linear_reference_read_in_the_projects_foot():
         f.createIfcPropertySingleValue(
             "Batter", None, f.createIfcRatioMeasure(0.25 / 12)),
         f.createIfcPropertySingleValue(
-            "Note", None, f.createIfcLabel("x"))]
+            "Note", None, f.createIfcLabel("x")),
+        f.createIfcPropertySingleValue(
+            "Face", None, f.createIfcAreaMeasure(2.0))]
     ref = ifcopenshell.api.pset.add_pset(f, product=wall,
                                          name="BIMForge_LinearReference")
     ifcopenshell.api.pset.edit_pset(f, pset=ref, properties={
@@ -553,7 +555,11 @@ def test_parameters_and_linear_reference_read_in_the_projects_foot():
         "alignment": "LINE A", "station_start": 1000.0,
         "station_end": 1064.0, "offset_left_min": -1.0,
         "offset_left_max": 0.0, "unit": "FT"}
-    assert any("Note" in w and "not sent" in w for w in plan["warnings"])
+    # a text (a station's IfcLabel twin) is skipped: its number is sent
+    assert not any("Note" in w for w in plan["warnings"])
+    # a number that is neither a length nor a ratio is warned and not sent
+    assert any("Face" in w and "IfcAreaMeasure" in w and "not sent" in w
+               for w in plan["warnings"])
     assert "family_class" not in entry
 
 

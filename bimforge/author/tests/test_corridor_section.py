@@ -3,8 +3,10 @@ import copy
 
 import pytest
 
-from bimforge.author.corridor.params import parse
-from bimforge.author.corridor.section import SIDE_SAMPLES, resolve
+from bimforge.author.corridor.params import Gap, parse
+from bimforge.author.corridor.section import (GUARD_STEP_FT, SIDE_SAMPLES,
+                                              NoDaylight, grade_edge,
+                                              needs_wall, resolve)
 
 BASE = {"section": {
     "components": [{"name": "lane", "kind": "carriageway", "width": 12.0},
@@ -202,3 +204,411 @@ def test_ground_missing_under_a_side_names_the_station_and_side():
         return 3.0 - v
     with pytest.raises(ValueError, match=r"station 5\+00\.00, L side.*no ground at N 1\.0 E 2\.0"):
         resolve(corridor(), 500.0, dem)
+
+
+STEEP_FILL = {"ratio": 4.0, "steep": {"ratio": 2.0, "above_height_ft": 10.0}}
+
+
+def sloped(fill=None, cut=None, footprint=None, **over):
+    """A corridor on BASE with its side slopes changed."""
+    p = copy.deepcopy(BASE)
+    ss = p["section"]["side_slopes"]
+    if fill is not None:
+        ss["fill"] = copy.deepcopy(fill)
+    if cut is not None:
+        ss["cut"] = copy.deepcopy(cut)
+    if footprint is not None:
+        ss["footprint_ft"] = dict(footprint)
+    p.update(over)
+    return parse(p, 0.0, 2000.0)
+
+
+def test_the_shoulder_edge_is_the_grade_s_outer_point():
+    assert grade_edge(corridor(), 500.0, "R") == pytest.approx((-17.0, -0.49))
+
+
+def test_fill_under_the_height_limit_takes_4_to_1():
+    # 3.11 ft of fill at the hinge (17, -1.89) over ground at -5: not over
+    # 10 ft, so 4:1, falling 3.11 ft in 4 x 3.11 = 12.44 ft: (29.44, -5).
+    # The steep rule brings guardrail, so the widening's two points are
+    # there, collapsed onto the hinge where no rail runs
+    sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(-5.0))
+    side = sec.sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("fill", False, 4.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17, -1.89), (17, -1.89), (29.44, -5.0)]))
+
+
+def test_fill_over_the_height_limit_takes_2_to_1_behind_the_rail_s_widening():
+    # 13.11 ft of fill at the hinge over ground at -15: over 10, so 2:1 and
+    # guarded. The rail face is at the shoulder edge (17, -0.49); the
+    # widening falls 1 in 10 to the hinge 1.44 + 2.5 = 3.94 ft out:
+    # (20.94, -0.49 - 0.394) = (20.94, -0.884). Its first point is 0.01 ft
+    # out, on the widening: (17.01, -0.491). From the widening's hinge 2:1
+    # falls 14.116 ft in 28.232 ft: daylight (49.172, -15)
+    sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(-15.0))
+    side = sec.sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("fill", True, 2.0)
+    assert GUARD_STEP_FT == 0.01
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (49.172, -15.0)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-49.172, -15.0])
+    assert len(sec.earthwork_line()) == 2 * SIDE_SAMPLES - 1 + 2 * 2
+
+
+def test_the_earthwork_line_keeps_its_count_whatever_the_side_is():
+    # 4:1 fill, guarded 2:1 fill, cut through the ditch, and a wall: one
+    # count, so stations loft point to point
+    c = sloped(fill=STEEP_FILL, gaps=[{"from": 900, "to": 1100, "kind": "wall",
+                                       "side": "L", "offset": 30.0}])
+    secs = [resolve(c, 500.0, level(-5.0)), resolve(c, 500.0, level(-15.0)),
+            resolve(c, 500.0, level(3.0)), resolve(c, 1000.0, level(-15.0))]
+    assert [s.sides["L"].kind for s in secs] == ["fill", "fill", "cut", "wall"]
+    # with rock: a cut into rock, one whose bench collapses, a side-hill cut
+    # (V1's 2:1 fill ratio: the 4:1 runs down shallower than its ground) and
+    # fill
+    rc = sloped(cut=ROCK_CUT)
+    secs += [resolve(rc, 500.0, level(15.0)), resolve(rc, 500.0, level(3.0)),
+             resolve(rc, 500.0, side_hill), resolve(rc, 500.0, level(-15.0))]
+    assert {len(s.earthwork_line()) for s in secs} == {2 * SIDE_SAMPLES - 1 + 2 * 2}
+
+
+def test_without_a_steep_rule_fill_keeps_its_one_ratio():
+    # V1: 2:1 from the hinge, 13.11 ft in 26.22 ft: (43.22, -15)
+    side = resolve(corridor(), 500.0, level(-15.0)).sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("fill", False, 2.0)
+    assert flat(side.line) == pytest.approx(flat([(17, -1.89), (43.22, -15.0)]))
+
+
+def test_a_daylight_past_the_footprint_is_refused():
+    # the 2:1 daylights at 43.22 ft, past a 40 ft footprint on the left
+    with pytest.raises(NoDaylight, match=r"5\+00\.00: the L fill slope daylights "
+                       r"43\.22 ft out, past the L footprint of 40 ft") as exc:
+        resolve(sloped(footprint={"L": 40.0}), 500.0, level(-15.0))
+    assert exc.value.kind == "fill"
+    assert isinstance(exc.value, ValueError)
+    # inside it, the same section builds
+    resolve(sloped(footprint={"L": 44.0}), 500.0, level(-15.0))
+
+
+def test_needs_wall_says_which_wall_a_side_needs():
+    c = corridor()
+    assert needs_wall(c, 500.0, "L", level(-5.0)) is None
+    assert needs_wall(c, 500.0, "L", level(-500.0)) == "fill"
+    # 500 ft of cut: the backslope from the ditch's edge (24, -3.39) needs
+    # 2 x 503.39 ft, past the 143 ft left of the daylight limit
+    assert needs_wall(c, 500.0, "L", level(500.0)) == "cut"
+    # where a wall is listed, the side is that wall: it needs none
+    walled = corridor(gaps=[{"from": 400, "to": 600, "kind": "wall", "side": "L",
+                             "offset": 30.0}])
+    assert needs_wall(walled, 500.0, "L", level(-500.0)) is None
+
+
+def test_a_cut_past_the_footprint_is_refused():
+    # the backslope daylights at 36.78 ft, past a 30 ft footprint on the left
+    with pytest.raises(NoDaylight, match=r"5\+00\.00: the L cut slope daylights "
+                       r"36\.78 ft out, past the L footprint of 30 ft") as exc:
+        resolve(sloped(footprint={"L": 30.0}), 500.0, level(3.0))
+    assert exc.value.kind == "cut"
+
+
+def test_needs_wall_names_the_kind_past_the_footprint():
+    # fill daylights at 43.22 ft and cut at 36.78 ft: both past their footprint
+    c = sloped(footprint={"L": 30.0, "R": 40.0})
+    assert needs_wall(c, 500.0, "L", level(-15.0)) == "fill"
+    assert needs_wall(c, 500.0, "L", level(3.0)) == "cut"
+    assert needs_wall(c, 500.0, "R", level(-15.0)) == "fill"
+    # inside the footprint the slope fits
+    assert needs_wall(c, 500.0, "R", level(3.0)) is None
+
+
+ROCK_CUT = {"ratio": 2.0, "ditch": {"width": 4.0, "depth": 1.5},
+            "rock": {"depth_ft": 8.0, "ratio": 0.5, "bench_ft": 6.0}}
+
+
+def test_a_cut_into_rock_benches_then_runs_soil_to_daylight():
+    # ground 15 ft above the PGL, rock 8 ft under it, at v = 7. The ditch's
+    # outer edge (24, -3.39) is 18.39 ft under ground, 10.39 ft into rock.
+    # The rock face rises 2 per ft (0.5:1): 10.39 ft in 5.195 ft, to
+    # (29.195, 7). The bench runs 6 ft level: (35.195, 7). The soil, 8 ft
+    # deep, rises 1 in 2: 16 ft out, daylight (51.195, 15)
+    sec = resolve(sloped(cut=ROCK_CUT), 500.0, level(15.0))
+    side = sec.sides["L"]
+    assert (side.kind, side.ratio) == ("cut", 2.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39), (29.195, 7.0), (35.195, 7.0),
+         (51.195, 15.0)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-51.195, 15.0])
+
+
+def test_a_cut_that_never_reaches_rock_collapses_its_bench_onto_the_toe():
+    # ground 3 ft above: the ditch's edge is 3 + 3.39 = 6.39 ft under,
+    # inside the 8 ft of soil. The rock face and the bench are points at the
+    # edge, and the soil runs to V1's daylight: 6.39 ft up at 1 in 2,
+    # 12.78 ft out: (36.78, 3)
+    sec = resolve(sloped(cut=ROCK_CUT), 500.0, level(3.0))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39), (24, -3.39), (24, -3.39),
+         (36.78, 3.0)]))
+    deep = resolve(sloped(cut=ROCK_CUT), 500.0, level(15.0))
+    assert len(sec.earthwork_line()) == len(deep.earthwork_line())
+
+
+def test_rock_depth_follows_its_rows():
+    # [0, 8] to [2000, 12]: 10 ft at 10+00, rock at v = 15 - 10 = 5. The
+    # rock face rises 5 + 3.39 = 8.39 ft from the ditch's edge in 4.195 ft:
+    # (28.195, 5); the bench to (34.195, 5); 10 ft of soil at 1 in 2, 20 ft
+    # out: (54.195, 15)
+    cut = copy.deepcopy(ROCK_CUT)
+    cut["rock"]["depth_ft"] = [[0, 8.0], [2000, 12.0]]
+    sec = resolve(sloped(cut=cut), 1000.0, level(15.0))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39), (28.195, 5.0), (34.195, 5.0),
+         (54.195, 15.0)]))
+
+
+def test_a_side_hill_rock_cut_whose_ditch_edge_is_above_ground_runs_fill_down():
+    # as V1's side hill: the ditch edge (24, -3.39) is 1/3 ft above the
+    # ground, so not in rock; the bench collapses onto it and the side runs
+    # down 2:1 to (26, -4.39)
+    sec = resolve(sloped(cut=ROCK_CUT), 500.0, side_hill)
+    side = sec.sides["L"]
+    assert (side.kind, side.ratio) == ("cut", 2.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39), (24, -3.39), (24, -3.39),
+         (26, -4.39)]))
+
+
+def test_a_rock_face_that_finds_no_rock_surface_is_refused():
+    # ground 50 ft above the PGL at the centreline, rising 3 per ft outward:
+    # the ditch's edge is deep in rock, but the rock surface, 8 ft under the
+    # ground, rises 3 per ft and the 0.5:1 face only 2, so it never gets there
+    rising = lambda s, u, v: 50.0 + 3.0 * abs(u) - v
+    with pytest.raises(NoDaylight, match=r"5\+00\.00: the L cut's rock face "
+                       r"finds no rock surface within 150 ft") as exc:
+        resolve(sloped(cut=ROCK_CUT), 500.0, rising)
+    assert exc.value.kind == "cut"
+
+
+def test_a_rock_cut_with_no_ditch_starts_its_face_at_the_hinge():
+    # the hinge (17, -1.89) is 15 + 1.89 = 16.89 ft under the ground, 8.89 ft
+    # into rock: the face rises 2 per ft, 4.445 ft out to (21.445, 7); the
+    # bench to (27.445, 7); 8 ft of soil at 1 in 2, 16 ft out: (43.445, 15)
+    cut = {k: v for k, v in ROCK_CUT.items() if k != "ditch"}
+    sec = resolve(sloped(cut=cut), 500.0, level(15.0))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (21.445, 7.0), (27.445, 7.0), (43.445, 15.0)]))
+
+
+def tall_cut(max=None, catchment=None):
+    """ROCK_CUT whose faces bench every 30 ft of height, 10 ft wide."""
+    cut = copy.deepcopy(ROCK_CUT)
+    cut["rock"]["face_bench"] = {"every_ft": 30.0, "width_ft": 10.0}
+    if max is not None:
+        cut["rock"]["face_bench"]["max"] = max
+    if catchment is not None:
+        cut["rock"]["catchment"] = catchment
+    return cut
+
+
+def test_a_tall_rock_face_benches_every_30_ft_of_its_height():
+    # ground 74.61 ft above the PGL, rock 8 ft under it at v = 66.61: from
+    # the ditch's edge (24, -3.39) the face is 70 ft tall. At 0.5:1 it rises
+    # 30 ft in 15 ft to the first bench (39, 26.61), 10 ft wide to
+    # (49, 26.61); 30 ft more to the second (64, 56.61), to (74, 56.61); its
+    # last 10 ft in 5 ft to the rock surface (79, 66.61). Two of the four
+    # benches are used: the other two collapse onto the face's top. The
+    # soil bench to (85, 66.61), the soil 2:1 up 8 ft in 16 ft: (101, 74.61)
+    sec = resolve(sloped(cut=tall_cut()), 500.0, level(74.61))
+    top = (79.0, 66.61)
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39),
+         (39, 26.61), (49, 26.61), (64, 56.61), (74, 56.61),
+         top, top, top, top, top, (85, 66.61), (101, 74.61)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-101.0, 74.61])
+
+
+def test_a_rock_face_no_taller_than_every_ft_takes_no_bench():
+    # ROCK_CUT's 10.39 ft face at 15 ft of ground: one plane, as without
+    # face_bench, its four benches collapsed onto its top (29.195, 7)
+    sec = resolve(sloped(cut=tall_cut(catchment={"width_ft": 10.0, "depth_ft": 3.0})),
+                  500.0, level(15.0))
+    top = (29.195, 7.0)
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39), (24, -3.39)] + [top] * 9
+        + [(35.195, 7.0), (51.195, 15.0)]))
+    # a toe not in rock collapses the face, its benches and the soil bench
+    # onto the toe
+    short = resolve(sloped(cut=tall_cut()), 500.0, level(3.0))
+    assert flat(short.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (20, -3.39)] + [(24, -3.39)] * 11 + [(36.78, 3.0)]))
+
+
+def test_a_tall_rock_face_takes_the_catchment_ditch():
+    # the 70 ft face is taller than 30 ft, so the ditch is the catchment's:
+    # 3 ft under the hinge, flowline -4.89, the foreslope 2:1 down 3 ft to
+    # (23, -4.89), 10 ft across to (33, -4.89). The face from there is
+    # 71.5 ft: benches at (48, 25.11) to (58, 25.11) and (73, 55.11) to
+    # (83, 55.11), its last 11.5 ft in 5.75 ft to (88.75, 66.61); the soil
+    # bench to (94.75, 66.61) and the soil 16 ft out to (110.75, 74.61)
+    sec = resolve(sloped(cut=tall_cut(catchment={"width_ft": 10.0, "depth_ft": 3.0})),
+                  500.0, level(74.61))
+    top = (88.75, 66.61)
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (23, -4.89), (33, -4.89),
+         (48, 25.11), (58, 25.11), (73, 55.11), (83, 55.11),
+         top, top, top, top, top, (94.75, 66.61), (110.75, 74.61)]))
+    # a catchment smaller than the ditch leaves the ditch: at least, not
+    # exactly, that wide and deep
+    sec = resolve(sloped(cut=tall_cut(catchment={"width_ft": 1.0, "depth_ft": 1.0})),
+                  500.0, level(74.61))
+    assert flat(sec.sides["L"].line[1:3]) == pytest.approx(flat([(20, -3.39), (24, -3.39)]))
+
+
+def test_a_tall_face_s_catchment_under_the_rail_keeps_its_flowline():
+    # under a rail the foreslope runs from the widening's hinge
+    # (20.94, -0.884) down to the same flowline, -4.89: 4.006 ft at 2:1,
+    # 8.012 ft, to (28.952, -4.89), 10 ft across to (38.952, -4.89)
+    c = sloped(fill=STEEP_FILL, cut=tall_cut(catchment={"width_ft": 10.0,
+                                                        "depth_ft": 3.0}))
+    line = resolve(c, 500.0, level(74.61), rail=("L",)).sides["L"].line
+    assert flat(line[3:5]) == pytest.approx(flat([(28.952, -4.89), (38.952, -4.89)]))
+
+
+def test_a_face_needing_more_benches_than_its_max_is_a_cut_that_does_not_fit():
+    # the 70 ft face needs two benches; max 1 allows one. Without walls:
+    # auto that is an error naming the station and side
+    with pytest.raises(NoDaylight, match=r"5\+00\.00: the L cut's rock face needs "
+                       r"more than rock\.face_bench\.max \(1\) benches") as exc:
+        resolve(sloped(cut=tall_cut(max=1)), 500.0, level(74.61))
+    assert exc.value.kind == "cut"
+    resolve(sloped(cut=tall_cut(max=2)), 500.0, level(74.61))
+    # with walls: auto the side takes a cut wall, as any cut that does not
+    # fit: it stands beside its 10 ft shoulder and the section builds
+    c = sloped(cut=tall_cut(max=1), walls="auto")
+    assert needs_wall(c, 500.0, "L", level(74.61)) == "cut"
+    walled = c.with_walls([Gap(400.0, 600.0, "wall", "L", None, auto="cut"),
+                           Gap(400.0, 600.0, "wall", "R", None, auto="cut")])
+    sec = resolve(walled, 500.0, level(74.61))
+    assert [sec.sides[side].kind for side in ("L", "R")] == ["wall", "wall"]
+    assert flat(sec.sides["L"].line) == pytest.approx(flat([(22, -2.14), (22, -2.14)]))
+
+
+def test_with_face_benches_every_side_has_one_earthwork_line_count():
+    # four benches, two points each, on every side's line
+    n = 2 * (SIDE_SAMPLES + 2 * 4) - 1 + 2 * 2
+    c = sloped(cut=tall_cut(catchment={"width_ft": 10.0, "depth_ft": 3.0}),
+               fill=STEEP_FILL)
+    secs = [resolve(c, 500.0, level(h)) for h in (-5.0, -15.0, 3.0, 15.0, 74.61)]
+    # a side hill on V1's 2:1 fill ratio (the 4:1 runs down shallower than
+    # its ground)
+    secs += [resolve(c, 500.0, level(74.61), rail=("L", "R")),
+             resolve(sloped(cut=tall_cut()), 500.0, side_hill)]
+    assert {len(s.earthwork_line()) for s in secs} == {n}
+    # without face_bench the count is V1.1's
+    assert len(resolve(sloped(cut=ROCK_CUT, fill=STEEP_FILL), 500.0,
+                       level(15.0)).earthwork_line()) == 2 * SIDE_SAMPLES - 1 + 2 * 2
+
+
+def test_an_automatic_fill_wall_stands_at_the_hinge():
+    c = corridor(walls="auto").with_walls(
+        [Gap(400.0, 600.0, "wall", "L", None, auto="fill")])
+
+    def ground(s, u, v):                  # no ground left, 5 ft down right
+        return (-500.0 if u > 0.0 else -5.0) - v
+    sec = resolve(c, 500.0, ground)
+    assert sec.sides["L"].kind == "wall"
+    assert flat(sec.sides["L"].line) == pytest.approx(flat([(17, -1.89), (17, -1.89)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-23.22, -5.0])
+
+
+def test_an_automatic_cut_wall_stands_at_the_edge_of_a_10_ft_shoulder():
+    # the left shoulder is 10 ft through the wall: grade (12, -0.24) then
+    # (22, -0.74); the hinge 1.4 ft under, (22, -2.14), is the wall's foot.
+    # The right cuts 43.39 ft up from its ditch edge at 1 in 2: (-110.78, 40)
+    c = corridor(walls="auto").with_walls(
+        [Gap(400.0, 600.0, "wall", "L", None, auto="cut")])
+    sec = resolve(c, 500.0, level(40.0))
+    assert flat(sec.grade["L"]) == pytest.approx(flat([(0, 0), (12, -0.24), (22, -0.74)]))
+    assert flat(sec.courses[0, 1, "L"]) == pytest.approx(
+        flat([(12, -0.24), (22, -0.74), (22, -1.14), (12, -0.64)]))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat([(22, -2.14), (22, -2.14)]))
+    assert flat(sec.sides["R"].line[-1:]) == pytest.approx([-110.78, 40.0])
+
+
+def test_one_earthwork_line_count_for_every_kind_of_side():
+    n = 2 * SIDE_SAMPLES - 1 + 2 * 2
+    rocky = sloped(cut=ROCK_CUT, fill=STEEP_FILL)
+    walled = corridor(walls="auto").with_walls(
+        [Gap(400.0, 600.0, "wall", "L", None, auto="fill")])
+    secs = [resolve(corridor(), 500.0, level(-5.0)),      # fill 2:1
+            resolve(rocky, 500.0, level(-5.0)),           # fill 4:1
+            resolve(rocky, 500.0, level(-15.0)),          # fill 2:1, guarded
+            resolve(rocky, 500.0, level(15.0)),           # cut into rock
+            resolve(rocky, 500.0, level(3.0)),            # cut short of rock
+            resolve(walled, 500.0, lambda s, u, v: (-500.0 if u > 0.0 else -5.0) - v)]
+    assert {len(sec.earthwork_line()) for sec in secs} == {n}
+
+
+def test_a_4_to_1_fill_under_the_rail_takes_the_widening():
+    # 3.11 ft of fill: 4:1, not guarded, but a rail runs here (its length of
+    # need past a guarded span), so the 10:1 widening stands behind it: to
+    # (20.94, -0.884), then 4:1 falling 4.116 ft in 16.464 ft: (37.404, -5)
+    sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(-5.0), rail=("L",))
+    side = sec.sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("fill", False, 4.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (37.404, -5.0)]))
+    # the right has no rail: 4:1 from its hinge, the widening collapsed
+    assert flat(sec.sides["R"].line) == pytest.approx(flat(
+        [(-17, -1.89), (-17, -1.89), (-17, -1.89), (-29.44, -5.0)]))
+    # a guarded side under its rail is the guarded side
+    assert (resolve(sloped(fill=STEEP_FILL), 500.0, level(-15.0), rail=("L",)).sides["L"]
+            == resolve(sloped(fill=STEEP_FILL), 500.0, level(-15.0)).sides["L"])
+
+
+def test_a_cut_under_the_rail_moves_its_ditch_out_behind_the_widening():
+    # the widening to (20.94, -0.884); the ditch's flowline stays where it
+    # is without a rail, the ditch depth under the subgrade hinge: -1.89 -
+    # 1.5 = -3.39, so the base still drains to it and the flowline does not
+    # step at the rail's ends. The foreslope falls 2.506 ft at 2:1 from the
+    # widening's hinge, 5.012 ft, to (25.952, -3.39); 4 ft across to
+    # (29.952, -3.39); the backslope rises 6.39 ft in 12.78 ft to the ground
+    # at 3: (42.732, 3)
+    sec = resolve(sloped(fill=STEEP_FILL), 500.0, level(3.0), rail=("L",))
+    side = sec.sides["L"]
+    assert (side.kind, side.guarded, side.ratio) == ("cut", False, 2.0)
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (25.952, -3.39),
+         (29.952, -3.39), (42.732, 3.0)]))
+
+
+def test_a_rock_cut_under_the_rail_and_the_line_s_count():
+    # the toe (29.952, -3.39) as above; rock 8 ft under the ground at 15
+    # (v = 7): the 0.5:1 face rises 10.39 ft in 5.195 ft to (35.147, 7), the
+    # bench to (41.147, 7), the soil 2:1 up 8 ft in 16 ft to (57.147, 15)
+    c = sloped(fill=STEEP_FILL, cut=ROCK_CUT)
+    sec = resolve(c, 500.0, level(15.0), rail=("L", "R"))
+    assert flat(sec.sides["L"].line) == pytest.approx(flat(
+        [(17, -1.89), (17.01, -0.491), (20.94, -0.884), (25.952, -3.39),
+         (29.952, -3.39), (35.147, 7.0), (41.147, 7.0), (57.147, 15.0)]))
+    n = 2 * SIDE_SAMPLES - 1 + 2 * 2
+    under = [resolve(c, 500.0, level(h), rail=("L", "R"))
+             for h in (-5.0, -15.0, 3.0, 15.0)]
+    assert {len(s.earthwork_line()) for s in under} == {n}
+
+
+def test_a_wall_under_the_rail_is_the_wall():
+    c = sloped(fill=STEEP_FILL, gaps=[{"from": 900, "to": 1100, "kind": "wall",
+                                       "side": "L", "offset": 30.0}])
+    assert (resolve(c, 1000.0, level(-15.0), rail=("L",)).sides["L"]
+            == resolve(c, 1000.0, level(-15.0)).sides["L"])
+
+
+def test_a_cut_with_guardrail_but_no_rail_keeps_the_widening_s_points_at_the_hinge():
+    # as test_cut_runs_through_the_ditch_then_up_the_backslope, with the
+    # widening's two points on the hinge: the ditch at the next station
+    # under a rail lofts to its own ditch, moved out
+    side = resolve(sloped(fill=STEEP_FILL), 500.0, level(3.0)).sides["L"]
+    assert flat(side.line) == pytest.approx(flat(
+        [(17, -1.89), (17, -1.89), (17, -1.89), (20, -3.39), (24, -3.39), (36.78, 3.0)]))

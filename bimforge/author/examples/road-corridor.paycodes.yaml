@@ -1,4 +1,4 @@
-# Road corridor: pavement courses and earthwork (CY).
+# Road corridor: pavement courses and earthwork (CY), guardrail (LF).
 rules:
   - match: "(?i)^HMA "
     group: rc_hma
@@ -8,11 +8,14 @@ rules:
     group: rc_cut
   - match: "(?i)^Fill "
     group: rc_fill
+  - match: "(?i)^Guardrail "
+    group: rc_mgs
 groups:
   rc_hma: {measure: GrossVolume}
   rc_ab: {measure: GrossVolume}
   rc_cut: {measure: GrossVolume}
   rc_fill: {measure: GrossVolume}
+  rc_mgs: {measure: Length}
 codes:
   PAVE-HMA:
     group: rc_hma
@@ -38,3 +41,8 @@ codes:
     unit: CY
     item_number: "198010"
     description: "Imported borrow"
+  RAIL-MGS:
+    group: rc_mgs
+    measure: Length
+    unit: LF
+    description: "Midwest guardrail system (steel post)"

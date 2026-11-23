@@ -14,12 +14,96 @@ from __future__ import annotations
 
 import bisect
 import math
+from dataclasses import dataclass
 
 from bimforge.author.alignment import poly_area
 from bimforge.author.corridor.frame import survey_point
 from bimforge.author.primitives import (_outward_tris, _signed_area2,
                                         clean_ring, ear_clip, face_volume)
 from bimforge.author.sweep import SweptSection, _seg_dist, ring_centroid, to_model
+
+#: Gauss-Legendre nodes and weights on [-1, 1], 5 points: exact for a
+#: polynomial of degree 9 in station, ample for a bay's blended ring (area
+#: quadratic, first moments cubic) in a frame constant on an arc
+_GAUSS = ((-0.9061798459386640, 0.2369268850561891),
+          (-0.5384693101056831, 0.4786286704993665),
+          (0.0, 0.5688888888888889),
+          (0.5384693101056831, 0.4786286704993665),
+          (0.9061798459386640, 0.2369268850561891))
+
+
+def _moments(ring: list) -> tuple:
+    """(area, first moment in u, first moment in v) of a (u, v) ring wound
+    counterclockwise."""
+    a = qu = qv = 0.0
+    for (u0, v0), (u1, v1) in zip(ring, ring[1:] + ring[:1]):
+        cr = u0 * v1 - u1 * v0
+        a += cr
+        qu += (u0 + u1) * cr
+        qv += (v0 + v1) * cr
+    return a / 2.0, qu / 6.0, qv / 6.0
+
+
+@dataclass(frozen=True)
+class Pappus:
+    volume_cf: float       # the exact volume of the lofts together
+    path_ft: float         # the 3D length of their centroid's line
+    offset_ft: float       # that line's offset, left positive
+    height_ft: float       # its height above the profile grade line
+
+
+def pappus(lofts: list) -> Pappus:
+    """The exact volume of `lofts` (StationLofts on the same stations) and
+    the path of their combined centroid.
+
+    In the corridor frame (frame.survey_point: N the horizontal left normal,
+    T3 the 3D tangent, B the section's up axis) a section point moves along
+    T3 at J = sqrt(1 + g^2) - kappa cos(gamma) u - gamma' v, the Jacobian of
+    (s, u, v), so the volume is the integral over station of A sqrt(1 + g^2)
+    - kappa cos(gamma) Qu - gamma' Qv (A, Qu, Qv the blended ring's area and
+    first moments). The centroid's line, held at the band's area-weighted
+    mean (u, v) parallel to the profile grade line, has speed |P'|: its T3
+    part is J at (u, v), plus kappa u sin(gamma) along B and -kappa v
+    sin(gamma) along N. Both by 5-point Gauss-Legendre per bay, on the rings
+    blended as IFC blends them (ring_at): within a bay A is quadratic and
+    the moments cubic in station, and kappa and the grade's rate constant,
+    since the stations hold every geometry point."""
+    first = lofts[0]
+    al, prof, ss = first.alignment, first.profile, first.stations
+    if any(lf.stations != ss for lf in lofts[1:]):
+        raise ValueError(f"{first.name}: pappus needs lofts on the same stations")
+    nodes = []
+    for i, (a, b) in enumerate(zip(ss, ss[1:])):
+        h = b - a
+        # grade() is the left limit at a shared station: sample inside. A
+        # bay never straddles a vertical curve's end, so its grade changes
+        # linearly across it
+        eps = 1e-9 * h
+        gp = (prof.grade(b - eps) - prof.grade(a + eps)) / h
+        pairs = [(lf.rings[i], lf.rings[i + 1]) for lf in lofts]
+        for x, w in _GAUSS:
+            t = 0.5 * (1.0 + x)
+            s = a + h * t
+            area = qu = qv = 0.0
+            for ra, rb in pairs:
+                da, du, dv = _moments([(ua + t * (ub - ua), va + t * (vb - va))
+                                       for (ua, va), (ub, vb) in zip(ra, rb)])
+                area, qu, qv = area + da, qu + du, qv + dv
+            g = prof.grade(s)
+            nodes.append((0.5 * h * w, area, qu, qv, al.curvature(s), g,
+                          gp / (1.0 + g * g)))
+    weight = sum(n[0] * n[1] for n in nodes)
+    ub = sum(n[0] * n[2] for n in nodes) / weight
+    vb = sum(n[0] * n[3] for n in nodes) / weight
+    volume = path = 0.0
+    for dw, area, qu, qv, k, g, dgam in nodes:
+        root = math.sqrt(1.0 + g * g)
+        cg, sg = 1.0 / root, g / root
+        volume += dw * (area * root - k * cg * qu - dgam * qv)
+        along = root - k * cg * ub - dgam * vb
+        path += dw * math.sqrt(along ** 2 + (k * ub * sg) ** 2
+                               + (k * vb * sg) ** 2)
+    return Pappus(volume, path, ub, vb)
 
 
 class StationLoft:
@@ -180,18 +264,36 @@ class StationLoft:
 
     @property
     def volume_cf(self) -> float:
+        """The exact volume of the solid IFC4X3 describes (pappus): what the
+        corridor declares, as the kernel's sweeps declare their closed form."""
+        return pappus([self]).volume_cf
+
+    @property
+    def faceted_volume_cf(self) -> float:
+        """The chorded mesh's volume, held to volume_cf by the pre gate's
+        arc-faceting check."""
         return abs(face_volume(self._faces()))
 
     @property
+    def widths_ft(self) -> list:
+        """Each station's ring width, its u extent, feet."""
+        return [max(u for u, _v in r) - min(u for u, _v in r) for r in self.rings]
+
+    @property
     def mean_width_ft(self) -> float:
-        return sum(max(u for u, _v in r) - min(u for u, _v in r)
-                   for r in self.rings) / len(self.rings)
+        """The ring width's mean over the loft's length: each bay's mean
+        width weighted by its length, so densified bays of unequal length
+        do not tilt it."""
+        w, ss = self.widths_ft, self.stations
+        return sum(0.5 * (a + b) * (s1 - s0) for a, b, s0, s1
+                   in zip(w, w[1:], ss, ss[1:])) / (self.s1 - self.s0)
 
     @property
     def average_end_area_cf(self) -> float:
         """The volume by average end areas, each bay lengthened by the plan
         curvature at the rings' centroid (Pappus) and by the grade: a figure
-        independent of the mesh, for the gate to hold the mesh to."""
+        independent of the exact volume (pappus), for the stated
+        quantity to hold it to."""
         out = 0.0
         for i in range(len(self.stations) - 1):
             a, b = self.stations[i], self.stations[i + 1]

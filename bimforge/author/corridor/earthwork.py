@@ -99,6 +99,11 @@ def strip(tag: str, a, b, survey, ground_z, origin, per_component=1) -> tuple:
     return out["cut"], out["fill"], depth["cut"], depth["fill"]
 
 
+def plan_area_sf(columns: list) -> float:
+    """The plan area under `columns` (strip's prismatoids): their bases."""
+    return sum(abs(p.area_sf) for p in columns)
+
+
 class EarthMesh:
     """One closed body of earthwork: a connected region of columns, merged
     (see `merge`)."""
