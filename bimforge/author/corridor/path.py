@@ -487,3 +487,217 @@ def course_rings(p, sf: Surface) -> dict:
                   (ui, vi - above - d)]
         above += d
     return out
+
+
+#: the path's earthwork top, q to o: q, a step down the courses' inner edge,
+#: under the courses, up their outer edge, o
+TOP_POINTS = 6
+
+
+@dataclass(frozen=True)
+class PathSection:
+    """The path's part of a section (section.Section.path)."""
+    strip: str             # "ground", "slope", "guarded", "wall-road", "wall-path"
+    ratio: float | None    # the strip's slope ratio (from the widening's hinge
+                           # where guarded); None on natural ground or a wall
+    surface: Surface
+    courses: dict          # course index -> 4-point ring under the paved width
+
+
+def strip_count(c) -> int:
+    """The strip's points on the earthwork line: room for the road's slope
+    and the path's inner slope (section.side_samples each) and the ground
+    between them."""
+    from bimforge.author.corridor.section import side_samples
+    return 2 * side_samples(c) + GROUND_SAMPLES
+
+
+def side_count(c) -> int:
+    """The path side's points on every section's earthwork line: the strip,
+    the path's top (its first point the strip's last) and its outer slope
+    (its first the top's last). A station without the path pads the road's
+    own side to it."""
+    from bimforge.author.corridor.section import side_samples
+    return strip_count(c) + TOP_POINTS - 1 + side_samples(c) - 1
+
+
+def _fixed(points: list, n: int) -> list:
+    """`points` with points added halfway along the longest segment, the
+    first of equals, until there are `n`: the line is unchanged."""
+    pts = list(points)
+    if len(pts) > n:
+        raise ValueError(f"the path's strip has {len(pts)} points, more than "
+                         f"its {n}")
+    while len(pts) < n:
+        k = max(range(len(pts) - 1), key=lambda i: math.dist(pts[i], pts[i + 1]))
+        (u0, v0), (u1, v1) = pts[k], pts[k + 1]
+        pts.insert(k + 1, (0.5 * (u0 + u1), 0.5 * (v0 + v1)))
+    return pts
+
+
+def _ratio(a: tuple, b: tuple, cg: float) -> float:
+    """The slope a to b, horizontal per vertical (inf where level)."""
+    dz = abs(a[1] - b[1]) * cg
+    return math.inf if dz < 1e-9 else abs(a[0] - b[0]) / dz
+
+
+def _no_fit(c, s: float, a: tuple, q: tuple, cg: float) -> str:
+    p = c.path
+    dz = (a[1] - q[1]) * cg
+    return (f"station {sta(s)}: the {p.side} strip between the road and the path "
+            f"does not fit at {p.strip_ratio:g}:1 or flatter: the road "
+            f"{abs(dz):.2f} ft {'above' if dz > 0 else 'below'} the path's "
+            f"shoulder edge, {abs(q[0] - a[0]):.2f} ft from it; set walls: auto "
+            f"for a wall there")
+
+
+def _widening(c, s: float, room: float) -> list:
+    """The road's guardrail widening (section._widening) on the path's
+    side, held inside the strip: its hinge no farther out than STEP_FT
+    short of q."""
+    from bimforge.author.corridor.params import WIDENING_SLOPE
+    from bimforge.author.corridor.section import GUARD_STEP_FT, grade_edge
+    p = c.path
+    eu, ev = grade_edge(c, s, p.side)
+    far = max(min(c.guard.widening, room - STEP_FT), GUARD_STEP_FT)
+    return [(eu + p.sign * w, ev - WIDENING_SLOPE * w) for w in (GUARD_STEP_FT, far)]
+
+
+def _on_ground(c, s: float, a: tuple, b: tuple, ground_dz) -> list:
+    """GROUND_SAMPLES points evenly between a and b, each moved up or down
+    onto the ground."""
+    g = c.path.road_profile.grade(s)
+    cg = 1.0 / math.sqrt(1.0 + g * g)
+    out = []
+    for i in range(1, GROUND_SAMPLES + 1):
+        t = i / (GROUND_SAMPLES + 1)
+        u, v = a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])
+        for _ in range(3):
+            v += ground_dz(s, u, v) / cg
+        out.append((u, v))
+    return out
+
+
+def _natural(c, s: float, hinge: tuple, q: tuple, room: float, ground_dz,
+             rail: bool) -> tuple | None:
+    """The strip as two slopes with natural ground between, or None: the
+    road's slope from the hinge (V1.1's rules, with the rail's widening
+    where one runs) and the path's inner slope from q toward the road (the
+    same rules mirrored, no widening), each held to the strip's width and
+    no footprint, both daylighting, the road's no farther from the hinge
+    than the path's."""
+    from dataclasses import replace
+
+    from bimforge.author.corridor.section import NoDaylight, _slope
+    p = c.path
+    free = replace(c, slopes=replace(c.slopes, footprint=None, daylight_limit=room))
+    try:
+        road = _slope(free, s, p.side, p.sign, hinge, ground_dz, rail)
+        back = _slope(free, s, p.side, -p.sign, q, ground_dz, widen=False)
+    except NoDaylight:
+        return None
+    dr, dp = road.line[-1], back.line[-1]
+    if abs(dr[0] - hinge[0]) > abs(dp[0] - hinge[0]) + _EPS:
+        return None                                   # the slopes cross
+    pts = road.line + _on_ground(c, s, dr, dp, ground_dz) + back.line[::-1]
+    return pts, "ground", None, road.guarded
+
+
+def _strip(c, s: float, sf: Surface, hinge: tuple, ground_dz,
+           rail: bool = False) -> tuple:
+    """(points from the hinge to q, mode, ratio, guarded): the strip at
+    station s, resolved in the spec's order: a wall gap standing here,
+    natural ground between, a slope (guarded below a higher road where
+    steeper than fill.ratio; on an approach whatever its slope, as the
+    deck's barrier layout stands there), else NoDaylight with the wall it
+    needs, "strip-road" or "strip-path". With `rail` the road's guardrail
+    widening is taken out of the strip as well."""
+    from bimforge.author.corridor.section import NoDaylight
+    p = c.path
+    sign, q = p.sign, sf.q
+    hu, hv = hinge
+    wall = c.wall(p.side, s, strip=True)
+    if wall is not None:
+        if wall.auto == "strip-road":
+            # V1.1's automatic fill wall at the hinge, its barrier on top;
+            # the strip level at q from its foot
+            return [hinge, (hu + sign * STEP_FT, q[1]), q], "wall-road", None, False
+        # the wall at q retaining the path, its rail on top; the strip
+        # level at the hinge's elevation from the road to its foot
+        return [hinge, (q[0] - sign * STEP_FT, hv), q], "wall-path", None, False
+    room = abs(q[0] - hu)
+    natural = _natural(c, s, hinge, q, room, ground_dz, rail)
+    if natural is not None:
+        return natural
+    approach = on_approach(c, s)
+    higher = hv > q[1]
+    ratio = _ratio(hinge, q, sf.cg)
+    guarded = (higher and not approach and c.guard is not None
+               and ratio < c.slopes.fill_ratio - _EPS)
+    if guarded or (rail and c.guard is not None):
+        w = _widening(c, s, room)
+        rest = _ratio(w[-1], q, sf.cg)
+        if not approach and rest < p.strip_ratio - _EPS:
+            raise NoDaylight(_no_fit(c, s, w[-1], q, sf.cg), "strip-road")
+        return [hinge] + w + [q], "guarded" if guarded else "slope", rest, guarded
+    if not approach and ratio < p.strip_ratio - _EPS:
+        raise NoDaylight(_no_fit(c, s, hinge, q, sf.cg),
+                         "strip-road" if higher else "strip-path")
+    collapsed = [hinge, hinge] if c.guard is not None else []
+    return [hinge] + collapsed + [q], "slope", ratio, False
+
+
+def _top(c, sf: Surface) -> list:
+    """The path's earthwork top, q to o (TOP_POINTS): the inner shoulder at
+    finished grade, a STEP_FT step down the courses' inner edge, under the
+    courses, up their outer edge, the outer shoulder."""
+    p = c.path
+    k = p.shoulder_slope * STEP_FT / sf.cg
+    (ui, vi), (uo, vo) = sf.inner, sf.outer
+    return [sf.q, (ui - p.sign * STEP_FT, vi + k), (ui, vi - sf.depth),
+            (uo, vo - sf.depth), (uo + p.sign * STEP_FT, vo + k), sf.o]
+
+
+def _outer(c, s: float, sf: Surface, ground_dz) -> list:
+    """The path's outer slope from o by V1.1's rules, with no MGS widening,
+    or [o, o] at an automatic wall on the path's outer side."""
+    from bimforge.author.corridor.section import _slope
+    p = c.path
+    if c.wall(p.side, s) is not None:
+        return [sf.o, sf.o]
+    return _slope(c, s, p.side, p.sign, sf.o, ground_dz, widen=False).line
+
+
+def side(c, s: float, hinge: tuple, ground_dz, rail: bool = False) -> tuple:
+    """(section.Side, PathSection): the path's side of corridor `c`'s
+    section at station s, out from the road's subgrade `hinge`. The Side's
+    kind is "path"; it is guarded where the strip is, so the road's rail
+    is laid there; its line has side_count(c) points."""
+    from bimforge.author.corridor.section import Side, _samples, side_samples
+    sf = surface(c, s)
+    pts, mode, ratio, guarded = _strip(c, s, sf, hinge, ground_dz, rail)
+    line = (_fixed(pts, strip_count(c)) + _top(c, sf)[1:]
+            + _samples(_outer(c, s, sf, ground_dz), side_samples(c))[1:])
+    return (Side("path", line, guarded, ratio),
+            PathSection(mode, ratio, sf, course_rings(c.path, sf)))
+
+
+def needs_wall(c, s: float, hinge: tuple, ground_dz, rail: bool = False,
+               location: str = "outer") -> str | None:
+    """section.needs_wall on the path's side where the path is: the strip's
+    wall ("strip-road", "strip-path") or the outer side's ("path-fill",
+    "path-cut"), None where it fits or a wall gap already stands."""
+    from bimforge.author.corridor.section import NoDaylight
+    p = c.path
+    strip = location == "strip"
+    if c.wall(p.side, s, strip=strip) is not None:
+        return None
+    sf = surface(c, s)
+    try:
+        if strip:
+            _strip(c, s, sf, hinge, ground_dz, rail)
+        else:
+            _outer(c, s, sf, ground_dz)
+    except NoDaylight as exc:
+        return exc.kind if strip else f"path-{exc.kind}"
+    return None

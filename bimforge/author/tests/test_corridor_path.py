@@ -487,12 +487,14 @@ def test_cos_theta_is_the_road_s_tangent_against_the_path_s():
 from bimforge.author.corridor.frame import survey_point, tangent3  # noqa: E402
 
 
-def curved(turn, side, radius=60.0, road_pct=0.0, path_pct=0.0, **over):
+def curved(turn, side, radius=60.0, road_pct=0.0, path_pct=0.0,
+           origin=(0.0, 0.0), **over):
     """A 90 degree curve of `radius` from 1000 on a corridor 1000-1090, the
-    path on `side`, the road at road_pct and the path at path_pct."""
+    path on `side`, the road at road_pct and the path at path_pct; the
+    alignment starts at `origin` (northing, easting)."""
     length = math.pi * radius / 2.0
-    al = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0,
-                    "azimuth": 0.0},
+    al = Alignment({"station": 1000.0, "northing": origin[0],
+                    "easting": origin[1], "azimuth": 0.0},
                    [{"kind": "curve", "delta": "90-0-0", "turn": turn,
                      "radius": radius, "length": length}], name="C")
     road = Profile(grade(100.0, pct=road_pct, s1=1000.0 + length)["curves"])
@@ -598,3 +600,121 @@ def test_cos_theta_with_a_drifting_separation():
     # for each foot on: cos theta = 1 / sqrt(1.04) on a level road and path
     c = corridor(path(separation=[[1000, 10.0], [2000, 210.0]]))
     assert cos_theta(c, 1500.0) == pytest.approx(1 / math.sqrt(1.04), rel=1e-9)
+
+
+def test_cos_theta_at_state_plane_coordinates_matches_a_small_origin():
+    # the chord over s +/- 0.01 is a difference of coordinates near 1e6 ft:
+    # its round-off is about 1e-10 / h, far inside 1e-7
+    small = curved("L", "L", 60.0, road_pct=8.0, path_pct=-6.0)
+    big = curved("L", "L", 60.0, road_pct=8.0, path_pct=-6.0,
+                 origin=(2.0e6, 6.8e6))
+    for s in (1010.0, 1040.0, 1080.0):
+        assert cos_theta(big, s) == pytest.approx(cos_theta(small, s), abs=1e-7)
+
+
+# -- Task 5: the strip, and the path's side of the section -------------------
+
+from bimforge.author.corridor.path import TOP_POINTS, side_count, strip_count  # noqa: E402
+from bimforge.author.corridor.section import (SIDE_SAMPLES, NoDaylight,  # noqa: E402
+                                              needs_wall, resolve)
+
+
+def level(h):
+    """Level ground h ft above the road's profile grade line."""
+    return lambda s, u, v: h - v
+
+
+def on(line, xy):
+    return any(abs(u - xy[0]) < 1e-6 and abs(v - xy[1]) < 1e-6 for u, v in line)
+
+
+def test_point_counts():
+    c = corridor()
+    assert strip_count(c) == 2 * SIDE_SAMPLES + 8
+    assert side_count(c) == strip_count(c) + TOP_POINTS - 1 + SIDE_SAMPLES - 1
+
+
+def test_a_path_level_with_the_road_takes_a_strip_slope():
+    c = corridor()
+    sec = resolve(c, 1500.0, level(-5.0))
+    ps, side = sec.path, sec.sides["L"]
+    assert (ps.strip, side.kind, side.guarded) == ("slope", "path", False)
+    assert ps.ratio == pytest.approx(8.0 / 1.30)
+    assert len(side.line) == side_count(c) == sec.count("L")
+    assert side.line[0] == pt((17.0, -1.89))
+    for xy in ((25.0, -0.59), (26.99, -0.4905), (27.0, -1.24), (39.0, -1.48),
+               (39.01, -0.7305), (41.0, -0.83)):
+        assert on(side.line, xy), xy                     # the path's top
+    assert side.line[-1] == pt((49.34, -5.0))            # 2:1 from o
+    want = [(27, -0.49), (39, -0.73), (39, -0.98), (27, -0.74)]
+    assert [x for xy in ps.courses[0] for x in xy] == pytest.approx(
+        [x for xy in want for x in xy])
+    # the road's other side is V1.1's: 2:1 from its hinge to the ground
+    assert sec.sides["R"].line[-1] == pt((-23.22, -5.0))
+    assert sec.count("R") == SIDE_SAMPLES
+    assert len(sec.earthwork_line()) == (
+        side_count(c) + 2 + 2 + SIDE_SAMPLES - 1)        # + the road's subgrade
+
+
+def test_a_path_3_ft_below_takes_a_slope_that_fits():
+    sec = resolve(corridor(path(profile=grade(96.51))), 1500.0, level(-5.0))
+    assert sec.path.strip == "slope"
+    assert sec.path.ratio == pytest.approx(8.0 / 1.70)
+
+
+def test_a_steep_strip_below_a_higher_road_is_guarded():
+    p = path(separation=[[1000, 20.0]], profile=grade(93.51))
+    side_slopes = dict(BASE["section"]["side_slopes"], fill={"ratio": 4.0})
+    c = corridor(p, section=dict(BASE["section"], side_slopes=side_slopes))
+    sec = resolve(c, 1500.0, level(-5.0))
+    assert (sec.path.strip, sec.sides["L"].guarded) == ("guarded", True)
+    assert sec.path.ratio == pytest.approx(14.06 / 5.706)
+    assert on(sec.sides["L"].line, (17.01, -0.491))
+    assert on(sec.sides["L"].line, (20.94, -0.884))
+
+
+def test_a_path_12_ft_below_needs_a_wall_at_the_road_s_hinge():
+    p = path(profile=grade(87.51))
+    c = corridor(p)
+    assert needs_wall(c, 1500.0, "L", level(-5.0), location="strip") == "strip-road"
+    with pytest.raises(NoDaylight, match=r"station 15\+00\.00: the L strip between "
+                       r"the road and the path does not fit at 2:1 or flatter"):
+        resolve(c, 1500.0, level(-5.0))
+    c = corridor(p, walls="auto").with_walls(
+        [Gap(1400.0, 1600.0, "wall", "L", None, auto="strip-road")])
+    sec = resolve(c, 1500.0, level(-5.0))
+    assert sec.path.strip == "wall-road"
+    line = sec.sides["L"].line
+    assert line[0] == pt((17.0, -1.89))
+    assert on(line, (17.01, -12.59)) and on(line, (25.0, -12.59))
+
+
+def test_a_path_12_ft_above_needs_a_wall_at_its_shoulder():
+    p = path(profile=grade(111.51))
+    assert needs_wall(corridor(p), 1500.0, "L", level(-5.0),
+                      location="strip") == "strip-path"
+    c = corridor(p, walls="auto").with_walls(
+        [Gap(1400.0, 1600.0, "wall", "L", None, auto="strip-path")])
+    sec = resolve(c, 1500.0, level(-5.0))
+    assert sec.path.strip == "wall-path"
+    assert on(sec.sides["L"].line, (24.99, -1.89))
+    assert on(sec.sides["L"].line, (25.0, 11.41))
+
+
+def test_a_path_drifted_out_leaves_natural_ground_between():
+    c = corridor(path(separation=[[1000, 10.0], [1100, 60.0]]))
+    sec = resolve(c, 1150.0, level(-3.0))
+    assert sec.path.strip == "ground"
+    line = sec.sides["L"].line
+    assert on(line, (19.22, -3.0)) and on(line, (70.18, -3.0))
+    between = [(u, v) for u, v in line if 19.22 + 1e-6 < u < 70.18 - 1e-6]
+    assert len(between) >= 8 and all(v == pytest.approx(-3.0) for _u, v in between)
+
+
+def test_without_the_path_the_side_pads_to_the_path_s_count():
+    c = corridor(path(stations=[1200, 1800]))
+    sec = resolve(c, 1100.0, level(-5.0))
+    assert sec.path is None and sec.sides["L"].kind == "fill"
+    assert sec.count("L") == side_count(c)
+    assert len(sec.earthwork_line()) == len(
+        resolve(c, 1500.0, level(-5.0)).earthwork_line())

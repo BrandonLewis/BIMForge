@@ -141,6 +141,20 @@ class Gap:
                                    # centreline; None: at the hinge
     auto: str | None = None        # an automatic wall's kind: "fill", "cut"
 
+    @property
+    def strip(self) -> bool:
+        """An automatic wall in the strip between the road and its path
+        (V1.2 C): `strip-road` at the road's hinge, `strip-path` at the
+        path's inner shoulder."""
+        return (self.auto or "").startswith("strip-")
+
+    @property
+    def carries(self) -> str:
+        """What a wall's stretch carries, as a structure candidate: the
+        road, or the path (a strip wall, or a wall on the path's outer side,
+        `path-fill` / `path-cut`)."""
+        return "path" if (self.auto or "").startswith(("strip-", "path-")) else "road"
+
 
 @dataclass(frozen=True)
 class Corridor:
@@ -198,9 +212,12 @@ class Corridor:
         """Every course's thickness: finished grade to subgrade."""
         return sum(c.thickness for c in self.courses)
 
-    def wall(self, side: str, s: float) -> Gap | None:
+    def wall(self, side: str, s: float, strip: bool = False) -> Gap | None:
+        """The wall gap on `side` at station s: an outer one (a listed wall,
+        a V1.1 automatic wall, a wall on the path's outer side), or with
+        `strip` one in the strip between the road and its path."""
         for g in self.gaps:
-            if (g.kind == "wall" and g.side == side
+            if (g.kind == "wall" and g.side == side and g.strip == strip
                     and g.start - _EPS <= s <= g.end + _EPS):
                 return g
         return None
