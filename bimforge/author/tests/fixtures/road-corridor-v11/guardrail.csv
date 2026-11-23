@@ -1,0 +1,6 @@
+side,start,end,length_ft,start_treatment,end_treatment,posts,terminals,agts,anchors,below_minimum,short_end
+L,1537.50,1700.00,162.50,TERMINAL,AGT,27,1,1,0,no,no
+L,1800.00,2200.00,400.00,AGT,WALL,65,0,2,0,no,no
+L,2300.00,2440.00,140.00,WALL,WALL,23,0,2,0,yes,no
+R,1537.50,1700.00,162.50,TERMINAL,AGT,27,1,1,0,no,no
+R,1861.57,2549.07,687.50,TERMINAL,SFT-M,111,1,0,1,no,no

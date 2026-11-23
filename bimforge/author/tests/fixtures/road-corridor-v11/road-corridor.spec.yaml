@@ -1,0 +1,76 @@
+# Worked road-corridor run (P.6, V1.1): a two-lane road on a tangent, a
+# 1000 ft right curve and a second tangent, over a sloping plane of ground.
+# A cut at the start meets shallow rock; past the bridge the fill deepens
+# beyond 10 ft, so it runs 4:1 below that and 2:1 behind guardrail above,
+# and an automatic wall stands where the left slope would reach past its
+# footprint. A superelevation run through the curve, a shoulder that
+# widens, a gap for a bridge and a listed wall gap on the left.
+# --check-only writes nothing (CI fixture). Fictitious alignment and
+# stationing: nothing here is a real project.
+family: road-corridor
+params:
+  alignment:
+    name: "ML"
+    pob: {station: 1000.0, northing: 1943000.0, easting: 6594000.0}
+    run:
+      - {kind: tangent, bearing: "N 0-0-0 E", length: 600.0}
+      - {kind: curve, delta: "20-0-0", radius: 1000.0, turn: R, length: 349.07}
+      - {kind: tangent, bearing: "N 20-0-0 E", length: 600.0}
+  profile:                              # one sag VC: cut, then fill
+    curves:
+      - bvc_station: 1000.0
+        bvc_elev: 298.0
+        g_in_pct: 3.0
+        g_out_pct: 5.6
+        length_ft: 1549.07
+        evc_station: 2549.07
+        evc_elev: 364.6100
+  ground: {source: plane, elevation: 300.0, slope_n: 0.02, slope_e: 0.04}
+  section:
+    crown: centerline
+    components:                         # outward from the crown, both sides
+      - {name: lane, kind: carriageway, width: 12.0}
+      - {name: shoulder, kind: shoulder, width: 5.0, slope: -0.05}
+    courses:                            # top down
+      - {name: HMA, type: PAVEMENT, thickness: 0.40}
+      - {name: AB, type: CORE, thickness: 1.00}
+    side_slopes:
+      cut:
+        ratio: 2.0
+        ditch: {width: 4.0, depth: 1.5}
+        rock: {depth_ft: [[1000, 3.0], [1250, 4.0]], ratio: 0.5, bench_ft: 6.0}
+      fill: {ratio: 4.0, steep: {ratio: 2.0, above_height_ft: 10.0}}
+      daylight_limit_ft: 150
+      footprint_ft: {L: 66, R: 120}
+  walls: auto                           # where a slope cannot fit
+  max_wall_height_ft: 20                # a fill wall taller: a structure candidate
+  guardrail: {design_speed_mph: 45}
+  widths:                               # the right shoulder widens to 10 ft
+    - {component: shoulder, side: R, at: [[1200, 5.0], [1300, 10.0]]}
+  superelevation:                       # [station, left, right]; - slopes down away
+    - [1000.0, -0.02, -0.02]
+    - [1500.0, -0.02, -0.02]
+    - [1600.0, 0.04, -0.04]
+    - [1949.07, 0.04, -0.04]
+    - [2049.07, -0.02, -0.02]
+    - [2549.07, -0.02, -0.02]
+  gaps:
+    - {from: 1700, to: 1800, kind: structure}           # a bridge
+    - {from: 2200, to: 2300, kind: wall, side: L, offset: 40.0}
+  stations: {interval: 25, band: 100}
+  mass_haul: {shrink: 0.10, swell: 0.20}
+paycodes: ./road-corridor.paycodes.yaml
+outputs:
+  dxf: out/road-corridor.dxf
+  ifc: out/road-corridor.ifc
+  takeoff_map: out/road-corridor-takeoff-map.yaml
+  masshaul: out/road-corridor.masshaul.csv
+  walls: out/road-corridor.walls.csv
+  structures: out/road-corridor.structures.csv
+  guardrail: out/road-corridor.guardrail.csv
+project:
+  name: "Fixture Road (example)"
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 300.0]
+  guid_ns: "3b7a5c2e-0000-4000-8000-0000000000c6"
+  facility: {kind: road}
