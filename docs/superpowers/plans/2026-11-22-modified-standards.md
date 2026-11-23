@@ -201,8 +201,6 @@ git commit -m "modified: the routes and the table diff (M.8, M.9)"
 def test_a_project_file_over_the_default_pack_is_diffed(tmp_path):
     from bimforge.author.families.registry import load_spec
     from bimforge.author.modified import Difference
-    (tmp_path / "t.yaml").write_text(
-        "type_1_case_1: {table: {8: {W_ft: 7.0}}}\n", "utf-8")
     pack = caltrans.load_table("b3-retaining-wall")
     (tmp_path / "full.yaml").write_text(yaml.safe_dump(
         {**pack, "type_1_case_1": {**pack["type_1_case_1"], "table": {
@@ -601,7 +599,7 @@ def test_modified_lines_group_alike_elements():
                _el("c", route="standard"))
     lines = modified_lines(m)
     assert lines == ["2 elements (a, ...) modified-by-value of "
-                     "retaining-wall-b3-type-1-footing: W_ft 6.5833 -> 7.0"]
+                     "retaining-wall-b3-type-1-footing: W_ft 6.5833 -> 7"]
     assert modified_check(m)(m) == lines
     assert modified_check(_Model(_el("c", route="standard")))(None) == []
 ```
@@ -621,7 +619,7 @@ def test_a_changed_row_modifies_only_the_elements_that_read_it(tmp_path, capsys)
     path = _spec(tmp_path, WALL_8FT_PARAMS)
     assert build_from_spec(str(path), check_only=True) == 0
     err = capsys.readouterr().err
-    assert "type_1_case_1.table.8.W_ft 6.5833 -> 7.0" in err
+    assert "type_1_case_1.table.8.W_ft 6.5833 -> 7 " in err
     assert "modified-by-value of retaining-wall-b3-type-1-footing: W_ft" in err
     assert "of retaining-wall-b3-type-1:" not in err      # stems are standard
 
@@ -705,7 +703,7 @@ def modified_check(model):
     return check_modified
 ```
 
-(`_fmt(6.5833)` is "6.5833" and `_fmt(7.0)` is "7", so the expected line in the test reads `W_ft 6.5833 -> 7`. Fix the test's expected strings to "-> 7" accordingly, in both test files.)
+(`_fmt(6.5833)` is "6.5833" and `_fmt(7.0)` is "7": the tests' expected lines read `-> 7`.)
 
 In `registry.build_from_spec`, right after `model = builder(params, ctx)`:
 
@@ -1050,9 +1048,12 @@ def test_model_elements_sends_the_route_and_differences(tmp_path):
                 if e.get("family_class") == "retaining-wall-b3-type-1")
     assert foot["route"] == "modified-by-value"
     assert foot["based_on"] == "retaining-wall-b3-type-1-footing"
-    assert foot["differences"] == [{
-        "name": "W_ft", "standard": 6.5833, "actual": 7.0, "unit": "FT",
-        "source": "caltrans/2025/b3-retaining-wall type_1_case_1.table.8.W_ft"}]
+    (d,) = foot["differences"]
+    assert d["name"] == "W_ft" and d["unit"] == "FT"
+    assert d["standard"] == pytest.approx(6.5833, abs=1e-4)
+    assert d["actual"] == pytest.approx(7.0, abs=1e-4)
+    assert d["source"] == ("caltrans/2025/b3-retaining-wall "
+                           "type_1_case_1.table.8.W_ft")
     assert stem["route"] == "standard" and "differences" not in stem
 ```
 
