@@ -17,6 +17,8 @@ The spec file:
               walls: CAD/x.walls.csv,   # a road corridor's automatic walls
               structures: CAD/x.structures.csv,   # its structure candidates
               guardrail: CAD/x.guardrail.csv,     # its guardrail runs
+              path: CAD/x.path.csv,               # its shared-use path by station
+              path_checks: CAD/x.path-checks.csv, # the path's HDM 1003.1 rows
               ifc_allow_local: false,
               ifc_sweeps: exact}    # overrides ifc.sweeps for this emit
     ifc: {sweeps: exact}    # exact (default) | mesh: how alignment sweeps
@@ -160,9 +162,9 @@ def get(name: str, family_paths=()):
 
 REQUIRED_SPEC_KEYS = ("family", "params", "paycodes", "outputs", "project")
 OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs", "masshaul",
-               "walls", "structures", "guardrail")
+               "walls", "structures", "guardrail", "path", "path_checks")
 #: outputs a family writes from StructureModel.tables, as CSV
-TABLE_OUTPUTS = ("walls", "structures", "guardrail")
+TABLE_OUTPUTS = ("walls", "structures", "guardrail", "path", "path_checks")
 
 
 # Packs a spec's `params.tables_pack` can name: pack -> the module whose
@@ -381,8 +383,9 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
             raise ValueError(
                 f"{Path(spec_path).name}: outputs.{key} is set, but family "
                 f"{spec['family']!r} makes no {key} table here (a road "
-                f"corridor makes walls and structures with walls: auto, and "
-                f"guardrail with a steep fill rule or a guardrail: block)")
+                f"corridor makes walls and structures with walls: auto, "
+                f"guardrail with a steep fill rule, a guardrail: block or a "
+                f"path, and path and path_checks with a path:)")
     place_from_spec(model, spec, alignments,
                     log=lambda m: print(m, file=sys.stderr))
     if spec.get("spatial_parts"):

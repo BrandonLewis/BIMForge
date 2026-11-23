@@ -403,3 +403,16 @@ def test_a_path_fill_wall_takes_a_rail_at_the_path_s_outer_edge():
     base = lambda e: abs(e.geometry[0].rings[0][0][0])
     assert base(outer) > base(strip) + 12.0
     assert outer.spatial_part.predefined_type == "SHAREDUSEPATH"
+
+
+def test_the_family_writes_the_path_tables(built):
+    m, _log = built
+    assert m.tables["path"].splitlines()[0].startswith("station,side,separation_ft")
+    lines = m.tables["path"].splitlines()[1:]
+    first = lines[0].split(",")
+    assert (first[0], first[1], first[2]) == ("1000.00", "R", "10.00")
+    assert any(line.split(",")[-1] == "deck" for line in lines)      # on the bridge
+    assert any("approach" in line.split(",")[-1] for line in lines)
+    checks = m.tables["path_checks"].splitlines()
+    assert checks[0] == "check,from,to,value,limit,reference"
+    assert any(line.startswith("separation<5ft on an approach,") for line in checks)

@@ -827,4 +827,11 @@ def build(params: dict, ctx) -> "StructureModel":
                                   lambda s: ground.z(*survey(s, 0.0, 0.0)[:2])))
     if c.guard is not None:
         model.tables["guardrail"] = guardrail.to_csv(rails)
+    if c.path is not None:
+        from bimforge.author.corridor import path_checks
+        wall_rows = auto_walls.rows(c, every, ground_dz) if c.auto_walls else []
+        model.tables["path"] = path_checks.path_csv(c, sorted(every, key=lambda x: x.s),
+                                                    rails)
+        model.tables["path_checks"] = path_checks.checks_csv(
+            path_checks.checks(c, rails, wall_rows))
     return model
