@@ -379,3 +379,27 @@ def test_the_path_s_road_part_and_rail_pass_the_schema(tmp_path):
     import ifcopenshell.util.element as E
     assert E.get_type(rail).Name == "Path rail"
     assert E.get_predefined_type(rail) == "GUARDRAIL"
+
+
+def path_rails(m):
+    return [e for e in m.elements if e.name.startswith("Path rail ")]
+
+
+def test_a_path_below_the_road_takes_no_path_rail():
+    assert path_rails(build(wall_params(DIP))) == []
+
+
+def test_a_path_fill_wall_takes_a_rail_at_the_path_s_outer_edge():
+    p = wall_params(UP)
+    p["section"] = copy.deepcopy(SECTION)
+    p["section"]["side_slopes"]["daylight_limit_ft"] = 30
+    rails = {e.name: e for e in path_rails(build(p))}
+    assert set(rails) == {"Path rail R STA 10+83.00 to 14+17.00",
+                          "Path rail R STA 12+44.00 to 13+52.00"}
+    strip = rails["Path rail R STA 10+83.00 to 14+17.00"]
+    outer = rails["Path rail R STA 12+44.00 to 13+52.00"]
+    # the strip wall's rail stands at q; the fill wall's at o, a path's
+    # width (12 ft) and its shoulders farther out (u is negative to the right)
+    base = lambda e: abs(e.geometry[0].rings[0][0][0])
+    assert base(outer) > base(strip) + 12.0
+    assert outer.spatial_part.predefined_type == "SHAREDUSEPATH"

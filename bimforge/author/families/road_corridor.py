@@ -183,16 +183,19 @@ def path_part(segment: dict, r: int) -> dict:
 #: the path's rail body: a band this deep from the wall's top up to the
 #: rail's height, on the path's side of the face, feet
 PATH_RAIL_DEPTH_FT = 0.25
+PATH_RAIL_TYPE = "Path rail"
 
 
-def run_of(runs: list, s: float) -> int:
+def run_of(runs: list, s: float, what: str) -> int:
     """The number (from 1) of the corridor run, of `runs` (each its
-    sections), that station s is on."""
+    sections), that station s is on: the ROADSEGMENT of `what` (named in the
+    error), which starts there."""
     from bimforge.author.alignment import sta
     for r, secs in enumerate(runs, start=1):
         if secs[0].s - 1e-6 <= s <= secs[-1].s + 1e-6:
             return r
-    raise ValueError(f"station {sta(s)} is on no corridor run")
+    raise ValueError(f"{what}: starts at {sta(s)}, on no corridor run "
+                     f"(inside a structure gap?)")
 
 
 def path_rail_walls(c) -> list:
@@ -201,8 +204,13 @@ def path_rail_walls(c) -> list:
     return [g for g in c.gaps if g.auto in ("strip-path", "path-fill")]
 
 
-def path_rail_element(g, c, al, prof, ctx, part: dict, height: float,
-                      type_name: str, family_class: str):
+def path_rail_name(g) -> str:
+    """The name of the rail on wall gap `g`."""
+    from bimforge.author.alignment import sta
+    return f"{PATH_RAIL_TYPE} {g.side} STA {sta(g.start)} to {sta(g.end)}"
+
+
+def path_rail_element(g, c, al, prof, ctx, part: dict, height: float):
     """The rail on wall gap `g` as an IfcRailing GUARDRAIL: a
     PATH_RAIL_DEPTH_FT band from the wall's top (q for a strip wall, o for
     an outer one) up `height`, on the path's side of the face, lofted at the
@@ -222,13 +230,13 @@ def path_rail_element(g, c, al, prof, ctx, part: dict, height: float,
         (bu, bv), inward = (sf.q, p.sign) if g.strip else (sf.o, -p.sign)
         x, top = bu + inward * PATH_RAIL_DEPTH_FT, bv + height / sf.cg
         rings.append([(bu, bv), (x, bv), (x, top), (bu, top)])
-    name = f"{type_name} {g.side} STA {sta(g.start)} to {sta(g.end)}"
+    name = path_rail_name(g)
     loft = StationLoft(name, al, prof, ctx, stations, rings, ifc="IfcRailing",
                        layer=LAYER)
     length = g.end - g.start
     return Element(
         name, ifc_class="IfcRailing", geometry=[loft], predefined_type="GUARDRAIL",
-        type_name=type_name, typed_late=True, family_class=family_class,
+        type_name=PATH_RAIL_TYPE, typed_late=True, family_class=dims.PATH_RAIL,
         material="Steel", layer=LAYER, body="solids", spatial_part=part,
         quantities={"length_ft": length, "volume_cf": loft.volume_cf},
         dimensions={"RailHeight": height, **dims.stations(g.start, g.end)},
@@ -434,18 +442,6 @@ def rail_stations(c, rails: list, s0: float, s1: float) -> list:
                        for r in rails):
                     out.append(s)
     return [s for s in out if s0 - 1e-6 <= s <= s1 + 1e-6]
-
-
-def rail_segment(rail, runs: list) -> int:
-    """The number (from 1) of the corridor run, of `runs` (each its
-    sections), that `rail` starts on: its ROADSEGMENT."""
-    from bimforge.author.alignment import sta
-    r = next((r for r, secs in enumerate(runs, start=1)
-              if secs[0].s - 1e-6 <= rail.start <= secs[-1].s + 1e-6), None)
-    if r is None:
-        raise ValueError(f"{rail_name(rail)}: starts at {sta(rail.start)}, on "
-                         f"no corridor run (inside a structure gap?)")
-    return r
 
 
 def mean_depth(volume_cf: float, columns: list) -> float:
@@ -798,18 +794,16 @@ def build(params: dict, ctx) -> "StructureModel":
             haul_elements.append(els)
     # after every run's courses and earthwork, so their order is V1's
     for rail in rails:
-        model.add(rail_element(rail, c, al, prof, ctx,
-                               _parts(rail_segment(rail, runs))[0]))
+        r = run_of(runs, rail.start, rail_name(rail))
+        model.add(rail_element(rail, c, al, prof, ctx, _parts(r)[0]))
         for msg in _rail_warnings(rail, c):
             log(msg)
     if c.path is not None:
-        from bimforge.author.corridor import dimensions as dims
         for g in path_rail_walls(c):
-            r = run_of(runs, g.start)
-            segment, _kinds = _parts(r)
-            model.add(path_rail_element(g, c, al, prof, ctx, path_part(segment, r),
-                                        c.path.rail_height, "Path rail",
-                                        dims.PATH_RAIL))
+            r = run_of(runs, g.start, path_rail_name(g))
+            model.add(path_rail_element(g, c, al, prof, ctx,
+                                        path_part(_parts(r)[0], r),
+                                        c.path.rail_height))
     model.mass_haul = masshaul.mass_haul(hauls, c.shrink)
     for els, row in zip(haul_elements, model.mass_haul):
         for el in els:

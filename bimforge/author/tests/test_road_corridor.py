@@ -1659,12 +1659,14 @@ def test_a_rail_on_no_corridor_run_is_named():
     from types import SimpleNamespace as NS
 
     from bimforge.author.corridor.guardrail import AGT, RailRun
-    from bimforge.author.families.road_corridor import rail_segment
+    from bimforge.author.families.road_corridor import rail_name, run_of
     runs = [[NS(s=1000.0), NS(s=1350.0)], [NS(s=1400.0), NS(s=1500.0)]]
-    assert rail_segment(RailRun("L", 1400.0, 1450.0, AGT, AGT), runs) == 2
+    rail = RailRun("L", 1400.0, 1450.0, AGT, AGT)
+    assert run_of(runs, rail.start, rail_name(rail)) == 2
     with pytest.raises(ValueError, match=r"Guardrail L STA 13\+60\.00 to 13\+70\.00: "
                        r"starts at 13\+60\.00, on no corridor run"):
-        rail_segment(RailRun("L", 1360.0, 1370.0, AGT, AGT), runs)
+        rail = RailRun("L", 1360.0, 1370.0, AGT, AGT)
+        run_of(runs, rail.start, rail_name(rail))
 
 
 def test_mean_depth_with_no_plan_area_is_zero():
