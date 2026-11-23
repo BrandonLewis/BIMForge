@@ -48,6 +48,13 @@ def test_ft_in_rounds_near_whole():
         (10500.0, 0, "105+00"),
         (10000.0, 2, "100+00.00"),
         (585.58, 2, "5+85.58"),
+        # rounding carries into the hundreds, never "12+100.00"
+        (1299.999999, 2, "13+00.00"),
+        (1299.996, 2, "13+00.00"),
+        (99.999, 2, "1+00.00"),
+        (1299.6, 0, "13+00"),
+        # negative values keep their behaviour
+        (-5.5, 2, "-1+94.50"),
     ],
 )
 def test_station(sta, decimals, expected):

@@ -312,14 +312,13 @@ def validate(c) -> None:
         if not p.covers(s) or _on_deck(c, s):
             continue
         sep = p.separation_at(s)
-        at_s = sta(round(s, 2))    # the hair outside an approach prints as its edge
         if sep < p.deck_separation - _EPS:
-            raise ValueError(f"path.separation: {sep:.2f} ft at {at_s} is under "
+            raise ValueError(f"path.separation: {sep:.2f} ft at {sta(s)} is under "
                              f"deck_separation_ft {p.deck_separation:g}")
         if (sep < MIN_SEPARATION_FT - _EPS
                 and not any(a - _EPS <= s <= b + _EPS for a, b, _e in zones)):
             raise ValueError(
-                f"path.separation: {sep:.2f} ft at {at_s} is under the "
+                f"path.separation: {sep:.2f} ft at {sta(s)} is under the "
                 f"{MIN_SEPARATION_FT:g} ft minimum (HDM 1003.1(7)) outside an "
                 f"approach to a structure gap")
     for e in sorted({e for _a, _b, e in zones}):

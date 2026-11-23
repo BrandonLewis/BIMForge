@@ -55,6 +55,7 @@ def station(sta: float, decimals: int = 2) -> str:
     >>> station(10500.0, decimals=0)
     '105+00'
     """
+    sta = round(sta, decimals)      # so 1299.999999 is 13+00.00, not 12+100.00
     hundreds = int(sta // 100)
     rem = sta - hundreds * 100
     width = 2 if decimals == 0 else decimals + 3
