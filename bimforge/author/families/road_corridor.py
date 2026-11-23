@@ -177,7 +177,67 @@ def path_part(segment: dict, r: int) -> dict:
     has no path value; SIDEWALK is for pedestrians)."""
     return {"name": f"Segment {r} shared-use path",
             "predefined_type": "SHAREDUSEPATH", "usage_type": "LATERAL",
-            "parent": segment}
+            "parent": segment, "family_class": "road-corridor-shared-use-path"}
+
+
+#: the path's rail body: a band this deep from the wall's top up to the
+#: rail's height, on the path's side of the face, feet
+PATH_RAIL_DEPTH_FT = 0.25
+
+
+def run_of(runs: list, s: float) -> int:
+    """The number (from 1) of the corridor run, of `runs` (each its
+    sections), that station s is on."""
+    from bimforge.author.alignment import sta
+    for r, secs in enumerate(runs, start=1):
+        if secs[0].s - 1e-6 <= s <= secs[-1].s + 1e-6:
+            return r
+    raise ValueError(f"station {sta(s)} is on no corridor run")
+
+
+def path_rail_walls(c) -> list:
+    """The wall gaps that carry the path's rail: a strip wall at the path's
+    inner shoulder, a fill wall on its outer side."""
+    return [g for g in c.gaps if g.auto in ("strip-path", "path-fill")]
+
+
+def path_rail_element(g, c, al, prof, ctx, part: dict, height: float,
+                      type_name: str, family_class: str):
+    """The rail on wall gap `g` as an IfcRailing GUARDRAIL: a
+    PATH_RAIL_DEPTH_FT band from the wall's top (q for a strip wall, o for
+    an outer one) up `height`, on the path's side of the face, lofted at the
+    corridor's stations along the road's profile."""
+    from bimforge.author.alignment import sta
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor.frame import densify
+    from bimforge.author.corridor.loft import StationLoft
+    from bimforge.author.corridor.path import surface
+    from bimforge.author.model import Element
+    p = c.path
+    stations = densify(al, prof, c.stations(
+        g.start, g.end, geometry_stations(al, prof, g.start, g.end)))
+    rings = []
+    for s in stations:
+        sf = surface(c, s)
+        (bu, bv), inward = (sf.q, p.sign) if g.strip else (sf.o, -p.sign)
+        x, top = bu + inward * PATH_RAIL_DEPTH_FT, bv + height / sf.cg
+        rings.append([(bu, bv), (x, bv), (x, top), (bu, top)])
+    name = f"{type_name} {g.side} STA {sta(g.start)} to {sta(g.end)}"
+    loft = StationLoft(name, al, prof, ctx, stations, rings, ifc="IfcRailing",
+                       layer=LAYER)
+    length = g.end - g.start
+    return Element(
+        name, ifc_class="IfcRailing", geometry=[loft], predefined_type="GUARDRAIL",
+        type_name=type_name, typed_late=True, family_class=family_class,
+        material="Steel", layer=LAYER, body="solids", spatial_part=part,
+        quantities={"length_ft": length, "volume_cf": loft.volume_cf},
+        dimensions={"RailHeight": height, **dims.stations(g.start, g.end)},
+        psets={"BIMForge_Guardrail": {
+            "RailHeight": ("length", height),
+            "StartStation": ("length", g.start), "EndStation": ("length", g.end),
+            "StartStationText": sta(g.start), "EndStationText": sta(g.end)}},
+        standard_qto={"Qto_RailingBaseQuantities": {
+            "Length": ("length", length, dims.LENGTH)}})
 
 
 def path_runs(secs: list, breaks=()) -> list:
@@ -742,6 +802,14 @@ def build(params: dict, ctx) -> "StructureModel":
                                _parts(rail_segment(rail, runs))[0]))
         for msg in _rail_warnings(rail, c):
             log(msg)
+    if c.path is not None:
+        from bimforge.author.corridor import dimensions as dims
+        for g in path_rail_walls(c):
+            r = run_of(runs, g.start)
+            segment, _kinds = _parts(r)
+            model.add(path_rail_element(g, c, al, prof, ctx, path_part(segment, r),
+                                        c.path.rail_height, "Path rail",
+                                        dims.PATH_RAIL))
     model.mass_haul = masshaul.mass_haul(hauls, c.shrink)
     for els, row in zip(haul_elements, model.mass_haul):
         for el in els:

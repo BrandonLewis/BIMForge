@@ -302,3 +302,80 @@ def test_the_one_sided_tangent_refuses_a_stencil_across_a_segment_end():
     cos_theta(c, 1124.98, toward=-1.0)
     with pytest.raises(ValueError, match=r"11\+24.99.*reaches past a segment end"):
         cos_theta(c, 1124.99, toward=1.0)
+
+
+def curves(elev, rows):
+    """A profile of 100 ft curves from 10+00, one per (g_in, g_out) row."""
+    out, s, z = [], 1000.0, elev
+    for g1, g2 in rows:
+        z1 = z + g1 / 100.0 * 100.0 + (g2 - g1) / 100.0 * 100.0 / 2.0
+        out.append({"bvc_station": s, "bvc_elev": round(z, 5), "g_in_pct": g1,
+                    "g_out_pct": g2, "length_ft": 100.0, "evc_station": s + 100.0,
+                    "evc_elev": round(z1, 5)})
+        s, z = s + 100.0, z1
+    return {"curves": out}
+
+
+#: 7.5 ft above the road from 12+00 to 13+00 (309.48 against 302.0)
+UP = curves(299.48002, [(1, 9), (9, 1), (1, 1), (1, -7), (-7, 1), (1, 1)])
+#: 8.5 ft below it (293.48 against 302.0)
+DIP = curves(299.48002, [(1, -7), (-7, 1), (1, 1), (1, 9), (9, 1), (1, 1)])
+
+
+def wall_params(profile, **over):
+    p = copy.deepcopy(PARAMS)
+    p.update(walls="auto", gaps=[], **over)
+    p["path"] = dict(copy.deepcopy(PATH), separation=[[1000, 10.0]], profile=profile)
+    return p
+
+
+def test_a_path_above_the_road_takes_a_strip_wall_and_its_rail():
+    from bimforge.author.corridor import dimensions as dims
+    m = build(wall_params(UP))
+    (rail,) = [e for e in m.elements if e.ifc_class == "IfcRailing"
+               and e.name.startswith("Path rail ")]
+    assert rail.name.startswith("Path rail R STA 10+8")
+    assert (rail.predefined_type, rail.type_name, rail.family_class) == (
+        "GUARDRAIL", "Path rail", dims.PATH_RAIL)
+    assert rail.dimensions["RailHeight"] == pytest.approx(3.5)
+    length = rail.dimensions["EndStation"] - rail.dimensions["StartStation"]
+    assert rail.standard_qto["Qto_RailingBaseQuantities"]["Length"] == (
+        "length", pytest.approx(length), dims.LENGTH)
+    assert rail.psets["BIMForge_Guardrail"]["RailHeight"] == ("length", pytest.approx(3.5))
+    assert rail.spatial_part.predefined_type == "SHAREDUSEPATH"
+    assert 320.0 < length < 345.0                      # about 10+83 to 14+17
+
+
+def test_the_path_s_road_part_and_rail_pass_the_schema(tmp_path):
+    import ifcopenshell
+    import yaml
+
+    from bimforge.author.families.registry import build_from_spec
+    from bimforge.author.gate import schema_issues
+    paycodes = ("rules:\n  - {match: \"(?i)^(HMA|AB) \", group: rc_pave}\n"
+                "groups:\n  rc_pave: {measure: GrossVolume}\n"
+                "codes:\n  RC-PAVE: {group: rc_pave, measure: GrossVolume, unit: CY,\n"
+                "            item_number: \"0001\", description: \"Pavement\"}\n")
+    (tmp_path / "rc.paycodes.yaml").write_text(paycodes, "utf-8")
+    spec = {"family": "road-corridor", "params": wall_params(UP),
+            "paycodes": "./rc.paycodes.yaml", "outputs": {"ifc": "out/rc.ifc"},
+            "project": {"name": "Path fixture", "epsg": 2226,
+                        "base": [E0, N0, 300.0], "guid_ns": str(uuid.UUID(int=11)),
+                        "schema": "IFC4X3_ADD2", "facility": {"kind": "road"}}}
+    path = tmp_path / "rc.spec.yaml"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        assert build_from_spec(str(path)) == 0, err.getvalue()[-2000:]
+    f = ifcopenshell.open(str(tmp_path / "out" / "rc.ifc"))
+    assert not schema_issues(f)
+    parts = [p for p in f.by_type("IfcRoadPart") if p.ObjectType == "SHAREDUSEPATH"]
+    assert parts and all(p.PredefinedType == "USERDEFINED" for p in parts)
+    for part in parts:
+        refs = [r.RelatingClassification for r in part.HasAssociations
+                if r.is_a("IfcRelAssociatesClassification")]
+        assert [r.Identification for r in refs] == ["road-corridor-shared-use-path"]
+    (rail,) = [r for r in f.by_type("IfcRailing") if r.Name.startswith("Path rail ")]
+    import ifcopenshell.util.element as E
+    assert E.get_type(rail).Name == "Path rail"
+    assert E.get_predefined_type(rail) == "GUARDRAIL"

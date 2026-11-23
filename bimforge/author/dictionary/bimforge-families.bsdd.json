@@ -960,6 +960,66 @@
           "Description": "A dimension that sizes the element (M.2)."
         }
       ]
+    },
+    {
+      "Code": "road-corridor-shared-use-path",
+      "Name": "Shared-use path",
+      "ClassType": "Class",
+      "Definition": "A Class I shared-use path beside a road corridor, on its own profile: the IfcRoadPart (USERDEFINED SHAREDUSEPATH) its paved courses and rails belong to.",
+      "RelatedIfcEntityNamesList": [
+        "IfcRoadPart"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Highway Design Manual, Index 1003.1"
+    },
+    {
+      "Code": "road-corridor-path-rail",
+      "Name": "Path rail",
+      "ClassType": "Class",
+      "Definition": "The rail on a wall that holds a shared-use path up, keeping riders and walkers from falling: a run over the wall's stations, its height above the wall's top.",
+      "RelatedIfcEntityNamesList": [
+        "IfcRailing",
+        "IfcRailingGUARDRAIL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Highway Design Manual, Index 1003.1",
+      "ClassProperties": [
+        {
+          "Code": "RailHeight",
+          "PropertyCode": "RailHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStation",
+          "PropertyCode": "StartStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStation",
+          "PropertyCode": "EndStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStationText",
+          "PropertyCode": "StartStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStationText",
+          "PropertyCode": "EndStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
     }
   ],
   "Properties": [
