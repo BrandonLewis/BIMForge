@@ -129,7 +129,7 @@ Where `path.equestrian` is given, the path's outer shoulder is replaced by the t
 
 **The fence.** With `fence: true`, an open rail fence runs along the buffer, `clear_ft` in from the tread's inner edge, over the tread's stations. It is HDM 1003.4's open fence on the equestrian side, keeping sight lines open. It stops at gaps.
 
-**Rails.** A wall along the tread's outer side, or a strip wall where the tread is the higher side, carries a rail of `rail_height_ft`, 54 in (USFS-EDG Ch. 3 and 5; CSP-TH 18.2.1). The paved path keeps its 42 in rail where it is on the wall side.
+**Rails.** A wall along the tread's outer side carries a rail of `rail_height_ft`, 54 in (USFS-EDG Ch. 3 and 5; CSP-TH 18.2.1). The paved path keeps its 42 in rail where it is on the wall side.
 
 **On a road deck.** In a road structure gap the whole path, tread included, is on the deck, so the deck must be wide enough for it. `path_checks` lists, for each gap, the width the deck has to carry, measured from the road's edge of shoulder to the tread's outer clear edge, and the 54 in rail the tread side needs. The bridge family sizes the deck from that.
 
@@ -154,7 +154,7 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 - **A slope.** Otherwise, The strip is a straight line between those two points if its slope is `strip.max_ratio` (2:1) or flatter, up or down. It may lie in cut or in fill. The earthwork measures it against the ground with the rest of the section.
 - **Road higher, slope too steep:** a **fill wall at the road's hinge**, carrying a barrier, as V1.1's automatic fill wall does. The strip is level at the path's shoulder-edge elevation from the wall's foot to the path.
 - **Path higher, slope too steep:** a **wall at the outer edge of the path's inner shoulder**, retaining the path, with the path's rail on top (`rail_height_ft`, HDM's 42 in). The strip is level at the road's hinge elevation from the road to the wall's foot.
-  - The road faces this wall at least 5 ft beyond its edge of shoulder, so its shoulder is 13 ft or more from the wall. That is wider than V1.1's 10 ft cut-wall shoulder (HDM 309.1(3)(b)), so the road's shoulder does not widen.
+  - The wall stands the separation less the path's inner shoulder width beyond the road's edge of shoulder: 3 ft at the 5 ft minimum with a 2 ft shoulder. With an 8 ft road shoulder the wall is then 11 ft from the traveled way, more than V1.1's 10 ft cut-wall shoulder (HDM 309.1(3)(b)), so the road's shoulder does not widen. A narrower road shoulder can fall under 10 ft; the walls table shows the offset.
 
 **Walls in the strip**
 
@@ -320,7 +320,7 @@ A sweep of plane sections then has volume ∫ A (n̂ · dc), where c is the cent
 
 The two cosines cancel, so the volume is W t × PathLength. `Volume = PathLength * Width * Thickness` therefore holds for the path's courses, as it does for the road's, except for V1.1's curvature residual (κgr)²/2.
 
-The family writes the formula wherever it holds within the gate's 1e-6 and withholds it elsewhere, as V1.1 does. On a 500 ft curve, with the path's centroid about 30–40 ft out at the road's 7 %, the residual is about 1e-5, so the formula is withheld there. Each such stretch is listed in the build log.
+The family writes the formula wherever it holds within the gate's 1e-6 and withholds it elsewhere, as V1.1 does. With θ the full 3D angle, the curvature residual cancels too, so the formula holds on a 500 ft curve at the road's 7 %. It is withheld where a band holds a kink in the separation, which the bays' linear blend cannot follow. Each such stretch is listed in the build log.
 
 Without the correction, a 2 % grade difference would miss by about 2e-4, and the formula would be withheld along most of the climb.
 
@@ -340,7 +340,7 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
   - whether a barrier is needed;
   - a note: `deck`, `approach`, `grade>5%`.
 - **`outputs.path_checks`**: the advisory rows listed under Checks.
-- **The masshaul, walls, structures and guardrail outputs** include the path's side as part of the section. They need no new columns, except `location` in `walls`.
+- **The masshaul, walls, structures and guardrail outputs** include the path's side as part of the section. They need no new columns, except `location` in `walls` and `carries` in `structures`.
 
 ## Testing
 
@@ -350,7 +350,7 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
   - path 12 ft below (a road fill wall with a barrier);
   - path 12 ft above (a path wall with a rail);
   - the separation moving out with a widened shoulder.
-- **Earthwork:** on plane ground, the section's cut and fill equal the hand-computed polygon areas. There is no double count: a path level with the road and 0 ft from it gives the same earthwork as a road whose shoulder is that much wider.
+- **Earthwork:** on plane ground, the section's cut and fill equal the hand-computed polygon areas. There is no double count: where the ground lies between, the section's earthwork is the road's plus the path's, each checked against hand-computed polygons.
 - **Separation:**
   - under 5 ft is an error;
   - an approach narrowing to 1.5 ft at a gap end builds;
@@ -383,7 +383,8 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
   - a crest that is enough is not listed.
 - **Formulas:**
   - path courses on a tangent at a grade 2 % off the road's pass the gate's formula check;
-  - on a 500 ft curve at a 7 % road grade, the formula is withheld and the stretch is logged.
+  - on a 500 ft curve at a 7 % road grade, the formula holds;
+  - where a band holds a kink in the separation, the formula is withheld and the stretch is logged.
 - **IFC:**
   - the path's IfcRoadPart (USERDEFINED, `SHAREDUSEPATH`) and its rail pass `schema_issues` and the bsi rules;
   - the inventory is regenerated.
