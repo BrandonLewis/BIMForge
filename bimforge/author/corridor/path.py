@@ -686,9 +686,12 @@ def outer_wall(c, s: float):
     `path-fill` or `path-cut` wall stands there: a listed wall gap is
     refused over the path's stations (validate), and a road `fill` or `cut`
     wall on the path's side (one ending on the path's first or last
-    station) is the road's, whose side there is the strip."""
-    g = c.wall(c.path.side, s)
-    return g if g is not None and g.auto in OUTER_WALLS else None
+    station, where the path's own wall may start) is the road's, whose
+    side there is the strip."""
+    p = c.path
+    return next((g for g in c.gaps
+                 if g.kind == "wall" and g.side == p.side and g.auto in OUTER_WALLS
+                 and g.start - _EPS <= s <= g.end + _EPS), None)
 
 
 def _outer(c, s: float, sf: Surface, ground_dz) -> list:

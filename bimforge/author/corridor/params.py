@@ -321,6 +321,24 @@ class Corridor:
                         f"listed wall gap {sta(g.start)} to {sta(g.end)}; list "
                         f"the wall or let walls: auto place it, not both")
             path = self.path
+            if w.strip or w.auto.startswith("path-"):
+                # a wall of the path's (V1.2 C) stands on the path's side,
+                # over its stations
+                if path is None:
+                    raise ValueError(
+                        f"walls: auto: a {w.auto} wall on the {w.side} side from "
+                        f"{sta(w.start)} to {sta(w.end)}, with no path")
+                if w.side != path.side:
+                    raise ValueError(
+                        f"walls: auto: a {w.auto} wall on the {w.side} side from "
+                        f"{sta(w.start)} to {sta(w.end)}; path.side is {path.side}")
+                if not (path.s_start - _EPS <= w.start and w.end <= path.s_end + _EPS):
+                    at = w.start if w.start < path.s_start - _EPS else w.end
+                    raise ValueError(
+                        f"walls: auto: a {w.auto} wall on the {w.side} side from "
+                        f"{sta(w.start)} to {sta(w.end)} is off the path's "
+                        f"stations ({sta(path.s_start)} to {sta(path.s_end)}) at "
+                        f"{sta(at)}")
             if (path is not None and w.side == path.side and not w.strip
                     and not w.auto.startswith("path-")
                     and w.start < path.s_end - _EPS and w.end > path.s_start + _EPS):
@@ -344,7 +362,8 @@ class Corridor:
         autos = sorted(walls, key=lambda g: (g.side, g.strip, g.start))
         for p, q in zip(autos, autos[1:]):
             if (p.side == q.side and p.strip == q.strip
-                    and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS):
+                    and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS
+                    and not self._at_path_edge(p, q)):
                 raise ValueError(
                     f"walls: auto puts a {p.auto} wall on the {p.side} side from "
                     f"{sta(p.start)} to {sta(p.end)} and a {q.auto} wall from "
@@ -353,6 +372,22 @@ class Corridor:
                     f"them; list a wall or a structure gap there")
         return replace(self, gaps=tuple(sorted(listed + walls,
                                                key=lambda g: (g.start, g.side or ""))))
+
+    def _at_path_edge(self, p: Gap, q: Gap) -> bool:
+        """Whether automatic walls p and q (q after p, one side) meet at the
+        path's first or last station (V1.2 C): a road wall ending there and
+        the path's outer wall starting there, or the other way round
+        (walls.find ends them so). The section changes there, and each has
+        its own lead-in on its own side; anywhere else the 2 ft rule
+        holds."""
+        path = self.path
+        if path is None or p.side != path.side:
+            return False
+        ours = [g.auto.startswith("path-") for g in (p, q)]
+        if ours[0] == ours[1]:
+            return False
+        return any(abs(p.end - b) <= _EPS and abs(q.start - b) <= _EPS
+                   for b in (path.s_start, path.s_end))
 
     def _merged(self, walls: tuple) -> tuple:
         """`walls` (automatic) with each side's walls of one kind under one

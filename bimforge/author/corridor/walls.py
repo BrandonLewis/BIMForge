@@ -37,8 +37,8 @@ from bimforge.author.corridor.section import grade_edge, needs_wall
 #: outputs.walls: heights are exposed at the face, at finished grade, with
 #: no barrier, footing or embedment (the module docstring); `location` is
 #: "outer", or "strip" between the road and its path (V1.2 C)
-WALL_HEADER = ("side,kind,location,start,end,offset_ft,min_height_ft,"
-               "max_height_ft,barrier,too_tall")
+WALL_HEADER = ("side,kind,start,end,offset_ft,min_height_ft,max_height_ft,"
+               "barrier,too_tall,location")
 STRUCTURE_HEADER = "side,start,end,max_fill_ft,low_point_station,carries"
 #: the longest step between the stations a wall's height is read at, feet
 HEIGHT_STEP_FT = 5.0
@@ -62,8 +62,10 @@ class WallRow:
 
     @property
     def barrier(self) -> bool:
-        """A wall the road stands on carries a barrier on top: a road fill
-        wall, a strip wall at the road's hinge."""
+        """Whether the wall carries the road's barrier on top: a road fill
+        wall, or a strip wall at the road's hinge (`wall-road`). Only the
+        road's barrier: the path's rail on a `wall-path` or on a wall on
+        the path's outer side is not one."""
         return (self.kind == "fill" and self.carries == "road") or self.kind == "wall-road"
 
 
@@ -87,6 +89,7 @@ def find(c, stations: list, ground_dz, rail=None) -> list:
     too."""
     out = []
     for side in SIDES:
+        edge = _path_edge(c, side)
         for location in ("outer", "strip"):
             if location == "strip" and (c.path is None or c.path.side != side):
                 continue
@@ -106,27 +109,57 @@ def find(c, stations: list, ground_dz, rail=None) -> list:
                 while j + 1 < len(stations) and kinds[j + 1] == kind:
                     j += 1
                 start = _reach(side, need, kind, stations[i],
-                               stations[i - 1] if i > 0 else None, -1.0)
+                               stations[i - 1] if i > 0 else None, -1.0, edge)
                 end = _reach(side, need, kind, stations[j],
-                             stations[j + 1] if j + 1 < len(stations) else None, 1.0)
+                             stations[j + 1] if j + 1 < len(stations) else None, 1.0,
+                             edge)
                 out.append(Gap(start, end, "wall", side, None, auto=kind))
                 i = j + 1
     return sorted(out, key=lambda g: (g.start, g.side))
 
 
-def _reach(side: str, need_at, kind: str, s: float, neighbour, step: float) -> float:
+def _path_edge(c, side: str):
+    """edge(a, t): the path's first or last station between stations a and
+    t (V1.2 C) when the path is on `side` and one of them is on its
+    stations and the other not; else None. None for a side without the
+    path."""
+    p = c.path
+    if p is None or p.side != side:
+        return None
+
+    def edge(a: float, t: float):
+        if c.path_at(a) == c.path_at(t):
+            return None
+        lo, hi = min(a, t), max(a, t)
+        return next((x for x in (p.s_start, p.s_end)
+                     if lo - _EPS <= x <= hi + _EPS), None)
+    return edge
+
+
+def _reach(side: str, need_at, kind: str, s: float, neighbour, step: float,
+           edge=None) -> float:
     """The wall's end, moved from station `s` toward `neighbour` (the next
     station, which does not need this wall; None at the run's end, where
     the wall ends at `s`) a foot at a time while the section a foot beyond
     still needs it, so its lead-in ends on a section that fits: the foot
     beyond, or `neighbour` when the foot beyond would pass it. ValueError
     where the foot beyond needs the other kind of wall, or the lead-in has
-    no room before a section that does not fit."""
+    no room before a section that does not fit.
+
+    V1.2 C: the path's first and last stations (`edge`, _path_edge) are a
+    break in the section: a road wall running into the path's stretch,
+    where the path's side needs a wall of its own, ends there, and a path
+    or strip wall begins there, each on its own side of it."""
     if neighbour is None:
         return s
     first, t = s, s
     while True:
         t = s + step * WALL_TRANSITION_FT
+        b = edge(s, t) if edge is not None else None
+        if b is not None and (neighbour - b) * step >= -_EPS:
+            need = need_at(t, side)
+            if need is not None and need != kind:
+                return b
         if (t - neighbour) * step > _EPS:
             # a foot on passes the neighbour: end the wall a foot short of
             # it, unless that is back inside the failing stations
@@ -158,7 +191,11 @@ def _height(c, g, s: float, ground_dz) -> tuple:
     """(exposed height at the face, the face's offset) of wall gap `g` at
     station s: a road wall's at its shoulder edge (V1.1); a wall on the
     path's outer side at o; a strip wall from its top (the road's edge of
-    shoulder, or q) down to the level strip at its foot."""
+    shoulder, or q) down to the level strip at its foot. ValueError for a
+    token that is none of these."""
+    if g.auto not in _KIND:
+        raise ValueError(f"walls: an automatic wall's token {g.auto!r} is not "
+                         f"one of {', '.join(_KIND)}")
     if g.auto in ("fill", "cut"):
         u, v = grade_edge(c, s, g.side)
         dz = ground_dz(s, u, v)
@@ -170,8 +207,10 @@ def _height(c, g, s: float, ground_dz) -> tuple:
     if g.auto == "strip-path":
         hinge_v = sf.edge[1] - c.depth()
         return (sf.q[1] - hinge_v) * sf.cg, abs(sf.q[0])
-    dz = ground_dz(s, *sf.o)
-    return (-dz if g.auto == "path-fill" else dz), abs(sf.o[0])
+    if g.auto in ("path-fill", "path-cut"):
+        dz = ground_dz(s, *sf.o)
+        return (-dz if g.auto == "path-fill" else dz), abs(sf.o[0])
+    raise AssertionError(g.auto)          # _KIND holds no other token
 
 
 #: a wall's token -> its walls-table kind
@@ -227,9 +266,10 @@ def structures(rows: list, stations: list, ground_elev) -> list:
 
 def walls_csv(rows: list) -> str:
     return "\n".join([WALL_HEADER] + [
-        f"{r.side},{r.kind},{r.location},{r.start:.2f},{r.end:.2f},{r.offset:.2f},"
+        f"{r.side},{r.kind},{r.start:.2f},{r.end:.2f},{r.offset:.2f},"
         f"{r.min_height:.2f},{r.max_height:.2f},"
-        f"{'yes' if r.barrier else 'no'},{'yes' if r.too_tall else 'no'}"
+        f"{'yes' if r.barrier else 'no'},{'yes' if r.too_tall else 'no'},"
+        f"{r.location}"
         for r in rows]) + "\n"
 
 
