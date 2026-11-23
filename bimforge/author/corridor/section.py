@@ -48,7 +48,8 @@ class Side:
     guarded: bool = False          # V1.1: a steep fill behind guardrail
     #: V1.1: the side's nominal slope ratio: cut_ratio on any cut side (even
     #: a side-hill cut whose ditch edge runs down at the fill ratio), the
-    #: fill or steep ratio on a fill side; None on a wall
+    #: fill or steep ratio on a fill side; None on a wall. V1.2 C: on the
+    #: path's side, the strip's (path.PathSection.ratio), None where level
     ratio: float | None = None
 
 

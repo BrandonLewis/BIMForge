@@ -499,7 +499,8 @@ class PathSection:
     """The path's part of a section (section.Section.path)."""
     strip: str             # "ground", "slope", "guarded", "wall-road", "wall-path"
     ratio: float | None    # the strip's slope ratio (from the widening's hinge
-                           # where guarded); None on natural ground or a wall
+                           # where guarded); None on natural ground, at a
+                           # wall, or where the strip is level (no ratio)
     surface: Surface
     courses: dict          # course index -> 4-point ring under the paved width
 
@@ -521,24 +522,34 @@ def side_count(c) -> int:
     return strip_count(c) + TOP_POINTS - 1 + side_samples(c) - 1
 
 
-def _fixed(points: list, n: int) -> list:
-    """`points` with points added halfway along the longest segment, the
-    first of equals, until there are `n`: the line is unchanged."""
+def _fixed(points: list, n: int, s: float, seg: int | None = None) -> list:
+    """`points` padded to `n` by cutting segment `seg` (the last where None)
+    evenly, as section._samples cuts a slope's last segment: the line is
+    unchanged, and which segment takes the padding depends only on the
+    strip's mode, so vertex k means the same from station to station.
+    ValueError, naming station s, when there are more than `n`."""
     pts = list(points)
     if len(pts) > n:
-        raise ValueError(f"the path's strip has {len(pts)} points, more than "
-                         f"its {n}")
-    while len(pts) < n:
-        k = max(range(len(pts) - 1), key=lambda i: math.dist(pts[i], pts[i + 1]))
-        (u0, v0), (u1, v1) = pts[k], pts[k + 1]
-        pts.insert(k + 1, (0.5 * (u0 + u1), 0.5 * (v0 + v1)))
-    return pts
+        raise ValueError(f"station {sta(s)}: the path's strip has {len(pts)} "
+                         f"points, more than its {n}")
+    k = len(pts) - 2 if seg is None else seg
+    extra = n - len(pts)
+    (u0, v0), (u1, v1) = pts[k], pts[k + 1]
+    mid = [(u0 + (u1 - u0) * i / (extra + 1), v0 + (v1 - v0) * i / (extra + 1))
+           for i in range(1, extra + 1)]
+    return pts[:k + 1] + mid + pts[k + 1:]
 
 
-def _ratio(a: tuple, b: tuple, cg: float) -> float:
-    """The slope a to b, horizontal per vertical (inf where level)."""
+def _ratio(a: tuple, b: tuple, cg: float) -> float | None:
+    """The slope a to b, horizontal per vertical; None where it is level
+    (no ratio: as flat as a slope gets)."""
     dz = abs(a[1] - b[1]) * cg
-    return math.inf if dz < 1e-9 else abs(a[0] - b[0]) / dz
+    return None if dz < 1e-9 else abs(a[0] - b[0]) / dz
+
+
+def _steeper(ratio: float | None, limit: float) -> bool:
+    """Whether a slope of `ratio` (None: level) is steeper than `limit`."""
+    return ratio is not None and ratio < limit - _EPS
 
 
 def _no_fit(c, s: float, a: tuple, q: tuple, cg: float) -> str:
@@ -588,7 +599,8 @@ def _natural(c, s: float, hinge: tuple, q: tuple, room: float, ground_dz,
     than the path's."""
     from dataclasses import replace
 
-    from bimforge.author.corridor.section import NoDaylight, _slope
+    from bimforge.author.corridor.section import (NoDaylight, _samples, _slope,
+                                                  side_samples)
     p = c.path
     free = replace(c, slopes=replace(c.slopes, footprint=None, daylight_limit=room))
     try:
@@ -599,7 +611,11 @@ def _natural(c, s: float, hinge: tuple, q: tuple, room: float, ground_dz,
     dr, dp = road.line[-1], back.line[-1]
     if abs(dr[0] - hinge[0]) > abs(dp[0] - hinge[0]) + _EPS:
         return None                                   # the slopes cross
-    pts = road.line + _on_ground(c, s, dr, dp, ground_dz) + back.line[::-1]
+    # each slope padded to side_samples as V1.1 pads a side, and the ground
+    # between: exactly strip_count points
+    n = side_samples(c)
+    pts = (_samples(road.line, n) + _on_ground(c, s, dr, dp, ground_dz)
+           + _samples(back.line, n)[::-1])
     return pts, "ground", None, road.guarded
 
 
@@ -631,18 +647,21 @@ def _strip(c, s: float, sf: Surface, hinge: tuple, ground_dz,
         return natural
     approach = on_approach(c, s)
     higher = hv > q[1]
+    # the wall a strip too steep needs stands on its higher side
+    kind = "strip-road" if higher else "strip-path"
     ratio = _ratio(hinge, q, sf.cg)
     guarded = (higher and not approach and c.guard is not None
-               and ratio < c.slopes.fill_ratio - _EPS)
+               and _steeper(ratio, c.slopes.fill_ratio))
     if guarded or (rail and c.guard is not None):
+        # a rail's widening stands behind it whichever side is higher, as
+        # V1.1's does on a cut (section._slope); the rest runs on to q
         w = _widening(c, s, room)
         rest = _ratio(w[-1], q, sf.cg)
-        if not approach and rest < p.strip_ratio - _EPS:
-            raise NoDaylight(_no_fit(c, s, w[-1], q, sf.cg), "strip-road")
+        if not approach and _steeper(rest, p.strip_ratio):
+            raise NoDaylight(_no_fit(c, s, w[-1], q, sf.cg), kind)
         return [hinge] + w + [q], "guarded" if guarded else "slope", rest, guarded
-    if not approach and ratio < p.strip_ratio - _EPS:
-        raise NoDaylight(_no_fit(c, s, hinge, q, sf.cg),
-                         "strip-road" if higher else "strip-path")
+    if not approach and _steeper(ratio, p.strip_ratio):
+        raise NoDaylight(_no_fit(c, s, hinge, q, sf.cg), kind)
     collapsed = [hinge, hinge] if c.guard is not None else []
     return [hinge] + collapsed + [q], "slope", ratio, False
 
@@ -676,7 +695,10 @@ def side(c, s: float, hinge: tuple, ground_dz, rail: bool = False) -> tuple:
     from bimforge.author.corridor.section import Side, _samples, side_samples
     sf = surface(c, s)
     pts, mode, ratio, guarded = _strip(c, s, sf, hinge, ground_dz, rail)
-    line = (_fixed(pts, strip_count(c)) + _top(c, sf)[1:]
+    # a wall at q pads the level run to its foot, not the wall's face;
+    # every other mode pads its last segment, the run on to q
+    seg = 0 if mode == "wall-path" else None
+    line = (_fixed(pts, strip_count(c), s, seg) + _top(c, sf)[1:]
             + _samples(_outer(c, s, sf, ground_dz), side_samples(c))[1:])
     return (Side("path", line, guarded, ratio),
             PathSection(mode, ratio, sf, course_rings(c.path, sf)))

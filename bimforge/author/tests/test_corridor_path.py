@@ -630,7 +630,7 @@ def on(line, xy):
 
 def test_point_counts():
     c = corridor()
-    assert strip_count(c) == 2 * SIDE_SAMPLES + 8
+    assert strip_count(c) == 2 * SIDE_SAMPLES + GROUND_SAMPLES
     assert side_count(c) == strip_count(c) + TOP_POINTS - 1 + SIDE_SAMPLES - 1
 
 
@@ -718,3 +718,139 @@ def test_without_the_path_the_side_pads_to_the_path_s_count():
     assert sec.count("L") == side_count(c)
     assert len(sec.earthwork_line()) == len(
         resolve(c, 1500.0, level(-5.0)).earthwork_line())
+
+
+# -- Task 5 review follow-ups ------------------------------------------------
+
+from bimforge.author.corridor.path import GROUND_SAMPLES, _fixed  # noqa: E402
+
+
+@pytest.mark.parametrize("side, sign", [("L", 1.0), ("R", -1.0)])
+def test_a_slope_strip_mirrors(side, sign):
+    c = corridor(path(side=side))
+    sec = resolve(c, 1500.0, level(-5.0))
+    assert sec.path.strip == "slope"
+    assert sec.path.ratio == pytest.approx(8.0 / 1.30)
+    line = sec.sides[side].line
+    assert len(line) == side_count(c) == sec.count(side)
+    assert line[0] == pt((sign * 17.0, -1.89))
+    assert on(line, (sign * 25.0, -0.59)) and on(line, (sign * 41.0, -0.83))
+    assert line[-1] == pt((sign * 49.34, -5.0))
+
+
+@pytest.mark.parametrize("side, sign", [("L", 1.0), ("R", -1.0)])
+def test_natural_ground_between_mirrors(side, sign):
+    c = corridor(path(side=side, separation=[[1000, 10.0], [1100, 60.0]]))
+    sec = resolve(c, 1150.0, level(-3.0))
+    assert (sec.path.strip, sec.path.ratio) == ("ground", None)
+    line = sec.sides[side].line
+    assert len(line) == side_count(c)
+    assert on(line, (sign * 19.22, -3.0)) and on(line, (sign * 70.18, -3.0))
+    between = [(u, v) for u, v in line if 19.22 + 1e-6 < sign * u < 70.18 - 1e-6]
+    assert len(between) == GROUND_SAMPLES
+    assert all(v == pytest.approx(-3.0) for _u, v in between)
+
+
+def test_natural_ground_between_two_cuts_keeps_both_ditches():
+    # the ground 3 ft above the grade line, the path 60 ft out (q at 75):
+    # the road's ditch 1.5 below its hinge, (20, -3.39) to (24, -3.39), then
+    # 2:1 up 6.39 to (36.78, 3); the path's from q (75, -0.59) mirrored:
+    # (72, -2.09), (68, -2.09), up 5.09 to (57.82, 3)
+    c = corridor(path(separation=[[1000, 60.0]]))
+    sec = resolve(c, 1500.0, level(3.0))
+    assert sec.path.strip == "ground"
+    line = sec.sides["L"].line
+    for xy in ((20.0, -3.39), (24.0, -3.39), (36.78, 3.0), (57.82, 3.0),
+               (68.0, -2.09), (72.0, -2.09), (75.0, -0.59)):
+        assert on(line, xy), xy
+    between = [(u, v) for u, v in line if 36.78 + 1e-6 < u < 57.82 - 1e-6]
+    assert len(between) == GROUND_SAMPLES
+    assert all(v == pytest.approx(3.0) for _u, v in between)
+
+
+def test_a_strip_at_exactly_the_max_ratio_fits():
+    # the path at 102.21: q (25, 2.11), 4.00 above the hinge over 8: 2.0:1
+    sec = resolve(corridor(path(profile=grade(102.21))), 1500.0, level(-5.0))
+    assert sec.path.strip == "slope"
+    assert sec.path.ratio == pytest.approx(2.0)
+
+
+def test_a_strip_just_steeper_than_the_max_ratio_needs_a_wall():
+    # 0.01 higher: 8 / 4.01, steeper than 2:1 below the path
+    c = corridor(path(profile=grade(102.22)))
+    assert needs_wall(c, 1500.0, "L", level(-5.0), location="strip") == "strip-path"
+    with pytest.raises(NoDaylight) as exc:
+        resolve(c, 1500.0, level(-5.0))
+    assert exc.value.kind == "strip-path"
+
+
+def test_a_strip_level_with_the_hinge_has_no_ratio():
+    # the path at 98.21: q (25, -1.89), level with the road's hinge
+    sec = resolve(corridor(path(profile=grade(98.21))), 1500.0, level(-5.0))
+    assert (sec.path.strip, sec.path.ratio, sec.sides["L"].ratio) == (
+        "slope", None, None)
+
+
+def test_a_rail_past_a_higher_path_asks_for_the_path_s_wall():
+    # the path at 105 (q at 4.9), a rail on the road: the road's widening
+    # behind it, and the rest up to q steeper than 2:1: the wall is the
+    # path's, at q
+    c = corridor(path(profile=grade(105.0)))
+    assert needs_wall(c, 1500.0, "L", level(-5.0), rail=True,
+                      location="strip") == "strip-path"
+    with pytest.raises(NoDaylight) as exc:
+        resolve(c, 1500.0, level(-5.0), rail=("L",))
+    assert exc.value.kind == "strip-path"
+
+
+@pytest.mark.parametrize("ground, kind", [(-200.0, "path-fill"),
+                                          (200.0, "path-cut")])
+def test_the_path_s_outer_slope_asks_for_its_own_wall(ground, kind):
+    # 150 ft daylight limit: the outer slope from o finds no ground
+    c = corridor()
+    assert needs_wall(c, 1500.0, "L", level(ground), location="outer") == kind
+
+
+def test_on_an_approach_a_steep_strip_is_taken_as_it_is():
+    # 13+90: 2.35 ft out, q 0.35 ft past the edge (17.35, -0.62); the hinge
+    # 1.27 ft higher: 0.28:1, taken (the deck's barrier layout stands there)
+    c = corridor(deck_path(), gaps=GAP)
+    assert needs_wall(c, 1390.0, "L", level(-5.0), location="strip") is None
+    sec = resolve(c, 1390.0, level(-5.0))
+    assert (sec.path.strip, sec.sides["L"].guarded) == ("slope", False)
+    assert sec.path.ratio == pytest.approx(0.35 / 1.27)
+
+
+def test_gap_strip_and_carries():
+    def gap(auto):
+        return Gap(1400.0, 1600.0, "wall", "L", None, auto=auto)
+    assert [gap(a).strip for a in ("strip-road", "strip-path", "path-fill",
+                                   "fill", None)] == [True, True, False, False,
+                                                      False]
+    assert [gap(a).carries for a in ("strip-road", "strip-path", "path-fill",
+                                     "path-cut", "fill", "cut", None)] == [
+        "path", "path", "path", "path", "road", "road", "road"]
+
+
+def test_corridor_wall_reads_strip_and_outer_walls_apart():
+    c = corridor(path(profile=grade(87.51)), walls="auto").with_walls(
+        [Gap(1400.0, 1600.0, "wall", "L", None, auto="strip-road")])
+    assert c.wall("L", 1500.0) is None
+    assert c.wall("L", 1500.0, strip=True).auto == "strip-road"
+    assert c.wall("L", 1700.0, strip=True) is None
+
+
+def test_fixed_cuts_one_segment_evenly():
+    pts = [(0.0, 0.0), (1.0, 0.0), (4.0, 0.0)]
+    got = _fixed(pts, 5, 1500.0)
+    assert [x for xy in got for x in xy] == pytest.approx(
+        [0.0, 0.0, 1.0, 0.0, 2.0, 0.0, 3.0, 0.0, 4.0, 0.0])
+    got = _fixed(pts, 5, 1500.0, seg=0)
+    assert [x for xy in got for x in xy] == pytest.approx(
+        [0.0, 0.0, 1 / 3, 0.0, 2 / 3, 0.0, 1.0, 0.0, 4.0, 0.0])
+
+
+def test_fixed_names_the_station_when_there_are_too_many_points():
+    with pytest.raises(ValueError, match=r"station 15\+00\.00: the path's strip "
+                                         r"has 5 points, more than its 3"):
+        _fixed([(float(i), 0.0) for i in range(5)], 3, 1500.0)
