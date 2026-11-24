@@ -43,7 +43,9 @@ est-sheets --help   # control / layout / structure sheet production
 (colours merged over the style pack for that build) and
 `gate: {unread_params: warn}`, which reports any param the family never read.
 A table-driven family reads only the catalog row it selects, so give its
-spec `gate: {ignore: [tables]}`. The Caltrans 2025 Standard Plans tables ship
+spec `gate: {ignore: [tables]}`. A project's tables that change a packaged
+value make the elements that read it `modified-by-value` (M.8, M.9), listed
+by `gate: {modified: warn}` (the default) and failed by `modified: error`. The Caltrans 2025 Standard Plans tables ship
 in `bimforge.caltrans`: name one with `params.tables_pack:
 caltrans/2025/d89-pipe-headwall` (or a list), and put the project's own rows in
 `tables_file`, which merges over them. Family module names must be unique: the

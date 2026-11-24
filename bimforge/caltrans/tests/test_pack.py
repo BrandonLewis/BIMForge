@@ -152,3 +152,76 @@ def test_a_build_from_the_pack_is_the_build_from_the_example_rows(
         bid = model_identity.read(ifcopenshell.open(str(out)))["BuildId"]
         built[how] = out.read_bytes().replace(bid.encode(), b"<BuildId>")
     assert built["file"] == built["pack"]
+
+
+def test_a_project_file_over_the_default_pack_is_diffed(tmp_path):
+    from bimforge.author.families.registry import load_spec
+    from bimforge.author.modified import Difference
+    pack = caltrans.load_table("b3-retaining-wall")
+    (tmp_path / "full.yaml").write_text(yaml.safe_dump(
+        {**pack, "type_1_case_1": {**pack["type_1_case_1"], "table": {
+            **pack["type_1_case_1"]["table"],
+            8: {**pack["type_1_case_1"]["table"][8], "W_ft": 7.0}}}}), "utf-8")
+    spec = load_spec(_spec(tmp_path, "{tables_file: ./full.yaml, walls: []}"))
+    assert spec["_tables_standard"] == "caltrans/2025/b3-retaining-wall"
+    assert spec["_tables_differences"] == [Difference(
+        ("type_1_case_1", "table", 8, "W_ft"),
+        pack["type_1_case_1"]["table"][8]["W_ft"], 7.0)]
+
+
+def test_a_named_pack_is_the_standard(tmp_path):
+    from bimforge.author.families.registry import load_spec
+    (tmp_path / "t.yaml").write_text(
+        "type_1_case_1: {table: {8: {W_ft: 7.0}}}\n", "utf-8")
+    spec = load_spec(_spec(tmp_path, (
+        "{tables_pack: caltrans/b3-retaining-wall, tables_file: ./t.yaml, "
+        "walls: []}")))
+    assert [d.path for d in spec["_tables_differences"]] == [
+        ("type_1_case_1", "table", 8, "W_ft")]
+    # the baseline was copied: the pack's own row is untouched
+    assert caltrans.load_table("b3-retaining-wall")["type_1_case_1"][
+        "table"][8]["W_ft"] != 7.0
+
+
+def test_the_pack_alone_differs_in_nothing(tmp_path):
+    from bimforge.author.families.registry import load_spec
+    spec = load_spec(_spec(tmp_path,
+                           "{tables_pack: caltrans/b3-retaining-wall, walls: []}"))
+    assert spec["_tables_differences"] == []
+
+
+def test_gate_modified_must_be_a_mode(tmp_path):
+    from bimforge.author.families.registry import load_spec
+    path = _spec(tmp_path, "{tables_pack: caltrans/b3-retaining-wall, walls: []}")
+    text = path.read_text("utf-8") + "gate: {modified: loud}\n"
+    path.write_text(text, "utf-8")
+    with pytest.raises(ValueError, match="gate.modified"):
+        load_spec(path)
+
+
+def test_tables_a_family_does_not_check_are_said_once(tmp_path, capsys):
+    """A pipe headwall reads no table it can name (M.9): a project's added
+    values are summarised, and the build says their routes are not kept."""
+    from bimforge.author.families.registry import build_from_spec
+    examples = files("bimforge.author") / "examples"
+    for entry in examples.iterdir():
+        if entry.name.endswith(".yaml"):
+            (tmp_path / entry.name).write_text(entry.read_text("utf-8"), "utf-8")
+    path = tmp_path / "caltrans-pipe-headwall.spec.yaml"
+    spec = yaml.safe_load(path.read_text("utf-8"))
+    tf = tmp_path / spec["params"]["tables_file"]
+    rows = yaml.safe_load(tf.read_text("utf-8"))
+    row = next(iter(rows["headwall"].values()))
+    row.update(note_a_ft=1.0, note_b_ft=2.0)
+    tf.write_text(yaml.safe_dump(rows), "utf-8")
+    spec["params"]["tables_pack"] = "caltrans/2025/d89-pipe-headwall"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    build_from_spec(str(path), check_only=True)
+    err = capsys.readouterr().err
+    assert ("tables: 2 values added that the standard does not have "
+            "(caltrans/2025/d89-pipe-headwall)") in err
+    assert "note_a_ft" not in err
+    assert err.count("warning: tables differ from "
+                     "caltrans/2025/d89-pipe-headwall but family "
+                     "pipe-headwall does not say which values its "
+                     "elements read; their routes are not recorded") == 1

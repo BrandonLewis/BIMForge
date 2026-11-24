@@ -115,6 +115,31 @@ class Element:
     #: ones its `family_class` declares, written as BIMForge_Dimensions with
     #: the measure the dictionary gives each ({"DesignHeight": 8.0}).
     dimensions: dict = field(default_factory=dict)
+    #: The route the element was built by (roadmap M.8), one of
+    #: `modified.ROUTES`: the family sets it (a barrier's), or
+    #: `build_from_spec` gives one to every typed element that says what it
+    #: read (`table_reads`, `table_rows`). None = no route written (an
+    #: element nothing checks), unless `based_on` is set, which makes it
+    #: "bespoke".
+    route: str | None = None
+    #: The class a modified or bespoke element is based on, by dictionary
+    #: Code; None = its `family_class`.
+    based_on: str | None = None
+    #: What it changed from its standard (M.8): [{"name", "standard",
+    #: "actual", "source"}], a dimension Code or the table field as name,
+    #: values in the author domain (feet, a ratio, text); "standard" None
+    #: for a row the project added.
+    differences: list = field(default_factory=list)
+    #: The packaged table values it was built from (M.9), {table path:
+    #: name}: `modified.assign_routes` turns the ones the project changed
+    #: into `differences`.
+    table_reads: dict = field(default_factory=dict)
+    #: The rows it was built from (M.9), {table path: (design H, the key
+    #: the family chose)}, e.g. {("type_1a_case_1", "table"): (10.0, 12)}:
+    #: `modified.assign_routes` looks the same H up in the packaged table
+    #: (by `StructureModel.row_lookup`) and, when the pack would choose
+    #: another row, records a "Row" difference.
+    table_rows: dict = field(default_factory=dict)
     #: How the element's GrossVolume was derived (roadmap M.3), written as
     #: its `Formula` over names in the same quantity set: "box" (Length *
     #: Width * Height, a prism the family sized), "section" (CrossSectionArea
@@ -276,6 +301,11 @@ class StructureModel:
     #: `ifc: {sweeps: mesh}`; `emit_ifc(sweeps=)` / `outputs.ifc_sweeps`
     #: override it for one emit (emit_ifc.SWEEP_MODES).
     ifc_sweeps: str = "exact"
+    #: How the family chooses a tabulated row (M.9): `(table, H) -> key`
+    #: (standard_plan sets `WallSection._lookup_key`), so the build can
+    #: say which row the packaged tables would have chosen for each
+    #: element's `table_rows`; None = rows are not checked.
+    row_lookup: object = None
     #: A road corridor's mass-haul table (corridor.masshaul.HaulRow per
     #: station band), written to `outputs.masshaul` as a CSV; [] otherwise.
     mass_haul: list = field(default_factory=list)

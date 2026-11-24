@@ -2,6 +2,39 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
+## Unreleased
+
+**For ProjectCommand and BidSheet.ai:** `BIMForge_Route` holds the first
+`IfcComplexProperty`s BIMForge writes (one per changed value, UsageName
+`Difference`); a reader of property sets that expects single values must
+skip or read them. `model-elements` sends `route`, `based_on` and
+`differences`.
+
+### Added
+
+- **Modified standards are recorded (M.8, M.9).** Every element whose
+  family checks it (the B3 wall, the 842 and 732SW barriers) carries
+  `BIMForge_Route`: its `Route` (standard, modified-by-value,
+  modified-by-part, modified-by-section or bespoke), the class it is
+  `BasedOn` (its classification stays the standard's, so a Type 842 (MOD)
+  is found as a Type 842), and each value it changed as an
+  IfcComplexProperty (UsageName `Difference`) of `Standard`, `Actual` and
+  `Source`. The differences come from what the spec says: a project's
+  `tables_file` is compared with the packaged tables it names, or its
+  family's own (the B3 wall's `caltrans/b3-retaining-wall`), and the build
+  log lists every changed value and counts the values it adds; a row the
+  project's tables choose where the pack would choose another (a table
+  missing rows) is a `Row` difference; a barrier run's Mod dimensions (842,
+  732SW) are modified by value, its own `profile` modified by section. A
+  bespoke `bimforge.author` element may say what it is `based_on`. An
+  element its family does not check (the road corridor, the D-series,
+  B11-51) gets no route.
+  `gate: {modified: warn | error | off}` (default warn) lists, fails on,
+  or ignores modified elements. `model-elements` sends `route`,
+  `based_on` and `differences`. The shipped B3 examples' tables differ
+  from the 2025 pack in 13 values (rounded Type 1 rows), so their Type 1
+  slices are modified by value.
+
 ## 0.1.132 — 2026-11-22
 
 The road corridor (P.6): pavement courses, cut and fill to daylight and mass haul (#118), then slope rules, automatic walls, guardrail and dimensions with arithmetic formulas (#122). `model-elements` now sends each element's measurement checks and, with `--checked-takeoff`, the takeoff's sum (#121), closing M.6's check.
