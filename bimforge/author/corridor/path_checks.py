@@ -545,9 +545,19 @@ def _strip_label(ps) -> str:
     return "level" if math.isinf(ps.ratio) else f"{ps.ratio:.2f}"
 
 
+def _own_ends(p, s: float) -> list:
+    """[(note, True)] for an own stretch's hand-over or rejoin at s."""
+    return [(f"own {o.index} {end}", True) for o in p.own
+            for at, end in ((o.start, "hand-over"), (o.end, "rejoin"))
+            if abs(s - at) <= _EPS]
+
+
 def path_csv(c, secs: list, rails) -> str:
     """outputs.path: one row per section of `secs` that carries the path,
-    and one per corridor station on a deck the path crosses."""
+    and one per corridor station on a deck the path crosses. The table is
+    on road stations, so it has none inside an own stretch: the hand-over
+    and the rejoin rows note it ("own <n> hand-over" / "own <n> rejoin"),
+    and without a section row there one is written as a path gap's is."""
     from bimforge.author.corridor.path import BARRIER_SEPARATION_FT, on_approach
     p = c.path
     prof = p.road_profile
@@ -563,11 +573,21 @@ def path_csv(c, secs: list, rails) -> str:
         barrier = ("rail" if under and _shielded(rails, p.side, s)
                    else "yes" if under else "no")
         note = ";".join(x for x, on in (("approach", on_approach(c, s)),
-                                        ("grade>5%", abs(g) > MAX_GRADE + 1e-12)) if on)
+                                        ("grade>5%", abs(g) > MAX_GRADE + 1e-12),
+                                        *_own_ends(p, s)) if on)
         rows.append((s, ",".join([
             f"{s:.2f}", p.side, f"{sf.separation:.2f}", f"{centre_u(c, s):.2f}",
             f"{hinge:.3f}", f"{pz:.3f}", f"{pz - hinge:.3f}", f"{100.0 * g:.2f}",
             _strip_label(ps), barrier, note])))
+    for o in p.own:
+        for s, end in ((o.start, "hand-over"), (o.end, "rejoin")):
+            if any(abs(s - x) <= _EPS for x, _r in rows):
+                continue
+            pz = p.profile.elev(s)
+            rows.append((s, f"{s:.2f},{p.side},{p.separation_at(s):.2f},"
+                            f"{centre_u(c, s):.2f},,{pz:.3f},,"
+                            f"{100.0 * path_grade(c, s):.2f},own {o.index},,"
+                            f"own {o.index} {end}"))
     for pg in p.gaps:
         for s in c.stations(pg.start, pg.end):
             pz = p.profile.elev(s)

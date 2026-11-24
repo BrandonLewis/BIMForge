@@ -1241,6 +1241,16 @@ def test_a_road_structure_inside_an_own_stretch_is_not_a_deck_the_path_is_on():
     assert ",deck," not in pc.path_csv(c, [], [])
 
 
+def test_without_a_section_row_the_hand_over_and_rejoin_take_an_own_row():
+    # written as a path gap's row is: no hinge, no barrier, the strip and
+    # the note naming the stretch
+    c = corridor(own_path())
+    rows = [r.split(",") for r in pc.path_csv(c, [], []).splitlines()[1:]]
+    assert [(r[0], r[4], r[6], r[8], r[9], r[10]) for r in rows] == [
+        ("1100.00", "", "", "own 1", "", "own 1 hand-over"),
+        (f"{REJOIN:.2f}", "", "", "own 1", "", "own 1 rejoin")]
+
+
 def test_a_steep_road_deck_inside_an_own_stretch_is_not_the_path_s_deck_grade():
     p = own_path()
     c = corridor(p, Profile(grade(100.0, 6.0)["curves"]),

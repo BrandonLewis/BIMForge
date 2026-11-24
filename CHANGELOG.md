@@ -41,7 +41,9 @@ centroid's, left positive, as the linear reference's offsets are.
     section, walls and earthwork), handed over where natural ground lies
     between, its footprint never crossing the road's, its radius, grade and
     crest checks and its runs followed along the path's own length;
-  - `outputs.path` lists the path by station; `outputs.path_checks` lists
+  - `outputs.path` lists the path by road station (an own stretch's
+    hand-over and rejoin rows note it, `own <n> hand-over` / `rejoin`);
+    `outputs.path_checks` lists
     every advisory deviation (grade over 5 %, over 2 % sustained, crests
     short of stopping sight distance with the 30 mph downgrade rule,
     separations needing a barrier, approaches under 5 ft, strip walls, steep
@@ -156,8 +158,20 @@ centroid's, left positive, as the linear reference's offsets are.
   a profile with two PVIs (no vertical curve): it is written as one
   gradient.
 
+- **An element is stationed on the alignment it lies along.** With a short
+  second alignment (an own path stretch's), an element along its extension
+  went to it - `locate_many` clamps a point past an end and keeps only its
+  square offset - and was stationed at its end station (`0+00.00` to
+  `0+00.01`): the path, tread, fence, rails and road fill beside the road
+  before the hand-over and after the rejoin. The linear reference (the
+  build's and `est-bim stations`) now ranks the alignments by whether the
+  element lies within their stations, then by true plan distance (past an
+  end, the distance to it).
+
 - **`station()` rounds before it splits,** so 1299.999999 ft is `13+00.00`,
-  not `12+100.00`, and a small negative one is `0+00.00`, not `-0+00.00`.
+  not `12+100.00`. A negative station prints its sign in front of the
+  rounded value: -50 ft is `-0+50.00` (it was `-1+50.00`, the hundreds
+  floored), and -0.001 ft is `0+00.00` (it was `-1+100.00`).
 
 - **Road-corridor earthwork follows the leaning section rays.** A corridor
   section stands square to the road's 3D tangent, so a point v up sits
@@ -167,8 +181,8 @@ centroid's, left positive, as the linear reference's offsets are.
   closed and the volume over-counted (54 % off the post gate for a fill wall
   on 7 %). Columns are now triangulated in station and offset and run along
   each corner's section ray to the ground. Earthwork volumes move: +0.09 % on
-  the V1.1 test fixture and the shipped example (1,008,083.5 to
-  1,009,008.4 cf), +0.03 % on V1, with the mass haul. The earthwork's plan
+  the V1.1 example (now the test fixture; 1,008,083.5 to 1,009,008.4 cf),
+  +0.03 % on V1, with the mass haul. The earthwork's plan
   rings come from its ground corners, for cut as well as fill, and MaxDepth /
   MeanDepth shift slightly (V1.1's last fill band: MaxDepth 22.6011 to
   22.5600 ft).

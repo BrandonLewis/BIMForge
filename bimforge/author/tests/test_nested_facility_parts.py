@@ -88,6 +88,9 @@ def test_rules_parse_nested_parents():
     assert parse_part("Deck").parent is None
     with pytest.raises(ValueError, match="unknown keys"):
         parse_part({"name": "x", "parents": "y"})
+    # the message lists every key a mapping takes
+    with pytest.raises(ValueError, match=r"parent\?, family_class\?\}"):
+        parse_part(42)
 
 
 def _earthwork():

@@ -172,7 +172,8 @@ def parse_part(value, where: str = "spatial_part") -> SpatialPart | None:
             family_class=(str(value["family_class"])
                           if value.get("family_class") else None))
     raise ValueError(f"{where}: expected a part name or a mapping "
-                     f"{{name, predefined_type?, usage_type?, parent?}}, got {value!r}")
+                     f"{{name, predefined_type?, usage_type?, parent?, family_class?}}, "
+                     f"got {value!r}")
 
 
 @dataclass(frozen=True)

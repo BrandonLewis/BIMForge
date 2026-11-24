@@ -756,6 +756,18 @@ def own_built():
     return build(own_params(), log), log[0]
 
 
+def test_the_path_table_marks_the_hand_over_and_the_rejoin(own_built):
+    # outputs.path is on road stations: it jumps from the hand-over to the
+    # rejoin, and their rows say why
+    m, _log = own_built
+    rows = [r.split(",") for r in m.tables["path"].splitlines()[1:]]
+    at = [float(r[0]) for r in rows]
+    assert len(at) == len(set(at)) and not [x for x in at if 1100.0 < x < REJOIN - 0.01]
+    marked = [(r[0], r[8], r[10]) for r in rows if "own 1" in r[10]]
+    assert marked == [("1100.00", "ground", "own 1 hand-over"),
+                      (f"{REJOIN:.2f}", "ground", "own 1 rejoin")]
+
+
 def test_an_own_stretch_builds_its_own_path_and_earthwork(own_built):
     m, _log = own_built
     assert {e.name for e in own_courses(m)} >= {"PATH-HMA path 1 STA 0+00.00 to 1+00.00",

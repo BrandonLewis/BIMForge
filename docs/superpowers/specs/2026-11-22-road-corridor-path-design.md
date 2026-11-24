@@ -328,17 +328,24 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
 
 ## Outputs
 
-- **`outputs.path`**, one row per station:
+- **`outputs.path`**, one row per road station:
   - station;
   - side;
   - separation;
   - the path's centre offset from the centreline;
-  - the road's hinge elevation and the path's elevation;
+  - the road's hinge elevation and the path's elevation (no hinge on a
+    deck, in a path gap, or on an own-stretch row);
   - the difference between them;
   - the path's grade;
-  - the strip: its slope ratio, or `wall-road` or `wall-path`;
-  - whether a barrier is needed;
-  - a note: `deck`, `approach`, `grade>5%`.
+  - the strip: its slope ratio, `level`, `ground` (natural ground between),
+    `wall-road` or `wall-path`; `deck` on a deck the path crosses, `path gap`
+    in a path gap, `own <n>` at an own stretch's hand-over or rejoin with no
+    section row there;
+  - the barrier: `rail` (needed and the rail is there), `yes` (needed),
+    `no`, `deck` on a deck, and empty in a path gap or an own-stretch row;
+  - a note, `;`-separated: `approach`, `grade>5%`, `deck`, `path gap`, and
+    `own <n> hand-over` / `own <n> rejoin` at an own stretch's ends (the
+    table has no rows inside an own stretch, which is on its own stations).
 - **`outputs.path_checks`**: the advisory rows listed under Checks.
 - **The masshaul, walls, structures and guardrail outputs** include the path's side as part of the section. They need no new columns, except `location` in `walls` and `carries` and `location` in `structures`.
 
