@@ -1211,3 +1211,86 @@ def test_an_unusual_tread_is_not_an_error():
     assert (eq.buffer, eq.width, eq.clear, eq.cross_slope) == (2.0, 4.0, 1.0, -0.08)
     assert corridor(path(equestrian=dict(TREAD, cross_slope=-0.08))
                     ).path.equestrian.cross_slope == -0.08
+
+
+from bimforge.author.corridor.path import TREAD_POINTS, top_points  # noqa: E402
+
+
+def test_the_tread_lies_beyond_the_buffer():
+    # the paved outer edge (39, -0.73); 6 ft of buffer at -5 % to the
+    # tread's inner edge, 8 ft of tread at -2 %, 3 ft of clear strip at -5 %
+    c = corridor(path(equestrian=dict(TREAD, fence=True)))
+    sf = surface(c, 1500.0)
+    assert sf.tread == (pt((45.0, -1.03)), pt((53.0, -1.19)))
+    assert sf.o == pt((56.0, -1.34))
+    assert sf.fence == pt((42.0, -0.88))          # 3 ft in from the tread
+    assert sf.tread_depth == pytest.approx(0.33)
+    assert top_points(c) == TOP_POINTS + TREAD_POINTS
+    assert top_points(corridor()) == TOP_POINTS
+    assert side_count(c) == side_count(corridor()) + TREAD_POINTS
+    sec = resolve(c, 1500.0, level(-5.0))
+    want = [(45.0, -1.03), (53.0, -1.19), (53.0, -1.52), (45.0, -1.36)]
+    assert [x for xy in sec.path.tread_courses[0] for x in xy] == pytest.approx(
+        [x for xy in want for x in xy])
+    line = sec.sides["L"].line
+    for xy in ((44.99, -1.0295), (45.0, -1.36), (53.0, -1.52), (53.01, -1.1905),
+               (56.0, -1.34)):
+        assert on(line, xy), xy
+    assert line[-1] == pt((63.32, -5.0))          # 2:1 from o
+    assert len(line) == side_count(c)
+    # the right side and the road's left as before (67.6071 + 57.935), the
+    # strip 30.08, q to the paved outer edge's step 52.635, the buffer
+    # 24.6376, the tread's courses 28.554497, the clear strip 11.1669025,
+    # the outer slope 13.3956
+    assert fill_area(c, PlaneGround(95.0)) == pytest.approx(286.0119, abs=1e-6)
+
+
+def test_the_tread_follows_the_path_s_profile():
+    # the path 2 ft lower: the tread 2 ft lower with it (98.97 - 2)
+    c = corridor(path(profile=grade(97.51), equestrian=TREAD))
+    assert surface(c, 1500.0).tread[0][1] + 100.0 == pytest.approx(96.97)
+
+
+def test_the_tread_on_the_right_mirrors():
+    c = corridor(path(side="R", equestrian=dict(TREAD, fence=True)))
+    sf = surface(c, 1500.0)
+    assert sf.tread == (pt((-45.0, -1.03)), pt((-53.0, -1.19)))
+    assert sf.o == pt((-56.0, -1.34))
+    assert sf.fence == pt((-42.0, -0.88))
+    line = resolve(c, 1500.0, level(-5.0)).sides["R"].line
+    for xy in ((-44.99, -1.0295), (-45.0, -1.36), (-53.0, -1.52), (-53.01, -1.1905)):
+        assert on(line, xy), xy
+    assert line[-1] == pt((-63.32, -5.0))
+
+
+def test_a_steep_path_s_tread_courses_are_deeper_in_the_plane():
+    # each course thickness / cos theta deep, as the paved courses are: the
+    # path at 8 % on the level road, level with it at 15+00
+    c = corridor(path(profile=grade(59.51, 8.0), equestrian=TREAD))
+    sf = surface(c, 1500.0)
+    assert sf.cos_theta < 0.999
+    assert sf.tread_depth == pytest.approx(0.33 / sf.cos_theta)
+    (ui, vi), (uo, vo) = sf.tread
+    ring = resolve(c, 1500.0, level(-5.0)).path.tread_courses[0]
+    want = [(ui, vi), (uo, vo), (uo, vo - sf.tread_depth), (ui, vi - sf.tread_depth)]
+    assert [x for xy in ring for x in xy] == pytest.approx([x for xy in want for x in xy])
+
+
+def test_without_a_tread_the_surface_has_none():
+    sf = surface(corridor(), 1500.0)
+    assert (sf.tread, sf.fence, sf.tread_depth) == (None, None, 0.0)
+    assert resolve(corridor(), 1500.0, level(-5.0)).path.tread_courses is None
+
+
+def test_a_tread_s_courses_stack_top_down():
+    two = [{"name": "EQ-DG", "type": "PAVEMENT", "thickness": 0.25},
+           {"name": "EQ-AB", "type": "CORE", "thickness": 0.5}]
+    c = corridor(path(equestrian={"courses": two}))
+    rings = resolve(c, 1500.0, level(-5.0)).path.tread_courses
+    want = {0: [(45.0, -1.03), (53.0, -1.19), (53.0, -1.44), (45.0, -1.28)],
+            1: [(45.0, -1.28), (53.0, -1.44), (53.0, -1.94), (45.0, -1.78)]}
+    assert sorted(rings) == [0, 1]
+    for k, ring in want.items():
+        assert [x for xy in rings[k] for x in xy] == pytest.approx(
+            [x for xy in ring for x in xy]), k
+    assert surface(c, 1500.0).tread_depth == pytest.approx(0.75)

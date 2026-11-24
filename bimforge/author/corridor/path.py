@@ -487,6 +487,9 @@ class Surface:
     cos_theta: float       # the plane's normal against the path's tangent
     depth: float           # the courses' depth in the plane: sum t / cos theta
     cg: float              # cos of the road's grade: v to elevation
+    tread: tuple | None = None     # the tread's (inner edge, outer edge)
+    fence: tuple | None = None     # where the fence stands on the buffer
+    tread_depth: float = 0.0       # the tread courses' depth in the plane
 
 
 def section_v(p, s: float, u: float, z_at, toward: float = 0.0) -> float:
@@ -585,7 +588,13 @@ def surface(c, s: float, toward: float = 0.0) -> Surface:
     separation less STEP_FT, so near a deck q stays off the road. At a PC
     or PT, `toward` +1 or -1 solves it on that side (section_v, cos_theta):
     the courses' depth steps there, so a band ending at one and the band
-    starting at it read it each on its own side."""
+    starting at it read it each on its own side. With a tread the outer
+    shoulder gives way to the buffer at `shoulder.slope`, the tread at its
+    `cross_slope` and the clear strip at `shoulder.slope` again, o at the
+    clear strip's end; the tread has no profile of its own, its elevation
+    the path's through the cross slopes. The fence stands on the buffer
+    `clear_ft` in from the tread (at the paved edge where the buffer is
+    narrower)."""
     from bimforge.author.corridor.section import grade_edge  # section imports path
     p = c.path
     edge = grade_edge(c, s, p.side)
@@ -603,11 +612,23 @@ def surface(c, s: float, toward: float = 0.0) -> Surface:
     w, sw = p.width, p.shoulder_width
     inner_sw = min(sw, max(sep - STEP_FT, 0.0))
     cos_t = cos_theta(c, s, toward=toward)
+    eq = p.equestrian
+    o = at(w + sw, p.cross_slope * w + p.shoulder_slope * sw)
+    tread = fence = None
+    tread_depth = 0.0
+    if eq is not None:
+        zb = p.cross_slope * w + p.shoulder_slope * eq.buffer
+        zt = zb + eq.cross_slope * eq.width
+        tread = (at(w + eq.buffer, zb), at(w + eq.buffer + eq.width, zt))
+        o = at(w + eq.buffer + eq.width + eq.clear, zt + p.shoulder_slope * eq.clear)
+        back = max(eq.buffer - eq.clear, 0.0)
+        fence = at(w + back, p.cross_slope * w + p.shoulder_slope * back)
+        tread_depth = eq.depth() / cos_t
     return Surface(edge=edge, q=at(-inner_sw, p.shoulder_slope * inner_sw),
-                   inner=(ui, vi), outer=at(w, p.cross_slope * w),
-                   o=at(w + sw, p.cross_slope * w + p.shoulder_slope * sw),
+                   inner=(ui, vi), outer=at(w, p.cross_slope * w), o=o,
                    separation=sep, cos_theta=cos_t,
-                   depth=p.depth() / cos_t, cg=cg)
+                   depth=p.depth() / cos_t, cg=cg,
+                   tread=tread, fence=fence, tread_depth=tread_depth)
 
 
 def course_rings(p, sf: Surface) -> dict:
@@ -626,9 +647,32 @@ def course_rings(p, sf: Surface) -> dict:
     return out
 
 
+def tread_rings(eq, sf: Surface) -> dict:
+    """{course index: 4-point ring}: the tread's courses under its width,
+    top down, each thickness / cos theta deep, as the paved courses are
+    (course_rings). `eq` is the Equestrian; `sf` a surface with a tread."""
+    (ui, vi), (uo, vo) = sf.tread
+    out, above = {}, 0.0
+    for k, course in enumerate(eq.courses):
+        d = course.thickness / sf.cos_theta
+        out[k] = [(ui, vi - above), (uo, vo - above), (uo, vo - above - d),
+                  (ui, vi - above - d)]
+        above += d
+    return out
+
+
 #: the path's earthwork top, q to o: q, a step down the courses' inner edge,
 #: under the courses, up their outer edge, o
 TOP_POINTS = 6
+#: the tread's four more points on the path's top: a step down its courses'
+#: inner edge, under them, up their outer edge, onto the clear strip
+TREAD_POINTS = 4
+
+
+def top_points(c) -> int:
+    """The path's top's points, q to o: TOP_POINTS, and TREAD_POINTS more
+    with a tread."""
+    return TOP_POINTS + (TREAD_POINTS if c.path.equestrian is not None else 0)
 
 
 @dataclass(frozen=True)
@@ -640,6 +684,7 @@ class PathSection:
                            # wall, or where the strip is level (no ratio)
     surface: Surface
     courses: dict          # course index -> 4-point ring under the paved width
+    tread_courses: dict | None = None   # the same under the tread, or None
 
 
 def strip_count(c) -> int:
@@ -656,7 +701,7 @@ def side_count(c) -> int:
     (its first the top's last). A station without the path pads the road's
     own side to it."""
     from bimforge.author.corridor.section import side_samples
-    return strip_count(c) + TOP_POINTS - 1 + side_samples(c) - 1
+    return strip_count(c) + top_points(c) - 1 + side_samples(c) - 1
 
 
 def _fixed(points: list, n: int, s: float, seg: int | None = None) -> list:
@@ -811,14 +856,22 @@ def _strip(c, s: float, sf: Surface, hinge: tuple, ground_dz,
 
 
 def _top(c, sf: Surface) -> list:
-    """The path's earthwork top, q to o (TOP_POINTS): the inner shoulder at
+    """The path's earthwork top, q to o (top_points): the inner shoulder at
     finished grade, a STEP_FT step down the courses' inner edge, under the
-    courses, up their outer edge, the outer shoulder."""
+    courses, up their outer edge, the outer shoulder; with a tread the
+    buffer, the same step down, under and up the tread's courses, and the
+    clear strip. k is the shoulder slope over a step: the buffer and the
+    clear strip fall at it too, so a step back toward the path rises by it."""
     p = c.path
     k = p.shoulder_slope * STEP_FT / sf.cg
     (ui, vi), (uo, vo) = sf.inner, sf.outer
-    return [sf.q, (ui - p.sign * STEP_FT, vi + k), (ui, vi - sf.depth),
-            (uo, vo - sf.depth), (uo + p.sign * STEP_FT, vo + k), sf.o]
+    top = [sf.q, (ui - p.sign * STEP_FT, vi + k), (ui, vi - sf.depth),
+           (uo, vo - sf.depth), (uo + p.sign * STEP_FT, vo + k)]
+    if sf.tread is None:
+        return top + [sf.o]
+    (ti, tv), (to, tov) = sf.tread
+    return top + [(ti - p.sign * STEP_FT, tv - k), (ti, tv - sf.tread_depth),
+                  (to, tov - sf.tread_depth), (to + p.sign * STEP_FT, tov + k), sf.o]
 
 
 #: the automatic walls that stand on the path's outer side, at o
@@ -861,8 +914,10 @@ def side(c, s: float, hinge: tuple, ground_dz, rail: bool = False) -> tuple:
     seg = 0 if mode == "wall-path" else None
     line = (_fixed(pts, strip_count(c), s, seg) + _top(c, sf)[1:]
             + _samples(_outer(c, s, sf, ground_dz), side_samples(c))[1:])
+    eq = c.path.equestrian
     return (Side("path", line, guarded, ratio),
-            PathSection(mode, ratio, sf, course_rings(c.path, sf)))
+            PathSection(mode, ratio, sf, course_rings(c.path, sf),
+                        tread_rings(eq, sf) if eq is not None else None))
 
 
 def needs_wall(c, s: float, hinge: tuple, ground_dz, rail: bool = False,

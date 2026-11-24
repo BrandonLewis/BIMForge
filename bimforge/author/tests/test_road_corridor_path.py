@@ -131,6 +131,14 @@ def test_the_ground_reaches_past_the_path():
     # 17 ft to the edge, 10 ft out, 12 paved, two 2 ft shoulders, then the
     # 150 ft daylight limit
     assert ground_reach(c) == pytest.approx(17.0 + 10.0 + 12.0 + 4.0 + 150.0)
+    # a tread: the buffer, the tread and its clear strip in place of the
+    # outer shoulder
+    pp = copy.deepcopy(PARAMS)
+    pp["path"]["equestrian"] = {"courses": [{"name": "EQ-DG", "type": "PAVEMENT",
+                                             "thickness": 0.33}]}
+    c = parse(pp, al.s_start, al.s_end, alignment=al, profile=prof)
+    assert ground_reach(c) == pytest.approx(17.0 + 10.0 + 12.0 + 2.0 + 6.0 + 8.0
+                                            + 3.0 + 150.0)
 
 
 def test_a_right_side_path_s_courses_build_whichever_way_their_rings_wind(built):

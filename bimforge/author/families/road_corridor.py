@@ -114,6 +114,11 @@ def ground_reach(c) -> float:
         # as the widest side and the farthest separation need not be at
         # one station, and the strip lies inside it
         far = max(v for _s, v in p.separation) + p.width + 2.0 * p.shoulder_width
+        if p.equestrian is not None:
+            # a tread: the buffer, the tread and its clear strip in place of
+            # the outer shoulder
+            eq = p.equestrian
+            far += eq.buffer + eq.width + eq.clear - p.shoulder_width
         out = max(out, half + far + c.slopes.daylight_limit)
     return out
 
