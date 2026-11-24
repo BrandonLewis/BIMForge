@@ -214,13 +214,26 @@ class Chain:
                 out.append((pc, xa - pc.off, xb - pc.off, xa, xb))
         return out
 
+    @staticmethod
+    def note(ref: str, parts: list, pc, run: float) -> str:
+        """`ref` as is for a run on one piece; for one across several, a
+        note that the row is a piece of it (its rows' values are the run's
+        whole, so they do not add up)."""
+        others = [q.label.strip() or "road" for q, *_rest in parts if q is not pc]
+        if not others:
+            return ref
+        return f"{ref}; run {run:.2f} ft continues on {' and '.join(others)}"
+
     def curves(self) -> list:
         """The vertical curves that change the grade, by position: the
         path's beside the road, and each stretch's own. One of the path's
         profile inside a stretch's span is not the path's (it is on the
         stretch's profile there); one across a hand-over or a rejoin is kept
         from its end beside the road, carried its length along the chain,
-        and its far grade read from the chain there."""
+        and its far grade read from the chain there. Such a curve and the
+        stretch's first (or last) curve can list the same change of grade,
+        and a side run ignores a curve that overlaps another: accepted, both
+        err on listing more."""
         beside = [pc for pc in self.pieces if pc.own is None]
         out = []
         for cv in self.c.path.profile.curves:
@@ -270,12 +283,15 @@ def grade_rows(c, ch=None) -> list:
         for pc, la, lb, xa, xb in ch.parts(a, b):
             top = max(abs(ch.grade(x)) for x in _within(xa, xb))
             out.append(CheckRow(f"{pc.label}grade>5%", la, lb, 100.0 * top,
-                                100.0 * MAX_GRADE, "HDM 1003.1(14)"))
+                                100.0 * MAX_GRADE,
+                                ch.note("HDM 1003.1(14)", ch.parts(a, b), pc, b - a)))
     for a, b in spans(ch.lo, ch.hi, steep(SUSTAINED_GRADE)):
         if b - a > SUSTAINED_FT + _EPS:
-            for pc, la, lb, _xa, _xb in ch.parts(a, b):
+            parts = ch.parts(a, b)
+            for pc, la, lb, _xa, _xb in parts:
                 out.append(CheckRow(f"{pc.label}sustained grade>2%", la, lb, b - a,
-                                    SUSTAINED_FT, "HDM 1003.1(14)"))
+                                    SUSTAINED_FT,
+                                    ch.note("HDM 1003.1(14)", parts, pc, b - a)))
     return out
 
 
@@ -313,7 +329,8 @@ def crest_speed(ch, curves: list, i: int, design_speed: int) -> int:
     it is steeper than 4 % for more than 500 ft (a downgrade one way of
     travel or the other, Table 1003.1); else the design speed. A run goes
     from the curve to the next one that changes the grade, or the path's
-    end, across a hand-over or a rejoin: the path's grade carries on."""
+    end, across a hand-over or a rejoin: the path's grade carries on. A run
+    ignores curves that overlap this one (see Chain.curves): accepted."""
     if design_speed == 30:
         return 30
     v = curves[i]
@@ -428,10 +445,13 @@ def equestrian_rows(c) -> list:
         for x, y in spans(ch.lo, ch.hi, lambda s, limit=limit: not ch.skip(s)
                           and abs(ch.grade(s)) > limit + 1e-12):
             if y - x > EQ_RUN_FT + _EPS:
-                for pc, la, lb, xa, xb in ch.parts(x, y):
+                parts = ch.parts(x, y)
+                for pc, la, lb, xa, xb in parts:
                     top = max(abs(ch.grade(s)) for s in _within(xa, xb))
                     out.append(CheckRow(f"{pc.label}{check}", la, lb, 100.0 * top,
-                                        100.0 * limit, "USFS-EDG Table 4-3; HDM 208.7"))
+                                        100.0 * limit,
+                                        ch.note("USFS-EDG Table 4-3; HDM 208.7",
+                                                parts, pc, y - x)))
     return out
 
 

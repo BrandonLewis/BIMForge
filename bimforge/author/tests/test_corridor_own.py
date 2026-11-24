@@ -1259,3 +1259,49 @@ def test_a_crest_of_the_path_s_profile_inside_its_own_stretch_is_not_checked():
     p = own_path()
     p["profile"] = {"curves": [a, b, d, e, f]}
     assert not [r for r in pc.checks(corridor(p), [], []) if r.check.startswith("crest")]
+
+
+# -- second review of the Task 23 checks ----------------------------------
+
+def test_a_grade_written_to_five_places_meets_the_path_s_at_a_hand_over():
+    # the path's profile is mid-curve at 11+00, -14/3 %; the stretch's g_in,
+    # written to 5 dp, is 3e-6 % off it
+    p = own_path()
+    p["own"][0]["profile"] = two_grades(-4.66667, -4.66667)
+    corridor(joined(p, g0=-14.0 / 3.0))
+
+
+def test_a_grade_a_hundredth_of_a_percent_off_is_a_break_at_the_rejoin():
+    p = own_path()
+    p["own"][0]["profile"] = two_grades(-6.0, -6.0)
+    corridor(joined(p, g1=-6.00003))                       # a 2 dp length's worth
+    with pytest.raises(ValueError, match=r"path\.own\[0\]\.profile.*rejoin.*-6 %.*-5\.99"):
+        corridor(joined(p, g1=-5.99))
+
+
+def test_a_run_over_two_systems_says_so_in_its_rows():
+    rows = pc.checks(corridor(crest_across_the_rejoin()), [], [])
+    sus = {r.check: r.reference for r in rows if r.check.endswith("sustained grade>2%")}
+    assert sus == {
+        "sustained grade>2%":
+            "HDM 1003.1(14); run 877.69 ft continues on own 1",
+        "own 1 sustained grade>2%":
+            "HDM 1003.1(14); run 877.69 ft continues on road"}
+    # a run on one piece keeps the plain reference
+    assert {r.reference for r in rows if r.check == "own 1 crest VC short of SSD at 30 mph"
+            } == {"HDM 1003.1(11), (12)"}
+
+
+def test_an_own_crest_short_of_its_distance_at_20_mph():
+    # 4 % up, a 20 ft curve to -4 %, 4 % down (never over 4 %): A = 8,
+    # L = 2 x 125 - 1600 / 8 = 50 ft needed
+    half = (BUMP_FT - 20.0) / 2.0
+    a, z = vc(0.0, 99.51, 4.0, 4.0, half)
+    b, z = vc(half, z, 4.0, -4.0, 20.0)
+    d, z = vc(half + 20.0, z, -4.0, -4.0, half)
+    p = own_path()
+    p["own"][0]["profile"] = {"curves": [a, b, d]}
+    (row,) = [r for r in pc.checks(corridor(joined(p)), [], [])
+              if r.check.startswith("own 1 crest")]
+    assert row.check == "own 1 crest VC short of SSD at 20 mph"
+    assert (row.value, row.limit) == (20.0, pytest.approx(2.0 * 125.0 - 1600.0 / 8.0))

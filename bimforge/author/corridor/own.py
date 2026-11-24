@@ -42,6 +42,10 @@ ARC_TOL_RATIO = 5e-6
 #: would need superelevation (its cross slope stays at most 2 %), by speed
 MIN_RADIUS_FT = {20: 90.0, 25: 160.0, 30: 260.0}
 NO_SUPER_RADIUS_FT = {20: 100.0, 25: 180.0, 30: 320.0}
+#: an own profile's grade at a hand-over or rejoin meets path.profile's within
+#: this, %: a few places written (5 dp, or a 2 dp length) and a break this small
+#: has no crest to size
+GRADE_TOL_PCT = 1e-3
 #: the keys each `path.own` entry takes
 KEYS = {"from", "to", "run", "profile", "gaps"}
 _EPS = 1e-9
@@ -231,12 +235,13 @@ def parse_own(value, p, c) -> tuple:
         # checks' crest curves do not see
         for st, rs, which in ((0.0, a, "hand-over"), (al.s_end, b, "rejoin")):
             got, want = 100.0 * prof.grade(st), 100.0 * p.profile.grade(rs)
-            if abs(got - want) > 1e-9:
+            if abs(got - want) > GRADE_TOL_PCT:
                 raise ValueError(
                     f"{at}.profile: its grade at the {which} ({sta(st)}, road "
-                    f"{sta(rs)}) is {got:g} % and path.profile's {want:g} %: the "
-                    f"path's grade carries on across it (a grade break there "
-                    f"is a vertical curve of its own, short of the stretch)")
+                    f"{sta(rs)}) is {got:.9g} % and path.profile's {want:.9g} %: "
+                    f"the path's grade carries on across it, so the profile's "
+                    f"{'g_in_pct' if st == 0.0 else 'g_out_pct'} should equal "
+                    f"path.profile's grade at {sta(rs)} (within {GRADE_TOL_PCT:g} %)")
         out.append(Own(k + 1, i, a, b, al, prof,
                        _path_gaps(o.get("gaps"), 0.0, al.s_end, f"{at}.gaps",
                                   "its own stations")))
