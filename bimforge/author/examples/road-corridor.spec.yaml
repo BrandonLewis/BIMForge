@@ -1,10 +1,12 @@
-# Worked road-corridor run (P.6, V1.1): a two-lane road on a tangent, a
-# 1000 ft right curve and a second tangent, over a sloping plane of ground.
-# A cut at the start meets shallow rock; past the bridge the fill deepens
-# beyond 10 ft, so it runs 4:1 below that and 2:1 behind guardrail above,
-# and an automatic wall stands where the left slope would reach past its
-# footprint. A superelevation run through the curve, a shoulder that
-# widens, a gap for a bridge and a listed wall gap on the left.
+# Worked road-corridor run (P.6, V1.1 and part C): a two-lane road on a
+# tangent, a 1000 ft right curve and a second tangent, over a sloping plane
+# of ground. A cut at the start meets shallow rock; past the bridge the fill
+# deepens beyond 10 ft, so it runs 4:1 below that and 2:1 behind guardrail
+# above, and an automatic wall stands where the left slope would reach past
+# its footprint. A superelevation run through the curve, a shoulder that
+# widens, a gap for a bridge and a listed wall gap on the left. A shared-use
+# path on the right on its own profile: a wall at the road's hinge while it
+# runs low, an approach each side of the bridge where it meets the deck.
 # --check-only writes nothing (CI fixture). Fictitious alignment and
 # stationing: nothing here is a real project.
 family: road-corridor
@@ -59,6 +61,26 @@ params:
     - {from: 2200, to: 2300, kind: wall, side: L, offset: 40.0}
   stations: {interval: 25, band: 100}
   mass_haul: {shrink: 0.10, swell: 0.20}
+  path:                                 # a shared-use path (HDM 1003.1)
+    side: R
+    separation: [[1000, 10.0], [1600, 10.0], [1700, 1.5], [1800, 1.5], [1900, 10.0]]
+    width: 12.0
+    cross_slope: -0.02                  # falling away from the road
+    shoulder: {width: 2.0, slope: -0.05}
+    courses:
+      - {name: PATH-HMA, type: PAVEMENT, thickness: 0.25}
+      - {name: PATH-AB, type: CORE, thickness: 0.50}
+    profile:                            # its paved inner edge; on the deck at
+      curves:                           # 17+00 and 18+00
+        - {bvc_station: 1000.0, bvc_elev: 290.3374, g_in_pct: 4.9, g_out_pct: 4.2589,
+           length_ft: 600.0, evc_station: 1600.0, evc_elev: 317.8141}
+        - {bvc_station: 1600.0, bvc_elev: 317.8141, g_in_pct: 4.2589, g_out_pct: 4.2589,
+           length_ft: 300.0, evc_station: 1900.0, evc_elev: 330.5908}
+        - {bvc_station: 1900.0, bvc_elev: 330.5908, g_in_pct: 4.2589, g_out_pct: 4.9,
+           length_ft: 300.0, evc_station: 2200.0, evc_elev: 344.3291}
+        - {bvc_station: 2200.0, bvc_elev: 344.3291, g_in_pct: 4.9, g_out_pct: 4.9,
+           length_ft: 349.07, evc_station: 2549.07, evc_elev: 361.4335}
+    design_speed_mph: 20
 paycodes: ./road-corridor.paycodes.yaml
 outputs:
   dxf: out/road-corridor.dxf
@@ -68,6 +90,8 @@ outputs:
   walls: out/road-corridor.walls.csv
   structures: out/road-corridor.structures.csv
   guardrail: out/road-corridor.guardrail.csv
+  path: out/road-corridor.path.csv
+  path_checks: out/road-corridor.path-checks.csv
 project:
   name: "Fixture Road (example)"
   epsg: 2226
