@@ -1137,3 +1137,26 @@ def test_a_road_gap_end_within_a_foot_of_a_path_gap_is_waived_as_its_separation_
         corridor(path(gaps=[{"from": 1380, "to": 1519, "kind": "structure"}]), gaps=gap)
     c = corridor(path(gaps=[{"from": 1380, "to": 1520, "kind": "structure"}]), gaps=gap)
     assert approaches(c) == []
+
+
+def test_a_road_gap_end_exactly_a_foot_outside_a_path_gap_keeps_its_approach():
+    # the path's section is built at that station: the deck is met there and
+    # the approach leads to it; the separation is the deck's, not 5 ft
+    sep = [[1000, 10.0], [1300, 10.0], [1400, 1.5], [1501, 1.5], [1601, 10.0]]
+    c = corridor(deck_path(separation=sep, gaps=[{"from": 1380, "to": 1500,
+                                                  "kind": "structure"}]),
+                 gaps=[{"from": 1400, "to": 1501, "kind": "structure"}])
+    assert approaches(c) == [(1501.0, 1601.0, 1501.0)]
+    with pytest.raises(ValueError, match=r"is not deck_separation_ft"):
+        corridor(path(separation=[[1000, 10.0]],
+                      gaps=[{"from": 1380, "to": 1500, "kind": "structure"}]),
+                 gaps=[{"from": 1400, "to": 1501, "kind": "structure"}])
+
+
+def test_a_road_gap_start_exactly_a_foot_outside_a_path_gap_keeps_its_approach():
+    sep = [[1000, 10.0], [1399, 10.0], [1499, 1.5], [1620, 1.5], [1650, 1.5],
+           [1750, 10.0]]
+    c = corridor(deck_path(separation=sep, gaps=[{"from": 1500, "to": 1620,
+                                                  "kind": "structure"}]),
+                 gaps=[{"from": 1499, "to": 1650, "kind": "structure"}])
+    assert approaches(c) == [(1399.0, 1499.0, 1499.0), (1650.0, 1750.0, 1650.0)]
