@@ -1215,10 +1215,36 @@ def test_a_buffer_no_wider_than_two_steps_is_refused():
     # as a shoulder that narrow
     sh = {"width": 0.015, "slope": -0.05}
     with pytest.raises(ValueError, match=r"path\.equestrian\.buffer: 0\.02 ft is "
-                                         r"no wider than two 0\.01 ft steps"):
+                                         r"no wider than two 0\.01 ft steps, one out "
+                                         r"from the paved courses and one down the "
+                                         r"tread's"):
         corridor(path(shoulder=sh, equestrian=dict(TREAD, buffer=0.02)))
     eq = corridor(path(shoulder=sh, equestrian=dict(TREAD, buffer=0.021))).path.equestrian
     assert eq.buffer == pytest.approx(0.021)
+
+
+@pytest.mark.parametrize("width", [0.01, 0.005])
+def test_a_shoulder_no_wider_than_a_step_is_refused(width):
+    # the outer shoulder: the top line steps STEP_FT out from the paved
+    # courses' outer edge, then runs to o a shoulder's width out; the inner
+    # one: q a shoulder's width in from the paved edge, inside the step
+    # down it. No wider than the step, either folds back on itself
+    with pytest.raises(ValueError, match=rf"path\.shoulder\.width: {width:g} ft is "
+                                         rf"no wider than the 0\.01 ft step down the "
+                                         rf"paved courses' edge"):
+        corridor(path(shoulder={"width": width, "slope": -0.05}))
+    assert corridor(path(shoulder={"width": 0.011, "slope": -0.05})
+                    ).path.shoulder_width == pytest.approx(0.011)
+
+
+@pytest.mark.parametrize("sep", [0.02, 0.015])
+def test_a_deck_separation_no_wider_than_two_steps_is_refused(sep):
+    # at the deck the inner shoulder is the separation less a step, and it
+    # must be wider than the step down the paved courses' inner edge
+    with pytest.raises(ValueError, match=rf"path\.deck_separation_ft: {sep:g} ft is "
+                                         rf"no wider than two 0\.01 ft steps"):
+        corridor(path(deck_separation_ft=sep))
+    assert corridor(path(deck_separation_ft=0.021)).path.deck_separation == 0.021
 
 
 def test_a_tread_without_courses_or_not_a_mapping_is_refused():

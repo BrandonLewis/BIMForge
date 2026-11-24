@@ -264,13 +264,17 @@ def _equestrian(value, shoulder_width: float):
     cs = _num(value.get("cross_slope", -0.02), f"{where}.cross_slope", positive=False)
     width = _num(value.get("width", 8.0), f"{where}.width")
     clear = _num(value.get("clear_ft", 3.0), f"{where}.clear_ft")
-    for key, x in (("width", width), ("clear_ft", clear), ("buffer", buffer)):
+    for key, x, steps in (
+            ("width", width, "down the tread's courses"),
+            ("clear_ft", clear, "down the tread's courses"),
+            ("buffer", buffer, "one out from the paved courses and one down the "
+                               "tread's")):
         # the top line steps STEP_FT in from each edge of the tread's
         # courses, and out from the paved courses' outer edge (_top):
         # narrower, it folds back on itself
         if x <= 2.0 * STEP_FT + _EPS:
             raise ValueError(f"{where}.{key}: {x:g} ft is no wider than two "
-                             f"{STEP_FT:g} ft steps down the tread's courses")
+                             f"{STEP_FT:g} ft steps, {steps}")
     return Equestrian(
         width=width, buffer=buffer, clear=clear,
         cross_slope=-abs(cs),      # always falling away from the road, as the path's
@@ -278,6 +282,20 @@ def _equestrian(value, shoulder_width: float):
         fence=fence,
         fence_height=_num(value.get("fence_height_ft", 4.5), f"{where}.fence_height_ft"),
         rail_height=_num(value.get("rail_height_ft", 4.5), f"{where}.rail_height_ft"))
+
+
+def _deck_separation(value) -> float:
+    """`deck_separation_ft`: the least separation anywhere the path is
+    built (validate), and at a deck the inner shoulder is it less STEP_FT
+    (surface), which must be wider than the step down the paved courses'
+    inner edge (_top)."""
+    where = "path.deck_separation_ft"
+    sep = _num(value, where)
+    if sep <= 2.0 * STEP_FT + _EPS:
+        raise ValueError(f"{where}: {sep:g} ft is no wider than two {STEP_FT:g} ft "
+                         f"steps, the inner shoulder's and the one down the paved "
+                         f"courses' inner edge")
+    return sep
 
 
 def parse_path(pp, c, alignment, profile) -> Path:
@@ -315,6 +333,12 @@ def parse_path(pp, c, alignment, profile) -> Path:
     if not isinstance(sh, dict):
         raise ValueError("path.shoulder: a mapping ({width, slope})")
     sw = _num(sh.get("width", 2.0), "path.shoulder.width")
+    if sw <= STEP_FT + _EPS:
+        # the top line steps STEP_FT out from the paved courses' outer edge
+        # before o, and q lies the inner shoulder in from the step down
+        # their inner edge (_top): no wider, either folds back on itself
+        raise ValueError(f"path.shoulder.width: {sw:g} ft is no wider than the "
+                         f"{STEP_FT:g} ft step down the paved courses' edge")
     ss = _num(sh.get("slope", -0.05), "path.shoulder.slope", positive=False)
     if ss >= 0.0:
         raise ValueError(f"path.shoulder.slope: {ss:g} does not slope away from "
@@ -338,8 +362,7 @@ def parse_path(pp, c, alignment, profile) -> Path:
         design_speed=int(speed),
         strip_ratio=_num(strip.get("max_ratio", 2.0), "path.strip.max_ratio"),
         approach=_num(pp.get("approach_ft", 100.0), "path.approach_ft"),
-        deck_separation=_num(pp.get("deck_separation_ft", 1.5),
-                             "path.deck_separation_ft"),
+        deck_separation=_deck_separation(pp.get("deck_separation_ft", 1.5)),
         rail_height=_num(pp.get("rail_height_ft", 3.5), "path.rail_height_ft"),
         road_profile=profile, alignment=alignment,
         gaps=_path_gaps(pp.get("gaps"), s0, s1),
