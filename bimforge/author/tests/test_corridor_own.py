@@ -889,3 +889,32 @@ def test_the_plan_footprint_is_the_earthwork_s_ground_corners():
     n, e, z = survey(100.0, u, v)
     assert z == pytest.approx(83.51, abs=1e-6)
     assert left == (pytest.approx(e, abs=1e-6), pytest.approx(n, abs=1e-6))
+
+
+def test_footprints_beside_a_line_s_extension_are_apart():
+    # the road's cross-section at y 0 runs on, past x 20, through the
+    # path's inner edge at (30, 0); the segment itself stops 10 ft short
+    own = own_mod.Own(1, 0, 1100.0, 1200.0, None, None)
+    beside = [(0.0, (30.0, -10.0), (50.0, -10.0)), (20.0, (30.0, 10.0), (50.0, 10.0))]
+    own_mod.check_footprints(own, ROAD, beside)
+    # and where the two segments' boxes overlap: the path's inner edge,
+    # (30, 95) to (18, 110), crosses the line of the road's end section at
+    # (26, 100) and of its right edge at (20, 107.5), past each segment
+    past = [(0.0, (30.0, 95.0), (50.0, 95.0)), (20.0, (18.0, 110.0), (38.0, 110.0))]
+    own_mod.check_footprints(own, ROAD, past)
+
+
+def test_an_own_footprint_s_ground_error_names_the_stretch():
+    from bimforge.author.corridor.frame import survey_point
+    c, own, oc = own_of(own_path())
+    sec = own_mod.own_section(c, oc, own, 100.0, level(-4.51))
+
+    def survey(s, u, v):
+        return survey_point(own.alignment, own.profile, s, u, v)
+
+    with pytest.raises(ValueError, match=(
+            r"^path\.own\[0\] \(T path 1, own stations\): station 1\+00\.00: the "
+            r"ground under")):
+        own_mod.plan(survey, lambda n, e: float("nan"), [sec], own=own)
+    with pytest.raises(ValueError, match=r"^station 1\+00\.00: the ground under"):
+        own_mod.plan(survey, lambda n, e: float("nan"), [sec])

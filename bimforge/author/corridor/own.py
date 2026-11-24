@@ -550,20 +550,24 @@ def check_handover(own, at_from, at_to) -> None:
                 f"widen the separation")
 
 
-def plan(survey, ground_z, secs) -> list:
+def plan(survey, ground_z, secs, own=None) -> list:
     """[(station, left end, right end)] in plan, (easting, northing): each
     of `secs`' earthwork lines' ends where the earthwork's corner stands on
     the ground, along its section ray (earthwork._ground_v), so a wall's
     end is its foot and not its top. `survey(s, u, v)` places a section
-    point; `ground_z(n, e)` is the ground."""
+    point; `ground_z(n, e)` is the ground. `own`, for an own stretch's
+    sections, names the stretch in a ground error: its stations are its
+    own."""
     from bimforge.author.corridor.earthwork import _ground_v
+    on = (f"path.own[{own.entry}] ({own.alignment.name}, own stations): "
+          if own is not None else "")
     out = []
     for sec in secs:
         line = sec.earthwork_line()
         ends = []
         for u, v in (line[0], line[-1]):
             n, e, _z = survey(sec.s, u, _ground_v(survey, ground_z, sec.s, u, v,
-                                                  f"station {sta(sec.s)}"))
+                                                  f"{on}station {sta(sec.s)}"))
             ends.append((e, n))
         out.append((sec.s, ends[0], ends[1]))
     return out
@@ -634,7 +638,10 @@ def _inside(ring, p) -> bool:
 def check_footprints(own, road: list, path: list) -> None:
     """The own stretch's plan footprint `path` must not cross the road's
     `road` (each plan()'s rows), nor lie on it without crossing (the one
-    inside the other), so the earthwork is counted once."""
+    inside the other), so the earthwork is counted once. Only `road`'s
+    rows are compared: the caller passes the road's sections along the
+    stretch, `from` to `to` (the spec's "along the own stretch"), so a run
+    looping back past them onto the road's footprint is not seen."""
     road_segs = [(s, a, b, _box((a, b))) for s, a, b in _segments(road)]
     for t, p, q in _segments(path):
         box = _box((p, q))
