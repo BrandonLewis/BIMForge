@@ -251,7 +251,9 @@ def _equestrian(value, shoulder_width: float):
     unknown = sorted(set(value) - EQ_KEYS)
     if unknown:
         raise ValueError(f"{where}: unknown keys {unknown}")
-    buffer = _num(value.get("buffer", 6.0), f"{where}.buffer")
+    # no positive floor of its own: a zero or negative buffer is narrower
+    # than the shoulder, and says so
+    buffer = _num(value.get("buffer", 6.0), f"{where}.buffer", positive=False)
     if buffer < shoulder_width - _EPS:
         raise ValueError(f"{where}.buffer: {buffer:g} ft is narrower than "
                          f"path.shoulder.width ({shoulder_width:g} ft): no room for "
@@ -259,11 +261,11 @@ def _equestrian(value, shoulder_width: float):
     fence = value.get("fence", False)
     if not isinstance(fence, bool):
         raise ValueError(f"{where}.fence: true or false, got {fence!r}")
+    cs = _num(value.get("cross_slope", -0.02), f"{where}.cross_slope", positive=False)
     return Equestrian(
         width=_num(value.get("width", 8.0), f"{where}.width"), buffer=buffer,
         clear=_num(value.get("clear_ft", 3.0), f"{where}.clear_ft"),
-        cross_slope=_num(value.get("cross_slope", -0.02), f"{where}.cross_slope",
-                         positive=False),
+        cross_slope=-abs(cs),      # always falling away from the road, as the path's
         courses=tuple(_courses(value.get("courses"), f"{where}.courses")),
         fence=fence,
         fence_height=_num(value.get("fence_height_ft", 4.5), f"{where}.fence_height_ft"),

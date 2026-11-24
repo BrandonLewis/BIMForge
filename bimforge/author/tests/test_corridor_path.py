@@ -1180,6 +1180,8 @@ def test_an_equestrian_tread_takes_its_defaults():
     ({"width": 0}, r"path\.equestrian\.width: must be positive"),
     ({"buffer": 1.5}, r"path\.equestrian\.buffer: 1\.5 ft is narrower than "
                       r"path\.shoulder\.width \(2 ft\)"),
+    ({"buffer": 0}, r"path\.equestrian\.buffer: 0 ft is narrower than "
+                    r"path\.shoulder\.width \(2 ft\)"),
     ({"clear_ft": 0}, r"path\.equestrian\.clear_ft: must be positive"),
     ({"fence_height_ft": 0}, r"path\.equestrian\.fence_height_ft: must be positive"),
     ({"rail_height_ft": 0}, r"path\.equestrian\.rail_height_ft: must be positive"),
@@ -1205,4 +1207,7 @@ def test_an_unusual_tread_is_not_an_error():
     # USFS-EDG's figures are guidance: only the buffer's floor is a "shall"
     eq = corridor(path(equestrian=dict(TREAD, buffer=2.0, width=4.0, clear_ft=1.0,
                                        cross_slope=0.08))).path.equestrian
-    assert (eq.buffer, eq.width, eq.clear, eq.cross_slope) == (2.0, 4.0, 1.0, 0.08)
+    # a tread always falls away from the road, whatever sign is given
+    assert (eq.buffer, eq.width, eq.clear, eq.cross_slope) == (2.0, 4.0, 1.0, -0.08)
+    assert corridor(path(equestrian=dict(TREAD, cross_slope=-0.08))
+                    ).path.equestrian.cross_slope == -0.08

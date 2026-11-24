@@ -236,6 +236,25 @@ def test_a_steep_tread_is_listed():
     assert {r.check for r in pc.checks(c, [], [])} >= set(got)
 
 
+def test_a_steep_descending_tread_is_listed():
+    # the mirror of the climb above: -12 % and -16 % over the same stretches
+    prof = curves([(0, 0, 200), (0, -12, 10), (-12, -12, 290), (-12, -16, 10),
+                   (-16, -16, 290), (-16, 0, 10), (0, 0, 190)])
+    c = corridor(path(profile=prof, equestrian=TREAD))
+    got = {r.check: (r.start, r.end, r.value) for r in pc.equestrian_rows(c)}
+    assert got["equestrian grade>10% for over 200ft"] == (
+        pytest.approx(1208.3333, abs=1e-3), pytest.approx(1803.75, abs=1e-3),
+        pytest.approx(16.0))
+    assert got["equestrian grade>15% for over 200ft"] == (
+        pytest.approx(1507.5, abs=1e-3), pytest.approx(1800.625, abs=1e-3),
+        pytest.approx(16.0))
+
+
+@pytest.mark.parametrize("cs", [-0.02, -0.05])
+def test_a_tread_cross_slope_of_exactly_2_or_5_percent_is_not_listed(cs):
+    assert pc.equestrian_rows(corridor(path(equestrian=dict(TREAD, cross_slope=cs)))) == []
+
+
 def test_a_steep_stretch_of_200_ft_or_less_is_not_listed():
     # 12 % for 150 ft between two 10 ft curves: over 10 % for under 200 ft
     prof = curves([(0, 0, 300), (0, 12, 10), (12, 12, 150), (12, 0, 10),
