@@ -71,6 +71,13 @@ _HAUNCH_TOP_Z = 0.75           # widest point of the wall-variant front face, 1:
 _FOOT_W = 23.0 / 12.0          # 1'-11" trench footing width (fixed)
 _FOOT_D = 30.0 / 12.0          # 2'-6" trench footing depth, min (fixed)
 
+#: The standard section's value of each dimension a run may Mod (M.8)
+STANDARD_DIMS = {"stem_h_ft": _H, "top_slope_x_ft": _X_TOPSLOPE,
+                 "base_w_ft": _X_BASE_DECK, "back_x_ft": _X_BACK_UPPER,
+                 "step_x_ft": _X_BACK_LOWER,
+                 "step_from_top_ft": _STEP_FROM_TOP, "chamfer_in": 0.0}
+
+
 def type_842_profile(row: dict, *, base_kind: str = "deck",
                      face: str = "sloping") -> list[tuple[float, float]]:
     if face not in ("sloping", "vertical"):

@@ -1485,6 +1485,61 @@ def _dimensions(run, f, ctx, dimensioned: list) -> None:
             rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByProperties/{pset.GlobalId}")
 
 
+def _routes(run, f, ctx, routed: list) -> None:
+    """Write each routed element's BIMForge_Route (M.8): its Route (a
+    `modified.ROUTES` value; "bespoke" when only `based_on` is set), the
+    class it is BasedOn, and each difference as an IfcComplexProperty
+    (UsageName "Difference") of Standard, Actual and Source, a length in
+    the file's metres. After the sweep, keyed as BIMForge_Dimensions is."""
+    from bimforge.author import modified as mod
+    for product, el in routed:
+        route = el.route or "bespoke"
+        if route not in mod.ROUTES:
+            raise ValueError(f"{el.name}: route {route!r} must be one of "
+                             f"{mod.ROUTES}")
+        props = {"Route": f.create_entity("IfcLabel", route)}
+        based = el.based_on or el.family_class
+        if based:
+            props["BasedOn"] = f.create_entity("IfcLabel", based)
+        pset = run("pset.add_pset", f, product=product, name=mod.ROUTE_PSET)
+        run("pset.edit_pset", f, pset=pset, properties=props)
+        extra = [_difference_property(f, ctx, d) for d in el.differences]
+        if extra:
+            pset.HasProperties = list(pset.HasProperties) + extra
+        pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{mod.ROUTE_PSET}")
+        for rel in pset.DefinesOccurrence or ():
+            rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByProperties/{pset.GlobalId}")
+
+
+def _difference_property(f, ctx, d: dict):
+    """One difference {name, standard, actual, source} as an
+    IfcComplexProperty: Standard (left out for a value the project added)
+    and Actual in the measure `modified.difference_measure` gives the name,
+    a length scaled from feet, text an IfcLabel; Source an IfcLabel."""
+    from bimforge.author import modified as mod
+    ifc_type, per_ft = mod.difference_measure(d["name"])
+
+    def single(name, value):
+        if isinstance(value, str):
+            nv = f.create_entity("IfcLabel", value)
+        else:
+            v = float(value) * (per_ft * ctx.ft_to_m if per_ft else 1.0)
+            nv = f.create_entity(ifc_type, round(v, 9))
+        return f.create_entity("IfcPropertySingleValue", Name=name,
+                               NominalValue=nv)
+
+    parts = []
+    if d.get("standard") is not None:
+        parts.append(single("Standard", d["standard"]))
+    parts.append(single("Actual", d["actual"]))
+    if d.get("source"):
+        parts.append(f.create_entity("IfcPropertySingleValue", Name="Source",
+                                     NominalValue=f.create_entity(
+                                         "IfcLabel", d["source"])))
+    return f.create_entity("IfcComplexProperty", Name=d["name"],
+                           UsageName=mod.DIFFERENCE, HasProperties=parts)
+
+
 def _declare_types(run, f, project) -> None:
     """Declare every IfcTypeObject to the IfcProject (IfcRelDeclares, the
     Project Declaration concept): a type nothing declares sits outside the
@@ -2174,6 +2229,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     classed: list = []         # (product, family class code): Element.family_class
     layered: list = []         # (product, el): Element.layer_thickness_ft
     dimensioned: list = []     # (product, el): a family_class or dimensions
+    routed: list = []          # (product, el): Element.route or based_on
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
@@ -2250,7 +2306,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                       ifc_class, typing))
             if el.typed_late:
                 late.append((product, el, ifc_class, typing))
-            family = el.family_class or (
+            family = el.family_class or el.based_on or (
                 "reinforcing-bar" if el.bar_size is not None
                 and product.is_a("IfcReinforcingBar") else None)
             if family:
@@ -2259,6 +2315,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 layered.append((product, el))
             if el.family_class or el.dimensions:
                 dimensioned.append((product, el))
+            if el.route or el.based_on:
+                routed.append((product, el))
             if (el.bar_size is not None and not el.type_name
                     and product.is_a("IfcReinforcingBar")):
                 sized_bars.append((product, el))
@@ -2563,6 +2621,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     _family_classes(f, ctx, classed)
     _material_layers(run, f, ctx, mctx, layered)
     _dimensions(run, f, ctx, dimensioned)
+    _routes(run, f, ctx, routed)
     _declare_types(run, f, project)
 
     # then pin every relationship's member order (see _pin_relationship_order:

@@ -4,18 +4,36 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
-**For ProjectCommand and BidSheet.ai:** quantity `Formula`s are now
-arithmetic (`+ - * /`, numbers, parentheses) and may name the element's
-`BIMForge_Dimensions` properties, so a reader that recomputes formulas must
-evaluate the wider grammar and look names up in the quantity's own set first,
-then in the element's dimensions; it should also cap a formula's length
-(1,000 characters) and refuse a result that is not finite. Road-corridor
-elements carry `StartStation` / `EndStation` dimensions (lengths, with
-`StartStationText` / `EndStationText` labels); `BIMForge_LinearReference`
-keeps its own `StationStart` / `StationEnd`. A corridor `Offset` is the
-centroid's, left positive, as the linear reference's offsets are.
+**For ProjectCommand and BidSheet.ai:** `BIMForge_Route` holds the first
+`IfcComplexProperty`s BIMForge writes (one per changed value, UsageName
+`Difference`); a reader of property sets that expects single values must
+skip or read them. `model-elements` sends `route`, `based_on` and
+`differences`.
 
 ### Added
+
+- **Modified standards are recorded (M.8, M.9).** Every element whose
+  family checks it (the B3 wall, the 842 and 732SW barriers) carries
+  `BIMForge_Route`: its `Route` (standard, modified-by-value,
+  modified-by-part, modified-by-section or bespoke), the class it is
+  `BasedOn` (its classification stays the standard's, so a Type 842 (MOD)
+  is found as a Type 842), and each value it changed as an
+  IfcComplexProperty (UsageName `Difference`) of `Standard`, `Actual` and
+  `Source`. The differences come from what the spec says: a project's
+  `tables_file` is compared with the packaged tables it names, or its
+  family's own (the B3 wall's `caltrans/b3-retaining-wall`), and the build
+  log lists every changed value and counts the values it adds; a row the
+  project's tables choose where the pack would choose another (a table
+  missing rows) is a `Row` difference; a barrier run's Mod dimensions (842,
+  732SW) are modified by value, its own `profile` modified by section. A
+  bespoke `bimforge.author` element may say what it is `based_on`. An
+  element its family does not check (the road corridor, the D-series,
+  B11-51) gets no route.
+  `gate: {modified: warn | error | off}` (default warn) lists, fails on,
+  or ignores modified elements. `model-elements` sends `route`,
+  `based_on` and `differences`. The shipped B3 examples' tables differ
+  from the 2025 pack in 13 values (rounded Type 1 rows), so their Type 1
+  slices are modified by value.
 
 - **Road corridor part C: a shared-use path on its own profile (P.6).** All
   optional (`params.path`); a spec without it builds as before. Held to the
@@ -70,6 +88,65 @@ centroid's, left positive, as the linear reference's offsets are.
   `location` (as the walls table's), the last two columns. The road-corridor
   example gains a path on the right; its GlobalIds were
   re-recorded.
+
+### Fixed
+
+- `est-bim add-alignments` (`bim.add_alignment.add_alignments`) crashed on
+  a profile with two PVIs (no vertical curve): it is written as one
+  gradient.
+
+- **An element is stationed on the alignment it lies along.** With a short
+  second alignment (an own path stretch's), an element along its extension
+  went to it - `locate_many` clamps a point past an end and keeps only its
+  square offset - and was stationed at its end station (`0+00.00` to
+  `0+00.01`): the path, tread, fence, rails and road fill beside the road
+  before the hand-over and after the rejoin. The linear reference (the
+  build's and `est-bim stations`) now ranks the alignments by true plan
+  distance (past an end, the distance to it), and an element mostly past
+  the nearest one's end goes to an alignment it lies along only if that is
+  within twice the nearest distance, or the nearest plus the element's own
+  plan extent. So an element just past a short alignment's end - an
+  approach slab or a wingwall past a bridge's - stays on it, stationed at
+  its end, rather than going to a crossing road it lies along farther off.
+
+- **`station()` rounds before it splits,** so 1299.999999 ft is `13+00.00`,
+  not `12+100.00`. A negative station prints its sign in front of the
+  rounded value: -50 ft is `-0+50.00` (it was `-1+50.00`, the hundreds
+  floored), and -0.001 ft is `0+00.00` (it was `-1+100.00`).
+
+- **Road-corridor earthwork follows the leaning section rays.** A corridor
+  section stands square to the road's 3D tangent, so a point v up sits
+  v sin(grade angle) back along the line; earthwork columns stood
+  vertically over plan triangles folded over at short bays on a grade (a
+  wall's 1 ft lead-in, a path's 1 ft end transition), leaving the body not
+  closed and the volume over-counted (54 % off the post gate for a fill wall
+  on 7 %). Columns are now triangulated in station and offset and run along
+  each corner's section ray to the ground. Earthwork volumes move: +0.09 % on
+  the V1.1 example (now the test fixture; 1,008,083.5 to 1,009,008.4 cf),
+  +0.03 % on V1, with the mass haul. The earthwork's plan
+  rings come from its ground corners, for cut as well as fill, and MaxDepth /
+  MeanDepth shift slightly (V1.1's last fill band: MaxDepth 22.6011 to
+  22.5600 ft).
+
+## 0.1.132 — 2026-11-22
+
+The road corridor (P.6): pavement courses, cut and fill to daylight and mass haul (#118), then slope rules, automatic walls, guardrail and dimensions with arithmetic formulas (#122). `model-elements` now sends each element's measurement checks and, with `--checked-takeoff`, the takeoff's sum (#121), closing M.6's check.
+
+**For BidSheet.ai:** a `model-elements` element may carry `checks` (a list, each with `what`, `unit`, `sheet_value`, `model_value`, `value_now`, `tolerance`, `result`, `standing`, `value_source`, `sheet`, `revision`, `day`, `by`, `model_origin`; a key with no value is left out) and the call may carry `takeoff_check`; both are left out when empty. Only `standing` `agrees` is a check that still holds.
+
+**For ProjectCommand and BidSheet.ai:** quantity `Formula`s are now
+arithmetic (`+ - * /`, numbers, parentheses) and may name the element's
+`BIMForge_Dimensions` properties, so a reader that recomputes formulas must
+evaluate the wider grammar and look names up in the quantity's own set first,
+then in the element's dimensions; it should also cap a formula's length
+(1,000 characters) and refuse a result that is not finite. Road-corridor
+elements carry `StartStation` / `EndStation` dimensions (lengths, with
+`StartStationText` / `EndStationText` labels); `BIMForge_LinearReference`
+keeps its own `StationStart` / `StationEnd`. A corridor `Offset` is the
+centroid's, left positive, as the linear reference's offsets are.
+
+### Added
+
 - **Road corridor V1.1: slope rules, walls, guardrail, dimensions (P.6).**
   Held to Caltrans practice (HDM 08/08/2025, TSSM April 2025, 2025 Standard
   Plans A77N2 and A77N3):
@@ -153,43 +230,6 @@ centroid's, left positive, as the linear reference's offsets are.
   (`IfcLabel`, not sent as a parameter) and optional properties.
 
 ### Fixed
-
-- `est-bim add-alignments` (`bim.add_alignment.add_alignments`) crashed on
-  a profile with two PVIs (no vertical curve): it is written as one
-  gradient.
-
-- **An element is stationed on the alignment it lies along.** With a short
-  second alignment (an own path stretch's), an element along its extension
-  went to it - `locate_many` clamps a point past an end and keeps only its
-  square offset - and was stationed at its end station (`0+00.00` to
-  `0+00.01`): the path, tread, fence, rails and road fill beside the road
-  before the hand-over and after the rejoin. The linear reference (the
-  build's and `est-bim stations`) now ranks the alignments by true plan
-  distance (past an end, the distance to it), and an element mostly past
-  the nearest one's end goes to an alignment it lies along only if that is
-  within twice the nearest distance, or the nearest plus the element's own
-  plan extent. So an element just past a short alignment's end - an
-  approach slab or a wingwall past a bridge's - stays on it, stationed at
-  its end, rather than going to a crossing road it lies along farther off.
-
-- **`station()` rounds before it splits,** so 1299.999999 ft is `13+00.00`,
-  not `12+100.00`. A negative station prints its sign in front of the
-  rounded value: -50 ft is `-0+50.00` (it was `-1+50.00`, the hundreds
-  floored), and -0.001 ft is `0+00.00` (it was `-1+100.00`).
-
-- **Road-corridor earthwork follows the leaning section rays.** A corridor
-  section stands square to the road's 3D tangent, so a point v up sits
-  v sin(grade angle) back along the line; earthwork columns stood
-  vertically over plan triangles folded over at short bays on a grade (a
-  wall's 1 ft lead-in, a path's 1 ft end transition), leaving the body not
-  closed and the volume over-counted (54 % off the post gate for a fill wall
-  on 7 %). Columns are now triangulated in station and offset and run along
-  each corner's section ray to the ground. Earthwork volumes move: +0.09 % on
-  the V1.1 example (now the test fixture; 1,008,083.5 to 1,009,008.4 cf),
-  +0.03 % on V1, with the mass haul. The earthwork's plan
-  rings come from its ground corners, for cut as well as fill, and MaxDepth /
-  MeanDepth shift slightly (V1.1's last fill band: MaxDepth 22.6011 to
-  22.5600 ft).
 
 - **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
   and grid spacing to 3DEP in the CRS's own unit but scaled plan and height

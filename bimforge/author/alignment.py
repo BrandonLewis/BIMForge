@@ -431,20 +431,30 @@ class WallSection:
         wt = self.wall_type
 
         if wt in ("1", "1a"):
-            tt = tables["type_1_case_1" if wt == "1" else "type_1a_case_1"]
-            t = self._lookup(tt["table"], H)
+            tkey = "type_1_case_1" if wt == "1" else "type_1a_case_1"
+            tt = tables[tkey]
+            k = self._lookup_key(tt["table"], H)
+            t, row = tt["table"][k], (tkey, "table", k)
             self.W, self.C, self.B = t["W_ft"], t["C_ft"], t["B_ft"]
+            src = {"W": [row + ("W_ft",)], "C": [row + ("C_ft",)],
+                   "B": [row + ("B_ft",)]}
             if wt == "1":
                 self.T, self.F = t["T_ft"], t["F_ft"]
                 self.batter = parse_batter(t["batter"])
+                src |= {"T": [row + ("T_ft",)], "F": [row + ("F_ft",)],
+                        "batter": [row + ("batter",)]}
             else:                        # 1a: constant vertical stem, no batter
                 self.T = tt["stem_thickness_ft"]
                 self.F = tt["footing_thickness_ft"]
                 self.batter = 0.0
+                src |= {"T": [(tkey, "stem_thickness_ft")],
+                        "F": [(tkey, "footing_thickness_ft")]}
             self.front = "vertical"
         elif wt == "5":
-            tt = tables["type_5_case_1"]
-            t = self._lookup(tt["table"], H)
+            tkey = "type_5_case_1"
+            tt = tables[tkey]
+            k = self._lookup_key(tt["table"], H)
+            t, row = tt["table"][k], (tkey, "table", k)
             self.T = tt["stem_top_thickness_ft"]
             self.F = tt["footing_thickness_ft"]
             self.W = t["W_ft"]
@@ -452,9 +462,18 @@ class WallSection:
             self.C = self.TYPE5_TOE_FT + self.batter * self.H
             self.B = self.W - self.C
             self.front = "battered"
+            # the toe is the constant 1'-4" plus the batter's run, so it is
+            # read from the batter, and the heel from the width and the batter
+            src = {"T": [(tkey, "stem_top_thickness_ft")],
+                   "F": [(tkey, "footing_thickness_ft")],
+                   "W": [row + ("W_ft",)], "batter": [row + ("batter",)],
+                   "C": [row + ("batter",)],
+                   "B": [row + ("W_ft",), row + ("batter",)]}
         elif wt in ("6a", "6b"):
-            tt = tables[f"type_{wt}_case_1"]
-            t = self._lookup(tt["table"], H)
+            tkey = f"type_{wt}_case_1"
+            tt = tables[tkey]
+            k = self._lookup_key(tt["table"], H)
+            t, row = tt["table"][k], (tkey, "table", k)
             self.T = tt["stem_thickness_ft"]
             self.F = tt["footing_thickness_ft"]
             self.W = t["W_ft"]
@@ -462,10 +481,31 @@ class WallSection:
             self.C = tt["toe_ft"]        # W tabulated only; toe is constant
             self.B = self.W - self.C
             self.front = "vertical"
+            src = {"T": [(tkey, "stem_thickness_ft")],
+                   "F": [(tkey, "footing_thickness_ft")],
+                   "W": [row + ("W_ft",)], "C": [(tkey, "toe_ft")],
+                   "B": [row + ("W_ft",), (tkey, "toe_ft")]}
         else:
             raise ValueError(f"unsupported wall type {wall_type!r}")
+        #: {section attribute: [table paths it was read from]} (M.9): which
+        #: of the project's changes to the tables reach which part
+        self.sources = src
+        #: {table path: (design H, the row key chosen for it)} (M.9): the
+        #: build checks the packaged table would choose the same row
+        self.rows = {(tkey, "table"): (self.H, k)}
 
         self.stem_base_thickness = self.T + self.batter * self.H
+
+    @staticmethod
+    def _lookup_key(table: dict, H: float):
+        """The key of the nearest tabulated design H at or above the
+        requested one (see `_lookup`)."""
+        pairs = sorted((float(k), k) for k in table)
+        for fk, k in pairs:
+            if H <= fk + 0.5:
+                return k
+        raise ValueError(
+            f"design H {H} ft exceeds the tabulated range {pairs[-1][0]} ft")
 
     @staticmethod
     def _lookup(table: dict, H: float) -> dict:
@@ -475,12 +515,7 @@ class WallSection:
         next size", so round UP to the next tabulated size. Keys may be int or
         float feet (Type 6 uses 8-in increments); the original key is preserved.
         """
-        pairs = sorted((float(k), k) for k in table)
-        for fk, k in pairs:
-            if H <= fk + 0.5:
-                return table[k]
-        raise ValueError(
-            f"design H {H} ft exceeds the tabulated range {pairs[-1][0]} ft")
+        return table[WallSection._lookup_key(table, H)]
 
     # -- section outlines ---------------------------------------------------
     def stem_polygon(self) -> list[tuple[float, float]]:

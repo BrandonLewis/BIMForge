@@ -40,6 +40,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcClosedShell | build | both |
 | IfcColourRgb | build | both |
 | IfcColumn | build, dxf2bim | both |
+| IfcComplexProperty | build | both |
 | IfcCompositeCurve | build | IFC4X3 |
 | IfcConversionBasedUnit | build | both |
 | IfcCostItem | estimate-model, schedule + cost5d | both |
@@ -161,6 +162,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | BIMForge_LinearReference | Alignment, OffsetLeftMax, OffsetLeftMin, OffsetText, StationEnd, StationEndText, StationStart, StationStartText, StationUnit | IfcBeam, IfcColumn, IfcCourse, IfcEarthworksCut, IfcEarthworksFill, IfcGeographicElement, IfcPlate, IfcRailing, IfcSlab, IfcWall | build | IFC4X3 |
 | BIMForge_MassHaul | CumulativeVolume, EndStation, EndStationText, StartStation, StartStationText | IfcBuildingElementProxy, IfcEarthworksCut, IfcEarthworksFill | build | both |
 | BIMForge_Model | BimforgeVersion, BuildId, Schema, Source | IfcProject | build, dxf2bim | both |
+| BIMForge_Route | BasedOn, Batter, F_ft, HeelWidth, Route, StemThickness, ToeWidth, W_ft | IfcFooting, IfcWall | build | both |
 | BidSheet_Activity | ActivityId, Cost, CostCode, HomeItemId, Kind, Manhours | IfcTask | estimate-model | both |
 | BidSheet_Crew | CrewId, Headcount, Members, Writer | IfcLaborResource | estimate-model | both |
 | BidSheet_EstimateItem | AllocatedTotal, CostKey, ItemCode, ItemId, ItemNumber, PricingSource, Quantity, Schedule, Total, Unit, UnitPrice | IfcCostItem | estimate-model | both |

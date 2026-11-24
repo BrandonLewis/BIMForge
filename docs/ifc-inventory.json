@@ -126,6 +126,22 @@
    "dxf2bim"
   ]
  },
+ "applies|pset|BIMForge_Route|IfcFooting": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "applies|pset|BIMForge_Route|IfcWall": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "applies|pset|BidSheet_Activity|IfcTask": {
   "IFC4": [
    "estimate-model"
@@ -628,6 +644,14 @@
   "IFC4X3": [
    "build",
    "dxf2bim"
+  ]
+ },
+ "entity|IfcComplexProperty": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
   ]
  },
  "entity|IfcCompositeCurve": {
@@ -1951,6 +1975,78 @@
   "IFC4X3": [
    "build",
    "dxf2bim"
+  ]
+ },
+ "pset|BIMForge_Route": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Route|BasedOn": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Route|Batter": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Route|F_ft": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Route|HeelWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Route|Route": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Route|StemThickness": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Route|ToeWidth": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "pset|BIMForge_Route|W_ft": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
   ]
  },
  "pset|BidSheet_Activity": {

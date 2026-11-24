@@ -25,7 +25,7 @@ from bimforge.author.barrier_section import BarrierSection
 from bimforge.author.barrier_template import (
     BarrierTemplate, bar_elements, build_barrier, _path_total_length)
 from bimforge.author.model import Element
-from bimforge.author.type_842_profile import type_842_profile
+from bimforge.author.type_842_profile import STANDARD_DIMS, type_842_profile
 
 _TRENCH_MIN_LEN = 40.0                 # B11-82 Note 8
 
@@ -145,7 +145,7 @@ _TEMPLATE = BarrierTemplate(
     endblock_len_ft=ENDBLOCK_842_LEN, default_run_name="842",
     section_fn=_section_842, rebar_fn=_rebar_842,
     endblock_fn=_endblock_842, validate_fn=_validate_842,
-    endblock_rings_fn=_endblock_rings_842)
+    endblock_rings_fn=_endblock_rings_842, standard_dims=STANDARD_DIMS)
 
 
 def template() -> BarrierTemplate:

@@ -628,12 +628,26 @@ def test_b3_wall_sends_class_type_plan_parameters_formula_and_model(
         assert e["standard_plan"] == fd.standard_plan(code)
         assert set(e["parameters"]) == set(fd.dimensions(code))
         assert e["quantities"]["concrete_cy"]["formula"] ==             "Length * Width * Height"
+        assert e["based_on"] == code
+        # the example's own Type 1 rows are rounded off the packaged ones
+        if code.startswith("retaining-wall-b3-type-1-") \
+                or code == "retaining-wall-b3-type-1":
+            assert e["route"] == "modified-by-value"
+            assert e["differences"]
+        else:
+            assert e["route"] == "standard" and "differences" not in e
     t6a = next(e for e in plan["elements"]
                if e["name"].startswith("T6a retaining wall stem"))
     assert t6a["parameters"]["DesignHeight"] == {"value": 6.0, "unit": "FT"}
     t5 = next(e for e in plan["elements"]
               if e["name"].startswith("T5 retaining wall stem"))
     assert t5["parameters"]["Batter"]["unit"] == "RATIO"
+    t1 = next(e for e in plan["elements"]
+              if e["name"].startswith("T1 retaining wall stem"))
+    assert t1["differences"][1] == {
+        "name": "Batter", "standard": pytest.approx(0.5 / 12, abs=1e-6), "actual": 0.0,
+        "unit": "RATIO", "source": "caltrans/2025/b3-retaining-wall "
+                                   "type_1_case_1.table.8.batter"}
     assert plan["warnings"] == []
 
 
@@ -722,3 +736,43 @@ def test_cli_sends_a_takeoffs_sum_checked_against_the_model(tmp_path, capsys):
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["takeoff_check"]["kind"] == "takeoff-sum"
     assert len(payload["elements"][0]["checks"]) == 2
+
+
+def _build_modified_b3(tmp_path):
+    """The B3 wall over the packaged tables with row 8's footing 7 ft wide
+    (`test_standard_plan_routes._modified_spec`), built to an IFC."""
+    import contextlib
+    import io
+
+    from bimforge.author.families.registry import build_from_spec
+    from bimforge.author.tests.test_standard_plan_routes import _modified_spec
+    spec = _modified_spec(tmp_path)
+    spec.write_text(spec.read_text("utf-8").replace(
+        "outputs: {dxf: out.dxf}", "outputs: {dxf: out.dxf, ifc: out.ifc}"),
+        "utf-8")
+    with contextlib.redirect_stderr(io.StringIO()):
+        assert build_from_spec(str(spec)) == 0
+    return tmp_path / "out.ifc"
+
+
+def test_model_elements_sends_the_route_and_differences(tmp_path):
+    ifc_path = _build_modified_b3(tmp_path)        # W_ft of row 8 -> 7.0
+    out = plan_modelled_elements(ifcopenshell.open(str(ifc_path)))
+    foot = next(e for e in out["elements"]
+                if e.get("family_class") == "retaining-wall-b3-type-1-footing")
+    stem = next(e for e in out["elements"]
+                if e.get("family_class") == "retaining-wall-b3-type-1")
+    assert foot["route"] == "modified-by-value"
+    assert foot["based_on"] == "retaining-wall-b3-type-1-footing"
+    w, heel = foot["differences"]
+    assert w["name"] == "W_ft" and w["unit"] == "FT"
+    assert w["standard"] == pytest.approx(6.5833, abs=1e-4)
+    assert w["actual"] == pytest.approx(7.0, abs=1e-4)
+    assert w["source"] == ("caltrans/2025/b3-retaining-wall "
+                           "type_1_case_1.table.8.W_ft")
+    assert heel == {"name": "HeelWidth", "standard": pytest.approx(4.25),
+                    "actual": pytest.approx(4.6667), "unit": "FT",
+                    "source": "caltrans/2025/b3-retaining-wall "
+                              "type_1_case_1.table.8.B_ft"}
+    assert stem["route"] == "standard" and "differences" not in stem
+    assert out["warnings"] == []
