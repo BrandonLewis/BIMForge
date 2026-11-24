@@ -925,3 +925,74 @@ def test_the_ground_reaches_past_an_own_stretch():
     # 150 ft daylight limit (the road's own reach is 203 ft)
     wander = 43.0 + 2.0 * 300.0 * (1.0 - math.cos(math.radians(20.0)))
     assert ground_reach(c) == pytest.approx(wander + 6.0 + 2.0 + 150.0, abs=0.05)
+
+
+def own_gap_params(gap, **over):
+    p = own_params(**over)
+    p["path"]["own"][0]["gaps"] = [{"from": gap[0], "to": gap[1], "kind": "structure"}]
+    return p
+
+
+def test_an_own_gap_splits_the_own_fence():
+    m = build(own_gap_params((150, 180), tread=True))
+    assert sorted(e.name for e in m.elements if e.name.startswith("Path fence path 1 ")) == [
+        "Path fence path 1 R STA 0+00.00 to 1+50.00",
+        "Path fence path 1 R STA 1+80.00 to 4+18.88"]
+
+
+def test_a_swing_into_the_road_past_an_own_gap_is_refused():
+    # the gap 0+10 to 0+30 ends the first own run: the crossing at 0+75 is
+    # in the second, whose footprint is checked as the first's is
+    with pytest.raises(ValueError, match=r"path\.own\[0\]: its footprint at path "
+                                         r"station 0\+75\.00 crosses the road's at "):
+        build(own_gap_params((10, 30), swing=True))
+
+
+#: an own stretch in cut: on the left, the ground rising 10 % to the west,
+#: rock 3 ft down at 10+00 to 9 ft at 16+00
+def own_cut_params():
+    p = own_params(side="L")
+    p["ground"]["slope_e"] = -0.10
+    p["section"] = copy.deepcopy(SECTION)
+    p["section"]["side_slopes"]["cut"]["rock"] = {
+        "depth_ft": [[1000, 3.0], [1600, 9.0]], "ratio": 0.5, "bench_ft": 6.0}
+    return p
+
+
+@pytest.fixture(scope="module")
+def own_cut_built():
+    return build(own_cut_params())
+
+
+def test_an_own_cut_reads_its_rock_depth_from_the_hand_over_to_the_rejoin(
+        own_cut_built):
+    # the road's depth at 11+00 (4 ft) to its depth at 15+10.424 (8.10424
+    # ft), linear on the own stations: each band's mean is its middle's
+    cuts = sorted((e for e in own_earthwork(own_cut_built)
+                   if e.ifc_class == "IfcEarthworksCut"),
+                  key=lambda e: e.dimensions["StartStation"])
+    assert len(cuts) == 5
+    at = 3.0 + 6.0 * (REJOIN - 1000.0) / 600.0
+    for el in cuts:
+        mid = 0.5 * (el.dimensions["StartStation"] + el.dimensions["EndStation"])
+        assert el.dimensions["RockDepth"] == pytest.approx(
+            4.0 + (at - 4.0) * mid / OWN_FT, abs=1e-9), el.name
+
+
+def test_an_own_cut_voids_the_terrain_and_is_closed(own_cut_built):
+    from collections import Counter
+
+    from bimforge.author.families.road_corridor import _terrain
+    from bimforge.author.gate import check_stated_quantities
+    m = own_cut_built
+    cuts = [e for e in own_earthwork(m) if e.ifc_class == "IfcEarthworksCut"]
+    assert cuts and all(e.name.startswith("Cut path 1 STA ") for e in cuts)
+    assert {e.voids for e in cuts} == {_terrain(m)}
+    assert check_stated_quantities(m) == []
+    for el in cuts:
+        assert el.quantities["volume_cf"] > 0.0
+        for g in el.geometry:
+            (d,) = g.body_solids()
+            directed = Counter((a, b) for t in d["tris"] for a, b in zip(t, t[1:] + t[:1]))
+            assert all(n == 1 and directed[b, a] == 1
+                       for (a, b), n in directed.items()), el.name
