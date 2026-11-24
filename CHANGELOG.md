@@ -109,10 +109,11 @@ centroid's, left positive, as the linear reference's offsets are.
   closed and the volume over-counted (54 % off the post gate for a fill wall
   on 7 %). Columns are now triangulated in station and offset and run along
   each corner's section ray to the ground. Earthwork volumes move: +0.09 % on
-  the V1.1 example (1,008,083.5 to 1,009,008.4 cf), +0.03 % on V1, with the
-  mass haul. The earthwork's plan rings come from its ground corners, for cut
-  as well as fill, and MaxDepth / MeanDepth shift slightly (V1.1's last fill
-  band: MaxDepth 22.6011 to 22.5600 ft).
+  the V1.1 test fixture and the shipped example (1,008,083.5 to
+  1,009,008.4 cf), +0.03 % on V1, with the mass haul. The earthwork's plan
+  rings come from its ground corners, for cut as well as fill, and MaxDepth /
+  MeanDepth shift slightly (V1.1's last fill band: MaxDepth 22.6011 to
+  22.5600 ft).
 
 - **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
   and grid spacing to 3DEP in the CRS's own unit but scaled plan and height
