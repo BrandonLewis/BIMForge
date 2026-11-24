@@ -8,6 +8,11 @@ guardrail tables. Every part C key is optional: without `path` the corridor
 builds the same elements, GlobalIds, quantities and tables. The only change
 is two new columns, `location` in the walls table and `carries` in the
 structures table, which are dropped before comparing.
+
+The earthwork volumes and the mass haul were re-recorded when the earthwork
+columns began following the leaning section rays (corridor.earthwork) in
+place of standing vertically over plan triangles: each band's volume rose
+0.024 to 0.156 %, 0.09 % in all. Nothing else moved.
 """
 from __future__ import annotations
 
@@ -93,3 +98,50 @@ def test_every_v11_table_is_unchanged(built, key, drop):
     now = (out / f"road-corridor.{key}.csv").read_text("utf-8")
     was = (FIXTURE / f"{key}.csv").read_text("utf-8")
     assert _rows(now, drop) == _rows(was, drop)
+
+
+# -- on a 7 % grade: earthwork columns follow the leaning section rays --------
+
+def _steep_spec(tmp, case):
+    """The fixture's spec on a straight 7 % grade with no widening and walls
+    up to 40 ft. "listed": no automatic walls, the ground at 260, the
+    listed left wall at 22+00 to 23+00 standing on fill; "cut": the ground
+    at 380 and the listed wall dropped, so automatic cut walls take over.
+    A section's points lean 0.07 ft back per ft up, so on a wall's 1 ft
+    lead-in the wall's top and toe sit feet apart along the line."""
+    import yaml
+    spec = yaml.safe_load((FIXTURE / SPEC).read_text("utf-8"))
+    p = spec["params"]
+    s0, s1, g = 1000.0, 2549.07, 7.0
+    p["profile"] = {"curves": [{"bvc_station": s0, "bvc_elev": 298.0,
+                                "g_in_pct": g, "g_out_pct": g,
+                                "length_ft": s1 - s0, "evc_station": s1,
+                                "evc_elev": round(298.0 + g / 100.0 * (s1 - s0), 5)}]}
+    p.pop("widths")
+    p["max_wall_height_ft"] = 40.0
+    if case == "listed":
+        p.pop("walls")
+        p["ground"]["elevation"] = 260.0
+        p["section"]["side_slopes"]["footprint_ft"] = {"L": 1000, "R": 1000}
+        p["section"]["side_slopes"]["daylight_limit_ft"] = 1000
+        for key in ("walls", "structures"):
+            spec["outputs"].pop(key)
+    else:
+        p["ground"]["elevation"] = 380.0
+        p["gaps"] = [gap for gap in p["gaps"] if gap["kind"] != "wall"]
+    shutil.copy(FIXTURE / "road-corridor.paycodes.yaml", tmp)
+    (tmp / SPEC).write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    return tmp / SPEC
+
+
+@pytest.mark.parametrize("case", ["listed", "cut"])
+def test_a_wall_s_lead_in_on_a_steep_grade_passes_the_gate(tmp_path, case):
+    # columns stood vertically over plan triangles folded on the lead-in:
+    # the listed fill wall's band came out 54 % off the post gate, the cut
+    # wall's 0.51 %
+    from bimforge.author.families.registry import build_from_spec
+    path = _steep_spec(tmp_path, case)
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        # 0: the pre gate and the post gate both passed
+        assert build_from_spec(str(path)) == 0, err.getvalue()[-2000:]

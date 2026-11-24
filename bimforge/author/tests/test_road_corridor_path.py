@@ -416,3 +416,27 @@ def test_the_family_writes_the_path_tables(built):
     checks = m.tables["path_checks"].splitlines()
     assert checks[0] == "check,from,to,value,limit,reference"
     assert any(line.startswith("separation<5ft on an approach,") for line in checks)
+
+
+@pytest.mark.parametrize("side", ["L", "R"])
+def test_the_path_on_the_curve_passes_the_gate(tmp_path, side):
+    # the path's 1 ft end transitions on the road's 7 %: the earthwork's
+    # section points lean as far along the line as the bay is long
+    import yaml
+
+    from bimforge.author.families.registry import build_from_spec
+    from bimforge.author.tests.test_road_corridor import PAYCODES
+    params = copy.deepcopy(CURVE)
+    params["path"]["side"] = side
+    (tmp_path / "rc.paycodes.yaml").write_text(PAYCODES, "utf-8")
+    spec = {"family": "road-corridor", "params": params,
+            "paycodes": "./rc.paycodes.yaml", "outputs": {"ifc": "out/rc.ifc"},
+            "project": {"name": "Path fixture", "epsg": 2226,
+                        "base": [E0, N0, 300.0], "guid_ns": str(uuid.UUID(int=9)),
+                        "schema": "IFC4X3_ADD2", "facility": {"kind": "road"}}}
+    path = tmp_path / "rc.spec.yaml"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        # 0: the pre gate and the post gate both passed
+        assert build_from_spec(str(path)) == 0, err.getvalue()[-2000:]

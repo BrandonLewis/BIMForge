@@ -440,16 +440,18 @@ def test_on_ifc4x3_every_cut_voids_the_plane_s_terrain(x3, model):
 
 
 def test_the_terrain_leaves_the_volumes_and_the_haul_as_they_were(model):
-    # as built before the plane wrote its terrain
+    # as built before the plane wrote its terrain; re-recorded when the
+    # earthwork columns began following the leaning section rays (up to
+    # 0.011 % a band)
     assert [round(r.cumulative_cy, 3) for r in model.mass_haul] == [
-        328.116, 439.509, 366.388, 320.249, 239.668]
+        328.153, 439.551, 366.427, 320.296, 239.715]
     assert {e.name: round(e.quantities["volume_cf"], 3) for e in model.elements
             if e.name.startswith("Cut ")} == {
-        "Cut STA 10+00.00 to 11+00.00": 8942.793,
-        "Cut STA 11+00.00 to 12+00.00": 4005.584,
-        "Cut STA 12+00.00 to 13+00.00": 2212.546,
-        "Cut STA 13+00.00 to 13+50.00": 886.26,
-        "Cut STA 14+00.00 to 15+00.00": 1583.731}
+        "Cut STA 10+00.00 to 11+00.00": 8943.786,
+        "Cut STA 11+00.00 to 12+00.00": 4005.903,
+        "Cut STA 12+00.00 to 13+00.00": 2212.674,
+        "Cut STA 13+00.00 to 13+50.00": 886.303,
+        "Cut STA 14+00.00 to 15+00.00": 1583.732}
 
 
 def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):

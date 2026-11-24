@@ -7,8 +7,8 @@ typed by IfcCourseType, IfcEarthworksCut and IfcEarthworksFill).
 One element per course, component and station band (both sides' lofts),
 and one cut and one fill per band. A structure gap ends a run: each run is
 its own ROADSEGMENT, and its first and last sections close the courses with
-their caps and the earthwork with vertical columns, so nothing lies inside
-the gap.
+their caps and the earthwork with faces in the section plane, so nothing
+lies inside the gap.
 
 V1.1: with `walls: auto` the family first finds where no slope fits
 (corridor.walls) and adds a wall gap there, built as a listed wall is, then
@@ -447,7 +447,7 @@ def rail_stations(c, rails: list, s0: float, s1: float) -> list:
 def mean_depth(volume_cf: float, columns: list) -> float:
     """A band's mean cut or fill depth: its volume over the plan area under
     its columns (earthwork.plan_area_sf). Every column has plan area
-    (earthwork._column drops one that has none), so a band with earthwork
+    (earthwork.strip drops a triangle that has none), so a band with earthwork
     has some; MeanDepth is a required dimension, so none gives 0 rather
     than a division by zero."""
     from bimforge.author.corridor import earthwork

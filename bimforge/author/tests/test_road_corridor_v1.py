@@ -11,6 +11,11 @@ GlobalId sweep); it may not move or drop one, and it adds no element. One
 quantity changes on purpose: a course declares its exact volume (V1.1
 Task 10), which V1's chorded mesh was within 0.125% of, so a course's
 volume is held to 0.5% and every other volume exactly.
+
+The earthwork volumes and the mass haul were re-recorded when the earthwork
+columns began following the leaning section rays (corridor.earthwork) in
+place of standing vertically over plan triangles: each band's volume moved
+-0.001 to +0.083 %, 0.03 % in all.
 """
 from __future__ import annotations
 

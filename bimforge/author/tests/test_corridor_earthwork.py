@@ -352,9 +352,82 @@ def test_a_listed_wall_turning_into_a_guarded_fill_merges_into_one_closed_body()
     assert set(edges.values()) == {2}
 
 
-def test_the_plan_area_of_columns_is_their_bases():
-    from bimforge.author.primitives import Prismatoid
-    # two columns on a 10 x 10 ft right triangle: 50 sf each
-    p = Prismatoid("t", [(0, 0, 0), (10, 0, 0), (0, 10, 0)],
-                   [(0, 0, 1), (10, 0, 1), (0, 10, 1)])
+def test_the_plan_area_of_columns_is_their_ground_triangles():
+    # two columns on a 10 x 10 ft right triangle: 50 sf each, wherever their
+    # rays lean
+    p = earthwork.Column("t", "fill", [(0, 0, 0), (10, 0, 0), (0, 10, 0)],
+                         [(-1, 0, 1), (9, 0, 1), (-1, 10, 1)],
+                         [(0, 0), (10, 0), (0, 10)])
     assert earthwork.plan_area_sf([p, p]) == pytest.approx(100.0)
+    assert p.volume_cf == pytest.approx(50.0)
+
+
+class Line:
+    """A section stand-in: station `s` and its earthwork line, given."""
+
+    def __init__(self, s, line):
+        self.s, self.line = s, line
+
+    def earthwork_line(self, per_component=1):
+        return list(self.line)
+
+
+#: a straight road climbing 30 %: a section point v up leans 0.287 v back
+#: along the line, so on a 1 ft bay a 20 ft rise in the design line puts its
+#: top corner behind the bay's start in plan
+STEEP = Profile([{"bvc_station": 0.0, "bvc_elev": 100.0, "g_in_pct": 30.0,
+                  "g_out_pct": 30.0, "length_ft": 100.0, "evc_station": 100.0,
+                  "evc_elev": 130.0}])
+
+
+def steep(s, u, v):
+    return survey_point(AL, STEEP, s, u, v)
+
+
+def test_a_leaning_bay_is_one_closed_body_holding_the_volume_along_its_rays():
+    # level ground at 60, 40 ft or more under the line: all fill. The design
+    # line at 51 rises 20 ft to its left end, as a fill wall's lead-in does
+    import math
+    ground = PlaneGround(60.0)
+    a = Line(50.0, [(20.0, -1.0), (0.0, -1.0), (-20.0, -1.0)])
+    b = Line(51.0, [(20.0, 19.0), (0.0, -1.0), (-20.0, -1.0)])
+    # the vertical columns' plan triangles fold: one winds the other way
+    pa = [steep(a.s, *p) for p in a.line]
+    pb = [steep(b.s, *p) for p in b.line]
+    winds = [earthwork._signed_area([(e, n) for n, e, _z in tri]) > 0.0
+             for tri in ((pa[0], pb[0], pb[1]), (pa[0], pb[1], pa[1]))]
+    assert len(set(winds)) == 2
+    cut, fill, _cd, _fd = earthwork.strip("t", a, b, steep, ground.z, None)
+    assert cut == []
+    # independently: the survey map is affine, its volume scale sec(gamma);
+    # over each (s, u) triangle the depth along the rays is linear, from
+    # the design v down to the ground's, (60 - elev(s)) / cos(gamma)
+    cg = math.cos(math.atan(0.3))
+
+    def depth(s, v):
+        return v - (60.0 - STEEP.elev(s)) / cg
+
+    want = 0.0
+    for i in range(2):
+        for tri in (((a.s, *a.line[i]), (b.s, *b.line[i]), (b.s, *b.line[i + 1])),
+                    ((a.s, *a.line[i]), (b.s, *b.line[i + 1]), (a.s, *a.line[i + 1]))):
+            area = abs(earthwork._signed_area([(s, u) for s, u, _v in tri]))
+            want += area * sum(depth(s, v) for s, _u, v in tri) / 3.0 / cg
+    assert sum(p.volume_cf for p in fill) == pytest.approx(want, rel=1e-9)
+    (body,) = earthwork.merge("t", "fill", fill)
+    directed = Counter((x, y) for t in body.tris for x, y in zip(t, t[1:] + t[:1]))
+    assert all(n == 1 and directed[y, x] == 1 for (x, y), n in directed.items())
+    assert body.volume_cf == pytest.approx(want, rel=1e-9)
+
+
+def test_a_column_turned_inside_out_is_refused():
+    # a survey whose v points down: each column's top lies under its base
+    def down(s, u, v):
+        n, e, z = survey(s, u, v)
+        return n, e, 200.0 - z
+
+    ground = PlaneGround(95.0)
+    a = Line(0.0, [(10.0, -1.0), (-10.0, -1.0)])
+    b = Line(100.0, [(10.0, -1.0), (-10.0, -1.0)])
+    with pytest.raises(ValueError, match="inside out"):
+        earthwork.strip("t", a, b, down, ground.z, None)
