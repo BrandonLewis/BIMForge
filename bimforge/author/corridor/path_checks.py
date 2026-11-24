@@ -310,6 +310,42 @@ def equestrian_rows(c) -> list:
     return out
 
 
+def _off_path_gaps(p, a: float, b: float) -> list:
+    """[(s0, s1)]: the stretches of [a, b] outside every path gap."""
+    out = [(a, b)]
+    for g in p.gaps:
+        out = [piece for x, y in out
+               for piece in ((x, min(y, g.start)), (max(x, g.end), y))
+               if piece[1] - piece[0] > _EPS]
+    return out
+
+
+def deck_width_rows(c) -> list:
+    """For each road structure gap the path crosses on the deck, the width
+    the deck must carry there: from the road's edge of shoulder, the deck
+    separation, the paved width, the buffer, the tread and its clear strip,
+    out to the tread's outer clear edge; the rail the tread side needs
+    (54 in by default) is in the check's name. Where a path gap lies over
+    the deck, the path is on its own structure and the deck carries none of
+    it. The bridge family sizes the deck from it."""
+    p = c.path
+    eq = p.equestrian
+    if eq is None:
+        return []
+    width = p.deck_separation + p.width + eq.buffer + eq.width + eq.clear
+    out = []
+    for g in c.gaps:
+        if g.kind != "structure":
+            continue
+        a, b = max(g.start, p.s_start), min(g.end, p.s_end)
+        if b - a <= _EPS:
+            continue
+        for x, y in _off_path_gaps(p, a, b):
+            out.append(CheckRow(f"deck width to carry (tread rail {eq.rail_height:.2f} ft)",
+                                x, y, width, None, "USFS-EDG Ch. 5; CSP-TH 18.2.1"))
+    return out
+
+
 def wall_rows(wall_rows_) -> list:
     """Each wall in the strip, with its side and height (walls.WallRow)."""
     return [CheckRow(f"strip wall {r.side} {r.kind}", r.start, r.end, r.max_height,
@@ -321,7 +357,7 @@ def checks(c, rails, walls_) -> list:
     """Every advisory row for corridor `c`'s path, by start station."""
     found = (grade_rows(c) + deck_rows(c) + crest_rows(c) + barrier_rows(c, rails)
              + approach_rows(c) + path_gap_rows(c) + equestrian_rows(c)
-             + wall_rows(walls_))
+             + deck_width_rows(c) + wall_rows(walls_))
     return sorted(found, key=lambda r: (r.start, r.check))
 
 

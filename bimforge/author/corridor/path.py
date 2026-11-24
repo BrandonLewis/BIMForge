@@ -262,9 +262,16 @@ def _equestrian(value, shoulder_width: float):
     if not isinstance(fence, bool):
         raise ValueError(f"{where}.fence: true or false, got {fence!r}")
     cs = _num(value.get("cross_slope", -0.02), f"{where}.cross_slope", positive=False)
+    width = _num(value.get("width", 8.0), f"{where}.width")
+    clear = _num(value.get("clear_ft", 3.0), f"{where}.clear_ft")
+    for key, x in (("width", width), ("clear_ft", clear)):
+        # the top line steps STEP_FT in from each edge of the tread's
+        # courses (_top): narrower, it folds back on itself
+        if x <= 2.0 * STEP_FT + _EPS:
+            raise ValueError(f"{where}.{key}: {x:g} ft is no wider than two "
+                             f"{STEP_FT:g} ft steps down the tread's courses")
     return Equestrian(
-        width=_num(value.get("width", 8.0), f"{where}.width"), buffer=buffer,
-        clear=_num(value.get("clear_ft", 3.0), f"{where}.clear_ft"),
+        width=width, buffer=buffer, clear=clear,
         cross_slope=-abs(cs),      # always falling away from the road, as the path's
         courses=tuple(_courses(value.get("courses"), f"{where}.courses")),
         fence=fence,

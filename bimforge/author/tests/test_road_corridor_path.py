@@ -472,3 +472,171 @@ def test_a_too_tall_strip_wall_is_a_candidate_carrying_the_path():
     assert lines[1].endswith(",path")
     walls = [w.split(",") for w in m.tables["walls"].splitlines()[1:]]
     assert any(w[:2] == ["R", "wall-road"] and w[-1] == "strip" for w in walls)
+
+
+TREAD = {"courses": [{"name": "EQ-DG", "type": "PAVEMENT", "thickness": 0.33}],
+         "fence": True}
+
+
+def tread_params(**over):
+    p = copy.deepcopy(PARAMS)
+    p["path"] = dict(copy.deepcopy(PATH), equestrian=copy.deepcopy(TREAD), **over)
+    return p
+
+
+@pytest.fixture(scope="module")
+def tread_built():
+    return build(tread_params())
+
+
+def test_the_tread_has_its_own_part_and_courses(tread_built):
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.gate import check_stated_quantities
+    m = tread_built
+    treads = [e for e in m.elements if e.name.startswith("EQ-DG tread STA ")]
+    assert sorted(e.name for e in treads) == sorted(
+        f"EQ-DG tread STA {b}" for b in (
+            "10+00.00 to 11+00.00", "11+00.00 to 12+00.00", "12+00.00 to 13+00.00",
+            "13+50.00 to 14+00.00", "14+00.00 to 15+00.00", "15+00.00 to 16+00.00"))
+    for el in treads:
+        assert (el.ifc_class, el.predefined_type, el.family_class) == (
+            "IfcCourse", "PAVEMENT", dims.COURSE)
+        assert el.spatial_part.predefined_type == "EQUESTRIANTRAIL"
+        assert el.spatial_part.family_class == dims.EQUESTRIAN_TREAD
+        assert el.spatial_part.parent.predefined_type == "ROADSEGMENT"
+        assert el.dimensions["Width"] == pytest.approx(8.0)
+        assert el.dimensions["Thickness"] == pytest.approx(0.33)
+    # on a tangent band its box: 8 ft by 0.33 ft along the 1 % grade
+    el = m.element("EQ-DG tread STA 10+00.00 to 11+00.00")
+    assert el.quantities["volume_cf"] == pytest.approx(
+        8.0 * 0.33 * 100.0 * (1.0 + 0.01 ** 2) ** 0.5, rel=1e-9)
+    assert el.standard_qto["Qto_CourseBaseQuantities"]["Volume"][2] == dims.VOLUME
+    # the tread's centre: 17 + 10 + 12 + 6 + 4 ft right
+    assert el.dimensions["Offset"] == pytest.approx(-49.0, abs=0.01)
+    # the paved path's courses keep their own part
+    paved = m.element("PATH-HMA path STA 10+00.00 to 11+00.00")
+    assert paved.spatial_part.predefined_type == "SHAREDUSEPATH"
+    assert check_stated_quantities(m) == []
+
+
+def test_the_fence_runs_over_the_tread_and_stops_at_the_gap(tread_built):
+    from bimforge.author.corridor import dimensions as dims
+    m = tread_built
+    fences = sorted(e.name for e in m.elements if e.name.startswith("Path fence "))
+    # one each side of the bridge: it stops at the gap
+    assert fences == ["Path fence R STA 10+00.00 to 13+00.00",
+                      "Path fence R STA 13+50.00 to 16+00.00"]
+    fence = m.element(fences[0])
+    assert (fence.ifc_class, fence.predefined_type, fence.type_name,
+            fence.family_class) == ("IfcRailing", "FENCE", "Path fence", dims.PATH_FENCE)
+    assert fence.spatial_part.predefined_type == "EQUESTRIANTRAIL"
+    assert fence.dimensions["RailHeight"] == pytest.approx(4.5)
+    assert fence.psets["BIMForge_Guardrail"]["RailHeight"] == ("length", pytest.approx(4.5))
+    assert fence.standard_qto["Qto_RailingBaseQuantities"]["Length"] == (
+        "length", pytest.approx(300.0), dims.LENGTH)
+    # on the buffer, 3 ft in from the tread: 17 + 10 + 12 + 3 ft right
+    (lf,) = fence.geometry
+    assert lf.rings[0][0][0] == pytest.approx(-42.0, abs=0.01)
+    assert (lf.s0, lf.s1) == (pytest.approx(1000.0), pytest.approx(1300.0))
+    # it stops at a path gap too, where the path's 1 ft transitions end
+    gapped = build(tread_params(gaps=[{"from": 1450, "to": 1480, "kind": "structure"}]))
+    assert sorted(e.name for e in gapped.elements if e.name.startswith("Path fence ")) == [
+        "Path fence R STA 10+00.00 to 13+00.00", "Path fence R STA 13+50.00 to 14+49.00",
+        "Path fence R STA 14+81.00 to 16+00.00"]
+    # no fence without `fence: true`
+    p = tread_params()
+    p["path"]["equestrian"]["fence"] = False
+    assert not [e for e in build(p).elements if e.name.startswith("Path fence ")]
+
+
+def test_the_deck_lists_the_width_it_must_carry(tread_built):
+    deck = [line for line in tread_built.tables["path_checks"].splitlines()
+            if line.startswith("deck width")]
+    # 1.5 (deck separation) + 12 + 6 + 8 + 3
+    assert deck == ["deck width to carry (tread rail 4.50 ft),1300.00,1350.00,30.50,,"
+                    "USFS-EDG Ch. 5; CSP-TH 18.2.1"]
+
+
+def tread_wall_params():
+    """Task 10's UP corridor with a tread and a right footprint of 70 ft:
+    at the path's highest (7.5 ft above the road) the clear strip's end is
+    56 ft out and about 13.7 ft above the ground, so its 2:1 fill would
+    daylight about 83 ft out, past 70; near the ends it fits."""
+    p = wall_params(UP)
+    p["path"]["equestrian"] = copy.deepcopy(TREAD)
+    p["section"] = dict(copy.deepcopy(SECTION), side_slopes=dict(
+        SECTION["side_slopes"], footprint_ft={"R": 70.0}))
+    return p
+
+
+def test_a_wall_along_the_tread_carries_the_54_in_rail():
+    from bimforge.author.corridor import dimensions as dims
+    m = build(tread_wall_params())
+    by_type = {}
+    for e in m.elements:
+        if e.ifc_class == "IfcRailing" and e.predefined_type == "GUARDRAIL":
+            by_type.setdefault(e.type_name, []).append(e)
+    assert set(by_type) == {"Path rail", "Equestrian rail"}   # strip and outer walls
+    (eq,) = by_type["Equestrian rail"]
+    assert eq.name.startswith("Equestrian rail R STA ")
+    assert (eq.family_class, eq.dimensions["RailHeight"]) == (
+        dims.EQUESTRIAN_RAIL, pytest.approx(4.5))
+    assert eq.psets["BIMForge_Guardrail"]["RailHeight"] == ("length", pytest.approx(4.5))
+    assert eq.spatial_part.predefined_type == "EQUESTRIANTRAIL"
+    # at o, the clear strip's end: 17 + 10 + 12 + 6 + 8 + 3 ft right
+    assert eq.geometry[0].rings[0][0][0] == pytest.approx(-56.0, abs=0.01)
+    for e in by_type["Path rail"]:                # the strip wall keeps 42 in
+        assert (e.family_class, e.dimensions["RailHeight"]) == (
+            dims.PATH_RAIL, pytest.approx(3.5))
+        assert e.spatial_part.predefined_type == "SHAREDUSEPATH"
+
+
+def test_the_tread_passes_the_schema(tmp_path):
+    import ifcopenshell
+    import ifcopenshell.util.element as E
+    import yaml
+
+    from bimforge.author.families.registry import build_from_spec
+    from bimforge.author.gate import schema_issues
+    (tmp_path / "rc.paycodes.yaml").write_text(
+        "rules:\n  - {match: \"(?i)^(HMA|AB) \", group: rc_pave}\n"
+        "groups:\n  rc_pave: {measure: GrossVolume}\n"
+        "codes:\n  RC-PAVE: {group: rc_pave, measure: GrossVolume, unit: CY,\n"
+        "            item_number: \"0001\", description: \"Pavement\"}\n", "utf-8")
+    # a wall along the tread and one in the strip, so both rails are written
+    params = tread_wall_params()
+    params["path"]["equestrian"]["fence"] = True
+    for schema in ("IFC4X3_ADD2", "IFC4"):
+        spec = {"family": "road-corridor", "params": params,
+                "paycodes": "./rc.paycodes.yaml", "outputs": {"ifc": f"out/{schema}.ifc"},
+                "project": {"name": "Tread fixture", "epsg": 2226,
+                            "base": [E0, N0, 300.0], "guid_ns": str(uuid.UUID(int=11)),
+                            "schema": schema}}
+        if schema == "IFC4X3_ADD2":
+            spec["project"]["facility"] = {"kind": "road"}
+        path = tmp_path / f"{schema}.spec.yaml"
+        path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            assert build_from_spec(str(path)) == 0, err.getvalue()[-2000:]
+        f = ifcopenshell.open(str(tmp_path / "out" / f"{schema}.ifc"))
+        assert not schema_issues(f), schema
+        railings = {r.Name.split(" R STA ")[0]: r for r in f.by_type("IfcRailing")}
+        assert {"Path fence", "Equestrian rail", "Path rail"} <= set(railings), schema
+        # IFC4's IfcRailingTypeEnum has no FENCE: it is written USERDEFINED
+        # with FENCE as its ObjectType, which get_predefined_type reads
+        assert E.get_predefined_type(railings["Path fence"]) == "FENCE", schema
+        for name, pdt in (("Path fence", "FENCE"), ("Equestrian rail", "GUARDRAIL")):
+            assert E.get_predefined_type(railings[name]) == pdt, (schema, name)
+            assert E.get_type(railings[name]).Name == name, (schema, name)
+        # IFC4 has no IfcCourse: its courses are written as the class it falls
+        # back to
+        assert any((c.Name or "").startswith("EQ-DG tread STA ")
+                   for c in f.by_type("IfcProduct")), schema
+    f = ifcopenshell.open(str(tmp_path / "out" / "IFC4X3_ADD2.ifc"))
+    parts = [p for p in f.by_type("IfcRoadPart") if p.ObjectType == "EQUESTRIANTRAIL"]
+    assert parts and all(p.PredefinedType == "USERDEFINED" for p in parts)
+    for part in parts:
+        refs = [r.RelatingClassification for r in part.HasAssociations
+                if r.is_a("IfcRelAssociatesClassification")]
+        assert [r.Identification for r in refs] == ["road-corridor-equestrian-tread"]

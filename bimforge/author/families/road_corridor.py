@@ -185,10 +185,25 @@ def path_part(segment: dict, r: int) -> dict:
             "parent": segment, "family_class": "road-corridor-shared-use-path"}
 
 
+def tread_part(segment: dict, r: int) -> dict:
+    """Run r's equestrian tread (V1.2 C): its own IfcRoadPart beside the
+    path's, USERDEFINED EQUESTRIANTRAIL, which its courses, its fence and
+    the rail on a wall along it belong to."""
+    return {"name": f"Segment {r} equestrian tread",
+            "predefined_type": "EQUESTRIANTRAIL", "usage_type": "LATERAL",
+            "parent": segment, "family_class": "road-corridor-equestrian-tread"}
+
+
 #: the path's rail body: a band this deep from the wall's top up to the
 #: rail's height, on the path's side of the face, feet
 PATH_RAIL_DEPTH_FT = 0.25
 PATH_RAIL_TYPE = "Path rail"
+#: the rail on a wall along the tread (an outer wall, with a tread)
+EQUESTRIAN_RAIL_TYPE = "Equestrian rail"
+#: the fence's body: a band this deep on the buffer, toward the tread, up
+#: to its height, feet
+FENCE_DEPTH_FT = 0.25
+FENCE_TYPE = "Path fence"
 
 
 def run_of(runs: list, s: float, what: str) -> int:
@@ -209,17 +224,28 @@ def path_rail_walls(c) -> list:
     return [g for g in c.gaps if g.auto in ("strip-path", "path-fill")]
 
 
-def path_rail_name(g) -> str:
+def on_tread(c, g) -> bool:
+    """Whether wall gap `g` runs along the equestrian tread: an outer wall,
+    which stands at o, the tread's clear strip's end, where there is one.
+    A strip wall is beside the paved path, so it keeps the path's rail."""
+    return c.path.equestrian is not None and not g.strip
+
+
+def path_rail_name(c, g) -> str:
     """The name of the rail on wall gap `g`."""
     from bimforge.author.alignment import sta
-    return f"{PATH_RAIL_TYPE} {g.side} STA {sta(g.start)} to {sta(g.end)}"
+    kind = EQUESTRIAN_RAIL_TYPE if on_tread(c, g) else PATH_RAIL_TYPE
+    return f"{kind} {g.side} STA {sta(g.start)} to {sta(g.end)}"
 
 
-def path_rail_element(g, c, al, prof, ctx, part: dict, height: float):
+def path_rail_element(g, c, al, prof, ctx, segment: dict, r: int):
     """The rail on wall gap `g` as an IfcRailing GUARDRAIL: a
     PATH_RAIL_DEPTH_FT band from the wall's top (q for a strip wall, o for
-    an outer one) up `height`, on the path's side of the face, lofted at the
-    corridor's stations along the road's profile."""
+    an outer one) up its height, on the path's side of the face, lofted at
+    the corridor's stations along the road's profile. Along the tread (an
+    outer wall, with one) it is the tread's Equestrian rail, 54 in by
+    default, in run r's tread part; otherwise the path's 42 in Path rail,
+    in its path part; `segment` is run r's ROADSEGMENT."""
     from bimforge.author.alignment import sta
     from bimforge.author.corridor import dimensions as dims
     from bimforge.author.corridor.frame import densify
@@ -227,6 +253,13 @@ def path_rail_element(g, c, al, prof, ctx, part: dict, height: float):
     from bimforge.author.corridor.path import surface
     from bimforge.author.model import Element
     p = c.path
+    if on_tread(c, g):
+        height, kind, cls = (p.equestrian.rail_height, EQUESTRIAN_RAIL_TYPE,
+                             dims.EQUESTRIAN_RAIL)
+        part = tread_part(segment, r)
+    else:
+        height, kind, cls = p.rail_height, PATH_RAIL_TYPE, dims.PATH_RAIL
+        part = path_part(segment, r)
     stations = densify(al, prof, c.stations(
         g.start, g.end, geometry_stations(al, prof, g.start, g.end)))
     rings = []
@@ -235,13 +268,13 @@ def path_rail_element(g, c, al, prof, ctx, part: dict, height: float):
         (bu, bv), inward = (sf.q, p.sign) if g.strip else (sf.o, -p.sign)
         x, top = bu + inward * PATH_RAIL_DEPTH_FT, bv + height / sf.cg
         rings.append([(bu, bv), (x, bv), (x, top), (bu, top)])
-    name = path_rail_name(g)
+    name = path_rail_name(c, g)
     loft = StationLoft(name, al, prof, ctx, stations, rings, ifc="IfcRailing",
                        layer=LAYER)
     length = g.end - g.start
     return Element(
         name, ifc_class="IfcRailing", geometry=[loft], predefined_type="GUARDRAIL",
-        type_name=PATH_RAIL_TYPE, typed_late=True, family_class=dims.PATH_RAIL,
+        type_name=kind, typed_late=True, family_class=cls,
         material="Steel", layer=LAYER, body="solids", spatial_part=part,
         quantities={"length_ft": length, "volume_cf": loft.volume_cf},
         dimensions={"RailHeight": height, **dims.stations(g.start, g.end)},
@@ -251,6 +284,42 @@ def path_rail_element(g, c, al, prof, ctx, part: dict, height: float):
             "StartStationText": sta(g.start), "EndStationText": sta(g.end)}},
         standard_qto={"Qto_RailingBaseQuantities": {
             "Length": ("length", length, dims.LENGTH)}})
+
+
+def fence_element(c, al, prof, ctx, secs: list, part: dict):
+    """The open rail fence over sections `secs` (consecutive, each carrying
+    the path) as an IfcRailing FENCE: a FENCE_DEPTH_FT band on the buffer,
+    from `clear_ft` in from the tread's inner edge (path.Surface.fence)
+    toward the tread, up `fence_height_ft`, lofted at the sections'
+    stations."""
+    from bimforge.author.alignment import sta
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor.loft import StationLoft
+    from bimforge.author.model import Element
+    p = c.path
+    height = p.equestrian.fence_height
+    rings = []
+    for sec in secs:
+        sf = sec.path.surface
+        fu, fv = sf.fence
+        x, top = fu + p.sign * FENCE_DEPTH_FT, fv + height / sf.cg
+        rings.append([(fu, fv), (x, fv), (x, top), (fu, top)])
+    a, b = secs[0].s, secs[-1].s
+    name = f"{FENCE_TYPE} {p.side} STA {sta(a)} to {sta(b)}"
+    loft = StationLoft(name, al, prof, ctx, [sec.s for sec in secs], rings,
+                       ifc="IfcRailing", layer=LAYER)
+    return Element(
+        name, ifc_class="IfcRailing", geometry=[loft], predefined_type="FENCE",
+        type_name=FENCE_TYPE, typed_late=True, family_class=dims.PATH_FENCE,
+        material="Steel", layer=LAYER, body="solids", spatial_part=part,
+        quantities={"length_ft": b - a, "volume_cf": loft.volume_cf},
+        dimensions={"RailHeight": height, **dims.stations(a, b)},
+        psets={"BIMForge_Guardrail": {
+            "RailHeight": ("length", height),
+            "StartStation": ("length", a), "EndStation": ("length", b),
+            "StartStationText": sta(a), "EndStationText": sta(b)}},
+        standard_qto={"Qto_RailingBaseQuantities": {
+            "Length": ("length", b - a, dims.LENGTH)}})
 
 
 def path_runs(secs: list, breaks=()) -> list:
@@ -298,9 +367,10 @@ def at_break(al, s: float) -> bool:
                for b in curvature_steps(al, s - 1.0, s + 1.0))
 
 
-def path_rings(c, al, ss: list, bs: list) -> list:
-    """[[ring per station] per path course] over one stretch of a band:
-    each section's own (section.Section.path), but at a step in the
+def path_rings(c, al, ss: list, bs: list, tread: bool = False) -> list:
+    """[[ring per station] per path course] over one stretch of a band
+    (with `tread`, per tread course): each section's own
+    (section.Section.path), but at a step in the
     alignment's curvature the stretch starts or ends on (a PC, a PT;
     curvature_steps), the ring on the
     stretch's own side (path.surface's `toward`). The road's curvature
@@ -309,20 +379,28 @@ def path_rings(c, al, ss: list, bs: list) -> list:
     s +/- h solved with both curvatures) is neither side's, and the bay's
     blend from it misses PathLength * Width * Thickness by 1e-4 and more
     (a 3 % path on a 7 % road at R 500, 33 ft out)."""
-    from bimforge.author.corridor.path import course_rings, surface
-    out = [[sec.path.courses[k] for sec in bs] for k in range(len(c.path.courses))]
+    from bimforge.author.corridor.path import course_rings, surface, tread_rings
+    p = c.path
+    if tread:
+        out = [[sec.path.tread_courses[k] for sec in bs]
+               for k in range(len(p.equestrian.courses))]
+    else:
+        out = [[sec.path.courses[k] for sec in bs] for k in range(len(p.courses))]
     for i, toward in ((0, 1.0), (len(ss) - 1, -1.0)):
         if at_break(al, ss[i]):
-            one = course_rings(c.path, surface(c, ss[i], toward=toward))
+            sf = surface(c, ss[i], toward=toward)
+            one = tread_rings(p.equestrian, sf) if tread else course_rings(p, sf)
             for k, rings in enumerate(out):
                 rings[i] = one[k]
     return out
 
 
 def add_path_courses(model, c, al, prof, ctx, ss: list, bs: list, part: dict,
-                     log) -> None:
+                     log, tread: bool = False) -> None:
     """The path's courses over one stretch of a band: stations `ss`, their
-    sections `bs`, each course one body under the paved width (path_rings).
+    sections `bs`, each course one body under the paved width (path_rings);
+    with `tread` the equestrian tread's, under the tread's width, as the
+    paved courses are.
     Its exact volume and its centroid's line are loft.centroid_path's; the
     Volume formula is written where it holds and logged where it does not
     (a separation row's kink inside the stretch: the bays' blend cannot
@@ -333,9 +411,11 @@ def add_path_courses(model, c, al, prof, ctx, ss: list, bs: list, part: dict,
     from bimforge.author.gate import FORMULA_TOLERANCE
     from bimforge.author.model import Element
     b0, b1 = ss[0], ss[-1]
-    rings = path_rings(c, al, ss, bs)
-    for k, course in enumerate(c.path.courses):
-        name = f"{course.name} path STA {sta(b0)} to {sta(b1)}"
+    rings = path_rings(c, al, ss, bs, tread=tread)
+    courses = c.path.equestrian.courses if tread else c.path.courses
+    where = "tread" if tread else "path"
+    for k, course in enumerate(courses):
+        name = f"{course.name} {where} STA {sta(b0)} to {sta(b1)}"
         lofts = [StationLoft(name, al, prof, ctx, ss, rings[k], ifc="IfcCourse",
                              layer=LAYER)]
         centroid = centroid_path(lofts)
@@ -735,6 +815,10 @@ def build(params: dict, ctx) -> "StructureModel":
                 for p0, p1 in path_runs(bs, curvature_steps(al, b0, b1)):
                     add_path_courses(model, c, al, prof, ctx, ss[p0:p1 + 1],
                                      bs[p0:p1 + 1], path_part(segment, r), log)
+                    if c.path.equestrian is not None:
+                        add_path_courses(model, c, al, prof, ctx, ss[p0:p1 + 1],
+                                         bs[p0:p1 + 1], tread_part(segment, r), log,
+                                         tread=True)
             cut, fill, cut_d, fill_d = [], [], 0.0, 0.0
             for a, b in zip(bs, bs[1:]):
                 cp, fp, cd, fd = earthwork.strip(f"{tag} {sta(a.s)}", a, b,
@@ -805,10 +889,16 @@ def build(params: dict, ctx) -> "StructureModel":
             log(msg)
     if c.path is not None:
         for g in path_rail_walls(c):
-            r = run_of(runs, g.start, path_rail_name(g))
-            model.add(path_rail_element(g, c, al, prof, ctx,
-                                        path_part(_parts(r)[0], r),
-                                        c.path.rail_height))
+            r = run_of(runs, g.start, path_rail_name(c, g))
+            model.add(path_rail_element(g, c, al, prof, ctx, _parts(r)[0], r))
+        eq = c.path.equestrian
+        if eq is not None and eq.fence:
+            # over the tread's stations, one per stretch of sections that
+            # carry the path: it stops at road and path gaps
+            for r, secs in enumerate(runs, start=1):
+                for i0, i1 in path_runs(secs):
+                    model.add(fence_element(c, al, prof, ctx, secs[i0:i1 + 1],
+                                            tread_part(_parts(r)[0], r)))
     model.mass_haul = masshaul.mass_haul(hauls, c.shrink)
     for els, row in zip(haul_elements, model.mass_haul):
         for el in els:

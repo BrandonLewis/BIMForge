@@ -1196,6 +1196,19 @@ def test_bad_equestrian_params_are_refused(over, match):
         corridor(path(equestrian=dict(TREAD, **over)))
 
 
+@pytest.mark.parametrize("key", ["width", "clear_ft"])
+def test_a_tread_or_clear_strip_no_wider_than_two_steps_is_refused(key):
+    # the top line steps STEP_FT down and up each edge of the tread's
+    # courses: a tread or clear strip that narrow folds it back on itself
+    from bimforge.author.corridor.path import STEP_FT
+    with pytest.raises(ValueError, match=rf"path\.equestrian\.{key}: 0\.02 ft is "
+                                         rf"no wider than two 0\.01 ft steps"):
+        corridor(path(equestrian=dict(TREAD, **{key: 2.0 * STEP_FT})))
+    eq = corridor(path(equestrian=dict(TREAD, **{key: 2.0 * STEP_FT + 1e-3}))
+                  ).path.equestrian
+    assert (eq.width if key == "width" else eq.clear) == pytest.approx(0.021)
+
+
 def test_a_tread_without_courses_or_not_a_mapping_is_refused():
     with pytest.raises(ValueError, match=r"path\.equestrian\.courses: needs at least"):
         corridor(path(equestrian={}))

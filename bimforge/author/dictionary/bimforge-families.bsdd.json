@@ -1020,6 +1020,115 @@
           "Description": "A dimension that sizes the element (M.2)."
         }
       ]
+    },
+    {
+      "Code": "road-corridor-equestrian-tread",
+      "Name": "Equestrian tread",
+      "ClassType": "Class",
+      "Definition": "An unpaved equestrian tread beside a shared-use path, away from the road, a buffer between them: the IfcRoadPart (USERDEFINED EQUESTRIANTRAIL) its surfacing courses, rail and fence belong to.",
+      "RelatedIfcEntityNamesList": [
+        "IfcRoadPart"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "USDA Forest Service, Equestrian Design Guidebook for Trails, Trailheads, and Campgrounds (2007), Ch. 3 and 4"
+    },
+    {
+      "Code": "road-corridor-equestrian-rail",
+      "Name": "Equestrian rail",
+      "ClassType": "Class",
+      "Definition": "The rail on a wall along an equestrian tread, 54 in by default: a run over the wall's stations, its height above the wall's top.",
+      "RelatedIfcEntityNamesList": [
+        "IfcRailing",
+        "IfcRailingGUARDRAIL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "USDA Forest Service, Equestrian Design Guidebook (2007), Ch. 3 and 5; California State Parks Trails Handbook, Ch. 18",
+      "ClassProperties": [
+        {
+          "Code": "RailHeight",
+          "PropertyCode": "RailHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStation",
+          "PropertyCode": "StartStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStation",
+          "PropertyCode": "EndStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStationText",
+          "PropertyCode": "StartStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStationText",
+          "PropertyCode": "EndStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "road-corridor-path-fence",
+      "Name": "Path fence",
+      "ClassType": "Class",
+      "Definition": "An open rail fence along the buffer between a shared-use path and its equestrian tread, keeping sight lines open: a run over the tread's stations, stopping at gaps.",
+      "RelatedIfcEntityNamesList": [
+        "IfcRailing",
+        "IfcRailingFENCE"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Highway Design Manual, Index 1003.4",
+      "ClassProperties": [
+        {
+          "Code": "RailHeight",
+          "PropertyCode": "RailHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStation",
+          "PropertyCode": "StartStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStation",
+          "PropertyCode": "EndStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStationText",
+          "PropertyCode": "StartStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStationText",
+          "PropertyCode": "EndStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
     }
   ],
   "Properties": [

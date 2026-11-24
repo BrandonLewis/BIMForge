@@ -62,3 +62,8 @@ def course_volume(volume_cf: float, path_ft: float, widths: list,
 #: V1.2 C: the shared-use path's road part, and its rail on a wall
 SHARED_USE_PATH = "road-corridor-shared-use-path"
 PATH_RAIL = "road-corridor-path-rail"
+#: V1.2 C: the equestrian tread's road part, the rail on a wall along it,
+#: and the fence on the buffer
+EQUESTRIAN_TREAD = "road-corridor-equestrian-tread"
+EQUESTRIAN_RAIL = "road-corridor-equestrian-rail"
+PATH_FENCE = "road-corridor-path-fence"

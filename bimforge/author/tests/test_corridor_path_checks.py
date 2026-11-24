@@ -272,3 +272,26 @@ def test_the_tread_s_grade_is_not_checked_on_a_deck():
     got = rows(pc.equestrian_rows(c), "equestrian grade>10%")
     assert [(a, b) for a, b, _v, _l in got] == [(pytest.approx(1000.0), 1400.0),
                                                  (1500.0, pytest.approx(2000.0))]
+
+
+def test_a_deck_lists_the_width_it_must_carry():
+    c = corridor(deck_path(equestrian=dict(TREAD, buffer=7.0)), gaps=GAP)
+    (row,) = pc.deck_width_rows(c)
+    # 1.5 + 12 + 7 + 8 + 3
+    assert (row.start, row.end, row.value, row.limit) == (1400.0, 1500.0, 31.5, None)
+    assert row.check == "deck width to carry (tread rail 4.50 ft)"
+    assert row in pc.checks(c, [], [])
+    # no tread: no row
+    assert pc.deck_width_rows(corridor(deck_path(), gaps=GAP)) == []
+
+
+def test_a_path_gap_over_the_deck_lists_no_deck_width():
+    # the path on its own structure over the road's: the deck carries none
+    # of it, tread included
+    p = path(separation=[[1000, 10.0]], equestrian=TREAD,
+             gaps=[{"from": 1390, "to": 1510, "kind": "structure"}])
+    assert pc.deck_width_rows(corridor(p, gaps=GAP)) == []
+    # one inside the deck: the deck carries the path either side of it
+    p = deck_path(equestrian=TREAD, gaps=[{"from": 1430, "to": 1470, "kind": "structure"}])
+    assert [(r.start, r.end, r.value) for r in pc.deck_width_rows(corridor(p, gaps=GAP))] == [
+        (1400.0, 1430.0, 30.5), (1470.0, 1500.0, 30.5)]
