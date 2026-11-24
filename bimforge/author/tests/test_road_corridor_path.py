@@ -440,3 +440,17 @@ def test_the_path_on_the_curve_passes_the_gate(tmp_path, side):
     with contextlib.redirect_stderr(err):
         # 0: the pre gate and the post gate both passed
         assert build_from_spec(str(path)) == 0, err.getvalue()[-2000:]
+
+
+def test_a_short_path_gap_splits_the_strip_wall_and_its_rail():
+    # 20 ft, under the 25 ft interval that merges same-kind walls: the strip
+    # wall still stops either side of the path gap (no path walls inside it)
+    p = wall_params(UP)
+    p["path"]["gaps"] = [{"from": 1300, "to": 1320, "kind": "structure"}]
+    m = build(p)
+    rails = sorted(e.name for e in path_rails(m))
+    assert len(rails) == 2
+    rows = [r.split(",") for r in m.tables["walls"].splitlines()[1:]]
+    path_rows = [r for r in rows if "path" in r[1]]
+    assert len(path_rows) == 2
+    assert all(float(r[3]) <= 1299.5 or float(r[2]) >= 1320.5 for r in path_rows)

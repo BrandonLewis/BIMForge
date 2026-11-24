@@ -260,7 +260,7 @@ class Corridor:
         p = self.path
         if p is None or not p.covers(s):
             return False
-        from bimforge.author.corridor.path import PATH_TRANSITION_FT
+        from bimforge.author.corridor.path import PATH_TRANSITION_FT  # path imports us
         if p.in_gap(s, PATH_TRANSITION_FT):
             return False
         return not any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
@@ -400,7 +400,9 @@ class Corridor:
         """`walls` (automatic) with each side's walls of one kind under one
         station interval apart, no structure gap between, made one. A road
         wall on the path's side is not merged over the path's stations
-        (V1.2 C): there that side is the strip and the path."""
+        (V1.2 C): there that side is the strip and the path. A strip or
+        path wall is not merged over a path gap (there is no path to hold
+        up); a road wall inside one is the road's own and may run through."""
         path = self.path
         out = []
         for w in sorted(walls, key=lambda g: (g.side, g.strip, g.auto, g.start)):
@@ -412,7 +414,11 @@ class Corridor:
                     and not (path is not None and w.side == path.side
                              and not w.strip and not w.auto.startswith("path-")
                              and path.s_start < w.start + _EPS
-                             and path.s_end > p.end - _EPS)):
+                             and path.s_end > p.end - _EPS)
+                    and not (path is not None and w.side == path.side
+                             and (w.strip or w.auto.startswith("path-"))
+                             and any(g.start < w.start + _EPS and g.end > p.end - _EPS
+                                     for g in path.gaps))):
                 out[-1] = replace(p, end=max(p.end, w.end))
             else:
                 out.append(w)

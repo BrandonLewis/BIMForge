@@ -110,10 +110,12 @@ class Path:
                    for g in self.gaps)
 
     def waived(self, s: float) -> bool:
-        """A road structure gap's end at s inside a path gap (its ends
-        included): the deck carries no path there, so it is not met and no
-        approach leads to it."""
-        return any(g.start - _EPS <= s <= g.end + _EPS for g in self.gaps)
+        """A road structure gap's end at s inside a path gap grown by the
+        path's transition foot (its ends included), as validate's separation
+        check is skipped: the deck carries no path there, so it is not met
+        and no approach leads to it."""
+        return any(g.start - PATH_TRANSITION_FT - _EPS <= s
+                   <= g.end + PATH_TRANSITION_FT + _EPS for g in self.gaps)
 
 
 def _separation(value, s0: float, s1: float) -> tuple:

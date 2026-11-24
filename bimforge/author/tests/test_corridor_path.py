@@ -1127,3 +1127,13 @@ def test_inside_a_path_gap_the_separation_is_not_held_to_5_ft():
 def test_bad_path_gaps_are_refused(gaps, match):
     with pytest.raises(ValueError, match=match):
         corridor(path(gaps=gaps))
+
+
+def test_a_road_gap_end_within_a_foot_of_a_path_gap_is_waived_as_its_separation_is():
+    # the road gap ends 0.5 ft past the path gap's end: no approach and no
+    # deck meeting there, as no separation check
+    gap = [{"from": 1400, "to": 1520.5, "kind": "structure"}]
+    with pytest.raises(ValueError, match=r"is not deck_separation_ft"):
+        corridor(path(gaps=[{"from": 1380, "to": 1519, "kind": "structure"}]), gaps=gap)
+    c = corridor(path(gaps=[{"from": 1380, "to": 1520, "kind": "structure"}]), gaps=gap)
+    assert approaches(c) == []
