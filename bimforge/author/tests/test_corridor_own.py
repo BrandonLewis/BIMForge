@@ -10,7 +10,7 @@ from bimforge.author.alignment import Alignment, sta
 from bimforge.author.corridor.params import parse
 from bimforge.author.corridor import own as own_mod
 from bimforge.author.tests.test_corridor_path import (BASE, PROF, TREAD, corridor,
-                                                      level, path, pt)
+                                                      grade, level, path, pt)
 
 #: a bump away from the road and back: 20 deg right, 40 left, 20 right on
 #: 300 ft radii; it advances 4 R sin 20 deg = 410.42417 ft along the road
@@ -579,3 +579,154 @@ def test_an_own_corridor_takes_no_strip_wall():
     with pytest.raises(ValueError, match=r"a strip-road wall on the L side .* with no "
                                          r"path"):
         oc.with_walls([Gap(100.0, 200.0, "wall", "L", None, auto="strip-road")])
+
+
+#: the bump's length, as its run gives it
+BUMP_FT = sum(x["length"] for x in BUMP)
+
+
+def crest(length=BUMP_FT, elev=99.51, g=6.0):
+    """One crest over the whole stretch, +g % to -g %: it meets the level
+    path's profile at both ends."""
+    return {"curves": [{"bvc_station": 0.0, "bvc_elev": elev, "g_in_pct": g,
+                        "g_out_pct": -g, "length_ft": length,
+                        "evc_station": length, "evc_elev": elev}]}
+
+
+def crest_path(**over):
+    p = own_path(**over)
+    p["own"][0]["profile"] = crest()
+    return p
+
+
+def test_an_own_section_on_a_grade_is_in_the_plane_square_to_it():
+    # a straight own run at 2 %, the path's profile 2 % too: on a constant
+    # grade the plane leans back v sin(gamma), so a point dz above the
+    # profile is v = dz cos(gamma) up the plane (not dz / cos)
+    p = path(side="R", separation=[[1000, 20.0]], profile=grade(99.51, 2.0),
+             own=[{"from": 1100, "to": 1510,
+                   "run": [{"kind": "tangent", "bearing": "N 0-0-0 E",
+                            "length": 410.0}],
+                   "profile": grade(101.51, 2.0, 0.0, 410.0)}])
+    (own,) = corridor(p).path.own
+    sf = own_mod.own_surface(corridor(p).path, own, 100.0)
+    cg = 1.0 / math.sqrt(1.0 + 0.02 ** 2)
+    assert sf.cg == pytest.approx(cg, abs=1e-15)
+    assert (sf.inner, sf.outer, sf.q, sf.o) == (
+        pt((6.0, 0.0)), pt((-6.0, -0.24 * cg)), pt((8.0, -0.10 * cg)),
+        pt((-8.0, -0.34 * cg)))
+    # the point is on the profile's grade line dz above it where it lies
+    from bimforge.author.corridor.frame import survey_point
+    n, _e, z = survey_point(own.alignment, own.profile, 100.0, *sf.o)
+    assert z == pytest.approx(own.profile.elev(n - 100.0) - 0.34, abs=1e-12)
+
+
+def test_the_tread_s_cos_theta_on_a_graded_own_curve():
+    # at own station 50, on the bump's first curve (300 ft right) and the
+    # crest at +4.57 %: the tread's centre, 16 ft right (radius 284 ft),
+    # rises g x 300 / 284 along its own length, so its courses are deeper
+    # than their thickness by 1 / cos theta; the paved courses, centred on
+    # the own alignment, are not
+    p = crest_path()
+    p["equestrian"] = dict(TREAD)
+    c, own, oc = own_of(p)
+    sf = own_mod.own_surface(c.path, own, 50.0)
+    g = own.profile.grade(50.0)
+    gt = g * 300.0 / 284.0
+    want = (1.0 + g * gt) / math.sqrt((1.0 + g * g) * (1.0 + gt * gt))
+    assert 1.0 - want > 3e-6
+    # (within 1 %: the plane's lean and the crest's curvature move it a little)
+    assert 1.0 - sf.tread_cos_theta == pytest.approx(1.0 - want, rel=1e-2)
+    assert sf.tread_depth == pytest.approx(0.33 / sf.tread_cos_theta, abs=1e-15)
+    assert sf.cos_theta == 1.0 and sf.depth == pytest.approx(0.75)
+    sec = own_mod.own_section(c, oc, own, 50.0, level(-4.51))
+    ring = sec.tread_courses[0]
+    assert ring[0][1] - ring[3][1] == pytest.approx(0.33 / sf.tread_cos_theta,
+                                                    abs=1e-12)
+    # at the crest's top the grade is 0, and so is the tread's: 1 again
+    assert own_mod.own_surface(c.path, own, BUMP_FT / 2.0).tread_cos_theta == (
+        pytest.approx(1.0, abs=1e-12))
+
+
+def test_an_own_run_is_cut_at_its_curves_ends_and_its_pvi():
+    c, own, oc = own_of(crest_path())
+    (ss,) = own_mod.own_runs(oc, own)
+    for s in (104.71976, 104.71976 + 209.43951, BUMP_FT / 2.0):
+        assert min(abs(t - s) for t in ss) < 1e-4, s
+
+
+def test_on_a_graded_own_curve_a_tall_fill_wall_is_too_tall_and_a_cut_wall_not():
+    section = dict(BASE["section"], side_slopes=dict(
+        BASE["section"]["side_slopes"], footprint_ft={"L": 20.0, "R": 20.0}))
+    c = corridor(crest_path(), walls="auto", section=section)
+    (own,) = c.path.own
+    oc = own_mod.own_corridor(c, own)
+    for ground, kind, tall in ((level(-40.0), "fill", True),
+                               (level(35.0), "cut", False)):
+        own2, oc2 = own_mod.find_walls(c, oc, own, ground)
+        rows = own_mod.wall_rows(c, oc2, own2, ground)
+        assert {(r.side, r.kind) for r in rows} == {("L", kind), ("R", kind)}
+        assert all(r.max_height > 34.0 for r in rows)
+        assert all(r.too_tall == tall for r in rows)
+
+
+def test_own_wall_heights_are_read_at_the_own_sections_too():
+    # a 5 ft deeper hollow at own station 113.3, between the 5 ft height
+    # stations: the section cut there shows it, and so does the row
+    section = dict(BASE["section"], side_slopes=dict(BASE["section"]["side_slopes"],
+                                                     footprint_ft={"R": 30.0}))
+    c = corridor(own_path(), walls="auto", section=section)
+    (own,) = c.path.own
+
+    def ground(s, u, v):
+        return (-25.51 if abs(s - 113.3) < 0.01 else -20.51) - v
+
+    own2, oc2 = own_mod.find_walls(c, own_mod.own_corridor(c, own), own,
+                                   level(-20.51))
+    (row,) = own_mod.wall_rows(c, oc2, own2, ground)
+    assert row.max_height == pytest.approx(20.17)
+    sec = own_mod.own_section(c, oc2, own2, 113.3, ground)
+    (row,) = own_mod.wall_rows(c, oc2, own2, ground, [sec])
+    assert row.max_height == pytest.approx(25.17)
+
+
+def test_an_own_section_is_cut_where_a_side_turns():
+    # ground level at elevation 103 under the crest: each side's start (q
+    # or o) is in cut near the ends and in fill over the top. Lofted point
+    # to point, a ditch would run onto a fill slope; so where a side's
+    # kind changes between two sections, the fill one has its start on the
+    # ground (the turn, found to 1e-9 ft)
+    from bimforge.author.corridor.frame import survey_point
+    c, own, oc = own_of(crest_path())
+
+    def ground(s, u, v):
+        return 103.0 - survey_point(own.alignment, own.profile, s, u, v)[2]
+
+    (secs,) = own_mod.own_sections(c, oc, own, ground)
+    turns = {"L": 0, "R": 0}
+    for a, b in zip(secs, secs[1:]):
+        for side in ("L", "R"):
+            kinds = (a.sides[side].kind, b.sides[side].kind)
+            if set(kinds) != {"cut", "fill"}:
+                continue
+            fill = a if kinds[0] == "fill" else b
+            start = own_mod._start(fill.surface, side)[0]
+            assert abs(ground(fill.s, *start)) < 1e-6, (side, fill.s)
+            turns[side] += 1
+    assert turns == {"L": 2, "R": 2}
+
+
+def test_an_own_ground_error_names_the_stretch_and_side():
+    c, own, oc = own_of(own_path())
+
+    def ground(s, u, v):
+        if u < -10.0:
+            raise ValueError("no ground")
+        return -4.51 - v
+
+    with pytest.raises(ValueError, match=(
+            r"path\.own\[0\] \(T path 1, own stations\): station 2\+00\.00, R side, "
+            r"offset 1\d\.\d\d ft: no ground")):
+        own_mod.own_section(c, oc, own, 200.0, ground)
+    with pytest.raises(ValueError, match=r"path\.own\[0\] .*R side.*no ground"):
+        own_mod.own_needs_wall(c, oc, own, 200.0, "R", ground)

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from types import SimpleNamespace
 
 from bimforge.author.alignment import Alignment, parse_bearing, parse_dms, sta
 
@@ -250,8 +251,9 @@ def parse_own(value, p, c) -> tuple:
 class OwnSurface:
     """The path's finished surface on an own stretch at an own station:
     path.Surface's fields, in own section coordinates. The section is
-    square to the own alignment's 3D tangent, so cos theta is 1 and the
-    courses are their thickness deep."""
+    square to the own alignment's 3D tangent, and the paved courses are
+    centred on it, so their cos theta is 1 and they are their thickness
+    deep; the tread's centre, off the alignment, has its own."""
     q: tuple                        # the inner shoulder's edge
     inner: tuple                    # the paved inner edge, on the own profile
     outer: tuple                    # the paved outer edge
@@ -259,31 +261,48 @@ class OwnSurface:
                                     # strip's past a tread
     cos_theta: float
     depth: float                    # the courses' depth in the plane
-    cg: float                       # cos of the own grade: v to elevation
+    cg: float                       # cos of the own grade
     inward: float                   # +1: the inner edge left of the own alignment
     tread: tuple | None = None      # the tread's (inner edge, outer edge)
     fence: tuple | None = None
-    tread_depth: float = 0.0
-    tread_cos_theta: float = 1.0
+    tread_depth: float = 0.0        # the tread courses' depth in the plane
+    tread_cos_theta: float = 1.0    # cos theta at the tread's centre
 
 
-def own_surface(p, own, t: float) -> OwnSurface:
+def _frame(own):
+    """The own alignment and profile in the form path.section_v reads
+    (`road_profile`, `alignment`): the plane is square to the own tangent."""
+    return SimpleNamespace(road_profile=own.profile, alignment=own.alignment)
+
+
+def own_surface(p, own, t: float, toward: float = 0.0) -> OwnSurface:
     """The path's finished surface at own station t: the paved width
     centred on the own alignment, its inner edge at the own profile on the
     side the road was, falling away at `cross_slope`, a graded shoulder
     each side at `shoulder.slope` falling away from it; with a tread the
     outer shoulder gives way to the buffer, tread and clear strip, as
-    beside the road (path.surface)."""
-    g = own.profile.grade(t)
+    beside the road (path.surface). Each point is solved in the plane
+    (path.section_v): dz above the own profile where it lies, so on a grade
+    v is not dz but dz cos(gamma) and less. The tread's courses are their
+    thickness over its cos theta deep (path.chord_cos: on a graded curve
+    its centre rises faster or slower than the alignment). At a PC or PT,
+    `toward` +1 or -1 solves it on that side."""
+    from bimforge.author.corridor.frame import survey_point
+    from bimforge.author.corridor.path import chord_cos, section_v
+    al, prof, fr = own.alignment, own.profile, _frame(own)
+    g = prof.grade(t)
     cg = 1.0 / math.sqrt(1.0 + g * g)
     inward, w, sw = -p.sign, p.width, p.shoulder_width
     cs, ss = p.cross_slope, p.shoulder_slope
 
-    def at(du, dz):
-        """du ft outward from the paved inner edge, dz ft above it."""
-        return (inward * (0.5 * w - du), dz / cg)
+    def at(du, dz, x=t):
+        """du ft outward from the paved inner edge, dz ft above it, at own
+        station x."""
+        u = inward * (0.5 * w - du)
+        return (u, section_v(fr, x, u, lambda st: prof.elev(st) + dz, toward))
 
-    o, tread, fence, tread_depth = at(w + sw, cs * w + ss * sw), None, None, 0.0
+    o, tread, fence, tread_depth, tread_cos = (at(w + sw, cs * w + ss * sw),
+                                               None, None, 0.0, 1.0)
     eq = p.equestrian
     if eq is not None:
         zb = cs * w + ss * eq.buffer
@@ -292,10 +311,15 @@ def own_surface(p, own, t: float) -> OwnSurface:
         o = at(w + eq.buffer + eq.width + eq.clear, zt + ss * eq.clear)
         back = max(eq.buffer - eq.clear, 0.0)
         fence = at(w + back, cs * w + ss * back)
-        tread_depth = eq.depth()
+        mid = (w + eq.buffer + 0.5 * eq.width, zb + 0.5 * eq.cross_slope * eq.width)
+        tread_cos = chord_cos(al, prof, t,
+                              lambda x: survey_point(al, prof, x, *at(*mid, x=x)),
+                              toward=toward)
+        tread_depth = eq.depth() / tread_cos
     return OwnSurface(q=at(-sw, ss * sw), inner=at(0.0, 0.0), outer=at(w, cs * w),
                       o=o, cos_theta=1.0, depth=p.depth(), cg=cg, inward=inward,
-                      tread=tread, fence=fence, tread_depth=tread_depth)
+                      tread=tread, fence=fence, tread_depth=tread_depth,
+                      tread_cos_theta=tread_cos)
 
 
 def own_corridor(c, own):
@@ -354,11 +378,11 @@ def _start(sf: OwnSurface, side: str) -> tuple:
 
 
 def _named(own, exc):
-    """NoDaylight `exc` naming the own stretch it was read on: its
-    stations are its own."""
+    """`exc` (NoDaylight, or a ground's ValueError) naming the own stretch
+    it was read on: its stations are its own."""
     from bimforge.author.corridor.section import NoDaylight
-    return NoDaylight(f"path.own[{own.entry}] ({own.alignment.name}, own "
-                      f"stations): {exc}", exc.kind)
+    msg = f"path.own[{own.entry}] ({own.alignment.name}, own stations): {exc}"
+    return NoDaylight(msg, exc.kind) if isinstance(exc, NoDaylight) else ValueError(msg)
 
 
 def own_section(c, oc, own, t: float, ground_dz) -> OwnSection:
@@ -367,7 +391,8 @@ def own_section(c, oc, own, t: float, ground_dz) -> OwnSection:
     each (no MGS widening), or a wall where `oc` has one. NoDaylight, naming
     the stretch, where a slope does not fit and no wall stands."""
     from bimforge.author.corridor.path import _top, course_rings, tread_rings
-    from bimforge.author.corridor.section import NoDaylight, Side, _slope, side_samples
+    from bimforge.author.corridor.section import Side, _slope, side_samples
+    from bimforge.author.corridor.section import _named as on_side
     p = c.path
     sf = own_surface(p, own, t)
     sides = {}
@@ -379,8 +404,9 @@ def own_section(c, oc, own, t: float, ground_dz) -> OwnSection:
             sides[side] = Side("wall", [start, start])
             continue
         try:
-            sides[side] = _slope(oc, t, side, sign, start, ground_dz, widen=False)
-        except NoDaylight as exc:
+            sides[side] = _slope(oc, t, side, sign, start,
+                                 on_side(ground_dz, side), widen=False)
+        except ValueError as exc:
             raise _named(own, exc) from None
     eq = p.equestrian
     return OwnSection(t, sf, sides, _top(c, sf), course_rings(p, sf),
@@ -393,21 +419,23 @@ def own_needs_wall(c, oc, own, t: float, side: str, ground_dz) -> str | None:
     "path-fill" or "path-cut", None where its slope fits or a wall gap
     already stands."""
     from bimforge.author.corridor.section import NoDaylight, _slope
+    from bimforge.author.corridor.section import _named as on_side
     if oc.wall(side, t) is not None:
         return None
     start, sign = _start(own_surface(c.path, own, t), side)
     try:
-        _slope(oc, t, side, sign, start, ground_dz, widen=False)
+        _slope(oc, t, side, sign, start, on_side(ground_dz, side), widen=False)
     except NoDaylight as exc:
         return f"path-{exc.kind}"
+    except ValueError as exc:
+        raise _named(own, exc) from None
     return None
 
 
 def own_runs(oc, own) -> list:
     """Each own run's stations (the stretch less its own gaps), with the own
     alignment's and profile's points, densified as the road's are."""
-    from bimforge.author.corridor.frame import densify
-    from bimforge.author.families.road_corridor import geometry_stations
+    from bimforge.author.corridor.frame import densify, geometry_stations
     al, prof = own.alignment, own.profile
     return [densify(al, prof, oc.stations(a, b, geometry_stations(al, prof, a, b)))
             for a, b in oc.runs()]
@@ -416,7 +444,8 @@ def own_runs(oc, own) -> list:
 def find_walls(c, oc, own, ground_dz) -> tuple:
     """(own, oc) with the automatic walls its section needs, `path-fill` or
     `path-cut` at q or o (walls.find on its stations, own_needs_wall the
-    need), added as params.Corridor.with_walls adds them."""
+    need), added as params.Corridor.with_walls adds them. For `walls:
+    auto`: the caller asks only where c.auto_walls is set."""
     from bimforge.author.corridor import walls
     found = [g for ss in own_runs(oc, own) for g in walls.find(
         oc, ss, ground_dz,
@@ -429,25 +458,73 @@ def find_walls(c, oc, own, ground_dz) -> tuple:
     return own, own_corridor(c, own)
 
 
+def kind_changes(c, own, a: OwnSection, b: OwnSection, ground_dz) -> list:
+    """Own stations strictly between own sections `a` and `b` where a side
+    turns from cut to fill or back (section.kind_changes): where the ground
+    meets the point its slope starts at, q or o, the point _slope reads
+    its kind at. The station returned is the fill side of the turn, within
+    section._TURN_FT."""
+    from bimforge.author.corridor.params import SIDES
+    from bimforge.author.corridor.section import _TURN_FT
+    out = []
+    for side in SIDES:
+        if {a.sides[side].kind, b.sides[side].kind} != {"cut", "fill"}:
+            continue
+
+        def above(t):
+            start, _sign = _start(own_surface(c.path, own, t), side)
+            return ground_dz(t, *start) > 0.0
+
+        lo, hi = a.s, b.s                 # `above` differs at the two ends
+        cut_lo = above(lo)
+        while hi - lo > _TURN_FT:
+            mid = 0.5 * (lo + hi)
+            if above(mid) == cut_lo:
+                lo = mid
+            else:
+                hi = mid
+        t = hi if cut_lo else lo          # the end where the side is fill
+        if a.s < t < b.s:
+            out.append(t)
+    return sorted(set(out))
+
+
 def own_sections(c, oc, own, ground_dz) -> list:
-    """Each own run's sections (OwnSection), by station."""
-    return [[own_section(c, oc, own, t, ground_dz) for t in ss]
-            for ss in own_runs(oc, own)]
+    """Each own run's sections (OwnSection), by station, with a section
+    where a side turns between cut and fill (kind_changes), as the road's
+    first pass cuts one: unless a station is already within TURN_GAP_FT or
+    it falls in an automatic wall's lead-in (section.in_lead_in)."""
+    from bimforge.author.corridor.frame import merge_stations
+    from bimforge.author.corridor.section import TURN_GAP_FT, in_lead_in
+    out = []
+    for ss in own_runs(oc, own):
+        secs = [own_section(c, oc, own, t, ground_dz) for t in ss]
+        turns = [t for a, b in zip(secs, secs[1:])
+                 for t in kind_changes(c, own, a, b, ground_dz)
+                 if min(t - a.s, b.s - t) > TURN_GAP_FT and not in_lead_in(oc, t)]
+        if turns:
+            known = {sec.s: sec for sec in secs}
+            secs = [known.get(t) or own_section(c, oc, own, t, ground_dz)
+                    for t in merge_stations(ss, turns)]
+        out.append(secs)
+    return out
 
 
-def wall_rows(c, oc, own, ground_dz) -> list:
+def wall_rows(c, oc, own, ground_dz, secs=()) -> list:
     """walls.WallRow for each of the own stretch's walls, on own stations:
     its exposed height at q or o (the ground below it at a fill wall, above
-    it at a cut wall) at least every HEIGHT_STEP_FT, location "own
+    it at a cut wall), read at the own sections `secs` on it and at least
+    every HEIGHT_STEP_FT between its ends (walls.rows), location "own
     <index>", carrying the path. A fill wall over max_wall_height_ft is
     too tall."""
     from bimforge.author.corridor.walls import HEIGHT_STEP_FT, WallRow
     out = []
     for g in own.walls:
         n = max(1, math.ceil((g.end - g.start) / HEIGHT_STEP_FT - _EPS))
+        at = {g.start + (g.end - g.start) * i / n for i in range(n + 1)}
+        at.update(sec.s for sec in secs if g.start - _EPS <= sec.s <= g.end + _EPS)
         heights, offsets = [], []
-        for i in range(n + 1):
-            t = g.start + (g.end - g.start) * i / n
+        for t in sorted(at):
             start, _sign = _start(own_surface(c.path, own, t), g.side)
             dz = ground_dz(t, *start)
             heights.append(-dz if g.auto == "path-fill" else dz)

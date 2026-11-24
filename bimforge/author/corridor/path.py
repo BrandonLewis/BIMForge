@@ -619,13 +619,24 @@ def cos_theta(c, s: float, h: float = 0.01, toward: float = 0.0,
     difference (-3 P(s) + 4 P(s + h) - P(s + 2 h)) / 2h toward it (its
     error O(h^2), as the chord's; its round-off about 4e-10 / h), so a
     chord across the step does not average the two sides."""
-    from bimforge.author.corridor.frame import survey_point, tangent3
+    from bimforge.author.corridor.frame import survey_point
     p = c.path
     al, prof = p.alignment, p.road_profile
 
     def point(x):
         return survey_point(al, prof, x, *_centre(c, x, toward, at))
 
+    return chord_cos(al, prof, s, point, h, toward)
+
+
+def chord_cos(al, prof, s: float, point, h: float = 0.01,
+              toward: float = 0.0) -> float:
+    """cos of the angle between the 3D tangent of alignment `al` and
+    profile `prof` at station s (frame.tangent3) and the line `point(x)`
+    (a survey point at station x) traces there: the chord over s +/- h, or
+    with `toward` the one-sided difference on that side (cos_theta, whose
+    error and round-off it carries; own.own_surface's tread too)."""
+    from bimforge.author.corridor.frame import tangent3
     if toward:
         # the stencil reads s to s + 2h on `toward`'s side: no segment end
         # may lie inside it, or it reads across the step it is there to

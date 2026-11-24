@@ -11,7 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from bimforge.author.alignment import sta
-from bimforge.author.corridor.params import SIDES, WIDENING_SLOPE, Ditch
+from bimforge.author.corridor.params import (SIDES, WALL_TRANSITION_FT,
+                                             WIDENING_SLOPE, Ditch)
 
 #: points on each side's slope line, hinge and daylight included: fixed, so
 #: every station's earthwork line has the same count and lofts point to point
@@ -416,6 +417,20 @@ def needs_wall(c, s: float, side: str, ground_dz, rail: bool = False,
 
 #: how close the station a side turns at is found, feet
 _TURN_FT = 1e-9
+
+#: no section is added where a side turns closer than this to a station,
+#: feet: the strip either side would be a sliver
+TURN_GAP_FT = 0.01
+
+
+def in_lead_in(c, s: float) -> bool:
+    """Whether station s is strictly inside an automatic wall's
+    WALL_TRANSITION_FT lead-in, either side of the road: a turn on one side
+    is a section across both, and the wall's side there is a slope that
+    walls.find has not checked."""
+    return any(g.start - WALL_TRANSITION_FT < s < g.start
+               or g.end < s < g.end + WALL_TRANSITION_FT
+               for g in c.gaps if g.auto is not None)
 
 
 def kind_changes(c, a: Section, b: Section, ground_dz) -> list:

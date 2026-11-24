@@ -58,3 +58,31 @@ def densify(alignment, profile, stations: list) -> list:
         out.extend(a + ds * i / n for i in range(n))
     out.append(stations[-1])
     return out
+
+
+#: stations closer than this are one station, feet
+STATION_TOL_FT = 1e-6
+
+
+def merge_stations(have: list, more, tol: float = STATION_TOL_FT) -> list:
+    """`have` (ascending, distinct) with each of `more` not within `tol` of
+    a station already kept, ascending: two rails ending at one station, or
+    a rail end on a wall's or a band's station, cut one section."""
+    out = list(have)
+    for s in sorted(more):
+        if all(abs(s - k) > tol for k in out):
+            out.append(s)
+    return sorted(out)
+
+
+def geometry_stations(al, prof, s0: float, s1: float) -> list:
+    """The alignment's and the profile's own points strictly inside (s0,
+    s1): segment ends (PC, PT, and the PI where tangents meet), and each
+    vertical curve's BVC, PVI and EVC. frame.densify steps between the
+    stations it is given and does not add these, so a section must be cut
+    at each one."""
+    # alignment.Profile's vertical curves are symmetric: the PVI is mid-curve
+    pvis = [c["bvc_station"] + 0.5 * c["length_ft"] for c in prof.curves]
+    out = set(al.seg_breaks(s0, s1)) | set(prof.breaks(s0, s1))
+    out.update(s for s in pvis if s0 + 1e-9 < s < s1 - 1e-9)
+    return sorted(out)

@@ -328,8 +328,7 @@ class Corridor:
                         f"listed wall gap {sta(g.start)} to {sta(g.end)}; list "
                         f"the wall or let walls: auto place it, not both")
             path = self.path
-            if (w.strip or w.auto.startswith("path-")) and not (
-                    self.own and not w.strip):
+            if w.strip or (w.auto.startswith("path-") and not self.own):
                 # a wall of the path's (V1.2 C) stands on the path's side,
                 # over its stations; on an own stretch's corridor either
                 # side's outer wall is the path's

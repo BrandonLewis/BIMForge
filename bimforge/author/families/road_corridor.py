@@ -26,33 +26,22 @@ from __future__ import annotations
 import math
 import sys
 
+# a run's stations and where a side turns are the corridor's (corridor.frame,
+# corridor.section); named here too for the family's callers
+from bimforge.author.corridor.frame import (  # noqa: F401
+    STATION_TOL_FT, geometry_stations, merge_stations)
+from bimforge.author.corridor.section import TURN_GAP_FT  # noqa: F401
+from bimforge.author.corridor.section import in_lead_in as _in_lead_in
+
 REQUIRED = ("alignment", "profile", "ground", "section")
 LAYER = "C-ROAD"
 #: how far a course's exact volume may stray from its average end areas,
 #: and its mesh from its exact volume (check_arc_faceting's
 #: FACET_TOLERANCE, the same 0.5%)
 AEA_TOL = 0.005
-#: no section is added where a side turns closer than this to a station,
-#: feet: the strip either side would be a sliver
-TURN_GAP_FT = 0.01
 #: how many times walls: auto may add walls the guardrail's widening needs
 #: and lay the rail again
 RAIL_WALL_ROUNDS = 5
-
-
-#: stations closer than this are one station, feet
-STATION_TOL_FT = 1e-6
-
-
-def merge_stations(have: list, more, tol: float = STATION_TOL_FT) -> list:
-    """`have` (ascending, distinct) with each of `more` not within `tol` of
-    a station already kept, ascending: two rails ending at one station, or
-    a rail end on a wall's or a band's station, cut one section."""
-    out = list(have)
-    for s in sorted(more):
-        if all(abs(s - k) > tol for k in out):
-            out.append(s)
-    return sorted(out)
 
 
 def bands(stations: list, s_start: float, band: float) -> list:
@@ -66,19 +55,6 @@ def bands(stations: list, s_start: float, band: float) -> list:
         else:
             out.append([k, i, i + 1])
     return [(i0, i1) for _k, i0, i1 in out]
-
-
-def geometry_stations(al, prof, s0: float, s1: float) -> list:
-    """The alignment's and the profile's own points strictly inside (s0,
-    s1): segment ends (PC, PT, and the PI where tangents meet), and each
-    vertical curve's BVC, PVI and EVC. frame.densify steps between the
-    stations it is given and does not add these, so a section must be cut
-    at each one."""
-    # alignment.Profile's vertical curves are symmetric: the PVI is mid-curve
-    pvis = [c["bvc_station"] + 0.5 * c["length_ft"] for c in prof.curves]
-    out = set(al.seg_breaks(s0, s1)) | set(prof.breaks(s0, s1))
-    out.update(s for s in pvis if s0 + 1e-9 < s < s1 - 1e-9)
-    return sorted(out)
 
 
 def per_component(c, ground) -> list:
@@ -144,17 +120,6 @@ def across_crown(left: list, right: list) -> list:
         raise ValueError(f"the left and right rings do not share a crown edge "
                          f"({left[0]}, {left[-1]} vs {right[0]}, {right[-1]})")
     return list(left) + list(right[::-1][1:-1])
-
-
-def _in_lead_in(c, s: float) -> bool:
-    """Whether station s is strictly inside an automatic wall's
-    WALL_TRANSITION_FT lead-in, either side of the road: a turn on one side
-    is a section across both, and the wall's side there is a slope that
-    walls.find has not checked."""
-    from bimforge.author.corridor.params import WALL_TRANSITION_FT
-    return any(g.start - WALL_TRANSITION_FT < s < g.start
-               or g.end < s < g.end + WALL_TRANSITION_FT
-               for g in c.gaps if g.auto is not None)
 
 
 def _terrain(model) -> str | None:
