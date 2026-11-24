@@ -29,9 +29,11 @@ REJOIN_DEG = 0.1
 #: the beside section turns into the road's own over this at a hand-over
 #: and a rejoin, feet: the own stretch's earthwork starts there
 HANDOVER_FT = 0.01
-#: a curve's length is its radius times its delta within this, feet: the
-#: alignment stations by the length and turns by the delta
+#: a curve's length is its radius times its delta within this, feet, or
+#: ARC_TOL_RATIO of its radius where that is more (a delta to the second on
+#: a long radius): the alignment stations by the length and turns by the delta
 ARC_TOL_FT = 0.01
+ARC_TOL_RATIO = 5e-6
 #: HDM 1003.1(10): the least radius, and the radius under which a path
 #: would need superelevation (its cross slope stays at most 2 %), by speed
 MIN_RADIUS_FT = {20: 90.0, 25: 160.0, 30: 260.0}
@@ -45,6 +47,8 @@ _EPS = 1e-9
 class Own:
     """One own stretch."""
     index: int                 # from 1, by start station
+    entry: int                 # its place in the path.own list, from 0: the
+                               # i its messages name (path.own[i])
     start: float               # the hand-over, road station
     end: float                 # the rejoin, road station
     alignment: object          # its own, the paved centreline, from 0+00
@@ -109,7 +113,7 @@ def _run(value, at: str) -> list:
         if x.get("turn", "R") not in ("L", "R"):
             raise ValueError(f"{here}.turn: {x.get('turn')!r} is not L or R")
         arc = radius * math.radians(delta)
-        if abs(arc - length) > ARC_TOL_FT:
+        if abs(arc - length) > max(ARC_TOL_FT, ARC_TOL_RATIO * radius):
             raise ValueError(f"{here}.length: {length:g} ft is not the curve's "
                              f"{arc:.4f} ft (radius x delta)")
     return value
@@ -141,6 +145,14 @@ def parse_own(value, p, c) -> tuple:
         if not (p.covers(a) and p.covers(b)):
             raise ValueError(f"{at}: {sta(a)} to {sta(b)} is outside the path's "
                              f"stations ({sta(p.s_start)} to {sta(p.s_end)})")
+        for s, which in ((a, "hand-over"), (b, "rejoin")):
+            deck = next((g for g in c.gaps if g.kind == "structure"
+                         and g.start + _EPS < s < g.end - _EPS), None)
+            if deck is not None:
+                raise ValueError(f"{at}: the {which} at {sta(s)} is on the road's "
+                                 f"structure gap {sta(deck.start)} to "
+                                 f"{sta(deck.end)}: no beside section stands there "
+                                 f"to hand over from")
         rows.append((a, i, b, o))
     out = []
     # numbered, and the alignments named, by start station
@@ -156,6 +168,11 @@ def parse_own(value, p, c) -> tuple:
                                  f"({az:.4f} deg): the run starts the road's way")
         al = Alignment({"station": 0.0, "northing": n, "easting": e, "azimuth": az},
                        run, name=f"{p.alignment.name} path {k + 1}")
+        # each tangent's bearing is taken as given: the run must not turn
+        # at a point where one element meets the next
+        kinks = al.kink_check(al.s_start, al.s_end)
+        if kinks:
+            raise ValueError(f"{at}.run: {kinks[0]}")
         en, ee = al.end_point
         eaz = al.point_az(al.s_end)[2]
         tn, te, taz = centre_point(c, p, b)
@@ -174,8 +191,9 @@ def parse_own(value, p, c) -> tuple:
                     f"{at}.profile: at the {which} ({sta(st)}, road {sta(rs)}) it is "
                     f"at {got:.4f} ft and path.profile at {want:.4f} ft, "
                     f"{abs(got - want):.4f} ft off (more than {MEET_TOL_FT:g} ft)")
-        out.append(Own(k + 1, a, b, al, prof,
-                       _path_gaps(o.get("gaps"), 0.0, al.s_end, f"{at}.gaps")))
+        out.append(Own(k + 1, i, a, b, al, prof,
+                       _path_gaps(o.get("gaps"), 0.0, al.s_end, f"{at}.gaps",
+                                  "its own stations")))
     for x, y in zip(out, out[1:]):
         if y.start < x.end + _EPS:
             raise ValueError(f"path.own: {sta(x.start)} to {sta(x.end)} overlaps "

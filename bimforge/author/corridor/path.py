@@ -157,8 +157,10 @@ def _separation(value, s0: float, s1: float) -> tuple:
     return rows
 
 
-def _path_gaps(value, s0: float, s1: float, where: str = "path.gaps") -> tuple:
-    """Path gaps on [s0, s1]: road stations."""
+def _path_gaps(value, s0: float, s1: float, where: str = "path.gaps",
+               stations: str = "the path's stations") -> tuple:
+    """Path gaps on [s0, s1]: road stations, or an own stretch's own
+    (`stations` names them)."""
     out = []
     for i, g in enumerate(value or []):
         at = f"{where}[{i}]"
@@ -173,8 +175,8 @@ def _path_gaps(value, s0: float, s1: float, where: str = "path.gaps") -> tuple:
         if not b > a:
             raise ValueError(f"{at}: 'to' must be past 'from'")
         if a < s0 - _EPS or b > s1 + _EPS:
-            raise ValueError(f"{at}: {sta(a)} to {sta(b)} is outside the path's "
-                             f"stations ({sta(s0)} to {sta(s1)})")
+            raise ValueError(f"{at}: {sta(a)} to {sta(b)} is outside {stations} "
+                             f"({sta(s0)} to {sta(s1)})")
         out.append(PathGap(a, b))
     out.sort(key=lambda g: g.start)
     for p, q in zip(out, out[1:]):
@@ -455,7 +457,7 @@ def _check_curvature(c, step: float = 25.0) -> None:
     n = max(int(math.ceil((p.s_end - p.s_start) / step)), 1)
     ats = [p.s_start + (p.s_end - p.s_start) * i / n for i in range(n + 1)]
     for s in ats:
-        if _on_deck(c, s):
+        if _on_deck(c, s) or p.in_own(s):
             continue
         k = p.alignment.curvature(s)
         if k == 0.0:
@@ -488,6 +490,8 @@ def validate(c) -> None:
     for g in c.gaps:
         if g.kind == "structure":
             at |= {g.start, g.end}
+    for o in p.own:                # the beside section stands at both ends
+        at |= {o.start, o.end}
     for s in sorted(at):
         if (not p.covers(s) or _on_deck(c, s) or p.in_gap(s, PATH_TRANSITION_FT)
                 or p.in_own(s)):
