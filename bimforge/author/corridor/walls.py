@@ -79,14 +79,16 @@ class StructureRow:
     carries: str = "road"  # what the structure would carry: "road" or "path"
 
 
-def find(c, stations: list, ground_dz, rail=None) -> list:
+def find(c, stations: list, ground_dz, rail=None, need=None) -> list:
     """Wall gaps (params.Gap, `auto` the wall's token) for one run's
     `stations` of corridor `c`, by start station. Each side is searched for
     outer walls and, on the path's side (V1.2 C), for strip walls apart, so
     a station may have one of each. `rail(s, side)`, when given, says
     whether a guardrail's widening stands on `side` at s (the family's
     second pass), so a slope it pushes past the footprint takes a wall
-    too."""
+    too. `need(s, side, location)`, when given, says which wall a side
+    needs in place of section.needs_wall (an own stretch's section, V1.2
+    C: own.find_walls)."""
     out = []
     for side in SIDES:
         edge = _path_edge(c, side)
@@ -94,11 +96,13 @@ def find(c, stations: list, ground_dz, rail=None) -> list:
             if location == "strip" and (c.path is None or c.path.side != side):
                 continue
 
-            def need(s, sd, location=location):
+            def ask(s, sd, location=location):
+                if need is not None:
+                    return need(s, sd, location)
                 return needs_wall(c, s, sd, ground_dz,
                                   rail is not None and rail(s, sd), location)
 
-            kinds = [need(s, side) for s in stations]
+            kinds = [ask(s, side) for s in stations]
             i = 0
             while i < len(stations):
                 kind = kinds[i]
@@ -108,9 +112,9 @@ def find(c, stations: list, ground_dz, rail=None) -> list:
                 j = i
                 while j + 1 < len(stations) and kinds[j + 1] == kind:
                     j += 1
-                start = _reach(side, need, kind, stations[i],
+                start = _reach(side, ask, kind, stations[i],
                                stations[i - 1] if i > 0 else None, -1.0, edge)
-                end = _reach(side, need, kind, stations[j],
+                end = _reach(side, ask, kind, stations[j],
                              stations[j + 1] if j + 1 < len(stations) else None, 1.0,
                              edge)
                 out.append(Gap(start, end, "wall", side, None, auto=kind))

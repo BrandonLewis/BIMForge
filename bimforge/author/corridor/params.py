@@ -179,6 +179,10 @@ class Corridor:
     guard: Guard | None = None
     #: V1.2 C: the shared-use path beside the road (corridor.path.Path)
     path: object = None
+    #: V1.2 C: an own stretch's corridor (own.own_corridor): both its sides
+    #: are the path's, so its walls are `path-fill` and `path-cut` with no
+    #: path beside it
+    own: bool = False
 
     def width(self, comp: Component, side: str, s: float) -> float:
         """The component's width; through an automatic cut wall the
@@ -324,9 +328,11 @@ class Corridor:
                         f"listed wall gap {sta(g.start)} to {sta(g.end)}; list "
                         f"the wall or let walls: auto place it, not both")
             path = self.path
-            if w.strip or w.auto.startswith("path-"):
+            if (w.strip or w.auto.startswith("path-")) and not (
+                    self.own and not w.strip):
                 # a wall of the path's (V1.2 C) stands on the path's side,
-                # over its stations
+                # over its stations; on an own stretch's corridor either
+                # side's outer wall is the path's
                 if path is None:
                     raise ValueError(
                         f"walls: auto: a {w.auto} wall on the {w.side} side from "

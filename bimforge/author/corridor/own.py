@@ -19,7 +19,7 @@ from it.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from bimforge.author.alignment import Alignment, parse_bearing, parse_dms, sta
 
@@ -244,3 +244,216 @@ def parse_own(value, p, c) -> tuple:
                     f"transition; a path bridge on an own stretch is one of its own "
                     f"gaps (own[].gaps)")
     return tuple(out)
+
+
+@dataclass(frozen=True)
+class OwnSurface:
+    """The path's finished surface on an own stretch at an own station:
+    path.Surface's fields, in own section coordinates. The section is
+    square to the own alignment's 3D tangent, so cos theta is 1 and the
+    courses are their thickness deep."""
+    q: tuple                        # the inner shoulder's edge
+    inner: tuple                    # the paved inner edge, on the own profile
+    outer: tuple                    # the paved outer edge
+    o: tuple                        # the outer shoulder's edge, or the clear
+                                    # strip's past a tread
+    cos_theta: float
+    depth: float                    # the courses' depth in the plane
+    cg: float                       # cos of the own grade: v to elevation
+    inward: float                   # +1: the inner edge left of the own alignment
+    tread: tuple | None = None      # the tread's (inner edge, outer edge)
+    fence: tuple | None = None
+    tread_depth: float = 0.0
+    tread_cos_theta: float = 1.0
+
+
+def own_surface(p, own, t: float) -> OwnSurface:
+    """The path's finished surface at own station t: the paved width
+    centred on the own alignment, its inner edge at the own profile on the
+    side the road was, falling away at `cross_slope`, a graded shoulder
+    each side at `shoulder.slope` falling away from it; with a tread the
+    outer shoulder gives way to the buffer, tread and clear strip, as
+    beside the road (path.surface)."""
+    g = own.profile.grade(t)
+    cg = 1.0 / math.sqrt(1.0 + g * g)
+    inward, w, sw = -p.sign, p.width, p.shoulder_width
+    cs, ss = p.cross_slope, p.shoulder_slope
+
+    def at(du, dz):
+        """du ft outward from the paved inner edge, dz ft above it."""
+        return (inward * (0.5 * w - du), dz / cg)
+
+    o, tread, fence, tread_depth = at(w + sw, cs * w + ss * sw), None, None, 0.0
+    eq = p.equestrian
+    if eq is not None:
+        zb = cs * w + ss * eq.buffer
+        zt = zb + eq.cross_slope * eq.width
+        tread = (at(w + eq.buffer, zb), at(w + eq.buffer + eq.width, zt))
+        o = at(w + eq.buffer + eq.width + eq.clear, zt + ss * eq.clear)
+        back = max(eq.buffer - eq.clear, 0.0)
+        fence = at(w + back, cs * w + ss * back)
+        tread_depth = eq.depth()
+    return OwnSurface(q=at(-sw, ss * sw), inner=at(0.0, 0.0), outer=at(w, cs * w),
+                      o=o, cos_theta=1.0, depth=p.depth(), cg=cg, inward=inward,
+                      tread=tread, fence=fence, tread_depth=tread_depth)
+
+
+def own_corridor(c, own):
+    """The params.Corridor an own stretch's slopes are read and its walls
+    found on: the road's slopes on own stations 0 to its length, the rock
+    depth read linearly from the road's at the hand-over to its at the
+    rejoin, its own gaps as structure gaps and its walls, no widths,
+    superelevation, path or guardrail."""
+    from bimforge.author.corridor.params import Gap
+    sl = c.slopes
+    if sl.rock is not None:
+        sl = replace(sl, rock=replace(sl.rock, depth=(
+            (0.0, sl.rock.depth_at(own.start)),
+            (own.length, sl.rock.depth_at(own.end)))))
+    gaps = tuple(Gap(g.start, g.end, "structure") for g in own.gaps) + tuple(own.walls)
+    return replace(c, s_start=0.0, s_end=own.length, slopes=sl, widths={},
+                   superelevation=(), path=None, guard=None, own=True,
+                   gaps=tuple(sorted(gaps, key=lambda g: (g.start, g.side or ""))))
+
+
+@dataclass(frozen=True)
+class OwnSection:
+    """An own stretch's section at an own station: earthwork.strip reads
+    its earthwork_line, as a section.Section's."""
+    s: float                        # own station
+    surface: OwnSurface
+    sides: dict                     # "L"/"R" -> section.Side, out from q or o
+    top: list                       # q to o (path._top)
+    courses: dict                   # course index -> 4-point ring
+    tread_courses: dict | None
+    count: int                      # each side's points on the earthwork line
+
+    def earthwork_line(self, per_component=1) -> list:
+        """Left daylight to right daylight, the same count at every
+        station: the left side's slope, the top, the right side's.
+        `per_component` is section.Section's; an own section has no
+        components to divide."""
+        from bimforge.author.corridor.section import _samples
+        top = self.top if self.surface.inward > 0 else self.top[::-1]
+        left = list(reversed(_samples(self.sides["L"].line, self.count)))
+        right = _samples(self.sides["R"].line, self.count)
+        return left + top[1:-1] + right
+
+    def width(self) -> float:
+        """Daylight to daylight, feet."""
+        line = self.earthwork_line()
+        return abs(line[0][0] - line[-1][0])
+
+
+def _start(sf: OwnSurface, side: str) -> tuple:
+    """(the point `side`'s slope starts at, its outward sign): q on the
+    inner side, o on the outer."""
+    if (side == "L") == (sf.inward > 0):
+        return sf.q, sf.inward
+    return sf.o, -sf.inward
+
+
+def _named(own, exc):
+    """NoDaylight `exc` naming the own stretch it was read on: its
+    stations are its own."""
+    from bimforge.author.corridor.section import NoDaylight
+    return NoDaylight(f"path.own[{own.entry}] ({own.alignment.name}, own "
+                      f"stations): {exc}", exc.kind)
+
+
+def own_section(c, oc, own, t: float, ground_dz) -> OwnSection:
+    """The own stretch's section at own station t on its corridor `oc`
+    (own_corridor): the path's top, q to o, and V1.1's side slope out from
+    each (no MGS widening), or a wall where `oc` has one. NoDaylight, naming
+    the stretch, where a slope does not fit and no wall stands."""
+    from bimforge.author.corridor.path import _top, course_rings, tread_rings
+    from bimforge.author.corridor.section import NoDaylight, Side, _slope, side_samples
+    p = c.path
+    sf = own_surface(p, own, t)
+    sides = {}
+    for side in ("L", "R"):
+        start, sign = _start(sf, side)
+        if oc.wall(side, t) is not None:
+            # an automatic wall at q or o: its line is the point twice, so
+            # the side keeps its point count
+            sides[side] = Side("wall", [start, start])
+            continue
+        try:
+            sides[side] = _slope(oc, t, side, sign, start, ground_dz, widen=False)
+        except NoDaylight as exc:
+            raise _named(own, exc) from None
+    eq = p.equestrian
+    return OwnSection(t, sf, sides, _top(c, sf), course_rings(p, sf),
+                      tread_rings(eq, sf) if eq is not None else None,
+                      side_samples(oc))
+
+
+def own_needs_wall(c, oc, own, t: float, side: str, ground_dz) -> str | None:
+    """The wall `side` of the own section needs at own station t:
+    "path-fill" or "path-cut", None where its slope fits or a wall gap
+    already stands."""
+    from bimforge.author.corridor.section import NoDaylight, _slope
+    if oc.wall(side, t) is not None:
+        return None
+    start, sign = _start(own_surface(c.path, own, t), side)
+    try:
+        _slope(oc, t, side, sign, start, ground_dz, widen=False)
+    except NoDaylight as exc:
+        return f"path-{exc.kind}"
+    return None
+
+
+def own_runs(oc, own) -> list:
+    """Each own run's stations (the stretch less its own gaps), with the own
+    alignment's and profile's points, densified as the road's are."""
+    from bimforge.author.corridor.frame import densify
+    from bimforge.author.families.road_corridor import geometry_stations
+    al, prof = own.alignment, own.profile
+    return [densify(al, prof, oc.stations(a, b, geometry_stations(al, prof, a, b)))
+            for a, b in oc.runs()]
+
+
+def find_walls(c, oc, own, ground_dz) -> tuple:
+    """(own, oc) with the automatic walls its section needs, `path-fill` or
+    `path-cut` at q or o (walls.find on its stations, own_needs_wall the
+    need), added as params.Corridor.with_walls adds them."""
+    from bimforge.author.corridor import walls
+    found = [g for ss in own_runs(oc, own) for g in walls.find(
+        oc, ss, ground_dz,
+        need=lambda t, side, loc: (own_needs_wall(c, oc, own, t, side, ground_dz)
+                                   if loc == "outer" else None))]
+    if not found:
+        return own, oc
+    oc = oc.with_walls(found)
+    own = replace(own, walls=tuple(g for g in oc.gaps if g.auto is not None))
+    return own, own_corridor(c, own)
+
+
+def own_sections(c, oc, own, ground_dz) -> list:
+    """Each own run's sections (OwnSection), by station."""
+    return [[own_section(c, oc, own, t, ground_dz) for t in ss]
+            for ss in own_runs(oc, own)]
+
+
+def wall_rows(c, oc, own, ground_dz) -> list:
+    """walls.WallRow for each of the own stretch's walls, on own stations:
+    its exposed height at q or o (the ground below it at a fill wall, above
+    it at a cut wall) at least every HEIGHT_STEP_FT, location "own
+    <index>", carrying the path. A fill wall over max_wall_height_ft is
+    too tall."""
+    from bimforge.author.corridor.walls import HEIGHT_STEP_FT, WallRow
+    out = []
+    for g in own.walls:
+        n = max(1, math.ceil((g.end - g.start) / HEIGHT_STEP_FT - _EPS))
+        heights, offsets = [], []
+        for i in range(n + 1):
+            t = g.start + (g.end - g.start) * i / n
+            start, _sign = _start(own_surface(c.path, own, t), g.side)
+            dz = ground_dz(t, *start)
+            heights.append(-dz if g.auto == "path-fill" else dz)
+            offsets.append(abs(start[0]))
+        kind, top = ("fill" if g.auto == "path-fill" else "cut"), max(heights)
+        out.append(WallRow(g.side, kind, g.start, g.end, max(offsets), min(heights),
+                           top, kind == "fill" and top > c.max_wall_height + _EPS,
+                           location=f"own {own.index}", carries="path"))
+    return sorted(out, key=lambda r: (r.start, r.side))

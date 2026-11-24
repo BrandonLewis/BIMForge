@@ -8,7 +8,9 @@ import pytest
 
 from bimforge.author.alignment import Alignment, sta
 from bimforge.author.corridor.params import parse
-from bimforge.author.tests.test_corridor_path import BASE, PROF, corridor, path
+from bimforge.author.corridor import own as own_mod
+from bimforge.author.tests.test_corridor_path import (BASE, PROF, TREAD, corridor,
+                                                      level, path, pt)
 
 #: a bump away from the road and back: 20 deg right, 40 left, 20 right on
 #: 300 ft radii; it advances 4 R sin 20 deg = 410.42417 ft along the road
@@ -406,3 +408,174 @@ def test_a_snapped_bearing_reads_back_as_its_azimuth(az):
     from bimforge.author.alignment import parse_bearing
     from bimforge.author.corridor.own import _bearing
     assert parse_bearing(_bearing(az)) == pytest.approx(az % 360.0, abs=1e-10)
+
+
+def own_of(p, **over):
+    c = corridor(p, **over)
+    (own,) = c.path.own
+    return c, own, own_mod.own_corridor(c, own)
+
+
+def test_the_own_section_on_level_ground():
+    # the path on the right (inward +1), level, its own profile 99.51 and
+    # the ground 4.51 under it: the paved width centred on the own
+    # alignment, its inner edge on the left where the road was, falling
+    # away at 2 %; a 2 ft shoulder each side at 5 %; 2:1 fill both sides
+    c, own, oc = own_of(own_path())
+    sec = own_mod.own_section(c, oc, own, 200.0, level(-4.51))
+    sf = sec.surface
+    assert sf.inward == 1.0
+    assert (sf.inner, sf.outer, sf.q, sf.o) == (pt((6.0, 0.0)), pt((-6.0, -0.24)),
+                                                pt((8.0, -0.10)), pt((-8.0, -0.34)))
+    # the courses thickness deep: the section is square to its own tangent
+    assert sec.courses[0] == [pt(x) for x in [(6, 0), (-6, -0.24), (-6, -0.49),
+                                               (6, -0.25)]]
+    assert sec.courses[1][2] == pt((-6.0, -0.99))
+    assert {k: x.kind for k, x in sec.sides.items()} == {"L": "fill", "R": "fill"}
+    line = sec.earthwork_line()
+    assert line[0] == pt((16.82, -4.51)) and line[-1] == pt((-16.34, -4.51))
+    assert len(line) == 2 * sec.count + 6 - 2
+    # the fill: 19.4481 (left), 8.8749025 + 0.0413475 + 43.68 + 0.0389475 +
+    # 8.3973025 (the top, q to o), 17.3889 (right)
+    d = [(u, -4.51 - v) for u, v in line]
+    fill = -sum(0.5 * (d0 + d1) * abs(u1 - u0) for (u0, d0), (u1, d1) in zip(d, d[1:]))
+    assert fill == pytest.approx(97.8695, abs=1e-6)
+    assert sec.width() == pytest.approx(16.82 + 16.34)
+
+
+def test_a_path_on_the_left_keeps_its_inner_edge_on_the_right():
+    p = own_path()
+    p["side"] = "L"
+    p["own"][0]["run"] = [dict(x, turn="L" if x["turn"] == "R" else "R") for x in BUMP]
+    c, own, oc = own_of(p)
+    sf = own_mod.own_surface(c.path, own, 100.0)
+    assert sf.inward == -1.0
+    assert (sf.inner, sf.outer, sf.q, sf.o) == (pt((-6.0, 0.0)), pt((6.0, -0.24)),
+                                                pt((-8.0, -0.10)), pt((8.0, -0.34)))
+    # the earthwork line still runs left daylight to right: o's side first
+    sec = own_mod.own_section(c, oc, own, 100.0, level(-4.51))
+    line = sec.earthwork_line()
+    assert line[0] == pt((16.34, -4.51)) and line[-1] == pt((-16.82, -4.51))
+    assert pt((8.0, -0.34)) in line and pt((-8.0, -0.10)) in line
+    assert [u for u, _v in line] == sorted((u for u, _v in line), reverse=True)
+
+
+def test_the_tread_goes_with_the_path():
+    p = own_path()
+    p["equestrian"] = dict(TREAD, fence=True)
+    c, own, oc = own_of(p)
+    sf = own_mod.own_surface(c.path, own, 100.0)
+    # 6 ft of buffer at -5 % past the outer edge (-6, -0.24): (-12, -0.54);
+    # 8 ft of tread at -2 %: (-20, -0.70); 3 ft clear at -5 %: o (-23, -0.85);
+    # the fence 3 ft in from the tread: (-9, -0.39)
+    assert sf.tread == (pt((-12.0, -0.54)), pt((-20.0, -0.70)))
+    assert (sf.o, sf.fence) == (pt((-23.0, -0.85)), pt((-9.0, -0.39)))
+    assert sf.tread_depth == pytest.approx(0.33)
+    sec = own_mod.own_section(c, oc, own, 100.0, level(-4.51))
+    assert sec.tread_courses[0] == [pt(x) for x in [(-12, -0.54), (-20, -0.70),
+                                                     (-20, -1.03), (-12, -0.87)]]
+    # the right slope starts at o past the tread: 2:1 down 3.66 ft
+    line = sec.earthwork_line()
+    assert line[-1] == pt((-30.32, -4.51))
+    assert len(line) == 2 * sec.count + 10 - 2
+
+
+def test_an_own_corridor_reads_the_road_s_slopes_on_own_stations():
+    # rock 10 ft down at the hand-over (11+00) and 20 ft at the rejoin
+    # (15+10.42) on the road's rows: on own stations 0 to 4+18.88, linear
+    sides = dict(BASE["section"]["side_slopes"])
+    sides["cut"] = dict(sides["cut"], rock={
+        "depth_ft": [[1000, 5.0], [1200, 15.0], [1510.424, 20.0], [1800, 50.0]],
+        "ratio": 0.5, "bench_ft": 4.0})
+    section = dict(BASE["section"], side_slopes=sides)
+    p = own_path(gaps=[{"from": 150, "to": 250, "kind": "structure"}])
+    c, own, oc = own_of(p, section=section)
+    assert oc.slopes.rock.depth == (pytest.approx((0.0, 10.0)),
+                                    pytest.approx((own.length, 20.0)))
+    assert oc.slopes.rock.depth_at(own.length / 2.0) == pytest.approx(15.0)
+    assert (oc.s_start, oc.s_end) == (0.0, pytest.approx(own.length))
+    assert oc.path is None and oc.guard is None
+    # its own gaps are its structure gaps
+    assert [(g.start, g.end, g.kind) for g in oc.gaps] == [(150.0, 250.0, "structure")]
+    assert oc.runs() == [(0.0, 150.0), (250.0, pytest.approx(own.length))]
+
+
+def test_an_own_slope_past_its_footprint_takes_a_wall():
+    # the right (outer) 2:1 from o (-8, -0.34) down to -20.51 is 20.17 ft of
+    # fill: it would daylight 40.34 ft on, at (-48.34, -20.51), past a 30 ft
+    # footprint; the inner side has none
+    section = dict(BASE["section"], side_slopes=dict(BASE["section"]["side_slopes"],
+                                                     footprint_ft={"R": 30.0}))
+    c = corridor(own_path(), walls="auto", section=section)
+    (own,) = c.path.own
+    oc = own_mod.own_corridor(c, own)
+    ground = level(-20.51)
+    assert own_mod.own_needs_wall(c, oc, own, 200.0, "R", ground) == "path-fill"
+    assert own_mod.own_needs_wall(c, oc, own, 200.0, "L", ground) is None
+    own2, oc2 = own_mod.find_walls(c, oc, own, ground)
+    assert {(g.side, g.auto) for g in own2.walls} == {("R", "path-fill")}
+    (g,) = own2.walls
+    assert (g.start, g.end) == (0.0, pytest.approx(own.length))
+    assert oc2.wall("R", 200.0) == g
+    sec = own_mod.own_section(c, oc2, own2, 200.0, ground)
+    assert sec.sides["R"].kind == "wall" and sec.sides["L"].kind == "fill"
+    assert sec.earthwork_line()[-1] == pt((-8.0, -0.34))
+    (row,) = own_mod.wall_rows(c, oc2, own2, ground)
+    assert (row.kind, row.location, row.carries) == ("fill", "own 1", "path")
+    assert row.max_height == pytest.approx(20.17)
+    assert row.offset == pytest.approx(8.0) and not row.barrier
+
+
+def test_an_own_cut_past_its_footprint_takes_a_cut_wall():
+    # ground 6 ft over the own grade line: the left (inner) cut from q
+    # (8, -0.10) takes its ditch and backslope past a 12 ft footprint
+    section = dict(BASE["section"], side_slopes=dict(BASE["section"]["side_slopes"],
+                                                     footprint_ft={"L": 12.0}))
+    c = corridor(own_path(), walls="auto", section=section)
+    (own,) = c.path.own
+    oc = own_mod.own_corridor(c, own)
+    own2, oc2 = own_mod.find_walls(c, oc, own, level(6.0))
+    assert {(g.side, g.auto) for g in own2.walls} == {("L", "path-cut")}
+    (row,) = own_mod.wall_rows(c, oc2, own2, level(6.0))
+    assert (row.kind, row.location) == ("cut", "own 1")
+    assert row.max_height == pytest.approx(6.10) and not row.too_tall
+
+
+def test_own_walls_are_found_on_each_own_run():
+    # an own path gap from 1+50 to 2+50: no section there, so the wall
+    # stops at its ends
+    section = dict(BASE["section"], side_slopes=dict(BASE["section"]["side_slopes"],
+                                                     footprint_ft={"R": 30.0}))
+    c = corridor(own_path(gaps=[{"from": 150, "to": 250, "kind": "structure"}]),
+                 walls="auto", section=section)
+    (own,) = c.path.own
+    own2, oc2 = own_mod.find_walls(c, own_mod.own_corridor(c, own), own,
+                                   level(-20.51))
+    assert [(g.start, g.end) for g in own2.walls] == [
+        (0.0, 150.0), (250.0, pytest.approx(own.length))]
+    runs = own_mod.own_sections(c, oc2, own2, level(-20.51))
+    assert [(r[0].s, r[-1].s) for r in runs] == [
+        (0.0, 150.0), (250.0, pytest.approx(own.length))]
+    assert all(sec.sides["R"].kind == "wall" for r in runs for sec in r)
+
+
+def test_an_own_slope_that_does_not_fit_names_the_stretch():
+    # without walls: auto the outer slope past the footprint is refused, on
+    # its own stations
+    section = dict(BASE["section"], side_slopes=dict(BASE["section"]["side_slopes"],
+                                                     footprint_ft={"R": 30.0}))
+    c, own, oc = own_of(own_path(), section=section)
+    with pytest.raises(ValueError, match=(
+            r"path\.own\[0\] \(T path 1, own stations\): station 2\+00\.00: the R "
+            r"fill slope daylights 48\.34 ft out, past the R footprint of 30 ft")):
+        own_mod.own_section(c, oc, own, 200.0, level(-20.51))
+
+
+def test_an_own_corridor_takes_no_strip_wall():
+    from bimforge.author.corridor.params import Gap
+    c, own, oc = own_of(own_path())
+    got = oc.with_walls([Gap(100.0, 200.0, "wall", "L", None, auto="path-cut")])
+    assert [g.auto for g in got.gaps] == ["path-cut"]
+    with pytest.raises(ValueError, match=r"a strip-road wall on the L side .* with no "
+                                         r"path"):
+        oc.with_walls([Gap(100.0, 200.0, "wall", "L", None, auto="strip-road")])
