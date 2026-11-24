@@ -343,3 +343,66 @@ def test_the_road_s_curvature_is_not_held_to_a_separation_along_an_own_stretch()
         separation=[[1000, 20.0], [1150, 20.0], [1300, 400.0], [1450, 20.0]])
     c = parse(params, 1000.0, 2000.0, alignment=al, profile=PROF)
     assert c.path.own[0].end == 1500.0
+
+
+#: a road with a 400 ft radius right from 12+00 to 14+00, 28-38-52.403
+#: (28.64789 deg) of turn: a hand-over at 13+00 on the curve heads 14.32394
+#: deg, as no bearing written to the second does
+TURN = math.degrees(200.0 / 400.0)
+CURVED = Alignment(
+    {"station": 1000.0, "northing": 0.0, "easting": 0.0},
+    [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 200.0},
+     {"kind": "curve", "delta": f"{TURN:.12f}", "radius": 400.0, "turn": "R",
+      "length": 200.0},
+     {"kind": "tangent", "bearing": f"N {TURN:.12f} E", "length": 600.0}],
+    name="C")
+
+
+def curved_own(bearing):
+    """On CURVED, a path 43 ft right handing over at 13+00: the rest of the
+    road's curve concentric 43 ft inside, then 100 ft of tangent written
+    `bearing`, rejoining at 15+00."""
+    r = 400.0 - 43.0
+    run = [{"kind": "curve", "delta": f"{TURN / 2:.12f}", "radius": r, "turn": "R",
+            "length": r * math.radians(TURN / 2)},
+           {"kind": "tangent", "bearing": bearing, "length": 100.0}]
+    params = copy.deepcopy(BASE)
+    params["path"] = own_path(run=run, to=1500.0)
+    params["path"]["own"][0]["from"] = 1300
+    return parse(params, 1000.0, 2000.0, alignment=CURVED, profile=PROF)
+
+
+def test_a_bearing_to_the_second_after_a_curve_is_taken_as_its_heading():
+    # N 28-38-52 E is 0.403 arc-seconds off the curve's end heading: within
+    # a second it joins, and the run is built on the heading it comes in on
+    (own,) = curved_own("N 28-38-52 E").path.own
+    al = own.alignment
+    assert al.kink_check(al.s_start, al.s_end) == []
+    assert al.segments[1]["az"] == pytest.approx(TURN, abs=1e-9)
+    assert al.pob["azimuth"] == pytest.approx(TURN / 2, abs=1e-9)
+
+
+def test_a_join_more_than_a_second_off_is_refused():
+    # N 28-38-50 E is 2.403 arc-seconds off the curve's end heading
+    with pytest.raises(ValueError, match=r"path\.own\[0\]\.run: C path 1: 0\.000668 deg "
+                                         r"kink at station 0\+89\.25 \(more than 1 "
+                                         r"arc-second\)"):
+        curved_own("N 28-38-50 E")
+
+
+def test_a_first_tangent_within_a_tenth_of_a_degree_is_the_road_s_heading():
+    # N 0-3-0 E is 0.05 deg off the road's way: taken as the road's heading,
+    # so it rejoins 410 ft on (as written it would end 0.36 ft out)
+    run = [{"kind": "tangent", "bearing": "N 0-3-0 E", "length": 410.0}]
+    (own,) = corridor(own_path(run=run, to=1510.0)).path.own
+    assert own.alignment.segments[0]["az"] == 0.0
+    assert own.alignment.end_point == (pytest.approx(510.0), pytest.approx(43.0))
+    assert run[0]["bearing"] == "N 0-3-0 E"      # the spec's run is left as given
+
+
+@pytest.mark.parametrize("az", [0.0, 14.323944878, 90.0, 123.4, 180.0, 200.5,
+                                270.0, 359.9999997, 374.5])
+def test_a_snapped_bearing_reads_back_as_its_azimuth(az):
+    from bimforge.author.alignment import parse_bearing
+    from bimforge.author.corridor.own import _bearing
+    assert parse_bearing(_bearing(az)) == pytest.approx(az % 360.0, abs=1e-10)

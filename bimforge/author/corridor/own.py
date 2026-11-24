@@ -26,6 +26,9 @@ from bimforge.author.alignment import Alignment, parse_bearing, parse_dms, sta
 #: the run rejoins the path's centreline within these
 REJOIN_FT = 0.1
 REJOIN_DEG = 0.1
+#: a tangent's bearing meets the heading it comes in on within this, deg:
+#: plans write bearings to the second, so rounding leaves at most half one
+JOIN_TOL_DEG = 1.0 / 3600.0
 #: the beside section turns into the road's own over this at a hand-over
 #: and a rejoin, feet: the own stretch's earthwork starts there
 HANDOVER_FT = 0.01
@@ -119,6 +122,41 @@ def _run(value, at: str) -> list:
     return value
 
 
+def _bearing(az: float) -> str:
+    """A quadrant bearing for azimuth `az`, in decimal degrees to 1e-12 (no
+    minus sign, which parse_bearing would split on)."""
+    az %= 360.0                    # 360.0 itself for a tiny negative: N 0 E
+    for top, ns, ew, x in ((90.0, "N", "E", az), (180.0, "S", "E", 180.0 - az),
+                           (270.0, "S", "W", az - 180.0), (360.0, "N", "W", 360.0 - az)):
+        if az < top:
+            return f"{ns} {x:.12f} {ew}"
+    return f"N {0.0:.12f} E"
+
+
+def _snapped(run: list, az: float, name: str, at: str) -> list:
+    """`run` (checked by _run) with each tangent's bearing set to the
+    heading it comes in on: the road's `az` at the hand-over for a first
+    tangent (parse_own holds it to REJOIN_DEG), and after that the heading
+    the element before it ends on, which a bearing must be within
+    JOIN_TOL_DEG of. The own alignment is then tangent-continuous, as a
+    swept run must be; the spec's run is left as given."""
+    out, s = [], 0.0
+    for j, x in enumerate(run):
+        if x["kind"] == "tangent":
+            d = _turn(parse_bearing(x["bearing"]) - az)
+            if j and abs(d) > JOIN_TOL_DEG + _EPS:
+                raise ValueError(f"{at}: {name}: {abs(d):.6f} deg kink at station "
+                                 f"{sta(s)} (more than {JOIN_TOL_DEG * 3600.0:g} "
+                                 f"arc-second): a swept run must be "
+                                 f"tangent-continuous")
+            x = dict(x, bearing=_bearing(az))
+        else:
+            az += (1.0 if x.get("turn", "R") == "R" else -1.0) * parse_dms(x["delta"])
+        out.append(x)
+        s += x["length"]
+    return out
+
+
 def parse_own(value, p, c) -> tuple:
     """The own stretches `value` (`path.own`) describes for path `p` beside
     corridor `c`, by start station; ValueError names the first field that
@@ -166,13 +204,9 @@ def parse_own(value, p, c) -> tuple:
                 raise ValueError(f"{at}.run[0]: bearing {run[0]['bearing']} is not the "
                                  f"road's heading at the hand-over {sta(a)} "
                                  f"({az:.4f} deg): the run starts the road's way")
+        name = f"{p.alignment.name} path {k + 1}"
         al = Alignment({"station": 0.0, "northing": n, "easting": e, "azimuth": az},
-                       run, name=f"{p.alignment.name} path {k + 1}")
-        # each tangent's bearing is taken as given: the run must not turn
-        # at a point where one element meets the next
-        kinks = al.kink_check(al.s_start, al.s_end)
-        if kinks:
-            raise ValueError(f"{at}.run: {kinks[0]}")
+                       _snapped(run, az, name, f"{at}.run"), name=name)
         en, ee = al.end_point
         eaz = al.point_az(al.s_end)[2]
         tn, te, taz = centre_point(c, p, b)
