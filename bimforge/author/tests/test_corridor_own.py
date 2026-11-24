@@ -918,3 +918,143 @@ def test_an_own_footprint_s_ground_error_names_the_stretch():
         own_mod.plan(survey, lambda n, e: float("nan"), [sec], own=own)
     with pytest.raises(ValueError, match=r"^station 1\+00\.00: the ground under"):
         own_mod.plan(survey, lambda n, e: float("nan"), [sec])
+
+
+# -- the path's checks on its own stretches (Task 23) --------------------
+
+from bimforge.author.corridor import path_checks as pc
+
+TIGHT = [dict(x, radius=150.0, length=round(x["length"] / 2.0, 5)) for x in BUMP]
+TIGHT_TO = 1100.0 + 205.212
+
+
+def test_a_150_ft_radius_is_listed_at_25_and_30_mph_but_not_20():
+    c = corridor(own_path(run=TIGHT, to=TIGHT_TO))
+    (own,) = c.path.own
+    assert own_mod.radius_rows(own, 20) == []
+    for speed in (25, 30):
+        found = own_mod.radius_rows(own, speed)
+        assert len(found) == 6
+        assert {r.check for r in found} == {
+            f"own 1 radius under the minimum at {speed} mph",
+            f"own 1 radius under the no-superelevation radius at {speed} mph"}
+        assert {r.limit for r in found} == {own_mod.MIN_RADIUS_FT[speed],
+                                           own_mod.NO_SUPER_RADIUS_FT[speed]}
+        assert all(r.value == 150.0 for r in found)
+        # the curves' own stations
+        assert sorted({(round(r.start, 5), round(r.end, 5)) for r in found}) == [
+            (0.0, 52.35988), (52.35988, 157.07964), (157.07964, 209.43952)]
+
+
+def test_a_radius_at_the_limit_is_not_listed():
+    # 160 ft is the 25 mph minimum, though under its no-superelevation 180
+    run = [dict(x, radius=160.0, length=round(x["length"] * 160.0 / 300.0, 5))
+           for x in BUMP]
+    (own,) = corridor(own_path(run=run, to=1100.0 + 4 * 160.0 * math.sin(
+        math.radians(20.0)))).path.own
+    assert {r.check for r in own_mod.radius_rows(own, 25)} == {
+        "own 1 radius under the no-superelevation radius at 25 mph"}
+
+
+def test_the_path_s_checks_take_in_its_own_stretches():
+    p = own_path(run=TIGHT, to=TIGHT_TO)
+    p["design_speed_mph"] = 30
+    checks = pc.checks(corridor(p), [], [])
+    assert sum(r.check == "own 1 radius under the minimum at 30 mph"
+               for r in checks) == 3
+    # beside the road the path is level: no grade rows there
+    assert not any(r.check.startswith("grade>5%") for r in checks)
+    assert "own 1 radius under the minimum at 30 mph" in pc.checks_csv(checks)
+
+
+def test_a_level_own_stretch_at_20_mph_adds_no_row():
+    c = corridor(own_path())
+    assert pc.checks(c, [], []) == [r for r in pc.checks(c, [], [])
+                                    if not r.check.startswith("own")]
+
+
+def steep_own_path():
+    """The path rises 6 % beside the road and over a crest of its own 1250-1300
+    short of its stopping sight distance; its own stretch (1100-1510.424)
+    rises 5.9 %: it meets the path's profile at both ends."""
+    prof = {"curves": [
+        {"bvc_station": 1000.0, "bvc_elev": 99.51, "g_in_pct": 6.0, "g_out_pct": 6.0,
+         "length_ft": 250.0, "evc_station": 1250.0, "evc_elev": 114.51},
+        {"bvc_station": 1250.0, "bvc_elev": 114.51, "g_in_pct": 6.0, "g_out_pct": -6.0,
+         "length_ft": 50.0, "evc_station": 1300.0, "evc_elev": 114.51},
+        {"bvc_station": 1300.0, "bvc_elev": 114.51, "g_in_pct": -6.0, "g_out_pct": -6.0,
+         "length_ft": 700.0, "evc_station": 2000.0, "evc_elev": 72.51}]}
+    from bimforge.author.alignment import Profile
+    pr = Profile(prof["curves"])
+    a, b = pr.elev(1100.0), pr.elev(1510.424)
+    length = BUMP_FT
+    g = 100.0 * (b - a) / length
+    own = {"curves": [{"bvc_station": 0.0, "bvc_elev": a, "g_in_pct": g,
+                       "g_out_pct": g, "length_ft": length, "evc_station": length,
+                       "evc_elev": b}]}
+    p = own_path()
+    p["profile"] = prof
+    p["own"][0]["profile"] = own
+    return p, g
+
+
+def test_the_path_beside_the_road_is_not_checked_inside_its_own_stretch():
+    p, g = steep_own_path()
+    assert abs(g) < 5.0                       # under 5 % on its own
+    checks = pc.checks(corridor(p), [], [])
+    beside = [r for r in checks if not r.check.startswith("own")]
+    assert any(r.check == "grade>5%" for r in beside)
+    # the path's 6 % is listed before and after the stretch, never in it
+    for r in beside:
+        if r.check in ("grade>5%", "sustained grade>2%"):
+            assert r.end <= 1100.0 + 1e-3 or r.start >= 1510.424 - 1e-3, r
+    # nor is the profile's crest there: the path is on its own profile
+    assert not any(r.check.startswith("crest") for r in beside)
+    assert not any(r.check.startswith("own") for r in checks
+                   if r.check.startswith("own 1 grade"))
+
+
+def test_an_own_stretch_s_grade_and_crest_are_checked_on_its_own_stations():
+    # the stretch climbs 6 %, crests over 50 ft and falls 6 %, back to the
+    # level path's 99.51: steeper than 5 % either side of a short crest
+    half = (BUMP_FT - 50.0) / 2.0
+    top = 99.51 + 0.06 * half
+    prof = {"curves": [
+        {"bvc_station": 0.0, "bvc_elev": 99.51, "g_in_pct": 6.0, "g_out_pct": 6.0,
+         "length_ft": half, "evc_station": half, "evc_elev": top},
+        {"bvc_station": half, "bvc_elev": top, "g_in_pct": 6.0, "g_out_pct": -6.0,
+         "length_ft": 50.0, "evc_station": half + 50.0, "evc_elev": top},
+        {"bvc_station": half + 50.0, "bvc_elev": top, "g_in_pct": -6.0,
+         "g_out_pct": -6.0, "length_ft": half, "evc_station": BUMP_FT,
+         "evc_elev": 99.51}]}
+    checks = pc.checks(corridor(own_path(profile=prof)), [], [])
+    assert [r.check for r in checks if r.check.startswith("own")] == [
+        "own 1 grade>5%", "own 1 crest VC short of SSD at 20 mph", "own 1 grade>5%"]
+    up, crest_row, down = [r for r in checks if r.check.startswith("own")]
+    # on its own stations, from 0+00: the grade runs to where the crest's
+    # grade falls to 5 %, 1/12 of the way through the crest
+    assert (up.start, up.end) == (0.0, pytest.approx(half + 50.0 * 1.0 / 12.0))
+    assert (down.start, down.end) == (pytest.approx(half + 50.0 * 11.0 / 12.0), BUMP_FT)
+    assert up.value == down.value == pytest.approx(6.0)
+    assert (crest_row.start, crest_row.end, crest_row.value) == (
+        pytest.approx(half), pytest.approx(half + 50.0), 50.0)
+    assert crest_row.limit == pytest.approx(2.0 * 125.0 - 1600.0 / 12.0)
+    # beside the road the level path has none of these
+    assert not any(not r.check.startswith("own") and r.check.startswith(
+        ("grade", "crest")) for r in checks)
+    p = own_path(profile=prof)
+    p["design_speed_mph"] = 30
+    (crest30,) = [r for r in pc.checks(corridor(p), [], [])
+                  if r.check.startswith("own 1 crest")]
+    assert crest30.check == "own 1 crest VC short of SSD at 30 mph"
+    assert crest30.limit == pytest.approx(12.0 * 230.0 ** 2 / 1600.0)
+
+
+def test_a_close_path_is_no_barrier_row_inside_its_own_stretch():
+    # 8 ft from the road beside it, with no rail: needed before and after
+    # the own stretch, not along it (the path is away from the road there)
+    c = corridor(own_path(separation=8.0))
+    rows = [r for r in pc.barrier_rows(c, [])]
+    assert [(r.start, r.end) for r in rows] == [
+        (pytest.approx(1000.0), pytest.approx(1100.0, abs=1e-3)),
+        (pytest.approx(1510.424, abs=1e-3), pytest.approx(2000.0))]

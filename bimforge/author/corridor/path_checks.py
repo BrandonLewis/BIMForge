@@ -135,10 +135,11 @@ def profile_grade_rows(grade_at, s0: float, s1: float, skip, label: str = "") ->
 
 
 def grade_rows(c) -> list:
-    """The path's grade rows beside the road, off the decks it is on."""
+    """The path's grade rows beside the road, off the decks it is on and its
+    own stretches (they are checked on their own profiles)."""
     p = c.path
     return profile_grade_rows(lambda s: path_grade(c, s), p.s_start, p.s_end,
-                              lambda s: on_deck(c, s))
+                              lambda s: on_deck(c, s) or p.in_own(s))
 
 
 def deck_rows(c) -> list:
@@ -223,8 +224,12 @@ def profile_crest_rows(profile, s0: float, s1: float, design_speed: int,
 
 
 def crest_rows(c) -> list:
+    """Crest curves of the path's profile beside the road; one inside an own
+    stretch is not the path's (it is on the stretch's own profile)."""
     p = c.path
-    return profile_crest_rows(p.profile, p.s_start, p.s_end, p.design_speed)
+    return [r for r in profile_crest_rows(p.profile, p.s_start, p.s_end, p.design_speed)
+            if not any(o.start - _EPS <= r.start and r.end <= o.end + _EPS
+                       for o in p.own)]
 
 
 def _shielded(rails, side: str, s: float) -> bool:
@@ -239,7 +244,7 @@ def barrier_rows(c, rails) -> list:
     p = c.path
 
     def needs(s):
-        return (not on_deck(c, s) and not p.in_gap(s)
+        return (not on_deck(c, s) and not p.in_gap(s) and not p.in_own(s)
                 and p.separation_at(s) < BARRIER_SEPARATION_FT - _EPS
                 and not _shielded(rails, p.side, s))
 
@@ -257,7 +262,8 @@ def approach_rows(c) -> list:
     out = []
     for a, b, _e in approaches(c):
         a, b = max(a, p.s_start), min(b, p.s_end)
-        for x, y in spans(a, b, lambda s: p.separation_at(s) < MIN_SEPARATION_FT - _EPS):
+        for x, y in spans(a, b, lambda s: not p.in_own(s)
+                          and p.separation_at(s) < MIN_SEPARATION_FT - _EPS):
             out.append(CheckRow("separation<5ft on an approach", x, y,
                                 min(p.separation_at(s) for s in _within(x, y)),
                                 MIN_SEPARATION_FT, "HDM 1003.1(7)"))
@@ -302,7 +308,7 @@ def equestrian_rows(c) -> list:
     for limit, check in ((EQ_SUSTAINED, "equestrian grade>10% for over 200ft"),
                          (EQ_PITCH, "equestrian grade>15% for over 200ft")):
         for x, y in spans(a, b, lambda s, limit=limit: not on_deck(c, s)
-                          and abs(path_grade(c, s)) > limit + 1e-12):
+                          and not p.in_own(s) and abs(path_grade(c, s)) > limit + 1e-12):
             if y - x > EQ_RUN_FT + _EPS:
                 top = max(abs(path_grade(c, s)) for s in _within(x, y))
                 out.append(CheckRow(check, x, y, 100.0 * top, 100.0 * limit,
@@ -358,12 +364,38 @@ def wall_rows(wall_rows_) -> list:
             for r in wall_rows_ if r.location == "strip"]
 
 
+def own_rows(c) -> list:
+    """The grade, crest and radius rows of each own stretch, on its own
+    profile and stations (0+00 at its hand-over); each check starts `own
+    <n> `. A path gap on it is a structure of its own, but its grade is
+    still the path's."""
+    from bimforge.author.corridor.own import radius_rows
+    p = c.path
+    out = []
+    for o in p.own:
+        out += profile_grade_rows(o.profile.grade, 0.0, o.length,
+                                  lambda s: False, f"own {o.index} ")
+        out += profile_crest_rows(o.profile, 0.0, o.length, p.design_speed,
+                                  f"own {o.index} ")
+        out += radius_rows(o, p.design_speed)
+    return out
+
+
+def _order(row) -> tuple:
+    """Road rows by station first, then each own stretch's rows by its own
+    stations (an own station repeats the road's numbers)."""
+    word = row.check.split(" ", 2)
+    n = int(word[1]) if word[0] == "own" and word[1].isdigit() else 0
+    return (n, row.start, row.check)
+
+
 def checks(c, rails, walls_) -> list:
-    """Every advisory row for corridor `c`'s path, by start station."""
+    """Every advisory row for corridor `c`'s path, by start station, then
+    its own stretches' rows (`own <n> ...`) by their own stations."""
     found = (grade_rows(c) + deck_rows(c) + crest_rows(c) + barrier_rows(c, rails)
              + approach_rows(c) + path_gap_rows(c) + equestrian_rows(c)
-             + deck_width_rows(c) + wall_rows(walls_))
-    return sorted(found, key=lambda r: (r.start, r.check))
+             + deck_width_rows(c) + wall_rows(walls_) + own_rows(c))
+    return sorted(found, key=_order)
 
 
 def checks_csv(rows: list) -> str:

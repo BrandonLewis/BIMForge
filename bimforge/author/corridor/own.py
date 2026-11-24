@@ -536,6 +536,26 @@ def wall_rows(c, oc, own, ground_dz, secs=()) -> list:
     return sorted(out, key=lambda r: (r.start, r.side))
 
 
+def radius_rows(own, speed: int) -> list:
+    """The own stretch's curves under 1003.1(10)'s minimum radius for
+    `speed`, and under its no-superelevation radius (both "should"), on its
+    own stations; the check names the stretch (`own <index> `). A radius
+    equal to the limit passes."""
+    from bimforge.author.corridor.path_checks import CheckRow
+    out = []
+    for seg in own.alignment.segments:
+        if seg["kind"] != "curve":
+            continue
+        for table, what in ((MIN_RADIUS_FT, "radius under the minimum"),
+                            (NO_SUPER_RADIUS_FT,
+                             "radius under the no-superelevation radius")):
+            if seg["radius"] < table[speed] - _EPS:
+                out.append(CheckRow(f"own {own.index} {what} at {speed} mph",
+                                    seg["s0"], seg["s1"], seg["radius"],
+                                    table[speed], "HDM 1003.1(10)"))
+    return out
+
+
 def check_handover(own, at_from, at_to) -> None:
     """The beside sections (section.Section) at the hand-over and the
     rejoin must leave natural ground between road and path (path._strip's
