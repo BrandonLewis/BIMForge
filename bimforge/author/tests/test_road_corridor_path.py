@@ -3,6 +3,7 @@ the road (P.6)."""
 import contextlib
 import copy
 import io
+import math
 import uuid
 
 import pytest
@@ -684,3 +685,243 @@ def test_the_tread_on_the_curve_holds_its_formulas_and_volumes():
         box = el.dimensions["PathLength"] * 8.0 * 0.33
         assert abs(box - el.quantities["volume_cf"]) <= 1e-6 * el.quantities["volume_cf"]
     assert check_stated_quantities(m) == []
+
+
+#: own stretches (phase 3): Task 9's corridor with no bridge, the path 20 ft
+#: out, and the bump of test_corridor_own from 11+00 to 15+10.424; the
+#: ground rises with the road (1 %) as it falls 2 % to the east, so both
+#: hand-overs leave natural ground between road and path
+from bimforge.author.tests.test_corridor_own import BUMP, REJOIN  # noqa: E402
+
+OWN_FT = sum(x["length"] for x in BUMP)
+#: the bump's PC to its first reverse-curve join, the second join to its
+#: PT: own stations where its curvature steps
+OWN_STEPS = ("1+04.72", "3+14.16")
+
+
+def own_params(side="R", to=REJOIN, crest=None, swing=False, tread=False, **over):
+    """The bump on `side` (turning away from the road first, or toward it
+    with `swing`), its profile one grade (two PVIs) from the path's at 11+00
+    to the path's at the rejoin, or with `crest` one vertical curve from
+    +`crest` % between them."""
+    p = copy.deepcopy(PARAMS)
+    p.update(gaps=[], **over)
+    p["ground"] = dict(p["ground"], slope_n=0.01)
+    flip = (side == "L") != swing
+    run = [dict(x, turn=("L" if x["turn"] == "R" else "R") if flip else x["turn"])
+           for x in BUMP]
+    z0, z1 = 299.48002 + 0.01 * 100.0, 299.48002 + 0.01 * (to - 1000.0)
+    g = 100.0 * (z1 - z0) / OWN_FT
+    g_in, g_out = (g, g) if crest is None else (crest, 2.0 * g - crest)
+    p["path"] = dict(copy.deepcopy(PATH), side=side, separation=[[1000, 20.0]], own=[{
+        "from": 1100, "to": to, "run": run,
+        "profile": {"curves": [{"bvc_station": 0.0, "bvc_elev": z0, "g_in_pct": g_in,
+                                "g_out_pct": g_out, "length_ft": OWN_FT,
+                                "evc_station": OWN_FT, "evc_elev": z1}]}}])
+    if tread:
+        p["path"]["equestrian"] = copy.deepcopy(TREAD)
+    return p
+
+
+def own_courses(m, where="path"):
+    return [e for e in m.elements if e.ifc_class == "IfcCourse"
+            and f" {where} 1 STA " in e.name]
+
+
+def own_earthwork(m):
+    return [e for e in m.elements if e.name.startswith(("Cut path 1 ", "Fill path 1 "))]
+
+
+@pytest.fixture(scope="module")
+def own_built():
+    log = []
+    return build(own_params(), log), log[0]
+
+
+def test_an_own_stretch_builds_its_own_path_and_earthwork(own_built):
+    m, _log = own_built
+    assert {e.name for e in own_courses(m)} >= {"PATH-HMA path 1 STA 0+00.00 to 1+00.00",
+                                                 "PATH-AB path 1 STA 4+00.00 to 4+18.88"}
+    for el in own_courses(m):
+        (lf,) = el.geometry
+        assert lf.alignment.name == "ML path 1"
+        # the path's own part, in the run it hands over from
+        assert el.spatial_part.predefined_type == "SHAREDUSEPATH"
+        assert el.spatial_part.parent.name == "Segment 1"
+        # its paved width centred on its own alignment: the box, on its grade
+        assert el.dimensions["Width"] == pytest.approx(12.0)
+        assert el.standard_qto["Qto_CourseBaseQuantities"]["Volume"][2] == (
+            "PathLength * Width * Thickness"), el.name
+    earth = own_earthwork(m)
+    assert {e.ifc_class for e in earth} == {"IfcEarthworksFill"}
+    for el in earth:
+        assert el.spatial_part.name == "Segment 1"
+    # beside the road the path stops at the hand-over and starts at the rejoin
+    for el in path_courses(m):
+        (lf,) = el.geometry
+        assert lf.s1 <= 1100.0 + 1e-6 or lf.s0 >= REJOIN - 1e-6, el.name
+    # the road's mass haul is the road's bands only, and its earthwork
+    # alone carries it
+    assert all(row.station <= 1600.0 for row in m.mass_haul)
+    assert not any("BIMForge_MassHaul" in e.psets for e in earth)
+
+
+def test_an_own_stretch_s_courses_split_at_its_curvature_steps(own_built):
+    m, _log = own_built
+    assert sorted({e.name.split(" STA ")[1] for e in own_courses(m)}) == [
+        "0+00.00 to 1+00.00", "1+00.00 to 1+04.72", "1+04.72 to 2+00.00",
+        "2+00.00 to 3+00.00", "3+00.00 to 3+14.16", "3+14.16 to 4+00.00",
+        "4+00.00 to 4+18.88"]
+
+
+def test_an_own_stretch_s_earthwork_is_closed_and_meets_its_volumes(own_built):
+    from collections import Counter
+
+    from bimforge.author.gate import check_stated_quantities
+    m, _log = own_built
+    assert check_stated_quantities(m) == []
+    assert own_earthwork(m)
+    for el in own_earthwork(m):
+        for g in el.geometry:
+            (d,) = g.body_solids()
+            directed = Counter((a, b) for t in d["tris"] for a, b in zip(t, t[1:] + t[:1]))
+            assert all(n == 1 and directed[b, a] == 1
+                       for (a, b), n in directed.items()), el.name
+
+
+def _build_ifc(tmp_path, params, log=None):
+    """`params` built through build_from_spec, the pre and post gates
+    passed (every Formula recomputed), to an IFC4X3 file, opened; with
+    walls: auto its walls table too (out/rc.walls.csv)."""
+    import ifcopenshell
+    import yaml
+
+    from bimforge.author.families.registry import build_from_spec
+    (tmp_path / "rc.paycodes.yaml").write_text(
+        "rules:\n  - {match: \"(?i)^(HMA|AB) \", group: rc_pave}\n"
+        "groups:\n  rc_pave: {measure: GrossVolume}\n"
+        "codes:\n  RC-PAVE: {group: rc_pave, measure: GrossVolume, unit: CY,\n"
+        "            item_number: \"0001\", description: \"Pavement\"}\n", "utf-8")
+    outputs = {"ifc": "out/rc.ifc"}
+    if params.get("walls") == "auto":
+        outputs["walls"] = "out/rc.walls.csv"
+    spec = {"family": "road-corridor", "params": params,
+            "paycodes": "./rc.paycodes.yaml", "outputs": outputs,
+            "project": {"name": "Own fixture", "epsg": 2226, "base": [E0, N0, 300.0],
+                        "guid_ns": str(uuid.UUID(int=11)), "schema": "IFC4X3_ADD2",
+                        "facility": {"kind": "road"}}}
+    path = tmp_path / "rc.spec.yaml"
+    path.write_text(yaml.safe_dump(spec, sort_keys=False), "utf-8")
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        assert build_from_spec(str(path)) == 0, err.getvalue()[-2000:]
+    if log is not None:
+        log.append(err.getvalue())
+    return ifcopenshell.open(str(tmp_path / "out" / "rc.ifc"))
+
+
+def _vertical(f, name):
+    import ifcopenshell.api.alignment as alapi
+    (al,) = [a for a in f.by_type("IfcAlignment") if a.Name == name]
+    return al, [s.DesignParameters
+                for s in alapi.get_layout_segments(alapi.get_vertical_layout(al))]
+
+
+def test_the_own_alignment_is_an_ifcalignment_with_a_two_pvi_profile(tmp_path):
+    import ifcopenshell.api.alignment as alapi
+
+    from bimforge.author.gate import alignment_issues
+    f = _build_ifc(tmp_path, own_params())
+    assert not alignment_issues(f)
+    own, segs = _vertical(f, "ML path 1")
+    assert [s.PredefinedType for s in segs if s.HorizontalLength > 0] == [
+        "CONSTANTGRADIENT"]
+    hsegs = [s.DesignParameters
+             for s in alapi.get_layout_segments(alapi.get_horizontal_layout(own))]
+    assert [s.PredefinedType for s in hsegs if s.SegmentLength > 0] == [
+        "CIRCULARARC"] * 3
+    assert [r.RelatingObject.is_a() for r in own.Decomposes] == ["IfcProject"]
+
+
+def test_a_run_that_swings_into_the_road_is_refused():
+    with pytest.raises(ValueError, match=r"path\.own\[0\]: its footprint at path "
+                                         r"station .* crosses the road's at "):
+        build(own_params(swing=True))
+
+
+def test_an_own_hand_over_without_ground_between_is_refused():
+    # 10 ft out, the road's fill and the path's inner fill meet at 11+00
+    p = own_params()
+    p["path"]["separation"] = [[1000, 10.0]]
+    with pytest.raises(ValueError, match=r"path\.own\[0\]: the hand-over at "
+                                         r"11\+00\.00 does not leave natural ground"):
+        build(p)
+
+
+#: a footprint on the path's side that the own stretch's outer fill, past
+#: the tread's clear strip 23 ft out, passes where the crest lifts it (and
+#: the path's outer slope beside the road, 66 ft out, everywhere)
+OWN_FOOTPRINT = {"L": 30.0, "R": 40.0}
+
+
+@pytest.mark.parametrize("side", ["L", "R"])
+def test_a_graded_curved_own_stretch_with_a_tread_passes_the_gate(tmp_path, side):
+    import ifcopenshell.util.element as E
+
+    from bimforge.author.alignment import sta
+    from bimforge.author.gate import FORMULA_TOLERANCE, alignment_issues
+    section = dict(copy.deepcopy(SECTION), side_slopes=dict(
+        SECTION["side_slopes"], footprint_ft={side: OWN_FOOTPRINT[side]}))
+    log = []
+    f = _build_ifc(tmp_path, own_params(side=side, crest=6.0, tread=True,
+                                        walls="auto", section=section), log)
+    assert not alignment_issues(f)
+    _own, segs = _vertical(f, "ML path 1")
+    assert [s.PredefinedType for s in segs if s.HorizontalLength > 0] == [
+        "PARABOLICARC"]
+    # the tread's courses hold their formula at the PC, the PT and the
+    # reverse-curve joins: each stretch's end rings read on its own side
+    treads = {c.Name: c for c in f.by_type("IfcCourse")
+              if (c.Name or "").startswith("EQ-DG tread 1 STA ")}
+    for at in OWN_STEPS:
+        assert f"EQ-DG tread 1 STA {at[0]}+00.00 to {at}" in treads, at
+        assert any(n.startswith(f"EQ-DG tread 1 STA {at} to ") for n in treads), at
+    assert not [line for line in log[0].splitlines()
+                if " 1 STA " in line and "withheld" in line]
+    for name, c in treads.items():
+        qto = E.get_psets(c)["Qto_CourseBaseQuantities"]
+        dims = E.get_psets(c)["BIMForge_Dimensions"]
+        box = dims["PathLength"] * dims["Width"] * dims["Thickness"]
+        assert abs(box - qto["Volume"]) <= FORMULA_TOLERANCE * qto["Volume"], name
+    # its walls in the walls table, on its own stations, and their rails
+    rows = [w.split(",") for w in
+            (tmp_path / "out" / "rc.walls.csv").read_text("utf-8").splitlines()]
+    (row,) = [r for r in rows[1:] if r[-1] == "own 1"]
+    # a fill wall at o, on the outer side, about 1+00 to 3+11 on the right
+    # (0+54.50 to 3+61 on the left, the ground higher there)
+    assert row[:2] == [side, "fill"] and float(row[4]) == pytest.approx(23.0)
+    assert 0.0 < float(row[2]) < float(row[3]) < OWN_FT
+    # along the tread: the Equestrian rail, in the tread's part
+    rails = sorted(r.Name for r in f.by_type("IfcRailing") if " path 1 " in r.Name)
+    assert rails == [f"Equestrian rail path 1 {side} STA {sta(float(row[2]))} to "
+                     f"{sta(float(row[3]))}",
+                     f"Path fence path 1 {side} STA 0+00.00 to 4+18.88"]
+    for r in f.by_type("IfcRailing"):
+        if " path 1 " in r.Name:
+            (part,) = [x.RelatingStructure for x in r.ContainedInStructure]
+            assert part.ObjectType == "EQUESTRIANTRAIL", r.Name
+
+
+def test_the_ground_reaches_past_an_own_stretch():
+    from bimforge.author.alignment import Alignment, Profile
+    from bimforge.author.corridor.params import parse
+    from bimforge.author.families.road_corridor import ground_reach
+    p = own_params()
+    al = Alignment(p["alignment"]["pob"], p["alignment"]["run"])
+    c = parse(p, al.s_start, al.s_end, alignment=al,
+              profile=Profile(p["profile"]["curves"]))
+    # its centreline 17 + 20 + 6 ft out at the hand-over, then the bump's
+    # 2 R (1 - cos 20 deg) farther; its paved half and shoulder, then the
+    # 150 ft daylight limit (the road's own reach is 203 ft)
+    wander = 43.0 + 2.0 * 300.0 * (1.0 - math.cos(math.radians(20.0)))
+    assert ground_reach(c) == pytest.approx(wander + 6.0 + 2.0 + 150.0, abs=0.05)
