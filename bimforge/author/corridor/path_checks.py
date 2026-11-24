@@ -32,6 +32,14 @@ STEEP_DOWNGRADE = 0.04
 STEEP_RUN_FT = 500.0
 #: the checks' sampling step along the path, feet
 SAMPLE_FT = 1.0
+#: USFS-EDG's guidance for the tread
+EQ_BUFFER_FT = 6.0                 # Ch. 3
+EQ_WIDTH_FT = 8.0                  # Table 4-2, two-way
+EQ_CLEAR_FT = 3.0                  # Table 4-1
+EQ_CROSS_SLOPE = (0.02, 0.05)      # Table 4-4
+EQ_SUSTAINED = 0.10                # Table 4-3; HDM 208.7 at crossings
+EQ_PITCH = 0.15                    # Table 4-3
+EQ_RUN_FT = 200.0
 DECK_CHECK = "deck grade>5% (or a separate path structure)"
 _EPS = 1e-9
 
@@ -271,6 +279,37 @@ def path_gap_rows(c) -> list:
     return out
 
 
+def equestrian_rows(c) -> list:
+    """The tread's advisory rows (USFS-EDG: guidance, never errors), over
+    the path's stations, off the decks."""
+    p = c.path
+    eq = p.equestrian
+    if eq is None:
+        return []
+    a, b = p.s_start, p.s_end
+    out = []
+    for check, value, limit, ref in (
+            ("equestrian buffer<6ft", eq.buffer, EQ_BUFFER_FT, "USFS-EDG Ch. 3"),
+            ("equestrian tread width<8ft", eq.width, EQ_WIDTH_FT, "USFS-EDG Table 4-2"),
+            ("equestrian clear<3ft", eq.clear, EQ_CLEAR_FT, "USFS-EDG Table 4-1")):
+        if value < limit - _EPS:
+            out.append(CheckRow(check, a, b, value, limit, ref))
+    cs = abs(eq.cross_slope)
+    lo, hi = EQ_CROSS_SLOPE
+    if not lo - _EPS <= cs <= hi + _EPS:
+        out.append(CheckRow("equestrian cross slope outside 2-5%", a, b, 100.0 * cs,
+                            100.0 * (lo if cs < lo else hi), "USFS-EDG Table 4-4"))
+    for limit, check in ((EQ_SUSTAINED, "equestrian grade>10% for over 200ft"),
+                         (EQ_PITCH, "equestrian grade>15% for over 200ft")):
+        for x, y in spans(a, b, lambda s, limit=limit: not on_deck(c, s)
+                          and abs(path_grade(c, s)) > limit + 1e-12):
+            if y - x > EQ_RUN_FT + _EPS:
+                top = max(abs(path_grade(c, s)) for s in _within(x, y))
+                out.append(CheckRow(check, x, y, 100.0 * top, 100.0 * limit,
+                                    "USFS-EDG Table 4-3; HDM 208.7"))
+    return out
+
+
 def wall_rows(wall_rows_) -> list:
     """Each wall in the strip, with its side and height (walls.WallRow)."""
     return [CheckRow(f"strip wall {r.side} {r.kind}", r.start, r.end, r.max_height,
@@ -281,7 +320,8 @@ def wall_rows(wall_rows_) -> list:
 def checks(c, rails, walls_) -> list:
     """Every advisory row for corridor `c`'s path, by start station."""
     found = (grade_rows(c) + deck_rows(c) + crest_rows(c) + barrier_rows(c, rails)
-             + approach_rows(c) + path_gap_rows(c) + wall_rows(walls_))
+             + approach_rows(c) + path_gap_rows(c) + equestrian_rows(c)
+             + wall_rows(walls_))
     return sorted(found, key=lambda r: (r.start, r.check))
 
 

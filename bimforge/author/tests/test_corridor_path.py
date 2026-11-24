@@ -1160,3 +1160,49 @@ def test_a_road_gap_start_exactly_a_foot_outside_a_path_gap_keeps_its_approach()
                                                   "kind": "structure"}]),
                  gaps=[{"from": 1499, "to": 1650, "kind": "structure"}])
     assert approaches(c) == [(1399.0, 1499.0, 1499.0), (1650.0, 1750.0, 1650.0)]
+
+
+from bimforge.author.corridor.path import Equestrian  # noqa: E402
+
+TREAD = {"courses": [{"name": "EQ-DG", "type": "PAVEMENT", "thickness": 0.33}]}
+
+
+def test_an_equestrian_tread_takes_its_defaults():
+    eq = corridor(path(equestrian=TREAD)).path.equestrian
+    assert isinstance(eq, Equestrian)
+    assert (eq.width, eq.buffer, eq.clear, eq.cross_slope) == (8.0, 6.0, 3.0, -0.02)
+    assert (eq.fence, eq.fence_height, eq.rail_height) == (False, 4.5, 4.5)
+    assert eq.depth() == pytest.approx(0.33)
+    assert corridor().path.equestrian is None
+
+
+@pytest.mark.parametrize("over, match", [
+    ({"width": 0}, r"path\.equestrian\.width: must be positive"),
+    ({"buffer": 1.5}, r"path\.equestrian\.buffer: 1\.5 ft is narrower than "
+                      r"path\.shoulder\.width \(2 ft\)"),
+    ({"clear_ft": 0}, r"path\.equestrian\.clear_ft: must be positive"),
+    ({"fence_height_ft": 0}, r"path\.equestrian\.fence_height_ft: must be positive"),
+    ({"rail_height_ft": 0}, r"path\.equestrian\.rail_height_ft: must be positive"),
+    ({"courses": [{"name": "EQ-DG", "type": "PAVEMENT", "thickness": 0}]},
+     r"path\.equestrian\.courses\[0\]\.thickness: must be positive"),
+    ({"courses": []}, r"path\.equestrian\.courses: needs at least one course"),
+    ({"fence": "yes"}, r"path\.equestrian\.fence: true or false"),
+    ({"horses": 2}, r"path\.equestrian: unknown keys \['horses'\]"),
+])
+def test_bad_equestrian_params_are_refused(over, match):
+    with pytest.raises(ValueError, match=match):
+        corridor(path(equestrian=dict(TREAD, **over)))
+
+
+def test_a_tread_without_courses_or_not_a_mapping_is_refused():
+    with pytest.raises(ValueError, match=r"path\.equestrian\.courses: needs at least"):
+        corridor(path(equestrian={}))
+    with pytest.raises(ValueError, match=r"path\.equestrian: a mapping"):
+        corridor(path(equestrian=[TREAD]))
+
+
+def test_an_unusual_tread_is_not_an_error():
+    # USFS-EDG's figures are guidance: only the buffer's floor is a "shall"
+    eq = corridor(path(equestrian=dict(TREAD, buffer=2.0, width=4.0, clear_ft=1.0,
+                                       cross_slope=0.08))).path.equestrian
+    assert (eq.buffer, eq.width, eq.clear, eq.cross_slope) == (2.0, 4.0, 1.0, 0.08)

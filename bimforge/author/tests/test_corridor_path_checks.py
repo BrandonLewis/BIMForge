@@ -191,3 +191,65 @@ def test_a_path_gap_inside_a_road_gap_leaves_one_row_per_station():
     assert {f[10] for f in fields if 1430.0 <= float(f[0]) <= 1470.0} == {"path gap"}
     deck = [float(f[0]) for f in fields if f[10] == "deck"]
     assert deck and all(x < 1430.0 or x > 1470.0 for x in deck)
+
+
+from bimforge.author.tests.test_corridor_path import TREAD  # noqa: E402
+
+
+def test_the_equestrian_guidance_is_advisory():
+    c = corridor(path(equestrian=dict(TREAD, buffer=4.0, width=6.0, clear_ft=2.0,
+                                      cross_slope=-0.01)))
+    got = {r.check: (r.value, r.limit) for r in pc.equestrian_rows(c)}
+    assert got == {"equestrian buffer<6ft": (4.0, 6.0),
+                   "equestrian tread width<8ft": (6.0, 8.0),
+                   "equestrian clear<3ft": (2.0, 3.0),
+                   "equestrian cross slope outside 2-5%": (pytest.approx(1.0), 2.0)}
+    assert pc.equestrian_rows(corridor(path(equestrian=TREAD))) == []
+    assert pc.equestrian_rows(corridor()) == []
+
+
+def test_a_cross_slope_over_5_percent_is_listed_against_the_upper_limit():
+    c = corridor(path(equestrian=dict(TREAD, cross_slope=-0.08)))
+    (row,) = pc.equestrian_rows(c)
+    assert (row.value, row.limit) == (pytest.approx(8.0), pytest.approx(5.0))
+
+
+def test_a_steep_tread_is_listed():
+    # 0 % to 12+00, a 10 ft curve to 12 %, 12 % to 15+00, a 10 ft curve to
+    # 16 %, 16 % to 18+00, a 10 ft curve back to 0. Inside a curve from g1
+    # to g2 over L the grade is g1 + (g2 - g1) x / L: over 10 % from
+    # 12+00 + 10 x 10/12 = 12+08.33 to 18+00 + 10 x 6/16 = 18+03.75, 595 ft;
+    # over 15 % from 15+00 + 10 x 3/4 = 15+07.50 to 18+00 + 10 x 1/16 =
+    # 18+00.625, 293 ft: both over 200 ft
+    prof = curves([(0, 0, 200), (0, 12, 10), (12, 12, 290), (12, 16, 10),
+                   (16, 16, 290), (16, 0, 10), (0, 0, 190)])
+    c = corridor(path(profile=prof, equestrian=TREAD))
+    got = {r.check: (r.start, r.end, r.value) for r in pc.equestrian_rows(c)}
+    assert got["equestrian grade>10% for over 200ft"] == (
+        pytest.approx(1208.3333, abs=1e-3), pytest.approx(1803.75, abs=1e-3),
+        pytest.approx(16.0))
+    assert got["equestrian grade>15% for over 200ft"] == (
+        pytest.approx(1507.5, abs=1e-3), pytest.approx(1800.625, abs=1e-3),
+        pytest.approx(16.0))
+    # no tread, no rows; with one, the rows are among the path's checks
+    assert pc.equestrian_rows(corridor(path(profile=prof))) == []
+    assert {r.check for r in pc.checks(c, [], [])} >= set(got)
+
+
+def test_a_steep_stretch_of_200_ft_or_less_is_not_listed():
+    # 12 % for 150 ft between two 10 ft curves: over 10 % for under 200 ft
+    prof = curves([(0, 0, 300), (0, 12, 10), (12, 12, 150), (12, 0, 10),
+                   (0, 0, 530)])
+    assert pc.equestrian_rows(corridor(path(profile=prof, equestrian=TREAD))) == []
+
+
+def test_the_tread_s_grade_is_not_checked_on_a_deck():
+    # a 12 % road, the path on its deck from 1400 to 1500: the tread's grade
+    # rows (over 10 % for over 200 ft) stop at the deck's ends
+    road = Profile(grade(100.0, pct=12.0)["curves"])
+    p = deck_path(equestrian=TREAD)
+    p["profile"] = grade(99.4809, pct=12.0)
+    c = corridor(p, gaps=GAP, prof=road)
+    got = rows(pc.equestrian_rows(c), "equestrian grade>10%")
+    assert [(a, b) for a, b, _v, _l in got] == [(pytest.approx(1000.0), 1400.0),
+                                                 (1500.0, pytest.approx(2000.0))]

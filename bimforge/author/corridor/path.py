@@ -45,7 +45,10 @@ GROUND_SAMPLES = 8
 #: the keys `params.path` takes
 KEYS = {"side", "stations", "separation", "width", "cross_slope", "shoulder",
         "courses", "profile", "design_speed_mph", "strip", "approach_ft",
-        "deck_separation_ft", "rail_height_ft", "gaps"}
+        "deck_separation_ft", "rail_height_ft", "gaps", "equestrian"}
+#: the keys `path.equestrian` takes
+EQ_KEYS = {"width", "buffer", "clear_ft", "cross_slope", "courses", "fence",
+           "fence_height_ft", "rail_height_ft"}
 _EPS = 1e-9
 #: how far outside an approach validate looks, feet: separation is linear
 #: between its rows, so a violation just outside is a violation at the edge
@@ -61,6 +64,24 @@ class PathGap:
     road stations; the structure is its own family's."""
     start: float
     end: float
+
+
+@dataclass(frozen=True)
+class Equestrian:
+    """An unpaved equestrian tread beside the paved path, away from the road,
+    a buffer between them (USFS-EDG Ch. 3): one shared-use corridor with
+    separate treads. Its figures are guidance: defaults and advisories."""
+    width: float           # the tread, feet (Table 4-2: 8-12 two-way)
+    buffer: float          # paved edge to tread edge, feet
+    clear: float           # graded clear each side, feet (Table 4-1)
+    cross_slope: float     # negative: down away from the road (Table 4-4)
+    courses: tuple         # params.Course: its surfacing, top down
+    fence: bool            # an open rail fence on the tread side of the buffer
+    fence_height: float
+    rail_height: float     # on walls along the tread, feet (54 in)
+
+    def depth(self) -> float:
+        return sum(x.thickness for x in self.courses)
 
 
 @dataclass(frozen=True)
@@ -87,6 +108,7 @@ class Path:
     road_profile: Profile          # the road's
     alignment: object              # the road's
     gaps: tuple = ()               # PathGap, by start station
+    equestrian: object = None      # Equestrian, or None
 
     @property
     def sign(self) -> float:
@@ -219,6 +241,35 @@ def _profile(value, where: str, s0: float, s1: float) -> Profile:
     return Profile(curves)
 
 
+def _equestrian(value, shoulder_width: float):
+    if value is None:
+        return None
+    where = "path.equestrian"
+    if not isinstance(value, dict):
+        raise ValueError(f"{where}: a mapping ({{width, buffer, clear_ft, courses, "
+                         f"...}})")
+    unknown = sorted(set(value) - EQ_KEYS)
+    if unknown:
+        raise ValueError(f"{where}: unknown keys {unknown}")
+    buffer = _num(value.get("buffer", 6.0), f"{where}.buffer")
+    if buffer < shoulder_width - _EPS:
+        raise ValueError(f"{where}.buffer: {buffer:g} ft is narrower than "
+                         f"path.shoulder.width ({shoulder_width:g} ft): no room for "
+                         f"the paved path's graded shoulder (HDM 1003.1(1))")
+    fence = value.get("fence", False)
+    if not isinstance(fence, bool):
+        raise ValueError(f"{where}.fence: true or false, got {fence!r}")
+    return Equestrian(
+        width=_num(value.get("width", 8.0), f"{where}.width"), buffer=buffer,
+        clear=_num(value.get("clear_ft", 3.0), f"{where}.clear_ft"),
+        cross_slope=_num(value.get("cross_slope", -0.02), f"{where}.cross_slope",
+                         positive=False),
+        courses=tuple(_courses(value.get("courses"), f"{where}.courses")),
+        fence=fence,
+        fence_height=_num(value.get("fence_height_ft", 4.5), f"{where}.fence_height_ft"),
+        rail_height=_num(value.get("rail_height_ft", 4.5), f"{where}.rail_height_ft"))
+
+
 def parse_path(pp, c, alignment, profile) -> Path:
     """The path `pp` (`params.path`) describes beside corridor `c`
     (params.Corridor), placed against the road's `alignment` and `profile`;
@@ -281,7 +332,8 @@ def parse_path(pp, c, alignment, profile) -> Path:
                              "path.deck_separation_ft"),
         rail_height=_num(pp.get("rail_height_ft", 3.5), "path.rail_height_ft"),
         road_profile=profile, alignment=alignment,
-        gaps=_path_gaps(pp.get("gaps"), s0, s1))
+        gaps=_path_gaps(pp.get("gaps"), s0, s1),
+        equestrian=_equestrian(pp.get("equestrian"), sw))
 
 
 def stations_extra(c) -> list:
