@@ -309,3 +309,12 @@ def test_an_element_spanning_an_end_stays_on_its_line_at_any_density(
     # an abutment 10 m long, 40 % or 60 % of it past the bridge's end
     x0 = 60.0 - 10.0 * (1.0 - past)
     assert _on(monkeypatch, BRIDGE, _box(x0, x0 + 10.0, -6.0, 6.0, n)) == "BR"
+
+
+def test_a_long_element_past_a_lines_end_is_not_pulled_onto_a_crossing_line(
+        monkeypatch):
+    """A 100 m wall running on past the bridge's end, square across the
+    road: the road is within the cap (its median 80 m against 2 x 50 m),
+    but the wall spans 1 m of its stations - it crosses the road, it does
+    not lie along it - so it stays on the bridge."""
+    assert _on(monkeypatch, BRIDGE, _box(60.0, 160.0, 5.0, 6.0)) == "BR"

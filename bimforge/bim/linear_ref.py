@@ -28,8 +28,8 @@ coordinates), stationed with `AlignmentStationer.locate_many` - exact on
 tangents and circular curves. An element goes to the alignment it was placed
 on, else the one it lies nearest in plan (its offset; past an end, its
 distance to that end) - or, when it is mostly past that one's end, a line
-it lies along within twice that distance or that plus its own extent
-(see `_choose`) - else the first.
+it lies along (spanning 0.3 of its extent in stations) within twice that
+distance or that plus its own extent (see `_choose`) - else the first.
 
 Re-running replaces what an earlier run wrote (and keeps its anchors), with
 GlobalIds derived from the element's, so a rebuild is byte-stable and a
@@ -100,13 +100,17 @@ def _texts(st, s0, s1, o0, o1) -> dict:
             "StationEndText": st.format_station(s1), "OffsetText": off}
 
 
+#: a line an element lies ALONG covers at least this share of its plan
+#: extent in stations (see `_choose`)
+ALONG_SPAN = 0.3
 #: metres past an end before a plan point counts as off the line's stations
 _PAST = 1e-3
 
 
 def _closeness(st, xy, ends: dict) -> tuple:
     """How the line `st` fits the plan points `xy`: (whether most of them
-    lie past its ends, their median plan distance from it in metres).
+    lie past its ends, their median plan distance from it in metres, the
+    station span they cover on it in metres).
 
     locate_many clamps a point past an end and keeps only its square
     offset, so on a short line's extension a point far from it would score
@@ -129,11 +133,12 @@ def _closeness(st, xy, ends: dict) -> tuple:
             over = np.sqrt(np.maximum(far ** 2 - miss[at] ** 2, 0.0))
             past[at] |= over > _PAST
             miss[at] = np.maximum(miss[at], far)
-    return bool(past.mean() > 0.5), float(np.median(miss))
+    return bool(past.mean() > 0.5), float(np.median(miss)), float(np.ptp(d))
 
 
-def _choose(cands, sample, ends: dict):
-    """The line an element (its plan points `sample`, metres) goes to.
+def _choose(cands, sample, xy, ends: dict):
+    """The line an element goes to: `sample` its plan points (metres) to
+    judge by, `xy` all of them.
 
     The nearest by median true plan distance, d*, unless most of the
     element lies past that line's ends and a line it lies ALONG is within
@@ -145,16 +150,32 @@ def _choose(cands, sample, ends: dict):
     the one it follows, and stationing it on the other would collapse it
     onto the end station. Farther than that, the end is simply nearer: an
     approach slab or a wingwall a few metres past a bridge's end stays on
-    the bridge, not on a road it lies along 30 m away. One cap from d*, then
-    a minimum over a fixed set: a well-defined choice, ties to the first."""
+    the bridge, not on a road it lies along 30 m away.
+
+    So, by design, a PARALLEL line within the cap takes a short line's end
+    pieces: a slab past a bridge's end with a frontage road or a twin
+    bridge some 15 m off goes to that line, at real stations along it,
+    rather than to the bridge's collapsed end station.
+
+    Lying along a line means covering at least ALONG_SPAN (0.3) of the
+    element's plan extent in its stations: an element running within about
+    70 degrees of the line's heading, or a wide one whose length along it
+    is a third of its diagonal. A long wall running on past a bridge's end
+    square across a road under it spans a metre of the road's stations: it
+    crosses that road and is not pulled onto it however near the cap lets
+    the road be.
+
+    One cap from d*, then a minimum over a fixed set: a well-defined
+    choice, ties to the first."""
     import numpy as np
     fits = [(c, *_closeness(c, sample, ends)) for c in cands]
     nearest = min(fits, key=lambda x: x[2])
     if not nearest[1]:
         return nearest[0]
-    ext = float(np.hypot(*np.ptp(np.asarray(sample, dtype=float)[:, :2], axis=0)))
+    ext = float(np.hypot(*np.ptp(np.asarray(xy, dtype=float)[:, :2], axis=0)))
     cap = max(2.0 * nearest[2], nearest[2] + ext)
-    along = [x for x in fits if not x[1] and x[2] <= cap]
+    along = [x for x in fits
+             if not x[1] and x[2] <= cap and x[3] >= ALONG_SPAN * ext]
     return min(along or [nearest], key=lambda x: x[2])[0]
 
 
@@ -186,7 +207,7 @@ def measure(f, stationers=None, anchors: dict | None = None) -> dict:
         if len(cands) > 1:
             # which line: the nearest, judged on a sample (a choice, not a range)
             sample = xy[:: max(1, len(xy) // MAX_POINTS)]
-            st = _choose(cands, sample, ends)
+            st = _choose(cands, sample, xy, ends)
         else:
             st = cands[0]
         # distances are metres along the curve; offsets metres left
