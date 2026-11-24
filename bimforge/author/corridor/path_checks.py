@@ -583,6 +583,8 @@ def path_csv(c, secs: list, rails) -> str:
         for s, end in ((o.start, "hand-over"), (o.end, "rejoin")):
             if any(abs(s - x) <= _EPS for x, _r in rows):
                 continue
+            # one row per station holds here only because own.py refuses an
+            # end on a road structure gap (deck) or in or near a path gap
             pz = p.profile.elev(s)
             rows.append((s, f"{s:.2f},{p.side},{p.separation_at(s):.2f},"
                             f"{centre_u(c, s):.2f},,{pz:.3f},,"

@@ -1,6 +1,7 @@
 """bimforge.bim.linear_ref: station / offset written into the IFC."""
 from __future__ import annotations
 
+import math
 import sqlite3
 
 import pytest
@@ -241,3 +242,70 @@ def test_past_every_line_s_end_the_nearest_end_wins(monkeypatch):
     f = SimpleNamespace(by_id=lambda i: SimpleNamespace(GlobalId=f"g{i}", Name=f"e{i}"))
     (v,) = lr.measure(f, stationers=[a, b]).values()
     assert v["Alignment"] == "B"
+
+
+class _Ray(_Line):
+    """A straight stationer from `p0` heading `angle` (radians from +x)."""
+
+    def __init__(self, name, p0, angle, length):
+        import numpy as np
+        super().__init__(name, 0.0, 0.0, length)
+        self.p0 = np.asarray(p0, dtype=float)
+        self.t = np.array([np.cos(angle), np.sin(angle)])
+        self.n = np.array([-self.t[1], self.t[0]])            # left
+
+    def locate_many(self, xy):
+        import numpy as np
+        r = np.asarray(xy, dtype=float).reshape(-1, 2) - self.p0
+        return np.clip(r @ self.t, 0.0, self.length), r @ self.n
+
+    def frame(self, d):
+        from types import SimpleNamespace
+        p = self.p0 + min(max(float(d), 0.0), self.length) * self.t
+        return SimpleNamespace(point=(p[0], p[1], 0.0))
+
+
+def _box(x0, x1, y0, y1, n=20):
+    import numpy as np
+    X, Y = np.meshgrid(np.linspace(x0, x1, n), np.linspace(y0, y1, n))
+    return np.column_stack([X.ravel(), Y.ravel(), np.zeros(X.size)])
+
+
+def _on(monkeypatch, lines, pts):
+    from types import SimpleNamespace
+    import bimforge.bim.linear_ref as lr
+    monkeypatch.setattr(lr, "_bodies", lambda f: {1: pts})
+    f = SimpleNamespace(by_id=lambda i: SimpleNamespace(GlobalId=f"g{i}", Name=f"e{i}"))
+    (v,) = lr.measure(f, stationers=lines).values()
+    return v["Alignment"]
+
+
+#: a bridge 0 to 60 m along x, and a road crossing under it at x = 30
+#: running along y: the bridge's end pieces lie past its end, but the
+#: road they lie "along" is 30 m and more away
+BRIDGE = (_Ray("BR", (0.0, 0.0), 0.0, 60.0),
+          _Ray("SR", (30.0, -500.0), math.pi / 2, 1000.0))
+
+
+@pytest.mark.parametrize("where", [(61.0, 70.0, -6.0, 6.0),      # approach slab
+                                   (59.0, 64.0, 5.0, 6.0)])      # wingwall
+def test_an_element_just_past_a_lines_end_stays_on_it(monkeypatch, where):
+    """Past the bridge's end by less than its own size, and much nearer
+    the bridge than the road it lies along: it stays on the bridge."""
+    assert _on(monkeypatch, BRIDGE, _box(*where)) == "BR"
+
+
+def test_an_element_abeam_an_end_is_not_past_it(monkeypatch):
+    # square off the bridge's end, 20 to 30 m out: the bridge is nearer
+    # (25 m) than the road (30 m) and the element is not past its end
+    pts = _box(60.0, 60.0, 20.0, 30.0)
+    assert _on(monkeypatch, BRIDGE, pts) == "BR"
+
+
+@pytest.mark.parametrize("past", [0.4, 0.6])
+@pytest.mark.parametrize("n", [5, 20, 61])
+def test_an_element_spanning_an_end_stays_on_its_line_at_any_density(
+        monkeypatch, past, n):
+    # an abutment 10 m long, 40 % or 60 % of it past the bridge's end
+    x0 = 60.0 - 10.0 * (1.0 - past)
+    assert _on(monkeypatch, BRIDGE, _box(x0, x0 + 10.0, -6.0, 6.0, n)) == "BR"

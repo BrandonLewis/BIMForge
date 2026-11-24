@@ -164,9 +164,13 @@ centroid's, left positive, as the linear reference's offsets are.
   square offset - and was stationed at its end station (`0+00.00` to
   `0+00.01`): the path, tread, fence, rails and road fill beside the road
   before the hand-over and after the rejoin. The linear reference (the
-  build's and `est-bim stations`) now ranks the alignments by whether the
-  element lies within their stations, then by true plan distance (past an
-  end, the distance to it).
+  build's and `est-bim stations`) now ranks the alignments by true plan
+  distance (past an end, the distance to it), and an element mostly past
+  the nearest one's end goes to an alignment it lies along only if that is
+  within twice the nearest distance, or the nearest plus the element's own
+  plan extent. So an element just past a short alignment's end - an
+  approach slab or a wingwall past a bridge's - stays on it, stationed at
+  its end, rather than going to a crossing road it lies along farther off.
 
 - **`station()` rounds before it splits,** so 1299.999999 ft is `13+00.00`,
   not `12+100.00`. A negative station prints its sign in front of the
