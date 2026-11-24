@@ -48,10 +48,12 @@ def _signed_area(pts: list) -> float:
                      for p, q in zip(pts, pts[1:] + pts[:1]))
 
 
-def _ground_v(survey, ground_z, s: float, u: float, v: float) -> float:
+def _ground_v(survey, ground_z, s: float, u: float, v: float,
+              tag: str = "") -> float:
     """The v at which the v-ray through section point (u, v) at station s
     meets the ground: secant steps from v, the ray climbing about a foot per
-    foot of v, so the first step lands nearly on it."""
+    foot of v, so the first step lands nearly on it. `tag` names the strip
+    in the error."""
     def above(w):
         n, e, z = survey(s, u, w)
         return ground_z(n, e) - z
@@ -66,9 +68,10 @@ def _ground_v(survey, ground_z, s: float, u: float, v: float) -> float:
             break
         w0, f0, w1 = w1, f1, w1 - f1 * (w1 - w0) / (f1 - f0)
         f1 = above(w1)
-    if abs(f1) > _ON_GROUND_FT:
-        raise ValueError(f"the ground under station {s:g}, offset {u:g} is "
-                         f"not found along its section ray ({f1:.3g} ft off)")
+    if not abs(f1) <= _ON_GROUND_FT:            # NaN fails too
+        raise ValueError(f"{tag}: the ground under station {s:g}, offset "
+                         f"{u:g} is not found along its section ray "
+                         f"({f1:.3g} ft off)")
     return w1
 
 
@@ -88,6 +91,8 @@ def _clip(tri: list, sign: float) -> list:
             t = lo[3] / (lo[3] - hi[3])
             x = tuple(a + t * (b - a) for a, b in zip(lo[1], hi[1]))
             su = tuple(a + t * (b - a) for a, b in zip(lo[4], hi[4]))
+            # its key is lo's and hi's together, a 4-tuple, never fed back
+            # into _clip (each kind clips the triangle's own corners)
             out.append((lo[0] + hi[0], x, x, 0.0, su))
     return out if len(out) >= 3 else []
 
@@ -164,7 +169,8 @@ def strip(tag: str, a, b, survey, ground_z, origin, per_component=1) -> tuple:
     sections `a` and `b` (section.Section). `survey(s, u, v)` places a
     section point (frame.survey_point); `ground_z(n, e)` is the ground;
     `per_component` divides the subgrade (Section.earthwork_line). A depth
-    is vertical, design to ground at a corner."""
+    is the elevation difference between a corner's design point and its
+    ray's ground point."""
     la = a.earthwork_line(per_component)
     lb = b.earthwork_line(per_component)
     if len(la) != len(lb):
@@ -174,7 +180,7 @@ def strip(tag: str, a, b, survey, ground_z, origin, per_component=1) -> tuple:
     def corner(sec, k, p):
         # (key, design, earth, depth along the ray, where in (s, u))
         u, v = p
-        w = _ground_v(survey, ground_z, sec.s, u, v)
+        w = _ground_v(survey, ground_z, sec.s, u, v, tag)
         return ((sec.s, k), to_model(origin, *survey(sec.s, u, v)),
                 to_model(origin, *survey(sec.s, u, w)), w - v, (sec.s, u))
 

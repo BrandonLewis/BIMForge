@@ -420,6 +420,65 @@ def test_a_leaning_bay_is_one_closed_body_holding_the_volume_along_its_rays():
     assert body.volume_cf == pytest.approx(want, rel=1e-9)
 
 
+def _positive_part(area, f):
+    """The integral of max(F, 0) over a triangle of `area` where F is linear
+    and `f` its corner values: where one corner alone is positive, the part
+    is a triangle of area x p^2 / ((p - n1)(p - n2)) and mean height p / 3;
+    where two are, the whole less the negative corner's part."""
+    pos = [x for x in f if x > 0.0]
+    neg = [x for x in f if x <= 0.0]
+    if not pos:
+        return 0.0
+    if not neg:
+        return area * sum(f) / 3.0
+    if len(pos) == 1:
+        (p,), (n1, n2) = pos, neg
+        return area * p ** 3 / (3.0 * (p - n1) * (p - n2))
+    (n,), (p1, p2) = neg, pos
+    return area * sum(f) / 3.0 + area * (-n) ** 3 / (3.0 * (p1 - n) * (p2 - n))
+
+
+def test_a_leaning_bay_over_a_side_hill_splits_cut_from_fill_along_its_rays():
+    # the bay above over ground rising 0.3 to the east (the right) and 0.1
+    # to the north: fill on the left, cut on the right, the ground crossing
+    # the design line inside triangles of the bay
+    import math
+    ground = PlaneGround(114.0, n0=50.0, slope_n=0.1, slope_e=0.3)
+    a = Line(50.0, [(20.0, -1.0), (0.0, -1.0), (-20.0, -1.0)])
+    b = Line(51.0, [(20.0, 19.0), (0.0, -1.0), (-20.0, -1.0)])
+    cut, fill, _cd, _fd = earthwork.strip("t", a, b, steep, ground.z, None)
+    assert cut and fill
+    # independently: on a plane the depth along a ray is linear in v, so two
+    # readings place the ground; over each (s, u) triangle the depth is
+    # linear, and the survey map scales volume by sec(gamma)
+    sec = 1.0 / math.cos(math.atan(0.3))
+
+    def depth(s, u, v):
+        def above(w):
+            n, e, z = steep(s, u, w)
+            return ground.z(n, e) - z
+        f0, f1 = above(0.0), above(1.0)
+        return -f0 / (f1 - f0) - v
+
+    want = {"cut": 0.0, "fill": 0.0}
+    crossed = 0
+    for i in range(2):
+        for tri in (((a.s, *a.line[i]), (b.s, *b.line[i]), (b.s, *b.line[i + 1])),
+                    ((a.s, *a.line[i]), (b.s, *b.line[i + 1]), (a.s, *a.line[i + 1]))):
+            area = abs(earthwork._signed_area([(s, u) for s, u, _v in tri]))
+            d = [depth(*q) for q in tri]
+            crossed += min(d) < 0.0 < max(d)
+            want["cut"] += sec * _positive_part(area, d)
+            want["fill"] += sec * _positive_part(area, [-x for x in d])
+    assert crossed >= 2
+    for kind, cols in (("cut", cut), ("fill", fill)):
+        assert sum(p.volume_cf for p in cols) == pytest.approx(want[kind], rel=1e-9)
+        (body,) = earthwork.merge("t", kind, cols)
+        directed = Counter((x, y) for t in body.tris for x, y in zip(t, t[1:] + t[:1]))
+        assert all(n == 1 and directed[y, x] == 1 for (x, y), n in directed.items())
+        assert body.volume_cf == pytest.approx(want[kind], rel=1e-9)
+
+
 def test_a_column_turned_inside_out_is_refused():
     # a survey whose v points down: each column's top lies under its base
     def down(s, u, v):

@@ -120,6 +120,8 @@ def _steep_spec(tmp, case):
     p.pop("widths")
     p["max_wall_height_ft"] = 40.0
     if case == "listed":
+        assert [(g["from"], g["to"]) for g in p["gaps"]
+                if g["kind"] == "wall"] == [(2200, 2300)]
         p.pop("walls")
         p["ground"]["elevation"] = 260.0
         p["section"]["side_slopes"]["footprint_ft"] = {"L": 1000, "R": 1000}
@@ -145,3 +147,18 @@ def test_a_wall_s_lead_in_on_a_steep_grade_passes_the_gate(tmp_path, case):
     with contextlib.redirect_stderr(err):
         # 0: the pre gate and the post gate both passed
         assert build_from_spec(str(path)) == 0, err.getvalue()[-2000:]
+    out = tmp_path / "out"
+    if case == "cut":
+        # an automatic cut wall ending inside the alignment, so with a lead-in
+        rows = list(csv.DictReader(io.StringIO(
+            (out / "road-corridor.walls.csv").read_text("utf-8"))))
+        assert any(r["kind"] == "cut" and (float(r["start"]) > 1000.0
+                                           or float(r["end"]) < 2549.07)
+                   for r in rows), rows
+    else:
+        # the listed wall still stands on fill: its lead-in at 21+99 lies in
+        # the band before it
+        f = ifcopenshell.open(str(out / "road-corridor.ifc"))
+        fills = {e.Name for e in f.by_type("IfcEarthworksFill")}
+        assert {"Fill STA 21+00.00 to 22+00.00",
+                "Fill STA 22+00.00 to 23+00.00"} <= fills

@@ -101,6 +101,19 @@ centroid's, left positive, as the linear reference's offsets are.
 
 ### Fixed
 
+- **Road-corridor earthwork follows the leaning section rays.** A corridor
+  section stands square to the road's 3D tangent, so a point v up sits
+  v sin(grade angle) back along the line; earthwork columns stood
+  vertically over plan triangles folded over at short bays on a grade (a
+  wall's 1 ft lead-in, a path's 1 ft end transition), leaving the body not
+  closed and the volume over-counted (54 % off the post gate for a fill wall
+  on 7 %). Columns are now triangulated in station and offset and run along
+  each corner's section ray to the ground. Earthwork volumes move: +0.09 % on
+  the V1.1 example (1,008,083.5 to 1,009,008.4 cf), +0.03 % on V1, with the
+  mass haul. The earthwork's plan rings come from its ground corners, for cut
+  as well as fill, and MaxDepth / MeanDepth shift slightly (V1.1's last fill
+  band: MaxDepth 22.6011 to 22.5600 ft).
+
 - **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
   and grid spacing to 3DEP in the CRS's own unit but scaled plan and height
   by one factor, so it only worked on a metric CRS. `grid_to_mesh` and
