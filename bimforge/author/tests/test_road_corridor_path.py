@@ -4,6 +4,7 @@ import contextlib
 import copy
 import io
 import math
+import re
 import uuid
 
 import pytest
@@ -927,6 +928,16 @@ def test_a_graded_curved_own_stretch_with_a_tread_passes_the_gate(tmp_path, side
         if " path 1 " in r.Name:
             (part,) = [x.RelatingStructure for x in r.ContainedInStructure]
             assert part.ObjectType == "EQUESTRIANTRAIL", r.Name
+    # stationed on the line each lies along: the own stretch's on its own
+    # alignment, the rest - the path beside the road before the hand-over
+    # and after the rejoin too, along the own line's extension - on ML
+    from bimforge.bim.linear_ref import read
+    refs = read(f)
+    on = {el.Name: refs[el.GlobalId]["Alignment"] for el in f.by_type("IfcElement")
+          if el.GlobalId in refs}
+    own = {n for n in on if re.search(r"\b(path|tread) 1\b", n)}
+    assert len(own) > 20 and len(on) - len(own) > 20
+    assert {n: a for n, a in on.items() if a != ("ML path 1" if n in own else "ML")} == {}
 
 
 def test_the_ground_reaches_past_an_own_stretch():

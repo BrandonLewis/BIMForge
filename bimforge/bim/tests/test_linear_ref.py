@@ -153,3 +153,91 @@ def test_a_new_anchor_by_name_replaces_the_carried_one(tmp_path):
         deck.GlobalId: {"alignment": "ML", "station": 1300.0 * FT, "offset_left": 0.0}})
     f = ifcopenshell.open(str(path))
     assert read(f)[deck.GlobalId]["AnchorStationText"] == "13+00.00"
+
+
+class _Line:
+    """A straight stationer along +x at height `y`, from x0 to x0 + length
+    (metres; stations in metres): what `measure` asks of one. Past an end
+    a point clamps there with its offset square to the line, as
+    AlignmentStationer.locate_many does."""
+
+    def __init__(self, name, x0, y, length):
+        self.name, self.x0, self.y, self.length = name, x0, y, length
+        self.unit_scale, self.station_unit, self.foot_m = 1.0, "m", FT
+
+    def locate_many(self, xy):
+        import numpy as np
+        xy = np.asarray(xy, dtype=float).reshape(-1, 2)
+        return (np.clip(xy[:, 0] - self.x0, 0.0, self.length),
+                xy[:, 1] - self.y)
+
+    def frame(self, d):
+        from types import SimpleNamespace
+        d = min(max(float(d), 0.0), self.length)
+        return SimpleNamespace(point=(self.x0 + d, self.y, 0.0))
+
+    def station_at(self, d):
+        return d
+
+    def format_station(self, s, unit=None):
+        return f"{s:.2f}"
+
+
+def test_an_element_past_a_short_lines_end_goes_to_the_long_line(monkeypatch):
+    """A short second line (a path's own stretch) beside a long one: an
+    element further along, on the short line's EXTENSION, clamps to its end
+    with a near-zero offset - but it is hundreds of metres from it. The
+    choice ranks by true plan distance, the overshoot counted."""
+    import numpy as np
+    from types import SimpleNamespace
+    import bimforge.bim.linear_ref as lr
+    ml = _Line("ML", 0.0, 0.0, 1000.0)
+    own = _Line("ML path 1", 100.0, -9.0, 20.0)      # 9 m right, 100-120 m
+    along = np.linspace(400.0, 430.0, 31)
+    beyond = np.column_stack([along, np.full_like(along, -9.0), np.zeros_like(along)])
+    beside = np.column_stack([np.linspace(105.0, 115.0, 11), np.full(11, -9.0),
+                              np.zeros(11)])
+    monkeypatch.setattr(lr, "_bodies", lambda f: {1: beyond, 2: beside})
+    f = SimpleNamespace(by_id=lambda i: SimpleNamespace(GlobalId=f"g{i}", Name=f"e{i}"))
+    out = lr.measure(f, stationers=[ml, own])
+    assert out[1]["Alignment"] == "ML"
+    assert (out[1]["StationStart"], out[1]["StationEnd"]) == pytest.approx((400.0, 430.0))
+    assert out[2]["Alignment"] == "ML path 1"        # on it: still its own
+
+
+def test_an_element_before_a_short_lines_start_stays_on_the_line_it_is_along(
+        monkeypatch):
+    """The path beside the road before its own stretch hands over: 55 m
+    right of the long line, along the extension of the short line (50 m
+    right) that starts where the element ends. Its points are nearer the
+    short line's START than the long line on the median, but none lies
+    within the short line's stations - a line the element is along wins
+    over one it is only past the end of."""
+    import numpy as np
+    from types import SimpleNamespace
+    import bimforge.bim.linear_ref as lr
+    ml = _Line("ML", 0.0, 0.0, 1000.0)
+    own = _Line("ML path 1", 100.0, -50.0, 120.0)
+    x = np.linspace(0.0, 100.0, 101)
+    before = np.column_stack([x, np.full_like(x, -55.0), np.zeros_like(x)])
+    monkeypatch.setattr(lr, "_bodies", lambda f: {1: before})
+    f = SimpleNamespace(by_id=lambda i: SimpleNamespace(GlobalId=f"g{i}", Name=f"e{i}"))
+    (v,) = lr.measure(f, stationers=[ml, own]).values()
+    assert v["Alignment"] == "ML"
+    assert (v["StationStart"], v["StationEnd"]) == pytest.approx((0.0, 100.0))
+
+
+def test_past_every_line_s_end_the_nearest_end_wins(monkeypatch):
+    """Off the stations of both lines: the one whose end is nearest in
+    plan, not the one whose end tangent it is least offset from."""
+    import numpy as np
+    from types import SimpleNamespace
+    import bimforge.bim.linear_ref as lr
+    a = _Line("A", 0.0, 0.0, 10.0)                  # 2 m off its tangent, 490 m on
+    b = _Line("B", 400.0, -30.0, 10.0)              # 28 m off its tangent, 90 m on
+    x = np.linspace(500.0, 510.0, 11)
+    pts = np.column_stack([x, np.full_like(x, -2.0), np.zeros_like(x)])
+    monkeypatch.setattr(lr, "_bodies", lambda f: {1: pts})
+    f = SimpleNamespace(by_id=lambda i: SimpleNamespace(GlobalId=f"g{i}", Name=f"e{i}"))
+    (v,) = lr.measure(f, stationers=[a, b]).values()
+    assert v["Alignment"] == "B"

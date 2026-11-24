@@ -26,7 +26,8 @@ each facility (IfcRoad, IfcBridge ...) whose elements are mostly on it.
 Ranges are measured on the file's own bodies (the geometry iterator, world
 coordinates), stationed with `AlignmentStationer.locate_many` - exact on
 tangents and circular curves. An element goes to the alignment it was placed
-on, else the one it lies nearest (smallest offset), else the first.
+on, else the one it lies along and nearest in plan (its offset; past an
+end, its distance to that end), else the first.
 
 Re-running replaces what an earlier run wrote (and keeps its anchors), with
 GlobalIds derived from the element's, so a rebuild is byte-stable and a
@@ -96,6 +97,40 @@ def _texts(st, s0, s1, o0, o1) -> dict:
             "StationEndText": st.format_station(s1), "OffsetText": off}
 
 
+#: metres past an end before a plan point counts as off the line's stations
+_PAST = 1e-3
+
+
+def _closeness(st, xy, ends: dict) -> tuple:
+    """How well the line `st` fits the plan points `xy`, smaller is
+    better: (whether most of them lie past its ends, their median plan
+    distance from it in metres).
+
+    locate_many clamps a point past an end and keeps only its square
+    offset, so on a short line's extension a point far from it would score
+    as on it. Its distance here is to the end it clamps to, the overshoot
+    counted; and a line most of the points are past the end of loses to
+    one they lie along - stationed on it they would all collapse onto
+    its end station. `ends` caches each line's end points."""
+    import numpy as np
+    d, o = st.locate_many(xy)
+    d = np.asarray(d, dtype=float)
+    miss = np.abs(np.asarray(o, dtype=float))
+    if id(st) not in ends:
+        ends[id(st)] = (np.asarray(st.frame(0.0).point[:2], dtype=float),
+                        np.asarray(st.frame(st.length).point[:2], dtype=float))
+    pts = np.asarray(xy, dtype=float).reshape(-1, 2)
+    past = np.zeros(len(pts), dtype=bool)
+    tol = 1e-9 * max(1.0, st.length)
+    for at, p in zip((d <= tol, d >= st.length - tol), ends[id(st)]):
+        if at.any():
+            far = np.hypot(*(pts[at] - p).T)
+            over = np.sqrt(np.maximum(far ** 2 - miss[at] ** 2, 0.0))
+            past[at] |= over > _PAST
+            miss[at] = np.maximum(miss[at], far)
+    return bool(past.mean() > 0.5), float(np.median(miss))
+
+
 def measure(f, stationers=None, anchors: dict | None = None) -> dict:
     """{element id: values} - what `annotate` writes (see the module
     docstring), without writing it. `anchors`: {element Name or GlobalId:
@@ -109,6 +144,7 @@ def measure(f, stationers=None, anchors: dict | None = None) -> dict:
         return {}
     by_name = {st.name: st for st in stationers}
     anchors = anchors or {}
+    ends: dict = {}
     out = {}
     for eid, pts in _bodies(f).items():
         el = f.by_id(eid)
@@ -123,8 +159,7 @@ def measure(f, stationers=None, anchors: dict | None = None) -> dict:
         if len(cands) > 1:
             # which line: the nearest, judged on a sample (a choice, not a range)
             sample = xy[:: max(1, len(xy) // MAX_POINTS)]
-            st = min(cands, key=lambda c: float(np.median(np.abs(
-                c.locate_many(sample)[1]))))
+            st = min(cands, key=lambda c: _closeness(c, sample, ends))
         else:
             st = cands[0]
         # distances are metres along the curve; offsets metres left
