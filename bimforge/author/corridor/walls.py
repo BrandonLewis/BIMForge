@@ -39,7 +39,8 @@ from bimforge.author.corridor.section import grade_edge, needs_wall
 #: "outer", or "strip" between the road and its path (V1.2 C)
 WALL_HEADER = ("side,kind,start,end,offset_ft,min_height_ft,max_height_ft,"
                "barrier,too_tall,location")
-STRUCTURE_HEADER = "side,start,end,max_fill_ft,low_point_station,carries"
+STRUCTURE_HEADER = ("side,start,end,max_fill_ft,low_point_station,carries,"
+                    "location")
 #: the longest step between the stations a wall's height is read at, feet
 HEIGHT_STEP_FT = 5.0
 _EPS = 1e-9
@@ -77,6 +78,8 @@ class StructureRow:
     max_fill: float        # the tallest wall it replaces, feet
     low_point: float       # the station where the ground is lowest
     carries: str = "road"  # what the structure would carry: "road" or "path"
+    location: str = "outer"        # its walls' (WallRow.location): "strip", or
+                                   # "own <n>" on that own stretch's stations
 
 
 def find(c, stations: list, ground_dz, rail=None, need=None) -> list:
@@ -261,22 +264,30 @@ def rows(c, secs: list, ground_dz) -> list:
 
 def structures(rows: list, stations: list, ground_elev) -> list:
     """The structure candidates: each too-tall wall's stretch, walls on the
-    two sides that overlap and carry the same thing merged into one
-    ("both"), with the tallest wall and the station of `stations` where
-    `ground_elev(s)` (the ground at the centreline) is lowest."""
+    two sides that overlap, carry the same thing and stand at the same
+    location merged into one ("both"), with the tallest wall and the
+    station of `stations` where `ground_elev(s)` (the ground at the
+    centreline) is lowest. Walls of another location are never merged: an
+    own stretch's (V1.2 C) are on its own stations, so the caller passes
+    its rows with its stations and centreline apart."""
     groups = []
-    for r in sorted((r for r in rows if r.too_tall), key=lambda r: (r.carries, r.start)):
+    for r in sorted((r for r in rows if r.too_tall),
+                    key=lambda r: (r.location, r.carries, r.start)):
         g = groups[-1] if groups else None
-        if g is not None and g[4] == r.carries and r.start <= g[1] + _EPS:
+        if (g is not None and (g[4], g[5]) == (r.carries, r.location)
+                and r.start <= g[1] + _EPS):
             groups[-1] = (g[0], max(g[1], r.end), max(g[2], r.max_height),
-                          g[3] | {r.side}, g[4])
+                          g[3] | {r.side}, g[4], g[5])
         else:
-            groups.append((r.start, r.end, r.max_height, {r.side}, r.carries))
+            groups.append((r.start, r.end, r.max_height, {r.side}, r.carries,
+                           r.location))
     out = []
-    for a, b, top, sides, carries in sorted(groups, key=lambda g: (g[0], g[4])):
+    for a, b, top, sides, carries, location in sorted(
+            groups, key=lambda g: (g[0], g[4], g[5])):
         inside = [s for s in stations if a - _EPS <= s <= b + _EPS] or [a, b]
         out.append(StructureRow("both" if len(sides) > 1 else next(iter(sides)),
-                                a, b, top, min(inside, key=ground_elev), carries))
+                                a, b, top, min(inside, key=ground_elev), carries,
+                                location))
     return out
 
 
@@ -292,5 +303,5 @@ def walls_csv(rows: list) -> str:
 def structures_csv(rows: list) -> str:
     return "\n".join([STRUCTURE_HEADER] + [
         f"{r.side},{r.start:.2f},{r.end:.2f},{r.max_fill:.2f},{r.low_point:.2f},"
-        f"{r.carries}"
+        f"{r.carries},{r.location}"
         for r in rows]) + "\n"

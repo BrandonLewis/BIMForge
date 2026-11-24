@@ -635,7 +635,7 @@ def test_the_steep_road_finds_its_walls(steep):
         "R,fill,1000.00,1111.00,17.00,15.66,21.21,yes,yes,outer\n"
         "R,fill,1197.00,1267.00,17.00,7.86,11.36,yes,no,outer\n")
     assert steep.tables["structures"] == (
-        STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00,road\n")
+        STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00,road,outer\n")
 
 
 def test_the_steep_road_benches_its_tall_rock_faces():

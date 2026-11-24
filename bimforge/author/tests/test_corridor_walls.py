@@ -201,7 +201,26 @@ def test_the_wall_and_structure_tables():
         walls.WALL_HEADER + "\n" "R,fill,1000.00,1111.00,17.00,15.66,21.21,yes,yes,outer\n")
     assert walls.walls_csv([]) == walls.WALL_HEADER + "\n"
     assert walls.structures_csv([walls.StructureRow("R", 1000.0, 1111.0, 21.21, 1000.0)]) == (
-        walls.STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00,road\n")
+        walls.STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00,road,outer\n")
+
+
+def test_a_structure_candidate_keeps_its_wall_s_location():
+    # an own stretch's wall (V1.2 C) is on its own stations: it is never
+    # merged with a wall of another location, even where they overlap and
+    # carry the same thing
+    rows = [walls.WallRow("R", "fill", 100.0, 200.0, 23.0, 8.0, 12.0, True,
+                          location="own 1", carries="path"),
+            walls.WallRow("L", "fill", 150.0, 250.0, 23.0, 8.0, 11.0, True,
+                          location="outer", carries="path"),
+            walls.WallRow("R", "wall-path", 150.0, 250.0, 23.0, 8.0, 13.0, True,
+                          location="strip", carries="path")]
+    got = walls.structures(rows, [100.0, 150.0, 200.0, 250.0], lambda s: 0.0)
+    assert sorted((r.location, r.side, r.start, r.end) for r in got) == [
+        ("outer", "L", 150.0, 250.0), ("own 1", "R", 100.0, 200.0),
+        ("strip", "R", 150.0, 250.0)]
+    (own,) = [r for r in got if r.location == "own 1"]
+    assert walls.structures_csv([own]).splitlines()[1] == (
+        "R,100.00,200.00,12.00,100.00,path,own 1")
 
 
 def test_same_kind_walls_closer_than_a_station_interval_are_one_wall():
@@ -335,8 +354,9 @@ def test_a_too_tall_strip_wall_is_a_structure_candidate_carrying_the_path():
     rows = W.rows(c, [], _level(-5.0))
     (cand,) = W.structures(rows, [1400.0, 1450.0], lambda s: 95.0)
     assert (cand.side, cand.carries) == ("L", "path")
-    assert W.STRUCTURE_HEADER.endswith(",carries")
-    assert W.structures_csv([cand]).splitlines()[1].endswith(",path")
+    assert (cand.carries, cand.location) == ("path", "strip")
+    assert W.STRUCTURE_HEADER.endswith(",carries,location")
+    assert W.structures_csv([cand]).splitlines()[1].endswith(",path,strip")
     # location is appended, so a path-less table keeps V1.1's columns
     assert W.WALL_HEADER.split(",") == [
         "side", "kind", "start", "end", "offset_ft", "min_height_ft",

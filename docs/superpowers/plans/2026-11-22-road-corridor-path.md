@@ -15,7 +15,7 @@
 - `Path.sign` is `+1.0` for a path on the left and `-1.0` on the right: `u = edge_u + sign * distance_out`.
 - The path's profile is the elevation of its paved INNER edge (the edge toward the road), on ROAD stations; an own stretch's profile is the same edge's elevation on the stretch's own stationing.
 - The model is in US survey feet, the IFC in metres; `emit_ifc` converts. Families never convert.
-- A spec without `path` builds exactly as V1.1 does (Task 1 pins this): the same elements, GlobalIds, volumes, mass haul, guardrail and tables. The one change is two new CSV columns, `location` in `outputs.walls` and `carries` in `outputs.structures`, which the pin drops before comparing.
+- A spec without `path` builds exactly as V1.1 does (Task 1 pins this): the same elements, GlobalIds, volumes, mass haul, guardrail and tables. The one change is new CSV columns, `location` in `outputs.walls` and `carries` and `location` in `outputs.structures`, which the pin drops before comparing.
 - Every new key is optional except `path.side`, `separation`, `width`, `courses` and `profile`.
 - A station is a length along the alignment (`StartStation`/`EndStation`, `IfcLengthMeasure`, with `...Text` twins).
 - A Formula is written only where the family has checked it holds within `gate.FORMULA_TOLERANCE`; the post gate recomputes every one.
@@ -40,7 +40,7 @@
 | Create `bimforge/author/corridor/own.py` (phase 3) | `Own`, `parse_own`, the hand-over point and heading, the own `Alignment` and the rejoin check, `OwnSection`, the own walls, the plan footprint test, the radius rows |
 | Modify `bimforge/author/corridor/params.py` | `Corridor.path`, `path_at()`, `wall(strip=)`, the path's stations, `with_walls` by location; `Gap.strip`, `Gap.carries`; `parse(..., alignment=, profile=)`; a path brings a guardrail |
 | Modify `bimforge/author/corridor/section.py` | `_slope(widen=)`, `Section.side_counts` and `Section.path`, `resolve` hands the path side to `path.side`, `needs_wall(location=)` |
-| Modify `bimforge/author/corridor/walls.py` | Outer and strip walls found apart; `WallRow.location` and `carries`; strip and path wall heights; the `location` and `carries` columns |
+| Modify `bimforge/author/corridor/walls.py` | Outer and strip walls found apart; `WallRow.location` and `carries`, `StructureRow.carries` and `location`; strip and path wall heights; the `location` and `carries` columns |
 | Modify `bimforge/author/corridor/loft.py` | `centroid_path()`: the centroid's line following the rings |
 | Modify `bimforge/author/corridor/dimensions.py` | Class codes for the path's road parts, rail and fence |
 | Modify `bimforge/author/families/road_corridor.py` | The path's courses, rails, fence and road parts, the tables; the road's rail ignores path walls; own stretches (phase 3) |

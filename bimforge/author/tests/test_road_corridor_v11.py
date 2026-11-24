@@ -6,8 +6,8 @@ built then: every element's and root's GlobalId, every element's
 Qto_BaseQuantities GrossVolume, and the mass-haul, walls, structures and
 guardrail tables. Every part C key is optional: without `path` the corridor
 builds the same elements, GlobalIds, quantities and tables. The only change
-is two new columns, `location` in the walls table and `carries` in the
-structures table, which are dropped before comparing.
+is three new columns, `location` in the walls table and `carries` and
+`location` in the structures table, which are dropped before comparing.
 
 The earthwork volumes and the mass haul were re-recorded when the earthwork
 columns began following the leaning section rays (corridor.earthwork) in
@@ -35,12 +35,13 @@ def _recorded(name: str):
     return json.loads((FIXTURE / name).read_text("utf-8"))
 
 
-def _rows(text: str, drop: str | None = None) -> list:
-    """The CSV's rows, the column `drop` taken out where it is there."""
+def _rows(text: str, drop: tuple = ()) -> list:
+    """The CSV's rows, the columns `drop` taken out where they are there."""
     rows = list(csv.reader(io.StringIO(text)))
-    if drop is not None and drop in rows[0]:
-        k = rows[0].index(drop)
-        rows = [r[:k] + r[k + 1:] for r in rows]
+    for name in drop:
+        if name in rows[0]:
+            k = rows[0].index(name)
+            rows = [r[:k] + r[k + 1:] for r in rows]
     return rows
 
 
@@ -90,9 +91,9 @@ def test_every_v11_volume_is_unchanged(built):
         assert now[name] == pytest.approx(v, rel=1e-9), name
 
 
-@pytest.mark.parametrize("key, drop", [("masshaul", None), ("guardrail", None),
-                                       ("walls", "location"),
-                                       ("structures", "carries")])
+@pytest.mark.parametrize("key, drop", [("masshaul", ()), ("guardrail", ()),
+                                       ("walls", ("location",)),
+                                       ("structures", ("carries", "location"))])
 def test_every_v11_table_is_unchanged(built, key, drop):
     _f, out = built
     now = (out / f"road-corridor.{key}.csv").read_text("utf-8")

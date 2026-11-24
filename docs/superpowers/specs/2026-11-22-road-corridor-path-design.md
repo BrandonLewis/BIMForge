@@ -245,7 +245,7 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 
 **Where one makes sense.** The family does not place path gaps itself; the designer adds them. It does point out where one would help:
 
-- **Too-tall walls:** a strip wall or a path outer wall taller than `max_wall_height_ft` becomes a structure candidate in `outputs.structures`, as V1.1's walls do. Its `carries` column is set to `path`.
+- **Too-tall walls:** a strip wall or a path outer wall taller than `max_wall_height_ft` becomes a structure candidate in `outputs.structures`, as V1.1's walls do. Its `carries` column is set to `path`, and its `location` column is its wall's, as in `outputs.walls`: `strip` or `outer`, or `own <n>` for an own stretch's wall, whose stations are its own.
 - **Steep decks:** a deck stretch over 5 % is listed in `path_checks` with the note "or a separate path structure".
 
 ## Checks (HDM 1003.1)
@@ -340,7 +340,7 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
   - whether a barrier is needed;
   - a note: `deck`, `approach`, `grade>5%`.
 - **`outputs.path_checks`**: the advisory rows listed under Checks.
-- **The masshaul, walls, structures and guardrail outputs** include the path's side as part of the section. They need no new columns, except `location` in `walls` and `carries` in `structures`.
+- **The masshaul, walls, structures and guardrail outputs** include the path's side as part of the section. They need no new columns, except `location` in `walls` and `carries` and `location` in `structures`.
 
 ## Testing
 

@@ -468,9 +468,10 @@ def test_a_short_path_gap_splits_the_strip_wall_and_its_rail():
 def test_a_too_tall_strip_wall_is_a_candidate_carrying_the_path():
     m = build(wall_params(DIP, max_wall_height_ft=5))
     lines = m.tables["structures"].splitlines()
-    assert lines[0].endswith(",carries")
+    assert lines[0].endswith(",carries,location")
     assert [line.split(",")[0] for line in lines[1:]] == ["R"]
-    assert lines[1].endswith(",path")
+    # beside the road, at the strip's wall: its location as the walls table's
+    assert lines[1].endswith(",path,strip")
     walls = [w.split(",") for w in m.tables["walls"].splitlines()[1:]]
     assert any(w[:2] == ["R", "wall-road"] and w[-1] == "strip" for w in walls)
 
@@ -996,3 +997,23 @@ def test_an_own_cut_voids_the_terrain_and_is_closed(own_cut_built):
             directed = Counter((a, b) for t in d["tris"] for a, b in zip(t, t[1:] + t[:1]))
             assert all(n == 1 and directed[b, a] == 1
                        for (a, b), n in directed.items()), el.name
+
+
+def test_a_too_tall_own_wall_is_a_structure_candidate_on_own_stations():
+    # the graded tread on the right, walls held to 5 ft: the own stretch's
+    # outer fill wall (1+00 to 3+11, up to 9.93 ft) is a candidate carrying
+    # the path at "own 1", as the walls table names it; along the own
+    # centreline the ground rises (1 % north beats 2 % east while its
+    # bearing stays within 20 deg of north), so its low point is its start
+    section = dict(copy.deepcopy(SECTION), side_slopes=dict(
+        SECTION["side_slopes"], footprint_ft={"R": OWN_FOOTPRINT["R"]}))
+    m = build(own_params(side="R", crest=6.0, tread=True, walls="auto",
+                         section=section, max_wall_height_ft=5))
+    walls = [w.split(",") for w in m.tables["walls"].splitlines()[1:]]
+    (wall,) = [w for w in walls if w[-1] == "own 1"]
+    assert wall[-2] == "yes"                                   # too tall
+    rows = [r.split(",") for r in m.tables["structures"].splitlines()[1:]]
+    (own,) = [r for r in rows if r[-1] == "own 1"]
+    assert own == ["R", wall[2], wall[3], wall[6], wall[2], "path", "own 1"]
+    # the path's outer walls beside the road stand 3.95 ft: no candidate
+    assert rows == [own]

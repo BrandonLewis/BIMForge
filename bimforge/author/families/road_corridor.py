@@ -748,10 +748,13 @@ def add_own(model, c, o, ground, ctx, log, runs: list, host) -> list:
     so emit_alignments writes its IfcAlignment. They are in the path's and
     the tread's parts of the run `o` hands over from; its earthwork, by
     its own stations, is not in the road's mass haul. `runs` are the
-    road's sections; returns its walls' rows (walls.WallRow)."""
+    road's sections; returns its walls' rows (walls.WallRow) and its
+    structure candidates (walls.StructureRow) on its own stations, their
+    low points on its own centreline."""
     from bimforge.author.alignment import sta
     from bimforge.author.corridor import earthwork
     from bimforge.author.corridor import own as own_mod
+    from bimforge.author.corridor import walls as auto_walls
     from bimforge.author.corridor.frame import survey_point
     p = c.path
     al, prof = o.alignment, o.profile
@@ -817,8 +820,10 @@ def add_own(model, c, o, ground, ctx, log, runs: list, host) -> list:
             model.add(fence_element(c, al, prof, ctx, [x.s for x in secs],
                                     [x.surface for x in secs], tpart,
                                     label=f"path {o.index} "))
-    return own_mod.wall_rows(c, oc, o, ground_dz,
-                             secs=[x for secs in secs_runs for x in secs])
+    every = [x for secs in secs_runs for x in secs]
+    rows = own_mod.wall_rows(c, oc, o, ground_dz, secs=every)
+    return rows, auto_walls.structures(rows, [x.s for x in every],
+                                       lambda t: ground.z(*survey(t, 0.0, 0.0)[:2]))
 
 
 def build(params: dict, ctx) -> "StructureModel":
@@ -1061,7 +1066,7 @@ def build(params: dict, ctx) -> "StructureModel":
                         c, al, prof, ctx, [x.s for x in secs[i0:i1 + 1]],
                         [x.path.surface for x in secs[i0:i1 + 1]],
                         tread_part(_parts(r)[0], r)))
-    own_rows = []
+    own_rows, own_structures = [], []
     if c.path is not None:
         from bimforge.author.corridor import own as own_mod
         for o in c.path.own:
@@ -1070,7 +1075,9 @@ def build(params: dict, ctx) -> "StructureModel":
                                                    rail=under_rail(c, rails, s))
                     for s in (o.start, o.end)]
             own_mod.check_handover(o, *ends)
-            own_rows += add_own(model, c, o, ground, ctx, log, runs, host)
+            got, candidates = add_own(model, c, o, ground, ctx, log, runs, host)
+            own_rows += got
+            own_structures += candidates
     model.mass_haul = masshaul.mass_haul(hauls, c.shrink)
     for els, row in zip(haul_elements, model.mass_haul):
         for el in els:
@@ -1089,12 +1096,13 @@ def build(params: dict, ctx) -> "StructureModel":
         # a structure candidate's low point is the lowest ground on the
         # centreline among the stations cut
         rows = wall_rows = auto_walls.rows(c, every, ground_dz)
-        # an own stretch's walls too, on its own stations (location "own
-        # <n>"); the structure candidates are the road's, by road station
+        # an own stretch's walls and structure candidates too, on its own
+        # stations (location "own <n>"), after the road's
         model.tables["walls"] = auto_walls.walls_csv(rows + own_rows)
         model.tables["structures"] = auto_walls.structures_csv(
             auto_walls.structures(rows, sorted(sec.s for sec in every),
-                                  lambda s: ground.z(*survey(s, 0.0, 0.0)[:2])))
+                                  lambda s: ground.z(*survey(s, 0.0, 0.0)[:2]))
+            + own_structures)
     if c.guard is not None:
         model.tables["guardrail"] = guardrail.to_csv(rails)
     if c.path is not None:
