@@ -32,7 +32,7 @@ STEEP_DOWNGRADE = 0.04
 STEEP_RUN_FT = 500.0
 #: the checks' sampling step along the path, feet
 SAMPLE_FT = 1.0
-DECK_CHECK = "deck grade>5%"
+DECK_CHECK = "deck grade>5% (or a separate path structure)"
 _EPS = 1e-9
 
 
@@ -86,9 +86,11 @@ def _within(a: float, b: float) -> list:
 
 
 def on_deck(c, s: float) -> bool:
-    """Strictly inside a road structure gap: the path is on the deck."""
-    return any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
-               for g in c.gaps)
+    """Strictly inside a road structure gap and not in a path gap: the path
+    is on the road's deck."""
+    return (not c.path.in_gap(s)
+            and any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
+                    for g in c.gaps))
 
 
 def centre_u(c, s: float) -> float:
@@ -132,7 +134,8 @@ def grade_rows(c) -> list:
 
 
 def deck_rows(c) -> list:
-    """A deck the path is on graded over 5 % (1003.1(14), "should")."""
+    """A deck the path is on graded over 5 % (1003.1(14), "should"); a path
+    gap's stretch is the path structure's, not the deck's."""
     p = c.path
     out = []
     for g in c.gaps:
@@ -141,7 +144,8 @@ def deck_rows(c) -> list:
         a, b = max(g.start, p.s_start), min(g.end, p.s_end)
         if b - a <= _EPS:
             continue
-        for x, y in spans(a, b, lambda s: abs(p.road_profile.grade(s)) > MAX_GRADE + 1e-12):
+        for x, y in spans(a, b, lambda s: not p.in_gap(s)
+                          and abs(p.road_profile.grade(s)) > MAX_GRADE + 1e-12):
             top = max(abs(p.road_profile.grade(s)) for s in _within(x, y))
             out.append(CheckRow(DECK_CHECK, x, y, 100.0 * top, 100.0 * MAX_GRADE,
                                 "HDM 1003.1(14)"))
@@ -227,7 +231,8 @@ def barrier_rows(c, rails) -> list:
     p = c.path
 
     def needs(s):
-        return (not on_deck(c, s) and p.separation_at(s) < BARRIER_SEPARATION_FT - _EPS
+        return (not on_deck(c, s) and not p.in_gap(s)
+                and p.separation_at(s) < BARRIER_SEPARATION_FT - _EPS
                 and not _shielded(rails, p.side, s))
 
     return [CheckRow("barrier needed (separation<10ft)", a, b,
@@ -251,6 +256,21 @@ def approach_rows(c) -> list:
     return out
 
 
+def path_gap_rows(c) -> list:
+    """Each path gap over a road structure gap: the road's deck carries no
+    path there; its width is the bridge family's."""
+    out = []
+    for pg in c.path.gaps:
+        for g in c.gaps:
+            if g.kind != "structure":
+                continue
+            a, b = max(pg.start, g.start), min(pg.end, g.end)
+            if b - a > _EPS:
+                out.append(CheckRow("path gap over a road structure gap", a, b, b - a,
+                                    None, "the deck carries no path there"))
+    return out
+
+
 def wall_rows(wall_rows_) -> list:
     """Each wall in the strip, with its side and height (walls.WallRow)."""
     return [CheckRow(f"strip wall {r.side} {r.kind}", r.start, r.end, r.max_height,
@@ -261,7 +281,7 @@ def wall_rows(wall_rows_) -> list:
 def checks(c, rails, walls_) -> list:
     """Every advisory row for corridor `c`'s path, by start station."""
     found = (grade_rows(c) + deck_rows(c) + crest_rows(c) + barrier_rows(c, rails)
-             + approach_rows(c) + wall_rows(walls_))
+             + approach_rows(c) + path_gap_rows(c) + wall_rows(walls_))
     return sorted(found, key=lambda r: (r.start, r.check))
 
 
@@ -305,11 +325,17 @@ def path_csv(c, secs: list, rails) -> str:
             f"{s:.2f}", p.side, f"{sf.separation:.2f}", f"{centre_u(c, s):.2f}",
             f"{hinge:.3f}", f"{pz:.3f}", f"{pz - hinge:.3f}", f"{100.0 * g:.2f}",
             _strip_label(ps), barrier, note])))
+    for pg in p.gaps:
+        for s in c.stations(pg.start, pg.end):
+            pz = p.profile.elev(s)
+            rows.append((s, f"{s:.2f},{p.side},{p.separation_at(s):.2f},"
+                            f"{centre_u(c, s):.2f},,{pz:.3f},,"
+                            f"{100.0 * path_grade(c, s):.2f},path gap,,path gap"))
     for gap in c.gaps:
         if gap.kind != "structure":
             continue
         for s in c.stations(gap.start, gap.end)[1:-1]:
-            if not p.covers(s):
+            if not p.covers(s) or p.in_gap(s):
                 continue
             pz = p.profile.elev(s)
             rows.append((s, ",".join([

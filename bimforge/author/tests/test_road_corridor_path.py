@@ -454,3 +454,13 @@ def test_a_short_path_gap_splits_the_strip_wall_and_its_rail():
     path_rows = [r for r in rows if "path" in r[1]]
     assert len(path_rows) == 2
     assert all(float(r[3]) <= 1299.5 or float(r[2]) >= 1320.5 for r in path_rows)
+
+
+def test_a_too_tall_strip_wall_is_a_candidate_carrying_the_path():
+    m = build(wall_params(DIP, max_wall_height_ft=5))
+    lines = m.tables["structures"].splitlines()
+    assert lines[0].endswith(",carries")
+    assert [line.split(",")[0] for line in lines[1:]] == ["R"]
+    assert lines[1].endswith(",path")
+    walls = [w.split(",") for w in m.tables["walls"].splitlines()[1:]]
+    assert any(w[:2] == ["R", "wall-road"] and w[-1] == "strip" for w in walls)

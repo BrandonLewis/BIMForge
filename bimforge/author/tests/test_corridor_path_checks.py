@@ -4,8 +4,9 @@ import io
 
 import pytest
 
+from bimforge.author.alignment import Profile
 from bimforge.author.corridor import path_checks as pc
-from bimforge.author.tests.test_corridor_path import (GAP, corridor, deck_path,
+from bimforge.author.tests.test_corridor_path import (GAP, NARROW, corridor, deck_path,
                                                       grade, path)
 
 
@@ -126,11 +127,49 @@ def test_a_grade_at_exactly_5_percent_is_not_listed():
 
 
 def test_a_deck_graded_over_5_percent_is_listed():
-    from bimforge.author.alignment import Profile
     road = Profile(grade(100.0, pct=6.0)["curves"])
     p = deck_path()
     p["profile"] = grade(99.4809, pct=6.0)
     c = corridor(p, gaps=GAP, prof=road)
     found = pc.deck_rows(c)
-    assert [(r.check, r.start, r.end) for r in found] == [("deck grade>5%", 1400.0, 1500.0)]
+    assert [(r.check, r.start, r.end) for r in found] == [("deck grade>5% (or a separate path structure)", 1400.0, 1500.0)]
     assert found[0].value == pytest.approx(6.0)
+
+
+def test_inside_a_path_gap_over_a_road_gap_the_path_s_grade_is_checked():
+    c = corridor(path(profile=grade(99.51, pct=6.0),
+                      gaps=[{"from": 1380, "to": 1520, "kind": "structure"}]), gaps=GAP)
+    assert rows(pc.grade_rows(c), "grade>5%") == [
+        (pytest.approx(1000.0), pytest.approx(2000.0), pytest.approx(6.0), 5.0)]
+    assert pc.deck_rows(c) == []
+    assert rows(pc.path_gap_rows(c), "path gap over a road structure gap") == [
+        (1400.0, 1500.0, 100.0, None)]
+
+
+def test_a_steep_deck_is_listed_with_its_note():
+    road = Profile(grade(100.0, pct=6.0)["curves"])
+    c = corridor(path(separation=NARROW, profile=grade(99.48088, pct=6.0)), gaps=GAP,
+                 prof=road)
+    (row,) = pc.deck_rows(c)
+    assert row.check == "deck grade>5% (or a separate path structure)"
+    assert (row.start, row.end, row.value) == (pytest.approx(1400.0),
+                                               pytest.approx(1500.0),
+                                               pytest.approx(6.0))
+
+
+def test_a_path_gap_takes_no_barrier_row():
+    c = corridor(path(separation=[[1000, 10.0], [1450, 10.0], [1500, 3.0], [1550, 3.0],
+                                  [1600, 10.0]],
+                      gaps=[{"from": 1440, "to": 1610, "kind": "structure"}]))
+    assert pc.barrier_rows(c, []) == []
+
+
+def test_a_path_gap_s_stations_are_in_the_table_without_a_barrier():
+    c = corridor(path(profile=grade(99.51, pct=6.0),
+                      gaps=[{"from": 1380, "to": 1520, "kind": "structure"}]), gaps=GAP)
+    lines = pc.path_csv(c, [], []).splitlines()[1:]
+    gap = [l.split(",") for l in lines if l.endswith(",path gap")]
+    assert gap and all(f[8] == "path gap" and f[9] == "" and f[10] == "path gap"
+                       for f in gap)
+    assert float(gap[0][0]) == pytest.approx(1380.0)
+    assert float(gap[-1][0]) == pytest.approx(1520.0)
