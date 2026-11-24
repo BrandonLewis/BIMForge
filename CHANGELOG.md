@@ -64,8 +64,9 @@ centroid's, left positive, as the linear reference's offsets are.
   `Cut path <n> ...` / `Fill path <n> ...` are not in the road's mass haul,
   which is by road station. `outputs.walls` gains a `location` column
   (`outer`, `strip`, `own <n>`) and strip walls the kinds `wall-road` and
-  `wall-path`; `outputs.structures` gains `carries` (`road` or `path`).
-  The road-corridor example gains a path on the right; its GlobalIds were
+  `wall-path`; `outputs.structures` gains `carries` (`road` or `path`) and
+  `location` (as the walls table's), the last two columns. The road-corridor
+  example gains a path on the right; its GlobalIds were
   re-recorded.
 - **Road corridor V1.1: slope rules, walls, guardrail, dimensions (P.6).**
   Held to Caltrans practice (HDM 08/08/2025, TSSM April 2025, 2025 Standard
