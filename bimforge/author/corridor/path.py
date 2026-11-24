@@ -45,7 +45,7 @@ GROUND_SAMPLES = 8
 #: the keys `params.path` takes
 KEYS = {"side", "stations", "separation", "width", "cross_slope", "shoulder",
         "courses", "profile", "design_speed_mph", "strip", "approach_ft",
-        "deck_separation_ft", "rail_height_ft"}
+        "deck_separation_ft", "rail_height_ft", "gaps"}
 _EPS = 1e-9
 #: how far outside an approach validate looks, feet: separation is linear
 #: between its rows, so a violation just outside is a violation at the edge
@@ -53,6 +53,14 @@ _NEAR = 1e-6
 #: section_v's rounds before it gives up, and the least 1 - kappa u it takes
 SECTION_V_ROUNDS = 50
 MIN_CURVE_SCALE = 1e-6
+
+
+@dataclass(frozen=True)
+class PathGap:
+    """A stretch where the path is on a structure of its own (`path.gaps`),
+    road stations; the structure is its own family's."""
+    start: float
+    end: float
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,7 @@ class Path:
     rail_height: float             # the path's rail on a wall, feet
     road_profile: Profile          # the road's
     alignment: object              # the road's
+    gaps: tuple = ()               # PathGap, by start station
 
     @property
     def sign(self) -> float:
@@ -94,6 +103,18 @@ class Path:
     def covers(self, s: float) -> bool:
         return self.s_start - _EPS <= s <= self.s_end + _EPS
 
+    def in_gap(self, s: float, margin: float = 0.0) -> bool:
+        """Whether station s is inside a path gap grown by `margin` each
+        way (strictly: a gap's end grown by the margin is outside it)."""
+        return any(g.start - margin + _EPS < s < g.end + margin - _EPS
+                   for g in self.gaps)
+
+    def waived(self, s: float) -> bool:
+        """A road structure gap's end at s inside a path gap (its ends
+        included): the deck carries no path there, so it is not met and no
+        approach leads to it."""
+        return any(g.start - _EPS <= s <= g.end + _EPS for g in self.gaps)
+
 
 def _separation(value, s0: float, s1: float) -> tuple:
     where = "path.separation"
@@ -103,6 +124,33 @@ def _separation(value, s0: float, s1: float) -> tuple:
                  for s, v in (_row(r, 2, where, "[station, ft]") for r in value))
     _ascending([s for s, _v in rows], where)
     return rows
+
+
+def _path_gaps(value, s0: float, s1: float, where: str = "path.gaps") -> tuple:
+    """Path gaps on [s0, s1]: road stations."""
+    out = []
+    for i, g in enumerate(value or []):
+        at = f"{where}[{i}]"
+        if not isinstance(g, dict):
+            raise ValueError(f"{at}: a mapping ({{from, to, kind: structure}})")
+        kind = str(g.get("kind", "")).lower()
+        if kind != "structure":
+            raise ValueError(f"{at}: kind {g.get('kind')!r} is not 'structure': a "
+                             f"path gap is the path's own structure")
+        a = _num(g.get("from"), f"{at}.from", positive=False)
+        b = _num(g.get("to"), f"{at}.to", positive=False)
+        if not b > a:
+            raise ValueError(f"{at}: 'to' must be past 'from'")
+        if a < s0 - _EPS or b > s1 + _EPS:
+            raise ValueError(f"{at}: {sta(a)} to {sta(b)} is outside the path's "
+                             f"stations ({sta(s0)} to {sta(s1)})")
+        out.append(PathGap(a, b))
+    out.sort(key=lambda g: g.start)
+    for p, q in zip(out, out[1:]):
+        if q.start < p.end + _EPS:
+            raise ValueError(f"{where}: {sta(p.start)} to {sta(p.end)} overlaps "
+                             f"{sta(q.start)} to {sta(q.end)}")
+    return tuple(out)
 
 
 def _courses(value, where: str = "path.courses") -> list:
@@ -230,7 +278,8 @@ def parse_path(pp, c, alignment, profile) -> Path:
         deck_separation=_num(pp.get("deck_separation_ft", 1.5),
                              "path.deck_separation_ft"),
         rail_height=_num(pp.get("rail_height_ft", 3.5), "path.rail_height_ft"),
-        road_profile=profile, alignment=alignment)
+        road_profile=profile, alignment=alignment,
+        gaps=_path_gaps(pp.get("gaps"), s0, s1))
 
 
 def stations_extra(c) -> list:
@@ -253,6 +302,8 @@ def stations_extra(c) -> list:
         if dg > 1e-12:
             n = math.ceil(length / math.sqrt(8.0 * VC_SAGITTA_FT * length / dg) - _EPS)
             out += [a + length * i / n for i in range(1, n)]
+    for g in p.gaps:
+        out += [g.start - PATH_TRANSITION_FT, g.start, g.end, g.end + PATH_TRANSITION_FT]
     return out
 
 
@@ -265,9 +316,9 @@ def approaches(c) -> list:
     for g in c.gaps:
         if g.kind != "structure":
             continue
-        if p.covers(g.start):
+        if p.covers(g.start) and not p.waived(g.start):
             out.append((g.start - p.approach, g.start, g.start))
-        if p.covers(g.end):
+        if p.covers(g.end) and not p.waived(g.end):
             out.append((g.end, g.end + p.approach, g.end))
     return out
 
@@ -337,7 +388,7 @@ def validate(c) -> None:
         if g.kind == "structure":
             at |= {g.start, g.end}
     for s in sorted(at):
-        if not p.covers(s) or _on_deck(c, s):
+        if not p.covers(s) or _on_deck(c, s) or p.in_gap(s, PATH_TRANSITION_FT):
             continue
         sep = p.separation_at(s)
         if sep < p.deck_separation - _EPS:

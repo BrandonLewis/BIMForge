@@ -1071,3 +1071,59 @@ def test_a_surface_toward_one_side_of_the_pc_is_that_side_s():
             cos_theta(c, 1100.0 + toward * 0.05), abs=1e-9)
     assert abs(surface(c, 1100.0, toward=1.0).inner[1]
                - surface(c, 1100.0, toward=-1.0).inner[1]) > 1e-4
+
+
+# -- Task 13: path gaps -------------------------------------------------------
+from bimforge.author.corridor.path import PathGap  # noqa: E402
+
+
+def test_a_path_gap_takes_the_path_off_the_section():
+    c = corridor(path(gaps=[{"from": 1400, "to": 1600, "kind": "structure"}]))
+    assert c.path.gaps == (PathGap(1400.0, 1600.0),)
+    # built up to 1 ft outside each end; the road's own section inside
+    assert [c.path_at(s) for s in (1399.0, 1399.5, 1400.0, 1500.0, 1600.0,
+                                   1601.0)] == [True, False, False, False, False, True]
+    assert {1399.0, 1400.0, 1600.0, 1601.0} <= set(c.stations(1375.0, 1625.0))
+
+
+def test_inside_a_path_gap_the_section_is_the_road_s_alone():
+    c = corridor(path(gaps=[{"from": 1400, "to": 1600, "kind": "structure"}]))
+    road = parse(dict(copy.deepcopy(BASE), guardrail={"design_speed_mph": 45}),
+                 1000.0, 2000.0)                      # the same guardrail rule
+    sec, alone = resolve(c, 1500.0, level(-5.0)), resolve(road, 1500.0, level(-5.0))
+    assert sec.path is None
+    assert sec.sides["L"].line == alone.sides["L"].line
+    ground = PlaneGround(95.0)
+    assert fill_area(c, ground) == pytest.approx(fill_area(road, ground), abs=1e-9)
+
+
+def test_a_path_gap_over_a_road_gap_waives_the_deck_and_the_approach():
+    # 10 ft from the road at the bridge's ends and 0.03 ft off the deck's
+    # line: refused without the path gap, built with it
+    with pytest.raises(ValueError, match=r"is not deck_separation_ft"):
+        corridor(path(), gaps=GAP)
+    c = corridor(path(gaps=[{"from": 1380, "to": 1520, "kind": "structure"}]), gaps=GAP)
+    assert approaches(c) == []
+
+
+def test_inside_a_path_gap_the_separation_is_not_held_to_5_ft():
+    sep = [[1000, 10.0], [1450, 10.0], [1500, 3.0], [1550, 3.0], [1600, 10.0]]
+    with pytest.raises(ValueError, match=r"3\.00 ft at 15\+00\.00 is under the 5 ft"):
+        corridor(path(separation=sep))
+    corridor(path(separation=sep, gaps=[{"from": 1440, "to": 1610, "kind": "structure"}]))
+
+
+@pytest.mark.parametrize("gaps, match", [
+    ([{"from": 900, "to": 1100, "kind": "structure"}],
+     r"path\.gaps\[0\]: 9\+00\.00 to 11\+00\.00 is outside the path's stations"),
+    ([{"from": 1200, "to": 1400, "kind": "structure"},
+      {"from": 1300, "to": 1500, "kind": "structure"}],
+     r"path\.gaps: 12\+00\.00 to 14\+00\.00 overlaps 13\+00\.00 to 15\+00\.00"),
+    ([{"from": 1200, "to": 1400, "kind": "wall"}],
+     r"path\.gaps\[0\]: kind 'wall' is not 'structure'"),
+    ([{"from": 1400, "to": 1200, "kind": "structure"}],
+     r"path\.gaps\[0\]: 'to' must be past 'from'"),
+])
+def test_bad_path_gaps_are_refused(gaps, match):
+    with pytest.raises(ValueError, match=match):
+        corridor(path(gaps=gaps))
