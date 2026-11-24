@@ -753,3 +753,139 @@ def test_no_own_section_is_added_where_a_side_turns_in_a_wall_s_lead_in():
                                      ("R", "path-cut", 381.5, round(own.length, 2))]
     (secs,) = own_mod.own_sections(c, oc2, own2, ground)
     assert len(secs) == 40
+
+
+def test_a_hand_over_needs_natural_ground_between():
+    # the path 20 ft out on level ground 3 ft under the road's grade line:
+    # the road's 2:1 fill from its hinge (-17, -1.89) daylights 2.22 ft
+    # out, the path's inner fill from q (-35, -0.59) 4.82 ft in, at
+    # -30.18: ground between. 10 ft out over ground 5 ft under, the path's
+    # inner slope from q (-25, -0.59) needs 8.82 ft, more than the strip
+    from bimforge.author.corridor.section import resolve
+    c = corridor(own_path())
+    (own,) = c.path.own
+    secs = [resolve(c, s, level(-3.0)) for s in (own.start, own.end)]
+    assert [s.path.strip for s in secs] == ["ground", "ground"]
+    own_mod.check_handover(own, *secs)
+    # 8 ft under at the rejoin the two slopes meet: it is named
+    at_to = resolve(c, own.end, level(-8.0))
+    assert at_to.path.strip == "slope"
+    with pytest.raises(ValueError, match=(
+            r"path\.own\[0\]: the rejoin at 15\+10\.42 does not leave natural "
+            r"ground between the road and the path \(the strip is slope\)")):
+        own_mod.check_handover(own, secs[0], at_to)
+    c = corridor(own_path(separation=10.0))
+    (own,) = c.path.own
+    secs = [resolve(c, s, level(-5.0)) for s in (own.start, own.end)]
+    with pytest.raises(ValueError, match=(
+            r"path\.own\[0\]: the hand-over at 11\+00\.00 does not leave natural "
+            r"ground between the road and the path \(the strip is slope\)")):
+        own_mod.check_handover(own, *secs)
+
+
+def test_a_hand_over_names_its_entry_by_its_place_in_the_list():
+    # the bump is own 1 by station but path.own[1] in the list
+    p = own_path(separation=10.0)
+    p["own"].insert(0, {"from": 1600, "to": 1700, "profile": flat(100.0),
+                        "run": [{"kind": "tangent", "bearing": "N 0-0-0 E",
+                                 "length": 100.0}]})
+    from bimforge.author.corridor.section import resolve
+    own = corridor(p).path.own[0]
+    assert (own.index, own.entry) == (1, 1)
+    secs = [resolve(corridor(p), s, level(-5.0)) for s in (own.start, own.end)]
+    with pytest.raises(ValueError, match=r"path\.own\[1\]: the hand-over at 11\+00"):
+        own_mod.check_handover(own, *secs)
+
+
+def test_a_hand_over_at_a_road_deck_s_end_is_checked_as_any_other():
+    # the path starts at the deck's end: the beside section stands there
+    # and is read for ground between as anywhere
+    from bimforge.author.corridor.section import resolve
+    p = own_path()
+    p["stations"] = [1100, 2000]
+    c = corridor(p, gaps=[{"from": 1000, "to": 1100, "kind": "structure"}])
+    (own,) = c.path.own
+    own_mod.check_handover(own, *[resolve(c, s, level(-3.0))
+                                  for s in (own.start, own.end)])
+    with pytest.raises(ValueError, match=r"the hand-over at 11\+00\.00 .*slope"):
+        own_mod.check_handover(own, *[resolve(c, s, level(-10.0))
+                                      for s in (own.start, own.end)])
+
+
+#: the road: 40 ft wide, stations 0 to 100 along y, in plan (x, y)
+ROAD = [(0.0, (-20.0, 0.0), (20.0, 0.0)), (100.0, (-20.0, 100.0), (20.0, 100.0))]
+
+
+def test_footprints_that_cross_are_refused():
+    # the path beside the road at x 25 to 45, then swinging in to 15 to 35
+    # at its station 0+40: its cross-section there crosses the road's edge
+    clear = [(0.0, (25.0, 10.0), (45.0, 10.0)), (40.0, (26.0, 50.0), (46.0, 50.0))]
+    own = own_mod.Own(1, 0, 1100.0, 1200.0, None, None)
+    own_mod.check_footprints(own, ROAD, clear)
+    swing = [(0.0, (25.0, 10.0), (45.0, 10.0)), (40.0, (15.0, 50.0), (35.0, 50.0))]
+    with pytest.raises(ValueError, match=(
+            r"path\.own\[0\]: its footprint at path station 0\+40\.00 crosses the "
+            r"road's at 0\+00\.00")):
+        own_mod.check_footprints(own, ROAD, swing)
+
+
+def test_footprints_that_touch_are_refused():
+    # the path's inner edge on the road's at x 20 from its 0+20 on
+    touch = [(0.0, (25.0, 10.0), (45.0, 10.0)), (20.0, (20.0, 30.0), (40.0, 30.0)),
+             (40.0, (20.0, 50.0), (40.0, 50.0))]
+    own = own_mod.Own(1, 0, 1100.0, 1200.0, None, None)
+    with pytest.raises(ValueError, match=r"at path station 0\+20\.00 crosses"):
+        own_mod.check_footprints(own, ROAD, touch)
+
+
+def test_a_footprint_within_the_other_is_refused():
+    # no edge crosses, but the path lies on the road's footprint, or the
+    # road's on the path's: the earthwork would still be counted twice
+    own = own_mod.Own(1, 2, 1100.0, 1200.0, None, None)
+    inside = [(0.0, (-5.0, 10.0), (5.0, 10.0)), (40.0, (-5.0, 50.0), (5.0, 50.0))]
+    with pytest.raises(ValueError, match=(
+            r"path\.own\[2\]: its footprint at path station 0\+00\.00 lies on the "
+            r"road's at 0\+00\.00")):
+        own_mod.check_footprints(own, ROAD, inside)
+    around = [(0.0, (-50.0, -10.0), (50.0, -10.0)), (130.0, (-50.0, 120.0), (50.0, 120.0))]
+    with pytest.raises(ValueError, match=(
+            r"path\.own\[2\]: its footprint at path station 0\+00\.00 lies on the "
+            r"road's at 0\+00\.00")):
+        own_mod.check_footprints(own, ROAD, around)
+
+
+def test_the_plan_footprint_is_the_earthwork_s_ground_corners():
+    # a straight own run at 2 %, ground level at 83.51, 20 ft under the own
+    # profile at own station 100: the right (outer) side takes a fill wall
+    # at o (-8, -0.34 cg), 51 ft east. The earthwork's corner there is
+    # where o's section ray meets the ground: 20 / cg down it, which leans
+    # 20 tan(gamma) = 0.4 ft on along the run. The left (inner) side's 2:1
+    # daylights on the ground, its corner the daylight point itself
+    from bimforge.author.corridor.frame import survey_point
+    section = dict(BASE["section"], side_slopes=dict(BASE["section"]["side_slopes"],
+                                                     footprint_ft={"R": 30.0}))
+    p = path(side="R", separation=[[1000, 20.0]], profile=grade(99.51, 2.0),
+             own=[{"from": 1100, "to": 1510,
+                   "run": [{"kind": "tangent", "bearing": "N 0-0-0 E",
+                            "length": 410.0}],
+                   "profile": grade(101.51, 2.0, 0.0, 410.0)}])
+    c = corridor(p, walls="auto", section=section)
+    (own,) = c.path.own
+    al, prof = own.alignment, own.profile
+
+    def survey(s, u, v):
+        return survey_point(al, prof, s, u, v)
+
+    def ground_dz(s, u, v):
+        return 83.51 - survey(s, u, v)[2]
+
+    own2, oc2 = own_mod.find_walls(c, own_mod.own_corridor(c, own), own, ground_dz)
+    sec = own_mod.own_section(c, oc2, own2, 100.0, ground_dz)
+    assert (sec.sides["L"].kind, sec.sides["R"].kind) == ("fill", "wall")
+    ((s, left, right),) = own_mod.plan(survey, lambda n, e: 83.51, [sec])
+    assert s == 100.0
+    assert right == (pytest.approx(51.0, abs=1e-9), pytest.approx(200.4, abs=1e-6))
+    u, v = sec.earthwork_line()[0]
+    n, e, z = survey(100.0, u, v)
+    assert z == pytest.approx(83.51, abs=1e-6)
+    assert left == (pytest.approx(e, abs=1e-6), pytest.approx(n, abs=1e-6))

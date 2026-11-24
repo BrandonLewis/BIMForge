@@ -534,3 +534,126 @@ def wall_rows(c, oc, own, ground_dz, secs=()) -> list:
                            top, kind == "fill" and top > c.max_wall_height + _EPS,
                            location=f"own {own.index}", carries="path"))
     return sorted(out, key=lambda r: (r.start, r.side))
+
+
+def check_handover(own, at_from, at_to) -> None:
+    """The beside sections (section.Section) at the hand-over and the
+    rejoin must leave natural ground between road and path (path._strip's
+    "ground"), so the two footprints are already apart there."""
+    for sec, which in ((at_from, "hand-over"), (at_to, "rejoin")):
+        strip = sec.path.strip if sec.path is not None else "no path"
+        if strip != "ground":
+            raise ValueError(
+                f"path.own[{own.entry}]: the {which} at {sta(sec.s)} does not "
+                f"leave natural ground between the road and the path (the strip is "
+                f"{strip}): the footprints would meet there; move the {which} or "
+                f"widen the separation")
+
+
+def plan(survey, ground_z, secs) -> list:
+    """[(station, left end, right end)] in plan, (easting, northing): each
+    of `secs`' earthwork lines' ends where the earthwork's corner stands on
+    the ground, along its section ray (earthwork._ground_v), so a wall's
+    end is its foot and not its top. `survey(s, u, v)` places a section
+    point; `ground_z(n, e)` is the ground."""
+    from bimforge.author.corridor.earthwork import _ground_v
+    out = []
+    for sec in secs:
+        line = sec.earthwork_line()
+        ends = []
+        for u, v in (line[0], line[-1]):
+            n, e, _z = survey(sec.s, u, _ground_v(survey, ground_z, sec.s, u, v,
+                                                  f"station {sta(sec.s)}"))
+            ends.append((e, n))
+        out.append((sec.s, ends[0], ends[1]))
+    return out
+
+
+def _side(a, b, p) -> float:
+    """p's signed distance from the line a to b, left positive."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(dx, dy)
+    if length < 1e-12:
+        return math.hypot(p[0] - a[0], p[1] - a[1])
+    return (dx * (p[1] - a[1]) - dy * (p[0] - a[0])) / length
+
+
+def _within(a, b, p, tol) -> bool:
+    return (min(a[0], b[0]) - tol <= p[0] <= max(a[0], b[0]) + tol
+            and min(a[1], b[1]) - tol <= p[1] <= max(a[1], b[1]) + tol)
+
+
+def _crosses(p, q, a, b, tol: float = 1e-6) -> bool:
+    """Whether segments pq and ab cross or touch (to `tol` ft)."""
+    d1, d2 = _side(a, b, p), _side(a, b, q)
+    d3, d4 = _side(p, q, a), _side(p, q, b)
+    if (((d1 > tol and d2 < -tol) or (d1 < -tol and d2 > tol))
+            and ((d3 > tol and d4 < -tol) or (d3 < -tol and d4 > tol))):
+        return True
+    return any(abs(d) <= tol and _within(x, y, z, tol)
+               for d, x, y, z in ((d1, a, b, p), (d2, a, b, q),
+                                  (d3, p, q, a), (d4, p, q, b)))
+
+
+def _box(pts) -> tuple:
+    xs, ys = [x for x, _y in pts], [y for _x, y in pts]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _apart(m, n, tol: float = 1e-6) -> bool:
+    """Whether boxes m and n (_box) are more than `tol` apart."""
+    return (m[0] > n[2] + tol or n[0] > m[2] + tol
+            or m[1] > n[3] + tol or n[1] > m[3] + tol)
+
+
+def _segments(footprint: list) -> list:
+    """[(station, a, b)]: a footprint's cross-sections, then its two edges,
+    each edge segment named by its first station."""
+    out = [(s, left, right) for s, left, right in footprint]
+    for (s, l0, r0), (_s1, l1, r1) in zip(footprint, footprint[1:]):
+        out += [(s, l0, l1), (s, r0, r1)]
+    return out
+
+
+def _quads(footprint: list) -> list:
+    """[(station, ring)]: the footprint between each two cross-sections,
+    named by its first station."""
+    return [(s, [l0, l1, r1, r0])
+            for (s, l0, r0), (_s1, l1, r1) in zip(footprint, footprint[1:])]
+
+
+def _inside(ring, p) -> bool:
+    """Whether p is inside the ring (even-odd); on its edge is _crosses'."""
+    x, y, got = p[0], p[1], False
+    for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1]):
+        if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+            got = not got
+    return got
+
+
+def check_footprints(own, road: list, path: list) -> None:
+    """The own stretch's plan footprint `path` must not cross the road's
+    `road` (each plan()'s rows), nor lie on it without crossing (the one
+    inside the other), so the earthwork is counted once."""
+    road_segs = [(s, a, b, _box((a, b))) for s, a, b in _segments(road)]
+    for t, p, q in _segments(path):
+        box = _box((p, q))
+        for s, a, b, near in road_segs:
+            if not _apart(box, near) and _crosses(p, q, a, b):
+                raise ValueError(
+                    f"path.own[{own.entry}]: its footprint at path station "
+                    f"{sta(t)} crosses the road's at {sta(s)}: the earthwork would "
+                    f"be counted twice; keep the run off the road's footprint")
+    # no edge crosses: one is inside the other only if a corner is
+    for inner, outer, path_in in ((path, road, True), (road, path, False)):
+        quads = [(s, ring, _box(ring)) for s, ring in _quads(outer)]
+        for t, *ends in inner:
+            for p in ends:
+                for s, ring, near in quads:
+                    if not _apart(_box((p,)), near) and _inside(ring, p):
+                        at_path, at_road = (t, s) if path_in else (s, t)
+                        raise ValueError(
+                            f"path.own[{own.entry}]: its footprint at path station "
+                            f"{sta(at_path)} lies on the road's at {sta(at_road)}: "
+                            f"the earthwork would be counted twice; keep the run "
+                            f"off the road's footprint")
