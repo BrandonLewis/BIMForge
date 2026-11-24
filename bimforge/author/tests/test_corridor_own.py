@@ -730,3 +730,26 @@ def test_an_own_ground_error_names_the_stretch_and_side():
         own_mod.own_section(c, oc, own, 200.0, ground)
     with pytest.raises(ValueError, match=r"path\.own\[0\] .*R side.*no ground"):
         own_mod.own_needs_wall(c, oc, own, 200.0, "R", ground)
+
+
+def test_no_own_section_is_added_where_a_side_turns_in_a_wall_s_lead_in():
+    # a plane rising 1 in 10 eastward under the crest, 25 ft footprints:
+    # the R cut takes path-cut walls at both ends. Its side turns inside
+    # the first wall's lead-in (0+36.50 to 0+37.50), where walls.find
+    # checked only the far end: a section there would not fit
+    from bimforge.author.corridor.frame import survey_point
+    section = dict(BASE["section"], side_slopes=dict(
+        BASE["section"]["side_slopes"], footprint_ft={"L": 25.0, "R": 25.0}))
+    c = corridor(crest_path(), walls="auto", section=section)
+    (own,) = c.path.own
+
+    def ground(s, u, v):
+        n, e, z = survey_point(own.alignment, own.profile, s, u, v)
+        return 102.0 + 0.1 * (e - 43.0) - z
+
+    own2, oc2 = own_mod.find_walls(c, own_mod.own_corridor(c, own), own, ground)
+    assert [(g.side, g.auto, round(g.start, 2), round(g.end, 2))
+            for g in own2.walls] == [("R", "path-cut", 0.0, 36.5),
+                                     ("R", "path-cut", 381.5, round(own.length, 2))]
+    (secs,) = own_mod.own_sections(c, oc2, own2, ground)
+    assert len(secs) == 40
