@@ -261,7 +261,7 @@ class Corridor:
         if p is None or not p.covers(s):
             return False
         from bimforge.author.corridor.path import PATH_TRANSITION_FT  # path imports us
-        if p.in_gap(s, PATH_TRANSITION_FT):
+        if p.in_gap(s, PATH_TRANSITION_FT) or p.in_own(s):
             return False
         return not any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
                        for g in self.gaps)

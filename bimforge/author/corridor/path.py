@@ -13,7 +13,7 @@ the road's profile grade line in the plane square to the road's 3D tangent.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from bimforge.author.alignment import Profile, sta
 from bimforge.author.corridor.params import (COURSE_TYPES, SIDES, WALL_TRANSITION_FT,
@@ -45,7 +45,7 @@ GROUND_SAMPLES = 8
 #: the keys `params.path` takes
 KEYS = {"side", "stations", "separation", "width", "cross_slope", "shoulder",
         "courses", "profile", "design_speed_mph", "strip", "approach_ft",
-        "deck_separation_ft", "rail_height_ft", "gaps", "equestrian"}
+        "deck_separation_ft", "rail_height_ft", "gaps", "equestrian", "own"}
 #: the keys `path.equestrian` takes
 EQ_KEYS = {"width", "buffer", "clear_ft", "cross_slope", "courses", "fence",
            "fence_height_ft", "rail_height_ft"}
@@ -109,6 +109,7 @@ class Path:
     alignment: object              # the road's
     gaps: tuple = ()               # PathGap, by start station
     equestrian: object = None      # Equestrian, or None
+    own: tuple = ()                # own.Own, by start station (phase 3)
 
     @property
     def sign(self) -> float:
@@ -136,8 +137,14 @@ class Path:
         path's transition foot, the span validate's separation check skips:
         the deck carries no path there, so it is not met and no approach
         leads to it. A station exactly a foot outside has a built path
-        section, so it is not waived."""
-        return self.in_gap(s, PATH_TRANSITION_FT)
+        section, so it is not waived. An own stretch, its ends included, is
+        waived too: the path is not beside the road there."""
+        return (self.in_gap(s, PATH_TRANSITION_FT)
+                or any(o.start - _EPS <= s <= o.end + _EPS for o in self.own))
+
+    def in_own(self, s: float) -> bool:
+        """Strictly inside an own stretch: the path is on its own corridor."""
+        return any(o.start + _EPS < s < o.end - _EPS for o in self.own)
 
 
 def _separation(value, s0: float, s1: float) -> tuple:
@@ -354,7 +361,7 @@ def parse_path(pp, c, alignment, profile) -> Path:
     if not isinstance(strip, dict):
         raise ValueError("path.strip: a mapping ({max_ratio})")
     courses = _courses(pp.get("courses"))
-    return Path(
+    p = Path(
         side=side, s_start=float(s0), s_end=float(s1), separation=separation,
         width=width, cross_slope=cs, shoulder_width=sw, shoulder_slope=ss,
         courses=tuple(courses),
@@ -367,6 +374,10 @@ def parse_path(pp, c, alignment, profile) -> Path:
         road_profile=profile, alignment=alignment,
         gaps=_path_gaps(pp.get("gaps"), s0, s1),
         equestrian=_equestrian(pp.get("equestrian"), sw))
+    if pp.get("own") is not None:
+        from bimforge.author.corridor.own import parse_own  # own imports us
+        p = replace(p, own=parse_own(pp["own"], p, c))
+    return p
 
 
 def stations_extra(c) -> list:
@@ -391,6 +402,9 @@ def stations_extra(c) -> list:
             out += [a + length * i / n for i in range(1, n)]
     for g in p.gaps:
         out += [g.start - PATH_TRANSITION_FT, g.start, g.end, g.end + PATH_TRANSITION_FT]
+    from bimforge.author.corridor.own import HANDOVER_FT
+    for o in p.own:
+        out += [o.start, o.start + HANDOVER_FT, o.end - HANDOVER_FT, o.end]
     return out
 
 
@@ -475,7 +489,8 @@ def validate(c) -> None:
         if g.kind == "structure":
             at |= {g.start, g.end}
     for s in sorted(at):
-        if not p.covers(s) or _on_deck(c, s) or p.in_gap(s, PATH_TRANSITION_FT):
+        if (not p.covers(s) or _on_deck(c, s) or p.in_gap(s, PATH_TRANSITION_FT)
+                or p.in_own(s)):
             continue
         sep = p.separation_at(s)
         if sep < p.deck_separation - _EPS:
