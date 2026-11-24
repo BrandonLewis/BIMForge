@@ -137,12 +137,17 @@ def test_a_deck_graded_over_5_percent_is_listed():
 
 
 def test_inside_a_path_gap_over_a_road_gap_the_path_s_grade_is_checked():
+    road = Profile(grade(100.0, pct=6.0)["curves"])
     c = corridor(path(profile=grade(99.51, pct=6.0),
-                      gaps=[{"from": 1380, "to": 1520, "kind": "structure"}]), gaps=GAP)
+                      gaps=[{"from": 1380, "to": 1520, "kind": "structure"}]), gaps=GAP,
+                 prof=road)
     assert rows(pc.grade_rows(c), "grade>5%") == [
         (pytest.approx(1000.0), pytest.approx(2000.0), pytest.approx(6.0), 5.0)]
     assert pc.deck_rows(c) == []
     assert rows(pc.path_gap_rows(c), "path gap over a road structure gap") == [
+        (1400.0, 1500.0, 100.0, None)]
+    # wired into checks(), with the overlap length as its value
+    assert rows(pc.checks(c, [], []), "path gap over a road structure gap") == [
         (1400.0, 1500.0, 100.0, None)]
 
 
@@ -173,3 +178,16 @@ def test_a_path_gap_s_stations_are_in_the_table_without_a_barrier():
                        for f in gap)
     assert float(gap[0][0]) == pytest.approx(1380.0)
     assert float(gap[-1][0]) == pytest.approx(1520.0)
+
+
+def test_a_path_gap_inside_a_road_gap_leaves_one_row_per_station():
+    road = Profile(grade(100.0, pct=6.0)["curves"])
+    c = corridor(path(separation=NARROW, profile=grade(99.48088, pct=6.0),
+                      gaps=[{"from": 1430, "to": 1470, "kind": "structure"}]),
+                 gaps=GAP, prof=road)
+    fields = [l.split(",") for l in pc.path_csv(c, [], []).splitlines()[1:]]
+    at = [round(float(f[0]), 2) for f in fields]
+    assert len(at) == len(set(at))
+    assert {f[10] for f in fields if 1430.0 <= float(f[0]) <= 1470.0} == {"path gap"}
+    deck = [float(f[0]) for f in fields if f[10] == "deck"]
+    assert deck and all(x < 1430.0 or x > 1470.0 for x in deck)

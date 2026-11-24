@@ -335,7 +335,7 @@ def path_csv(c, secs: list, rails) -> str:
         if gap.kind != "structure":
             continue
         for s in c.stations(gap.start, gap.end)[1:-1]:
-            if not p.covers(s) or p.in_gap(s):
+            if not p.covers(s) or p.in_gap(s, 1e-6):
                 continue
             pz = p.profile.elev(s)
             rows.append((s, ",".join([
