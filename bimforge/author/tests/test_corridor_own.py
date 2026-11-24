@@ -596,7 +596,7 @@ def crest(length=BUMP_FT, elev=99.51, g=6.0):
 def crest_path(**over):
     p = own_path(**over)
     p["own"][0]["profile"] = crest()
-    return p
+    return joined(p)
 
 
 def test_an_own_section_on_a_grade_is_in_the_plane_square_to_it():
@@ -973,45 +973,26 @@ def test_a_level_own_stretch_at_20_mph_adds_no_row():
                                     if not r.check.startswith("own")]
 
 
-def steep_own_path():
-    """The path rises 6 % beside the road and over a crest of its own 1250-1300
-    short of its stopping sight distance; its own stretch (1100-1510.424)
-    rises 5.9 %: it meets the path's profile at both ends."""
-    prof = {"curves": [
-        {"bvc_station": 1000.0, "bvc_elev": 99.51, "g_in_pct": 6.0, "g_out_pct": 6.0,
-         "length_ft": 250.0, "evc_station": 1250.0, "evc_elev": 114.51},
-        {"bvc_station": 1250.0, "bvc_elev": 114.51, "g_in_pct": 6.0, "g_out_pct": -6.0,
-         "length_ft": 50.0, "evc_station": 1300.0, "evc_elev": 114.51},
-        {"bvc_station": 1300.0, "bvc_elev": 114.51, "g_in_pct": -6.0, "g_out_pct": -6.0,
-         "length_ft": 700.0, "evc_station": 2000.0, "evc_elev": 72.51}]}
-    from bimforge.author.alignment import Profile
-    pr = Profile(prof["curves"])
-    a, b = pr.elev(1100.0), pr.elev(1510.424)
-    length = BUMP_FT
-    g = 100.0 * (b - a) / length
-    own = {"curves": [{"bvc_station": 0.0, "bvc_elev": a, "g_in_pct": g,
-                       "g_out_pct": g, "length_ft": length, "evc_station": length,
-                       "evc_elev": b}]}
-    p = own_path()
-    p["profile"] = prof
-    p["own"][0]["profile"] = own
-    return p, g
-
-
 def test_the_path_beside_the_road_is_not_checked_inside_its_own_stretch():
-    p, g = steep_own_path()
-    assert abs(g) < 5.0                       # under 5 % on its own
-    checks = pc.checks(corridor(p), [], [])
+    # the path climbs 6 % to the hand-over, the stretch crests (+6 to -6 %) and
+    # the path falls 6 % from the rejoin: beside the road its 6 % is listed
+    # before and after the stretch, never across it; the profile's own curves
+    # inside the stretch's span (the joined profile's 50 ft curves, 6 % to
+    # level and back) are not the path's crests
+    p = own_path()
+    p["own"][0]["profile"] = two_grades(6.0, -6.0)
+    checks = pc.checks(corridor(joined(p)), [], [])
     beside = [r for r in checks if not r.check.startswith("own")]
-    assert any(r.check == "grade>5%" for r in beside)
-    # the path's 6 % is listed before and after the stretch, never in it
-    for r in beside:
-        if r.check in ("grade>5%", "sustained grade>2%"):
-            assert r.end <= 1100.0 + 1e-3 or r.start >= 1510.424 - 1e-3, r
-    # nor is the profile's crest there: the path is on its own profile
+    assert [(r.check, r.start, r.end) for r in beside
+            if r.check == "grade>5%"] == [
+        ("grade>5%", 1000.0, 1100.0), ("grade>5%", pytest.approx(REJOIN), 2000.0)]
     assert not any(r.check.startswith("crest") for r in beside)
-    assert not any(r.check.startswith("own") for r in checks
-                   if r.check.startswith("own 1 grade"))
+    # on the stretch's own stations: the crest's grade falls to 5 % 1/12 of
+    # the way along it, and is 5 % again 1/12 from its end
+    assert [(r.check, round(r.start, 3), round(r.end, 3)) for r in checks
+            if r.check == "own 1 grade>5%"] == [
+        ("own 1 grade>5%", 0.0, round(BUMP_FT / 12.0, 3)),
+        ("own 1 grade>5%", round(BUMP_FT * 11.0 / 12.0, 3), round(BUMP_FT, 3))]
 
 
 def test_an_own_stretch_s_grade_and_crest_are_checked_on_its_own_stations():
@@ -1027,22 +1008,28 @@ def test_an_own_stretch_s_grade_and_crest_are_checked_on_its_own_stations():
         {"bvc_station": half + 50.0, "bvc_elev": top, "g_in_pct": -6.0,
          "g_out_pct": -6.0, "length_ft": half, "evc_station": BUMP_FT,
          "evc_elev": 99.51}]}
-    checks = pc.checks(corridor(own_path(profile=prof)), [], [])
-    assert [r.check for r in checks if r.check.startswith("own")] == [
-        "own 1 grade>5%", "own 1 crest VC short of SSD at 20 mph", "own 1 grade>5%"]
-    up, crest_row, down = [r for r in checks if r.check.startswith("own")]
+    p = own_path(profile=prof)
+    checks = pc.checks(corridor(joined(p)), [], [])
+    own_rows = [r for r in checks if r.check.startswith("own")
+                and "sustained" not in r.check]
+    assert [r.check for r in own_rows] == [
+        "own 1 grade>5%", "own 1 crest VC short of SSD at 30 mph", "own 1 grade>5%"]
+    up, crest_row, down = own_rows
     # on its own stations, from 0+00: the grade runs to where the crest's
     # grade falls to 5 %, 1/12 of the way through the crest
     assert (up.start, up.end) == (0.0, pytest.approx(half + 50.0 * 1.0 / 12.0))
-    assert (down.start, down.end) == (pytest.approx(half + 50.0 * 11.0 / 12.0), BUMP_FT)
+    assert (down.start, down.end) == (pytest.approx(half + 50.0 * 11.0 / 12.0),
+                                    pytest.approx(BUMP_FT))
     assert up.value == down.value == pytest.approx(6.0)
     assert (crest_row.start, crest_row.end, crest_row.value) == (
         pytest.approx(half), pytest.approx(half + 50.0), 50.0)
-    assert crest_row.limit == pytest.approx(2.0 * 125.0 - 1600.0 / 12.0)
-    # beside the road the level path has none of these
-    assert not any(not r.check.startswith("own") and r.check.startswith(
-        ("grade", "crest")) for r in checks)
-    p = own_path(profile=prof)
+    # (the path falls 6 % for 184 ft on the stretch and 490 ft beside it: 30 mph)
+    assert crest_row.limit == pytest.approx(12.0 * 230.0 ** 2 / 1600.0)
+    # beside the road: its 6 % before and after the stretch, and no crest
+    assert [(r.start, r.end) for r in checks if r.check == "grade>5%"] == [
+        (1000.0, 1100.0), (pytest.approx(REJOIN), 2000.0)]
+    assert not any(r.check.startswith("crest") for r in checks)
+    p = joined(own_path(profile=prof))
     p["design_speed_mph"] = 30
     (crest30,) = [r for r in pc.checks(corridor(p), [], [])
                   if r.check.startswith("own 1 crest")]
@@ -1058,3 +1045,217 @@ def test_a_close_path_is_no_barrier_row_inside_its_own_stretch():
     assert [(r.start, r.end) for r in rows] == [
         (pytest.approx(1000.0), pytest.approx(1100.0, abs=1e-3)),
         (pytest.approx(1510.424, abs=1e-3), pytest.approx(2000.0))]
+
+
+# -- the checks across the hand-over and the rejoin (review of Task 23) ---
+
+from bimforge.author.alignment import Profile
+
+
+def vc(s0, z, g0, g1, length):
+    """A curve of `length` from station s0 at elevation z, grades in %: the
+    curve and the elevation at its end."""
+    z1 = z + length * (g0 + g1) / 200.0
+    return ({"bvc_station": s0, "bvc_elev": z, "g_in_pct": g0, "g_out_pct": g1,
+             "length_ft": length, "evc_station": s0 + length, "evc_elev": z1}, z1)
+
+
+def beside_tail(x0, z, g0, z_end, g1, to=REJOIN, end=2000.0):
+    """The path's profile from x0 (at z, grade g0 %) to the rejoin at `to`
+    (at z_end, grade g1 %) and on to `end`: a 50 ft curve to a grade that
+    carries it to a 50 ft curve into g1."""
+    gm = 100.0 * ((z_end - z) - 0.25 * (g0 + g1)) / (to - x0 - 50.0)
+    out = []
+    for s0, g_a, g_b, ln in ((x0, g0, gm, 50.0), (x0 + 50.0, gm, gm, to - x0 - 100.0),
+                             (to - 50.0, gm, g1, 50.0), (to, g1, g1, end - to)):
+        cv, z = vc(s0, z, g_a, g_b, ln)
+        out.append(cv)
+    return out
+
+
+def joined(p, g0=None, g1=None):
+    """Give path `p` a profile that carries on its (only) own stretch's grade
+    at the hand-over and the rejoin (or at g0, g1 %), meeting its elevations."""
+    o = p["own"][0]
+    pr = Profile(o["profile"]["curves"])
+    length = o["profile"]["curves"][-1]["evc_station"]
+    z0, zl = pr.elev(0.0), pr.elev(length)
+    g0 = 100.0 * pr.grade(0.0) if g0 is None else g0
+    g1 = 100.0 * pr.grade(length) if g1 is None else g1
+    head, _z = vc(1000.0, z0 - (o["from"] - 1000.0) * g0 / 100.0, g0, g0,
+                  o["from"] - 1000.0)
+    p["profile"] = {"curves": [head] + beside_tail(o["from"], z0, g0, zl, g1, o["to"])}
+    return p
+
+
+def two_grades(g0, g1, length=BUMP_FT, z0=99.51):
+    cv, _z = vc(0.0, z0, g0, g1, length)
+    return {"curves": [cv]}
+
+
+def test_the_helper_joins_a_graded_stretch():
+    p = own_path()
+    p["own"][0]["profile"] = two_grades(6.0, 6.0)
+    (own,) = corridor(joined(p)).path.own
+    assert own.profile.grade(0.0) == pytest.approx(0.06)
+
+
+@pytest.mark.parametrize("end,over", [("hand-over", {"g0": 0.0}),
+                                      ("rejoin", {"g1": 0.0})])
+def test_a_grade_break_at_a_hand_over_or_rejoin_is_refused(end, over):
+    # the own profile goes from -6 % to 0 % (hand-over) or from 0 % to -6 %
+    # (rejoin); the path's profile there is level
+    p = own_path()
+    p["own"][0]["profile"] = two_grades(*((-6.0, 0.0) if end == "hand-over"
+                                          else (0.0, -6.0)))
+    joined(p, **over)
+    with pytest.raises(ValueError, match=rf"path\.own\[0\]\.profile.*{end}.*grade"):
+        corridor(p)
+
+
+def test_a_grade_that_carries_on_across_both_ends_is_accepted():
+    p = own_path()
+    p["own"][0]["profile"] = two_grades(6.0, -6.0)
+    corridor(joined(p))
+
+
+def test_an_own_stretch_s_equestrian_grade_runs_on_its_own_stations():
+    # 12 % for 150 ft, a 10 ft curve, -12 %: each run is over 200 ft with the
+    # path's grade beside the stretch; the first is 100 ft beside it (to its
+    # hand-over) and 150.8 ft on it; the second 258 ft on it and 490 ft beside
+    p = own_path()
+    a, z = vc(0.0, 99.51, 12.0, 12.0, 150.0)
+    b, z = vc(150.0, z, 12.0, -12.0, 10.0)
+    d, z = vc(160.0, z, -12.0, -12.0, BUMP_FT - 160.0)
+    p["own"][0]["profile"] = {"curves": [a, b, d]}
+    p["equestrian"] = copy.deepcopy(TREAD)
+    joined(p)
+    rows = [r for r in pc.checks(corridor(p), [], [])
+            if r.check.endswith("equestrian grade>10% for over 200ft")]
+    # (the grade falls to 10 % 1/12 of the way into the curve)
+    got = [(r.check.split("equestrian")[0], round(r.start, 3), round(r.end, 3),
+            round(r.value, 2)) for r in rows]
+    # (the road's stations first, then the stretch's)
+    assert got == [("", 1000.0, 1100.0, 12.0),
+                   ("", 1510.424, 2000.0, 12.0),
+                   ("own 1 ", 0.0, 150.833, 12.0),
+                   ("own 1 ", 159.167, round(BUMP_FT, 3), 12.0)]
+
+
+def test_an_own_stretch_without_a_tread_has_no_equestrian_rows():
+    p = own_path()
+    p["own"][0]["profile"] = two_grades(12.0, 12.0)
+    rows = pc.checks(corridor(joined(p)), [], [])
+    assert not any("equestrian" in r.check for r in rows)
+    assert any(r.check == "own 1 grade>5%" for r in rows)
+
+
+def crest_across_the_rejoin():
+    """An own crest (+2 to -4.5 % over its first 50 ft) and -4.5 % to its end,
+    then the path's -4.5 % beside the road to 2000: -4.5 % for 858 ft either
+    side of the rejoin."""
+    a, z = vc(0.0, 99.51, 2.0, -4.5, 50.0)
+    b, z = vc(50.0, z, -4.5, -4.5, BUMP_FT - 50.0)
+    p = own_path()
+    p["own"][0]["profile"] = {"curves": [a, b]}
+    return joined(p)
+
+
+def test_a_crest_on_an_own_stretch_reads_the_grade_beyond_its_rejoin():
+    rows = pc.checks(corridor(crest_across_the_rejoin()), [], [])
+    (crest_row,) = [r for r in rows if r.check.startswith("own 1 crest")]
+    # -4.5 % for 368.9 ft on the stretch and 489.6 ft beside it: over 500 ft,
+    # so the 30 mph rule applies (need 2 x 230 - 1600 / 6.5 = 213.85 ft)
+    assert crest_row.check == "own 1 crest VC short of SSD at 30 mph"
+    assert (crest_row.start, crest_row.end, crest_row.value) == (0.0, 50.0, 50.0)
+    assert crest_row.limit == pytest.approx(2.0 * 230.0 - 1600.0 / 6.5)
+
+
+def test_a_sustained_grade_runs_across_the_rejoin_on_both_systems():
+    rows = pc.checks(corridor(crest_across_the_rejoin()), [], [])
+    sus = [r for r in rows if r.check.endswith("sustained grade>2%")]
+    # the grade passes -2 % 30.769 ft into the stretch's crest; the run is
+    # reported on each system it lies on, with its whole length
+    first = 50.0 * 4.0 / 6.5
+    whole = (BUMP_FT - first) + (2000.0 - REJOIN)
+    assert [(r.check, round(r.start, 3), round(r.end, 3), round(r.value, 3))
+            for r in sus] == [
+        ("sustained grade>2%", REJOIN, 2000.0, round(whole, 3)),
+        ("own 1 sustained grade>2%", round(first, 3), round(BUMP_FT, 3), round(whole, 3))]
+
+
+def test_a_beside_crest_across_the_hand_over_reads_the_stretch_s_grade():
+    # the path's crest from 10+50 to 11+50 (+3 to -3 %) holds the hand-over
+    # at 11+00, where the stretch takes up the 0 % grade and falls to -5 %:
+    # beyond the crest the path's grade is the stretch's, -5 % for 858 ft
+    z0 = 99.51
+    a, z = vc(1000.0, z0 - 0.75 - 0.03 * 50.0, 3.0, 3.0, 50.0)
+    b, z = vc(1050.0, z, 3.0, -3.0, 100.0)
+    own_a, oz = vc(0.0, z0, 0.0, -5.0, 50.0)
+    own_b, oz = vc(50.0, oz, -5.0, -5.0, BUMP_FT - 50.0)
+    p = own_path()
+    p["own"][0]["profile"] = {"curves": [own_a, own_b]}
+    p["profile"] = {"curves": [a, b] + beside_tail(1150.0, z, -3.0, oz, -5.0)}
+    c = corridor(p)
+    (row,) = [r for r in pc.checks(c, [], []) if r.check.startswith("crest")]
+    assert row.check == "crest VC short of SSD at 30 mph"
+    assert (row.start, row.end, row.value) == (1050.0, 1150.0, 100.0)
+    # the path beyond it is the stretch's -5 %, not the profile's -3 %: 8 %
+    assert row.limit == pytest.approx(8.0 * 230.0 ** 2 / 1600.0)
+
+
+def test_the_path_beside_the_road_reads_the_stretch_s_grade_through_it():
+    # 12 % beside the road for 100 ft, 12 % on the stretch, 12 % after: one
+    # run over 200 ft on three pieces, and no row beside the road across the
+    # stretch's span (10+00 to 20+00 is not one row)
+    p = own_path()
+    p["own"][0]["profile"] = two_grades(12.0, 12.0)
+    p["equestrian"] = copy.deepcopy(TREAD)
+    rows = [r for r in pc.checks(corridor(joined(p)), [], [])
+            if r.check.endswith("equestrian grade>10% for over 200ft")]
+    assert [(r.check.split("equestrian")[0], r.start, r.end) for r in rows] == [
+        ("", 1000.0, 1100.0), ("", pytest.approx(REJOIN), 2000.0),
+        ("own 1 ", 0.0, pytest.approx(BUMP_FT))]
+
+
+def test_the_approach_rows_skip_an_own_stretch():
+    # a 3 ft separation from 11+10 inside the stretch (which starts at 11+00)
+    # is not an approach row, though a road structure gap ends at 10+80
+    p = own_path(elev=99.48, separation=[[1000, 1.5], [1080, 1.5], [1100, 20.0],
+                                         [1110, 3.0], [1500, 3.0], [1510.424, 20.0]])
+    p["profile"] = grade(99.48)
+    c = corridor(p, gaps=[{"from": 1040, "to": 1080, "kind": "structure"}])
+    assert [(r.start, r.end) for r in pc.approach_rows(c)] == [
+        (1000.0, 1040.0), (1080.0, pytest.approx(1083.8, abs=0.1))]
+
+
+def test_a_road_structure_inside_an_own_stretch_is_not_a_deck_the_path_is_on():
+    # the path is off on its own stretch there: no deck width to carry, no
+    # deck grade, no deck row in the path table
+    p = own_path()
+    p["equestrian"] = copy.deepcopy(TREAD)
+    c = corridor(p, gaps=[{"from": 1250, "to": 1300, "kind": "structure"}])
+    assert not pc.on_deck(c, 1275.0)
+    assert [r for r in pc.checks(c, [], []) if "deck" in r.check] == []
+    assert pc.deck_rows(c) == []
+    assert ",deck," not in pc.path_csv(c, [], [])
+
+
+def test_a_steep_road_deck_inside_an_own_stretch_is_not_the_path_s_deck_grade():
+    p = own_path()
+    c = corridor(p, Profile(grade(100.0, 6.0)["curves"]),
+                 gaps=[{"from": 1250, "to": 1300, "kind": "structure"}])
+    assert pc.deck_rows(c) == []
+
+
+def test_a_crest_of_the_path_s_profile_inside_its_own_stretch_is_not_checked():
+    # a short crest (a 12 % angle over 40 ft between two 10 ft curves) at
+    # 12+50 to 13+10, inside the stretch's span: the path is on the stretch
+    a, z = vc(1000.0, 99.51, 0.0, 0.0, 250.0)
+    b, z = vc(1250.0, z, 0.0, 6.0, 10.0)
+    d, z = vc(1260.0, z, 6.0, -6.0, 40.0)
+    e, z = vc(1300.0, z, -6.0, 0.0, 10.0)
+    f, z = vc(1310.0, z, 0.0, 0.0, 690.0)
+    p = own_path()
+    p["profile"] = {"curves": [a, b, d, e, f]}
+    assert not [r for r in pc.checks(corridor(p), [], []) if r.check.startswith("crest")]

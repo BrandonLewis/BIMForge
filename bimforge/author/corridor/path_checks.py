@@ -8,7 +8,15 @@ error: the path's errors are params' and path.validate's.
 Stretches are found every SAMPLE_FT along the path and each end refined by
 bisection to 1e-6 ft. The path's grade is along its own length: its
 profile's rise per road station over (1 - kappa u), u its paved centre's
-offset.
+offset; on an own stretch it is the own profile's grade (own stations run
+along the paved centreline).
+
+Runs of grade (sustained, the 30 mph crest rule, the equestrian 200 ft) are
+read along the path as it is built: the path beside the road up to an own
+stretch's hand-over, the stretch's own profile, the path beside the road
+again from its rejoin, joined end to end by length (`Chain`). A row for a
+run on more than one piece is written on each system it lies on (the road's
+stations, or `own <n> ` and the stretch's own) with the whole run's length.
 """
 from __future__ import annotations
 
@@ -94,9 +102,9 @@ def _within(a: float, b: float) -> list:
 
 
 def on_deck(c, s: float) -> bool:
-    """Strictly inside a road structure gap and not in a path gap: the path
-    is on the road's deck."""
-    return (not c.path.in_gap(s)
+    """Strictly inside a road structure gap, not in a path gap and not in an
+    own stretch: the path is on the road's deck."""
+    return (not c.path.in_gap(s) and not c.path.in_own(s)
             and any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
                     for g in c.gaps))
 
@@ -113,33 +121,162 @@ def path_grade(c, s: float) -> float:
     return p.profile.grade(s) / (1.0 - p.alignment.curvature(s) * centre_u(c, s))
 
 
-def profile_grade_rows(grade_at, s0: float, s1: float, skip, label: str = "") -> list:
+@dataclass(frozen=True)
+class Piece:
+    """A stretch of the path on one station system: beside the road
+    (own=None, road stations) or an own stretch (its own stations). `off`
+    takes a station to its place along the chain."""
+    own: object
+    lo: float
+    hi: float
+    off: float
+
+    @property
+    def x0(self) -> float:
+        return self.lo + self.off
+
+    @property
+    def x1(self) -> float:
+        return self.hi + self.off
+
+    @property
+    def label(self) -> str:
+        return "" if self.own is None else f"own {self.own.index} "
+
+
+@dataclass(frozen=True)
+class Curve:
+    """A vertical curve of the path as built, along the chain."""
+    xb: float
+    xe: float
+    g_in: float            # %: read from the chain where the curve is carried
+    g_out: float           # across a hand-over or a rejoin
+    length: float
+    label: str
+    bvc: float             # its stations on its own system
+    evc: float
+
+
+class Chain:
+    """The path along its length: beside the road, each own stretch on its
+    own profile, beside the road again, end to end (an own stretch counts its
+    own length, the road's stations count beside it)."""
+
+    def __init__(self, c) -> None:
+        self.c = c
+        p = c.path
+        pieces, x, s = [], p.s_start, p.s_start
+        for o in p.own:
+            if o.start - s > _EPS:
+                pieces.append(Piece(None, s, o.start, x - s if pieces else 0.0))
+                x = pieces[-1].x1
+            pieces.append(Piece(o, 0.0, o.length, x))
+            x = pieces[-1].x1
+            s = o.end
+        if p.s_end - s > _EPS or not pieces:
+            pieces.append(Piece(None, s, p.s_end, x - s if pieces else 0.0))
+        self.pieces = pieces
+        self.lo, self.hi = p.s_start, pieces[-1].x1
+
+    def locate(self, x: float) -> tuple:
+        """(piece, station on its system) at position x."""
+        for pc in self.pieces:
+            if x <= pc.x1 + _EPS:
+                return pc, x - pc.off
+        return self.pieces[-1], x - self.pieces[-1].off
+
+    def grade(self, x: float) -> float:
+        """The path's grade along its own length."""
+        pc, s = self.locate(x)
+        return path_grade(self.c, s) if pc.own is None else pc.own.profile.grade(s)
+
+    def pct(self, x: float) -> float:
+        """The profile's grade, in %, where the path is at x."""
+        pc, s = self.locate(x)
+        prof = self.c.path.profile if pc.own is None else pc.own.profile
+        return 100.0 * prof.grade(s)
+
+    def skip(self, x: float) -> bool:
+        """On a road deck the path is on: not its own grade to check."""
+        pc, s = self.locate(x)
+        return pc.own is None and on_deck(self.c, s)
+
+    def parts(self, a: float, b: float) -> list:
+        """[(piece, from, to, x_from, x_to)]: [a, b] cut at the pieces' ends,
+        each part on its piece's stations."""
+        if len(self.pieces) == 1:
+            pc = self.pieces[0]
+            return [(pc, a - pc.off, b - pc.off, a, b)]
+        out = []
+        for pc in self.pieces:
+            xa, xb = max(a, pc.x0), min(b, pc.x1)
+            if xb - xa > _EPS:
+                out.append((pc, xa - pc.off, xb - pc.off, xa, xb))
+        return out
+
+    def curves(self) -> list:
+        """The vertical curves that change the grade, by position: the
+        path's beside the road, and each stretch's own. One of the path's
+        profile inside a stretch's span is not the path's (it is on the
+        stretch's profile there); one across a hand-over or a rejoin is kept
+        from its end beside the road, carried its length along the chain,
+        and its far grade read from the chain there."""
+        beside = [pc for pc in self.pieces if pc.own is None]
+        out = []
+        for cv in self.c.path.profile.curves:
+            if abs(cv["g_out_pct"] - cv["g_in_pct"]) <= 1e-12:
+                continue
+            b, e, ln = cv["bvc_station"], cv["evc_station"], cv["length_ft"]
+            whole = [pc for pc in beside if pc.lo - _EPS <= b and e <= pc.hi + _EPS]
+            if whole:
+                off = whole[0].off
+                out.append(Curve(b + off, e + off, cv["g_in_pct"], cv["g_out_pct"],
+                                 ln, "", b, e))
+                continue
+            at_b = [pc for pc in beside if pc.lo - _EPS <= b < pc.hi - _EPS]
+            at_e = [pc for pc in beside if pc.lo + _EPS < e <= pc.hi + _EPS]
+            if at_b:                                   # leaves the road's profile
+                xb = b + at_b[0].off
+                out.append(Curve(xb, xb + ln, cv["g_in_pct"], self.pct(xb + ln),
+                                 ln, "", b, e))
+            elif at_e:                                 # joins it again
+                xe = e + at_e[0].off
+                out.append(Curve(xe - ln, xe, self.pct(xe - ln), cv["g_out_pct"],
+                                 ln, "", b, e))
+        for pc in self.pieces:
+            if pc.own is None:
+                continue
+            for cv in pc.own.profile.curves:
+                if abs(cv["g_out_pct"] - cv["g_in_pct"]) > 1e-12:
+                    out.append(Curve(cv["bvc_station"] + pc.off, cv["evc_station"] + pc.off,
+                                     cv["g_in_pct"], cv["g_out_pct"], cv["length_ft"],
+                                     pc.label, cv["bvc_station"], cv["evc_station"]))
+        return sorted(out, key=lambda v: (v.xb, v.xe))
+
+
+def grade_rows(c, ch=None) -> list:
     """Grades over 5 % (1003.1(14)) and over 2 % for more than 500 ft
-    (1003.1(14), "should be limited to 2 percent": for information) on
-    [s0, s1], where skip(s) is false; `grade_at(s)` the grade along the
-    path's own length. `label` prefixes the check (an own stretch's)."""
-    out = []
+    (1003.1(14), "should be limited to 2 percent": for information) on the
+    path, off the decks it is on. A run is cut where it passes from the
+    road's stations to an own stretch's (or back): a row for each piece,
+    each with the run's whole length."""
+    ch = ch or Chain(c)
 
     def steep(limit):
-        return lambda s: not skip(s) and abs(grade_at(s)) > limit + 1e-12
+        return lambda x: not ch.skip(x) and abs(ch.grade(x)) > limit + 1e-12
 
-    for a, b in spans(s0, s1, steep(MAX_GRADE)):
-        top = max(abs(grade_at(s)) for s in _within(a, b))
-        out.append(CheckRow(f"{label}grade>5%", a, b, 100.0 * top, 100.0 * MAX_GRADE,
-                            "HDM 1003.1(14)"))
-    for a, b in spans(s0, s1, steep(SUSTAINED_GRADE)):
+    out = []
+    for a, b in spans(ch.lo, ch.hi, steep(MAX_GRADE)):
+        for pc, la, lb, xa, xb in ch.parts(a, b):
+            top = max(abs(ch.grade(x)) for x in _within(xa, xb))
+            out.append(CheckRow(f"{pc.label}grade>5%", la, lb, 100.0 * top,
+                                100.0 * MAX_GRADE, "HDM 1003.1(14)"))
+    for a, b in spans(ch.lo, ch.hi, steep(SUSTAINED_GRADE)):
         if b - a > SUSTAINED_FT + _EPS:
-            out.append(CheckRow(f"{label}sustained grade>2%", a, b, b - a,
-                                SUSTAINED_FT, "HDM 1003.1(14)"))
+            for pc, la, lb, _xa, _xb in ch.parts(a, b):
+                out.append(CheckRow(f"{pc.label}sustained grade>2%", la, lb, b - a,
+                                    SUSTAINED_FT, "HDM 1003.1(14)"))
     return out
-
-
-def grade_rows(c) -> list:
-    """The path's grade rows beside the road, off the decks it is on and its
-    own stretches (they are checked on their own profiles)."""
-    p = c.path
-    return profile_grade_rows(lambda s: path_grade(c, s), p.s_start, p.s_end,
-                              lambda s: on_deck(c, s) or p.in_own(s))
 
 
 def deck_rows(c) -> list:
@@ -153,7 +290,7 @@ def deck_rows(c) -> list:
         a, b = max(g.start, p.s_start), min(g.end, p.s_end)
         if b - a <= _EPS:
             continue
-        for x, y in spans(a, b, lambda s: not p.in_gap(s)
+        for x, y in spans(a, b, lambda s: not p.in_gap(s) and not p.in_own(s)
                           and abs(p.road_profile.grade(s)) > MAX_GRADE + 1e-12):
             top = max(abs(p.road_profile.grade(s)) for s in _within(x, y))
             out.append(CheckRow(DECK_CHECK, x, y, 100.0 * top, 100.0 * MAX_GRADE,
@@ -171,65 +308,43 @@ def crest_length(a_pct: float, ssd: float) -> float:
     return max(0.0, 2.0 * ssd - 1600.0 / a_pct)
 
 
-def _beside(profile, s0: float, s1: float, i: int, after: bool) -> tuple:
-    """(grade %, length): the grade beside curve i of `profile`, after its
-    EVC or before its BVC, through constant-grade curves to the next grade
-    change or the end of [s0, s1]."""
-    # a steep run stops at the next vertical curve (a grade change), even
-    # where the grade after it is as steep: conservative, it may under-count
-    curves = profile.curves
-    if after:
-        g, start, end = curves[i]["g_out_pct"], curves[i]["evc_station"], s1
-        for cv in curves[i + 1:]:
-            if abs(cv["g_out_pct"] - cv["g_in_pct"]) > 1e-12:
-                end = cv["bvc_station"]
-                break
-        return g, max(0.0, min(end, s1) - start)
-    g, start, end = curves[i]["g_in_pct"], s0, curves[i]["bvc_station"]
-    for cv in reversed(curves[:i]):
-        if abs(cv["g_out_pct"] - cv["g_in_pct"]) > 1e-12:
-            start = cv["evc_station"]
-            break
-    return g, max(0.0, end - max(start, s0))
-
-
-def crest_speed(profile, s0: float, s1: float, design_speed: int, i: int) -> int:
-    """30 mph for curve i where a grade beside it is steeper than 4 % for
-    more than 500 ft (a downgrade one way of travel or the other, Table
-    1003.1); else the design speed."""
+def crest_speed(ch, curves: list, i: int, design_speed: int) -> int:
+    """30 mph for curve i of `curves` (`Chain.curves`) where a grade beside
+    it is steeper than 4 % for more than 500 ft (a downgrade one way of
+    travel or the other, Table 1003.1); else the design speed. A run goes
+    from the curve to the next one that changes the grade, or the path's
+    end, across a hand-over or a rejoin: the path's grade carries on."""
     if design_speed == 30:
         return 30
-    for g, run in (_beside(profile, s0, s1, i, False), _beside(profile, s0, s1, i, True)):
+    v = curves[i]
+    # a steep run stops at the next vertical curve (a grade change), even
+    # where the grade after it is as steep: conservative, it may under-count
+    before = [w.xe for w in curves[:i] if w.xe <= v.xb + _EPS]
+    after = [w.xb for w in curves[i + 1:] if w.xb >= v.xe - _EPS]
+    for g, run in ((v.g_in, max(0.0, v.xb - max(before[-1] if before else ch.lo, ch.lo))),
+                   (v.g_out, max(0.0, min(after[0] if after else ch.hi, ch.hi) - v.xe))):
         if abs(g) > 100.0 * STEEP_DOWNGRADE + 1e-9 and run > STEEP_RUN_FT + _EPS:
             return 30
     return 20
 
 
-def profile_crest_rows(profile, s0: float, s1: float, design_speed: int,
-                       label: str = "") -> list:
-    """Crest vertical curves of `profile` short of stopping sight distance
-    (1003.1(11), (12))."""
+def crest_rows(c, ch=None) -> list:
+    """Crest vertical curves of the path short of stopping sight distance
+    (1003.1(11), (12)): those of its profile beside the road, and each own
+    stretch's, on its own stations (`own <n> `)."""
+    ch = ch or Chain(c)
+    curves = ch.curves()
     out = []
-    for i, cv in enumerate(profile.curves):
-        a_pct = cv["g_in_pct"] - cv["g_out_pct"]
+    for i, v in enumerate(curves):
+        a_pct = v.g_in - v.g_out
         if a_pct <= 1e-12:
             continue                                     # a sag, or no curve
-        speed = crest_speed(profile, s0, s1, design_speed, i)
+        speed = crest_speed(ch, curves, i, c.path.design_speed)
         need = crest_length(a_pct, SSD_FT[speed])
-        if cv["length_ft"] < need - _EPS:
-            out.append(CheckRow(f"{label}crest VC short of SSD at {speed} mph",
-                                cv["bvc_station"], cv["evc_station"],
-                                cv["length_ft"], need, "HDM 1003.1(11), (12)"))
+        if v.length < need - _EPS:
+            out.append(CheckRow(f"{v.label}crest VC short of SSD at {speed} mph",
+                                v.bvc, v.evc, v.length, need, "HDM 1003.1(11), (12)"))
     return out
-
-
-def crest_rows(c) -> list:
-    """Crest curves of the path's profile beside the road; one inside an own
-    stretch is not the path's (it is on the stretch's own profile)."""
-    p = c.path
-    return [r for r in profile_crest_rows(p.profile, p.s_start, p.s_end, p.design_speed)
-            if not any(o.start - _EPS <= r.start and r.end <= o.end + _EPS
-                       for o in p.own)]
 
 
 def _shielded(rails, side: str, s: float) -> bool:
@@ -287,7 +402,9 @@ def path_gap_rows(c) -> list:
 
 def equestrian_rows(c) -> list:
     """The tread's advisory rows (USFS-EDG: guidance, never errors), over
-    the path's stations, off the decks."""
+    the path's stations, off the decks. The tread runs on each own stretch
+    too: its grade rows are `own <n> ` on its own stations, a run across a
+    hand-over or rejoin a row for each piece."""
     p = c.path
     eq = p.equestrian
     if eq is None:
@@ -305,21 +422,24 @@ def equestrian_rows(c) -> list:
     if not lo - _EPS <= cs <= hi + _EPS:
         out.append(CheckRow("equestrian cross slope outside 2-5%", a, b, 100.0 * cs,
                             100.0 * (lo if cs < lo else hi), "USFS-EDG Table 4-4"))
+    ch = Chain(c)
     for limit, check in ((EQ_SUSTAINED, "equestrian grade>10% for over 200ft"),
                          (EQ_PITCH, "equestrian grade>15% for over 200ft")):
-        for x, y in spans(a, b, lambda s, limit=limit: not on_deck(c, s)
-                          and not p.in_own(s) and abs(path_grade(c, s)) > limit + 1e-12):
+        for x, y in spans(ch.lo, ch.hi, lambda s, limit=limit: not ch.skip(s)
+                          and abs(ch.grade(s)) > limit + 1e-12):
             if y - x > EQ_RUN_FT + _EPS:
-                top = max(abs(path_grade(c, s)) for s in _within(x, y))
-                out.append(CheckRow(check, x, y, 100.0 * top, 100.0 * limit,
-                                    "USFS-EDG Table 4-3; HDM 208.7"))
+                for pc, la, lb, xa, xb in ch.parts(x, y):
+                    top = max(abs(ch.grade(s)) for s in _within(xa, xb))
+                    out.append(CheckRow(f"{pc.label}{check}", la, lb, 100.0 * top,
+                                        100.0 * limit, "USFS-EDG Table 4-3; HDM 208.7"))
     return out
 
 
 def _off_path_gaps(p, a: float, b: float) -> list:
-    """[(s0, s1)]: the stretches of [a, b] outside every path gap."""
+    """[(s0, s1)]: the stretches of [a, b] outside every path gap and own
+    stretch (the path is not on the road's deck there)."""
     out = [(a, b)]
-    for g in p.gaps:
+    for g in list(p.gaps) + list(p.own):
         out = [piece for x, y in out
                for piece in ((x, min(y, g.start)), (max(x, g.end), y))
                if piece[1] - piece[0] > _EPS]
@@ -365,20 +485,10 @@ def wall_rows(wall_rows_) -> list:
 
 
 def own_rows(c) -> list:
-    """The grade, crest and radius rows of each own stretch, on its own
-    profile and stations (0+00 at its hand-over); each check starts `own
-    <n> `. A path gap on it is a structure of its own, but its grade is
-    still the path's."""
+    """The radius rows of each own stretch, on its own stations (its grade
+    and crest rows are the chain's)."""
     from bimforge.author.corridor.own import radius_rows
-    p = c.path
-    out = []
-    for o in p.own:
-        out += profile_grade_rows(o.profile.grade, 0.0, o.length,
-                                  lambda s: False, f"own {o.index} ")
-        out += profile_crest_rows(o.profile, 0.0, o.length, p.design_speed,
-                                  f"own {o.index} ")
-        out += radius_rows(o, p.design_speed)
-    return out
+    return [r for o in c.path.own for r in radius_rows(o, c.path.design_speed)]
 
 
 def _order(row) -> tuple:
@@ -448,7 +558,7 @@ def path_csv(c, secs: list, rails) -> str:
         if gap.kind != "structure":
             continue
         for s in c.stations(gap.start, gap.end)[1:-1]:
-            if not p.covers(s) or p.in_gap(s, 1e-6):
+            if not p.covers(s) or p.in_gap(s, 1e-6) or p.in_own(s):
                 continue
             pz = p.profile.elev(s)
             rows.append((s, ",".join([

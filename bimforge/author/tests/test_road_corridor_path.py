@@ -692,7 +692,8 @@ def test_the_tread_on_the_curve_holds_its_formulas_and_volumes():
 #: out, and the bump of test_corridor_own from 11+00 to 15+10.424; the
 #: ground rises with the road (1 %) as it falls 2 % to the east, so both
 #: hand-overs leave natural ground between road and path
-from bimforge.author.tests.test_corridor_own import BUMP, REJOIN  # noqa: E402
+from bimforge.author.tests.test_corridor_own import (BUMP, REJOIN, beside_tail,  # noqa: E402
+                                                     vc)
 
 OWN_FT = sum(x["length"] for x in BUMP)
 #: the bump's PC to its first reverse-curve join, the second join to its
@@ -700,11 +701,25 @@ OWN_FT = sum(x["length"] for x in BUMP)
 OWN_STEPS = ("1+04.72", "3+14.16")
 
 
+def carry_on(path, z0, z1, g0, g1, to, lead=20.0):
+    """The path's profile carries on the stretch's grade across both ends
+    (g0 % at 11+00, g1 % at the rejoin): the road's 1 % but for a `lead` ft
+    curve into g0 and out of g1, and the middle, which the stretch replaces,
+    fitted to the elevations."""
+    z = z0 - lead * (1.0 + g0) / 200.0 - 0.01 * (100.0 - lead)
+    head, z = vc(1000.0, z, 1.0, 1.0, 100.0 - lead)
+    into, _z = vc(1100.0 - lead, z, 1.0, g0, lead)
+    mid = beside_tail(1100.0, z0, g0, z1, g1, to, end=to + 1.0)[:-1]
+    out, z = vc(to, z1, g1, 1.0, lead)
+    rest, _z = vc(to + lead, z, 1.0, 1.0, 1000.0)
+    path["profile"] = {"curves": [head, into] + mid + [out, rest]}
+
+
 def own_params(side="R", to=REJOIN, crest=None, swing=False, tread=False, **over):
     """The bump on `side` (turning away from the road first, or toward it
     with `swing`), its profile one grade (two PVIs) from the path's at 11+00
     to the path's at the rejoin, or with `crest` one vertical curve from
-    +`crest` % between them."""
+    +`crest` %; the path's profile carries on its grade across both ends."""
     p = copy.deepcopy(PARAMS)
     p.update(gaps=[], **over)
     p["ground"] = dict(p["ground"], slope_n=0.01)
@@ -719,6 +734,7 @@ def own_params(side="R", to=REJOIN, crest=None, swing=False, tread=False, **over
         "profile": {"curves": [{"bvc_station": 0.0, "bvc_elev": z0, "g_in_pct": g_in,
                                 "g_out_pct": g_out, "length_ft": OWN_FT,
                                 "evc_station": OWN_FT, "evc_elev": z1}]}}])
+    carry_on(p["path"], z0, z1, g_in, g_out, to)
     if tread:
         p["path"]["equestrian"] = copy.deepcopy(TREAD)
     return p

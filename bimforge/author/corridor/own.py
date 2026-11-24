@@ -226,6 +226,17 @@ def parse_own(value, p, c) -> tuple:
                     f"{at}.profile: at the {which} ({sta(st)}, road {sta(rs)}) it is "
                     f"at {got:.4f} ft and path.profile at {want:.4f} ft, "
                     f"{abs(got - want):.4f} ft off (more than {MEET_TOL_FT:g} ft)")
+        # the path carries on its grade across each end (as path.profile
+        # does between its curves): a break would be a vertical angle the
+        # checks' crest curves do not see
+        for st, rs, which in ((0.0, a, "hand-over"), (al.s_end, b, "rejoin")):
+            got, want = 100.0 * prof.grade(st), 100.0 * p.profile.grade(rs)
+            if abs(got - want) > 1e-9:
+                raise ValueError(
+                    f"{at}.profile: its grade at the {which} ({sta(st)}, road "
+                    f"{sta(rs)}) is {got:g} % and path.profile's {want:g} %: the "
+                    f"path's grade carries on across it (a grade break there "
+                    f"is a vertical curve of its own, short of the stretch)")
         out.append(Own(k + 1, i, a, b, al, prof,
                        _path_gaps(o.get("gaps"), 0.0, al.s_end, f"{at}.gaps",
                                   "its own stations")))
