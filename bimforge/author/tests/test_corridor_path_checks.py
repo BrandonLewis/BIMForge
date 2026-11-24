@@ -295,3 +295,20 @@ def test_a_path_gap_over_the_deck_lists_no_deck_width():
     p = deck_path(equestrian=TREAD, gaps=[{"from": 1430, "to": 1470, "kind": "structure"}])
     assert [(r.start, r.end, r.value) for r in pc.deck_width_rows(corridor(p, gaps=GAP))] == [
         (1400.0, 1430.0, 30.5), (1470.0, 1500.0, 30.5)]
+
+
+def test_a_deck_with_a_waived_approach_carries_the_separation_it_has():
+    # a path gap over the deck's start: the approach there is waived, so the
+    # path comes onto the deck at 14+20 still 10 ft out, narrowing to the
+    # deck separation only by 15+00; the deck carries the widest of it
+    p = deck_path(equestrian=TREAD,
+                  separation=[[1000, 10.0], [1440, 10.0], [1500, 1.5], [1600, 10.0]],
+                  gaps=[{"from": 1380, "to": 1420, "kind": "structure"}])
+    (row,) = pc.deck_width_rows(corridor(p, gaps=GAP))
+    # 10 + 12 + 6 + 8 + 3
+    assert (row.start, row.end, row.value) == (1420.0, 1500.0, pytest.approx(39.0))
+    # the widest is a separation row's inside the stretch, not an end's
+    p["separation"] = [[1000, 10.0], [1430, 10.0], [1440, 12.0], [1500, 1.5],
+                       [1600, 10.0]]
+    (row,) = pc.deck_width_rows(corridor(p, gaps=GAP))
+    assert row.value == pytest.approx(41.0)

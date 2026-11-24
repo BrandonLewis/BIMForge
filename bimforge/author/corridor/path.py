@@ -264,9 +264,10 @@ def _equestrian(value, shoulder_width: float):
     cs = _num(value.get("cross_slope", -0.02), f"{where}.cross_slope", positive=False)
     width = _num(value.get("width", 8.0), f"{where}.width")
     clear = _num(value.get("clear_ft", 3.0), f"{where}.clear_ft")
-    for key, x in (("width", width), ("clear_ft", clear)):
+    for key, x in (("width", width), ("clear_ft", clear), ("buffer", buffer)):
         # the top line steps STEP_FT in from each edge of the tread's
-        # courses (_top): narrower, it folds back on itself
+        # courses, and out from the paved courses' outer edge (_top):
+        # narrower, it folds back on itself
         if x <= 2.0 * STEP_FT + _EPS:
             raise ValueError(f"{where}.{key}: {x:g} ft is no wider than two "
                              f"{STEP_FT:g} ft steps down the tread's courses")
@@ -497,6 +498,7 @@ class Surface:
     tread: tuple | None = None     # the tread's (inner edge, outer edge)
     fence: tuple | None = None     # where the fence stands on the buffer
     tread_depth: float = 0.0       # the tread courses' depth in the plane
+    tread_cos_theta: float = 1.0   # cos theta at the tread's centre
 
 
 def section_v(p, s: float, u: float, z_at, toward: float = 0.0) -> float:
@@ -536,21 +538,34 @@ def section_v(p, s: float, u: float, z_at, toward: float = 0.0) -> float:
                      f"not settle in {SECTION_V_ROUNDS} rounds")
 
 
-def _centre(c, s: float, toward: float = 0.0) -> tuple:
-    """(u, v) of the paved path's centre at finished grade, station s."""
+def _centre(c, s: float, toward: float = 0.0, at: tuple | None = None) -> tuple:
+    """(u, v) of the paved path's centre at finished grade, station s; with
+    `at` (du, dz), of the point du out from the paved inner edge and dz
+    above the path's profile (the tread's centre: _tread_centre)."""
     from bimforge.author.corridor.section import grade_edge  # section imports path
     p = c.path
-    u = grade_edge(c, s, p.side)[0] + p.sign * (p.separation_at(s) + 0.5 * p.width)
-    half = 0.5 * p.width * p.cross_slope
-    return u, section_v(p, s, u, lambda st: p.profile.elev(st) + half, toward)
+    du, dz = at if at is not None else (0.5 * p.width, 0.5 * p.width * p.cross_slope)
+    u = grade_edge(c, s, p.side)[0] + p.sign * (p.separation_at(s) + du)
+    return u, section_v(p, s, u, lambda st: p.profile.elev(st) + dz, toward)
 
 
-def cos_theta(c, s: float, h: float = 0.01, toward: float = 0.0) -> float:
+def _tread_centre(p) -> tuple:
+    """(du, dz) of the tread's centre at its finished grade: out from the
+    paved inner edge, and above the path's profile (surface's levels)."""
+    eq = p.equestrian
+    zb = p.cross_slope * p.width + p.shoulder_slope * eq.buffer
+    return p.width + eq.buffer + 0.5 * eq.width, zb + 0.5 * eq.cross_slope * eq.width
+
+
+def cos_theta(c, s: float, h: float = 0.01, toward: float = 0.0,
+              at: tuple | None = None) -> float:
     """cos of the angle between station s's section plane's normal (the
     road's 3D tangent, frame.tangent3) and the paved centre's 3D tangent
     there: its grade against the road's, its drift as the separation
     changes, and its twist on a graded curve, all in one. The path's
-    tangent is the chord of its centre over s +/- h. The chord's error is
+    tangent is the chord of its centre over s +/- h. With `at` (_centre's)
+    it is another line's along the path, the tread's centre: its grade
+    along its own length is the profile's over its own (1 - kappa u). The chord's error is
     of order (h / R)^2 / 6 in direction, so about 1e-8 rad at R = 40 ft
     and h = 0.01, against 1e-6 at h = 0.5; round-off (coordinates near
     1e6 ft) is about 1e-10 / h. cos theta is within 1e-8 of an h = 1e-4
@@ -566,8 +581,8 @@ def cos_theta(c, s: float, h: float = 0.01, toward: float = 0.0) -> float:
     p = c.path
     al, prof = p.alignment, p.road_profile
 
-    def at(x):
-        return survey_point(al, prof, x, *_centre(c, x, toward))
+    def point(x):
+        return survey_point(al, prof, x, *_centre(c, x, toward, at))
 
     if toward:
         # the stencil reads s to s + 2h on `toward`'s side: no segment end
@@ -577,10 +592,10 @@ def cos_theta(c, s: float, h: float = 0.01, toward: float = 0.0) -> float:
                for b in al.seg_breaks(s - 2.0 * h - 1.0, s + 2.0 * h + 1.0)):
             raise ValueError(f"path: at {sta(s)} the one-sided tangent's "
                              f"{2.0 * h:g} ft reaches past a segment end")
-        p0, p1, p2 = (at(s + toward * i * h) for i in (0, 1, 2))
+        p0, p1, p2 = (point(s + toward * i * h) for i in (0, 1, 2))
         d = [toward * (4.0 * y - 3.0 * x - z) for x, y, z in zip(p0, p1, p2)]
     else:
-        a, b = at(s - h), at(s + h)
+        a, b = point(s - h), point(s + h)
         d = [y - x for x, y in zip(a, b)]
     t3 = tangent3(al, prof, s)
     return sum(x * y for x, y in zip(t3, d)) / math.sqrt(sum(x * x for x in d))
@@ -622,7 +637,7 @@ def surface(c, s: float, toward: float = 0.0) -> Surface:
     eq = p.equestrian
     o = at(w + sw, p.cross_slope * w + p.shoulder_slope * sw)
     tread = fence = None
-    tread_depth = 0.0
+    tread_depth, tread_cos = 0.0, 1.0
     if eq is not None:
         zb = p.cross_slope * w + p.shoulder_slope * eq.buffer
         zt = zb + eq.cross_slope * eq.width
@@ -630,12 +645,15 @@ def surface(c, s: float, toward: float = 0.0) -> Surface:
         o = at(w + eq.buffer + eq.width + eq.clear, zt + p.shoulder_slope * eq.clear)
         back = max(eq.buffer - eq.clear, 0.0)
         fence = at(w + back, p.cross_slope * w + p.shoulder_slope * back)
-        tread_depth = eq.depth() / cos_t
+        # its thickness normal to its own grade, as the paved courses'
+        tread_cos = cos_theta(c, s, toward=toward, at=_tread_centre(p))
+        tread_depth = eq.depth() / tread_cos
     return Surface(edge=edge, q=at(-inner_sw, p.shoulder_slope * inner_sw),
                    inner=(ui, vi), outer=at(w, p.cross_slope * w), o=o,
                    separation=sep, cos_theta=cos_t,
                    depth=p.depth() / cos_t, cg=cg,
-                   tread=tread, fence=fence, tread_depth=tread_depth)
+                   tread=tread, fence=fence, tread_depth=tread_depth,
+                   tread_cos_theta=tread_cos)
 
 
 def course_rings(p, sf: Surface) -> dict:
@@ -657,11 +675,12 @@ def course_rings(p, sf: Surface) -> dict:
 def tread_rings(eq, sf: Surface) -> dict:
     """{course index: 4-point ring}: the tread's courses under its width,
     top down, each thickness / cos theta deep, as the paved courses are
-    (course_rings). `eq` is the Equestrian; `sf` a surface with a tread."""
+    (course_rings), theta the tread's own (Surface.tread_cos_theta). `eq`
+    is the Equestrian; `sf` a surface with a tread."""
     (ui, vi), (uo, vo) = sf.tread
     out, above = {}, 0.0
     for k, course in enumerate(eq.courses):
-        d = course.thickness / sf.cos_theta
+        d = course.thickness / sf.tread_cos_theta
         out[k] = [(ui, vi - above), (uo, vo - above), (uo, vo - above - d),
                   (ui, vi - above - d)]
         above += d

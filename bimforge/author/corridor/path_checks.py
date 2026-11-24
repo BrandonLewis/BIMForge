@@ -322,17 +322,20 @@ def _off_path_gaps(p, a: float, b: float) -> list:
 
 def deck_width_rows(c) -> list:
     """For each road structure gap the path crosses on the deck, the width
-    the deck must carry there: from the road's edge of shoulder, the deck
-    separation, the paved width, the buffer, the tread and its clear strip,
-    out to the tread's outer clear edge; the rail the tread side needs
-    (54 in by default) is in the check's name. Where a path gap lies over
-    the deck, the path is on its own structure and the deck carries none of
-    it. The bridge family sizes the deck from it."""
+    the deck must carry there: from the road's edge of shoulder, the widest
+    separation on it, the paved width, the buffer, the tread and its clear
+    strip, out to the tread's outer clear edge; the rail the tread side
+    needs (54 in by default) is in the check's name. Where a path gap lies
+    over the deck, the path is on its own structure and the deck carries
+    none of it; where one covers a gap's end the approach is waived, so the
+    separation on the deck may be wider than deck_separation_ft. It is
+    linear between its rows, so its widest is at a stretch's end or a row.
+    The bridge family sizes the deck from it."""
     p = c.path
     eq = p.equestrian
     if eq is None:
         return []
-    width = p.deck_separation + p.width + eq.buffer + eq.width + eq.clear
+    rest = p.width + eq.buffer + eq.width + eq.clear
     out = []
     for g in c.gaps:
         if g.kind != "structure":
@@ -341,8 +344,10 @@ def deck_width_rows(c) -> list:
         if b - a <= _EPS:
             continue
         for x, y in _off_path_gaps(p, a, b):
+            sep = max([p.separation_at(x), p.separation_at(y)]
+                      + [v for st, v in p.separation if x < st < y])
             out.append(CheckRow(f"deck width to carry (tread rail {eq.rail_height:.2f} ft)",
-                                x, y, width, None, "USFS-EDG Ch. 5; CSP-TH 18.2.1"))
+                                x, y, sep + rest, None, "USFS-EDG Ch. 5; CSP-TH 18.2.1"))
     return out
 
 

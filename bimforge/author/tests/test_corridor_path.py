@@ -1209,6 +1209,18 @@ def test_a_tread_or_clear_strip_no_wider_than_two_steps_is_refused(key):
     assert (eq.width if key == "width" else eq.clear) == pytest.approx(0.021)
 
 
+def test_a_buffer_no_wider_than_two_steps_is_refused():
+    # the top line steps STEP_FT out from the paved edge and STEP_FT in from
+    # the tread's: a buffer that narrow crosses them, though it is as wide
+    # as a shoulder that narrow
+    sh = {"width": 0.015, "slope": -0.05}
+    with pytest.raises(ValueError, match=r"path\.equestrian\.buffer: 0\.02 ft is "
+                                         r"no wider than two 0\.01 ft steps"):
+        corridor(path(shoulder=sh, equestrian=dict(TREAD, buffer=0.02)))
+    eq = corridor(path(shoulder=sh, equestrian=dict(TREAD, buffer=0.021))).path.equestrian
+    assert eq.buffer == pytest.approx(0.021)
+
+
 def test_a_tread_without_courses_or_not_a_mapping_is_refused():
     with pytest.raises(ValueError, match=r"path\.equestrian\.courses: needs at least"):
         corridor(path(equestrian={}))
