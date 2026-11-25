@@ -64,7 +64,7 @@ A corridor on the old `ground: {source: 3dep}` with no `vshift_m` and an NGVD29 
 
 ## The element
 
-`attach_terrain` as it is, called with the footprint, the shift, the cache stem and `lonlat`, then moved into the model frame as the corridor moves its own (`corridor.ground._to_model_frame`, moved to `bimforge.terrain.attach` and shared). It is contained in the IfcSite. Nothing new is carved: no structure family has a cut, and the corridor's cuts void the ground as today. No pay code, no quantities, no classification; takeoff is unchanged.
+`attach_terrain` as it is, called with the footprint, the shift, the cache stem and `lonlat`, then moved into the model frame as the corridor moves its own (`corridor.ground._to_model_frame`, moved to `bimforge.terrain.attach` and shared). It is contained where `emit_ifc` puts every element (the structure's default container, the storey on the IFC4 building path), as the corridor's TERRAIN is today; moving it to the IfcSite would be an emitter change, outside this design. Nothing new is carved: no structure family has a cut, and the corridor's cuts void the ground as today. No pay code, no quantities, no classification; takeoff is unchanged.
 
 ## The command
 
