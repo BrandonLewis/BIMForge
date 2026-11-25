@@ -72,14 +72,21 @@ terrain:
   vshift_m: 0.71       # optional: overrides the datum rule
 ```
 
-`est-bim terrain SPEC [--refresh]` builds the model in memory, fetches the
+`est-bim terrain SPEC [--refresh] [--family-path DIR]` builds the model in
+memory (finding families as `est-bim build --family-path` does), fetches the
 ground (or reads it from the cache) and reports its footprint, cells, source,
 vintage, quality level, shift and cache files; after it, `est-bim build`
 reads only the cache. `est-bim build --check-only` still fetches the terrain
 when the cache is cold, since the build adds the ground before the check-only
 return. A build never refetches by itself: when the footprint changes (a
 longer wall, another `margin_ft` or `spacing_m`), it fails naming the cache
-until `est-bim terrain SPEC --refresh` fetches the new area.
+until `est-bim terrain SPEC --refresh` fetches the new area; so does an
+NGVD29 shift cached for another base point. `--refresh` fetches every cache
+again: the DEM, the NCAT shift and the work-unit vintage. On `source: lpc` a
+cached grid that covers the new footprint is used as it is, another
+`spacing_m` fetches by itself (the grid's file name carries its spacing), and
+`--refresh` re-bins the LAZ tiles already on disk, downloading only the ones
+missing (delete the `<cache>-LPC` folder to download them all again).
 
 ## What a viewer sees
 

@@ -122,12 +122,11 @@ def from_params(gp: dict, alignment, ctx, reach: float, model, log=print,
     The element is added in the model frame."""
     source = str((gp or {}).get("source", "")).lower()
     if source == "3dep":
+        # load_spec reads this form first; these guard a direct call, in its
+        # words (from_ground refuses a missing `cache` as parse does)
         if terrain is not None:
             raise ValueError("ground: source 3dep and a terrain: block both "
                              "name the ground; keep the terrain: block")
-        if not gp.get("cache"):
-            raise ValueError("ground: source 3dep needs `cache`, the path stem "
-                             "its downloads are kept under")
         from bimforge.terrain.spec import from_ground
         terrain, source = from_ground(gp), "terrain"
     if source == "plane":
@@ -149,7 +148,7 @@ def from_params(gp: dict, alignment, ctx, reach: float, model, log=print,
             raise ValueError("ground: source terrain needs a top-level "
                              "terrain: block")
         if ctx is None or ctx.epsg is None:
-            raise ValueError("ground: the terrain needs project.epsg")
+            raise ValueError("terrain: needs project.epsg")
         from bimforge.author.model import StructureModel
         from bimforge.terrain.spec import attach_over, crs_per_ft
         target = model if model is not None else StructureModel("ground", ctx)

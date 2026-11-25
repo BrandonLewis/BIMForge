@@ -221,7 +221,7 @@ def test_the_old_ground_without_epsg_names_the_old_form(tmp_path):
     s = yaml.safe_load(p.read_text())
     s["project"]["epsg"] = None
     p.write_text(yaml.safe_dump(s), encoding="utf-8")
-    with pytest.raises(ValueError, match="ground: source 3dep needs project.epsg"):
+    with pytest.raises(ValueError, match="ground: source 3dep: needs project.epsg"):
         R.load_spec(p)
 
 
@@ -245,3 +245,12 @@ def test_a_wall_with_terrain_passes_the_validators(tmp_path, monkeypatch):
     log = V.json_logger()
     V.validate(f, log)
     assert not log.statements, log.statements[:3]
+
+
+def test_an_empty_terrain_block_is_refused(tmp_path):
+    p = b3_spec(tmp_path)
+    s = yaml.safe_load(p.read_text())
+    s["terrain"] = None
+    p.write_text(yaml.safe_dump(s), encoding="utf-8")
+    with pytest.raises(ValueError, match="terrain: must be a mapping"):
+        R.load_spec(p)

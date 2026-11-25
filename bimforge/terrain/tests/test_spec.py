@@ -248,3 +248,55 @@ def test_the_margin_floor_is_two_cells(tmp_path, monkeypatch):
     assert y0 == pytest.approx((1943000.0 - grow) * per_ft)
     assert x1 == pytest.approx((6594100.0 + grow) * per_ft)
     assert y1 == pytest.approx((1943060.0 + grow) * per_ft)
+
+
+def test_refresh_asks_ncat_again(tmp_path, monkeypatch):
+    calls = []
+
+    def fake(url, timeout):
+        calls.append(url)
+        return json.dumps({"srcOrthoht": 0.0, "destOrthoht": 0.713})
+
+    monkeypatch.setattr(D, "_urlopen", fake)
+    stem = tmp_path / "s"
+    S.terrain_vshift(ctx("NGVD29"), stem, log=lambda *_: None)
+    S.terrain_vshift(ctx("NGVD29"), stem, refresh=True, log=lambda *_: None)
+    assert len(calls) == 2
+
+
+def test_an_ncat_cache_of_another_base_point_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(D, "_urlopen", lambda url, timeout: json.dumps(
+        {"srcOrthoht": 0.0, "destOrthoht": 0.713}))
+    stem = tmp_path / "s"
+    S.terrain_vshift(ctx("NGVD29"), stem, log=lambda *_: None)
+    import dataclasses
+    moved = dataclasses.replace(ctx("NGVD29"), base_n=1948000.0)
+    with pytest.raises(ValueError, match=r"s-3DEP-vshift\.json.*--refresh"):
+        S.terrain_vshift(moved, stem, log=lambda *_: None)
+
+
+def test_attach_over_refreshes_every_cache(tmp_path, monkeypatch):
+    seen = {}
+
+    def fetch(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
+        seen["dem"] = refresh
+        return _flat(bbox_m, spacing_m, crs_epsg, cache_path)
+
+    def wu(lon, lat, cache_path, refresh=False, log=print):
+        seen["workunit"] = refresh
+        return {}
+
+    def shift(ctx, cache_stem, vshift_m=None, refresh=False, log=print):
+        seen["vshift"] = refresh
+        return 0.0, "NAVD88: none"
+
+    monkeypatch.setattr(A, "fetch_3dep_dem", fetch)
+    monkeypatch.setattr(A, "workunit_meta", wu)
+    monkeypatch.setattr(S, "terrain_vshift", shift)
+    c = ctx("NAVD88")
+    ts = S.TerrainSpec(cache=str(tmp_path / "site"), spacing_m=10.0,
+                       refresh=True)
+    S.attach_over(StructureModel("f", c), c, ts,
+                  (6594000.0, 1943000.0, 6594100.0, 1943060.0),
+                  log=lambda *_: None)
+    assert seen == {"dem": True, "workunit": True, "vshift": True}

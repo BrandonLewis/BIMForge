@@ -99,7 +99,7 @@ def test_attach_vshift_lookup_drives_ncat_and_workunit(tmp_path, monkeypatch):
         calls["ncat"] = (lat, lon, str(cache_path), fallback)
         return 0.5
 
-    def fake_wu(lon, lat, cache_path, log=print):
+    def fake_wu(lon, lat, cache_path, refresh=False, log=print):
         calls["wu"] = (lon, lat, str(cache_path))
         return {"project": "CA_Test_2020", "workunit": "CA_Test_2020_A",
                 "collect_start": "2020-02-01", "collect_end": "2020-03-01",

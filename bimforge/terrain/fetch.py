@@ -33,18 +33,35 @@ def _urlretrieve(url, path):
     urllib.request.urlretrieve(url, str(path))
 
 
-REFRESH = "run `est-bim terrain SPEC --refresh` to fetch it again"
+REFRESH = ("run `est-bim terrain SPEC --refresh` (or pass refresh=True) "
+           "to fetch it again")
 
 
 def _stale(cache, why):
     """The error a build stops on when its cache holds another area: only
-    `est-bim terrain --refresh` refetches, never a build by itself."""
+    `est-bim terrain --refresh` (refresh=True) refetches, never a build by
+    itself."""
     return ValueError(f"terrain: the cache {cache} {why}; {REFRESH}")
+
+
+def _four(bbox) -> bool:
+    """A bbox is four numbers; a record missing or short of them is not one."""
+    return isinstance(bbox, (list, tuple)) and len(bbox) == 4
 
 
 def _same_bbox(a, b, spacing):
     """Two bboxes agree to a hundredth of a cell."""
-    return all(abs(float(p) - float(q)) <= 0.01 * spacing for p, q in zip(a, b))
+    return (_four(a) and _four(b)
+            and all(abs(float(p) - float(q)) <= 0.01 * spacing
+                    for p, q in zip(a, b)))
+
+
+def _holds_bbox(a, b, spacing):
+    """Bbox `a` contains bbox `b`, to a hundredth of a cell."""
+    tol = 0.01 * spacing
+    return (_four(a) and _four(b)
+            and a[0] <= b[0] + tol and a[1] <= b[1] + tol
+            and a[2] >= b[2] - tol and a[3] >= b[3] - tol)
 
 
 def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
@@ -95,7 +112,7 @@ def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
             had = json.loads(side.read_text())
             if (had.get("crs_epsg") != asked["crs_epsg"]
                     or (had.get("cols"), had.get("rows")) != (cols, rows)
-                    or not _same_bbox(had.get("bbox") or (), asked["bbox"],
+                    or not _same_bbox(had.get("bbox"), asked["bbox"],
                                       spacing_m)):
                 raise _stale(cache_path,
                              f"holds {had.get('cols')}x{had.get('rows')} cells "
@@ -185,8 +202,13 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
     to duck under, and the mean matches the DEM's interpolated surface,
     which keeps cross-source comparison honest (see `bin_points`). The heavy
     LAZ tiles cache locally; the small gridded .npz is the reproducible
-    artifact, and it records its bbox and CRS: a hit for any other area
-    fails, as the DEM's does, naming `est-bim terrain --refresh`.
+    artifact, and it records its bbox and CRS. A hit whose bbox contains the
+    one asked for is taken at its own bbox (the grid carries it, so nothing
+    is stretched: a shorter wall reads the grid it has); one that does not
+    contain it fails, as the DEM's does, naming `est-bim terrain --refresh`.
+    refresh=True asks TNM for the tiles again and re-bins them, downloading
+    only the tiles not already on disk (a tile's name is its content; delete
+    the `-LPC` folder to download them all again).
     """
     import json
     import urllib.parse
@@ -199,9 +221,11 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
         log(f"  terrain LPC: cache hit {grid_cache.name}")
         had = [float(dd[k]) for k in ("xmin", "ymin", "xmax", "ymax")]
         crs = int(dd["crs_epsg"]) if "crs_epsg" in dd else int(crs_epsg)
-        if crs != int(crs_epsg) or not _same_bbox(had, bbox_m, spacing_m):
+        if crs != int(crs_epsg) or not _holds_bbox(had, list(bbox_m),
+                                                   spacing_m):
             # its own bbox is the record (older grids carry no CRS)
-            raise _stale(grid_cache, f"holds {had} (EPSG:{crs}), not the "
+            raise _stale(grid_cache, f"holds {had} (EPSG:{crs}), which does "
+                                     f"not cover the "
                                      f"{list(map(float, bbox_m))} (EPSG:"
                                      f"{crs_epsg}) asked for")
         return TerrainGrid(z=dd["z"],
@@ -236,10 +260,13 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
     for it in items:
         fn = it["downloadURL"].split("/")[-1]
         p = lpc_dir / fn
-        if not p.exists() or refresh:
+        if not p.exists():
             log(f"  terrain LPC: downloading {fn} "
                 f"({it.get('sizeInBytes', 0) / 1e6:.0f} MB)")
-            _urlretrieve(it["downloadURL"], p)
+            # beside it first, so a broken download is never taken for a tile
+            part = p.with_name(p.name + ".part")
+            _urlretrieve(it["downloadURL"], part)
+            part.replace(p)
         las = laspy.read(str(p))
         crs = las.header.parse_crs()
         horiz = crs.sub_crs_list[0] if (crs and crs.is_compound) else crs
@@ -268,18 +295,21 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
                        info=info)
 
 
-def workunit_meta(lon, lat, cache_path, log=print):
+def workunit_meta(lon, lat, cache_path, refresh=False, log=print):
     """Acquisition vintage and quality of the 3DEP work unit covering
     (lon, lat), from the USGS 3DEP elevation index. Both the DEM and the LPC
     over a site derive from the SAME work unit, so this stamps one
-    authoritative vintage into either path. Cached; returns {} (and the
-    build still runs) if the index is unreachable.
+    authoritative vintage into either path. Cached (refresh=True asks
+    again); returns {} (and the build still runs) if the index is
+    unreachable, and caches nothing then, so a later run asks again.
     """
     import json
     import urllib.parse
     cache_path = Path(cache_path)
-    if cache_path.exists():
-        return json.loads(cache_path.read_text())
+    if cache_path.exists() and not refresh:
+        had = json.loads(cache_path.read_text())
+        if had:               # an older cache kept an empty answer: ask again
+            return had
     meta = {}
     try:
         import datetime
@@ -306,8 +336,8 @@ def workunit_meta(lon, lat, cache_path, log=print):
                     "ql": a.get("ql", "")}
     except Exception as e:
         log(f"  terrain: 3DEP index lookup skipped ({e})")
-    cache_path.write_text(json.dumps(meta))
     if meta:
+        cache_path.write_text(json.dumps(meta))
         log(f"  terrain: 3DEP work unit {meta['workunit']} collected "
             f"{meta['collect_start']}..{meta['collect_end']} {meta['ql']}")
     return meta

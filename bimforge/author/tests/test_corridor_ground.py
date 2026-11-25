@@ -75,7 +75,6 @@ def test_3dep_fetches_in_crs_units_and_reads_back_in_feet(monkeypatch, tmp_path,
     """A ftUS CRS gets its bbox in ft and 1 m spacing as ~3.28 ftUS; a metric
     CRS gets metres. Either way the ground and the TERRAIN mesh come back in
     model ft, with vshift_m taken off in metres. The fetch is stubbed."""
-    import bimforge.terrain as T
     import bimforge.terrain.attach as A
     from bimforge.author.model import StructureModel
     calls = []
@@ -89,7 +88,6 @@ def test_3dep_fetches_in_crs_units_and_reads_back_in_feet(monkeypatch, tmp_path,
         z = np.tile(30.48 + 0.01 * e, (rows, 1))      # rises 0.01 m per CRS unit east
         return TerrainGrid(z=z, bbox_m=bbox_m, spacing_m=spacing_m, crs_epsg=crs_epsg)
 
-    monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
     ctx = ProjectContext(name="g", epsg=epsg, guid_ns=uuid.UUID(int=5))
@@ -134,7 +132,6 @@ def test_a_nodata_cell_inside_the_grid_is_no_ground(nodata):
 def test_the_fetch_margin_is_at_least_two_dem_cells(monkeypatch, tmp_path):
     # margin_ft 0 at 1 m spacing is floored to 2 m = 6.5617 ft, so a daylight
     # at the reach still has pixel centres around it
-    import bimforge.terrain as T
     import bimforge.terrain.attach as A
     from bimforge.author.model import StructureModel
     calls = []
@@ -144,7 +141,6 @@ def test_the_fetch_margin_is_at_least_two_dem_cells(monkeypatch, tmp_path):
         return TerrainGrid(z=np.full((4, 4), 30.0), bbox_m=bbox_m,
                            spacing_m=spacing_m, crs_epsg=crs_epsg)
 
-    monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
     ctx = ProjectContext(name="g", epsg=2226, vertical_datum="NAVD88",
@@ -190,14 +186,12 @@ def test_a_plane_with_no_model_adds_nothing():
 
 
 def test_3dep_with_no_model_reads_ground_and_adds_nothing(monkeypatch, tmp_path):
-    import bimforge.terrain as T
     import bimforge.terrain.attach as A
 
     def fake_fetch(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
         return TerrainGrid(z=np.full((4, 4), 30.0), bbox_m=bbox_m,
                            spacing_m=spacing_m, crs_epsg=crs_epsg)
 
-    monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
     ctx = ProjectContext(name="g", epsg=2226, vertical_datum="NAVD88",

@@ -57,11 +57,25 @@ skip or read them. `model-elements` sends `route`, `based_on` and
 
 - The road corridor's `ground: {source: 3dep, cache, spacing_m, margin_ft,
   vshift_m}` is now read as `terrain:` plus `ground: {source: terrain}`,
-  with a build-log note; the IFC is the same. It takes its shift from
-  `project.vertical_datum` when it gives no `vshift_m`: an NGVD29 project
-  now gets the NCAT shift where it got 0, and a spec with no `vshift_m` and
-  no or an unrecognised `project.vertical_datum` now fails, "has no rule;
-  give terrain.vshift_m", where it built with a shift of 0.
+  with a build-log note; the old and the new form give the same IFC. It
+  takes its shift from `project.vertical_datum` when it gives no
+  `vshift_m`: an NGVD29 project now gets the NCAT shift where it got 0, and
+  a spec with no `vshift_m` and no or an unrecognised
+  `project.vertical_datum` now fails, "has no rule; give terrain.vshift_m",
+  where it built with a shift of 0. An old-form corridor whose footprint has
+  changed since its fetch now fails, naming the cache, where it built. Its
+  IFC differs from 0.1.132's in the provenance: a rebuild now records
+  `VerticalShiftSource` and the work-unit fields, so the first rebuild after
+  upgrading makes one work-unit lookup.
+- A DEM cache made by 0.1.132 has no record of its area and is checked only
+  by its size: a footprint shifted by the same size is not caught. `est-bim
+  terrain SPEC --refresh` fetches it again and writes the record.
+- `est-bim terrain --refresh` (or `refresh=True`) fetches every cache again:
+  the DEM, the NCAT shift (whose cache for another base point now fails) and
+  the work-unit vintage, which is no longer cached when the index does not
+  answer. On lidar it re-bins the LAZ tiles on disk and downloads only the
+  missing ones; a cached lidar grid that covers the footprint is used as it
+  is.
 
 ## 0.1.132 — 2026-11-22
 

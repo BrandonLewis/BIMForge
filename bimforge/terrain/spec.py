@@ -89,11 +89,13 @@ def _datum(name) -> str:
     return re.sub(r"[\s_\-]", "", str(name or "")).upper()
 
 
-def terrain_vshift(ctx, cache_stem, vshift_m=None, log=print) -> tuple:
+def terrain_vshift(ctx, cache_stem, vshift_m=None, refresh=False,
+                   log=print) -> tuple:
     """(shift_m, source): the NAVD88 -> project-datum shift 3DEP heights take,
     in metres (the mesh moves by -shift_m), and where it came from.
     `vshift_m` when given; NAVD88 none; NGVD29 from NOAA NCAT at the base
-    point, cached beside the downloads; anything else fails."""
+    point, cached beside the downloads (refresh=True asks again); anything
+    else fails."""
     if vshift_m is not None:
         return float(vshift_m), "spec vshift_m"
     d = _datum(ctx.vertical_datum)
@@ -105,7 +107,8 @@ def terrain_vshift(ctx, cache_stem, vshift_m=None, log=print) -> tuple:
         path.parent.mkdir(parents=True, exist_ok=True)
         lon, lat = base_lonlat(ctx)
         try:
-            shift = datum.ncat_vertshift(lat, lon, path, log=log)
+            shift = datum.ncat_vertshift(lat, lon, path, refresh=refresh,
+                                         log=log)
         except RuntimeError as e:
             raise ValueError(f"terrain: the NGVD29 shift comes from NOAA NCAT, "
                              f"which did not answer ({e}); give "
@@ -166,7 +169,8 @@ def attach_over(model, ctx, ts: TerrainSpec, bbox_ft, *, log=print) -> tuple:
     bbox = ((e0 - margin) * c, (n0 - margin) * c,
             (e1 + margin) * c, (n1 + margin) * c)
     Path(ts.cache).parent.mkdir(parents=True, exist_ok=True)
-    shift, source = terrain_vshift(ctx, ts.cache, ts.vshift_m, log=log)
+    shift, source = terrain_vshift(ctx, ts.cache, ts.vshift_m,
+                                   refresh=ts.refresh, log=log)
     grid = fetch_grid(bbox, crs_epsg=ctx.epsg, cache_stem=ts.cache,
                       spacing_m=spacing, source=ts.source,
                       refresh=ts.refresh, log=log)
@@ -174,7 +178,7 @@ def attach_over(model, ctx, ts: TerrainSpec, bbox_ft, *, log=print) -> tuple:
                         unit_scale=1.0 / ctx.ft_to_m, plan_scale=1.0 / c,
                         spacing_m=spacing, source=ts.source, vshift_m=shift,
                         vshift_source=source, lonlat=base_lonlat(ctx),
-                        grid=grid, log=log)
+                        grid=grid, refresh=ts.refresh, log=log)
     to_model_frame(el, ctx)
     return el, grid, shift
 

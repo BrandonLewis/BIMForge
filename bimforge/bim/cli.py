@@ -17,7 +17,7 @@
   est-bim kml     model.ifc [--out model.kml]
   est-bim kmz     model.ifc [--out model.kmz] [--geoid-shift-m M] [--omit RE] [--massing] [--collada | --gltf]
   est-bim build   spec.yaml [--check-only]
-  est-bim terrain spec.yaml [--refresh]   fetch the spec's terrain: ground ahead of the build
+  est-bim terrain spec.yaml [--refresh] [--family-path DIR]   fetch the spec's terrain: ground ahead of the build
   est-bim stations model.ifc [--out stationed.ifc] [--csv stations.csv]
   est-bim elevation set.yaml [--ifc model.ifc] [--out sheets.dxf] [--date YYYY-MM-DD]
 
@@ -3360,7 +3360,7 @@ def main(argv=None) -> int:
         if args.cmd == "terrain":
             try:
                 return _run_terrain(args)
-            except (OSError, ValueError, KeyError) as exc:
+            except (OSError, ValueError, KeyError, RuntimeError) as exc:
                 print(f"error: {exc}", file=sys.stderr)
                 return 1
         if args.cmd == "build":

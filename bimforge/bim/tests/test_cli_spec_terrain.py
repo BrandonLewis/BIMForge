@@ -18,6 +18,7 @@ def test_it_fetches_once_then_reads_the_cache(tmp_path, monkeypatch, capsys):
     assert len(calls) == fetched
     assert cli.main(["terrain", str(p), "--refresh"]) == 0
     assert sum("exportImage" in u for u in calls) == 2
+    assert sum("3DEPElevationIndex" in u for u in calls) == 2  # and the vintage
 
 
 def test_a_spec_without_terrain_says_so(tmp_path, capsys):
@@ -40,3 +41,15 @@ def test_a_cache_of_another_area_fails_the_build_until_refreshed(
     assert "site-3DEP-DEM.tif" in err and "est-bim terrain SPEC --refresh" in err
     assert cli.main(["terrain", str(longer), "--refresh"]) == 0
     assert R.build_from_spec(longer) == 0
+
+
+def test_a_runtime_error_is_an_error_not_a_traceback(tmp_path, monkeypatch,
+                                                     capsys):
+    from bimforge.author.families import registry as R
+
+    def missing(*a, **k):
+        raise RuntimeError("Pillow is required to decode the 3DEP DEM GeoTIFF")
+
+    monkeypatch.setattr(R, "terrain_from_spec", missing)
+    assert cli.main(["terrain", str(b3_spec(tmp_path))]) == 1
+    assert "error: Pillow is required" in capsys.readouterr().err

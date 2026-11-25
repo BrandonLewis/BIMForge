@@ -61,7 +61,7 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
     ``"lpc"`` (lidar bare-earth; the WGS84 discovery bbox is derived from
     ``bbox_m`` via pyproj). ``cache_stem`` is the path stem every cache
     artifact (DEM TIFF, LPC grid npz, vshift/workunit JSON) hangs off, so
-    rebuilds are offline and deterministic; ``refresh=True`` refetches.
+    rebuilds are offline and deterministic; ``refresh=True`` refetches each.
 
     Vertical datum — exactly one of:
 
@@ -99,7 +99,7 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
         lat, lon, fallback = vshift_lookup
         shift = ncat_vertshift(lat, lon,
                                Path(cache_stem + "-3DEP-vshift.json"),
-                               fallback=fallback, log=log)
+                               fallback=fallback, refresh=refresh, log=log)
     else:
         raise ValueError(
             "attach_terrain needs a vertical datum: pass vshift_m (explicit "
@@ -109,7 +109,8 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
         lonlat = (vshift_lookup[1], vshift_lookup[0])
     if lonlat is not None:
         wu = workunit_meta(lonlat[0], lonlat[1],
-                           Path(cache_stem + "-3DEP-workunit.json"), log=log)
+                           Path(cache_stem + "-3DEP-workunit.json"),
+                           refresh=refresh, log=log)
     else:
         wu = {}
         log("  terrain: no lon/lat available; work-unit vintage skipped")

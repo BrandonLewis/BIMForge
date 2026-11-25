@@ -254,3 +254,31 @@ def test_best_available_operation_is_used(monkeypatch):
                                 best_available=True))
     assert datum.geoid_shift_m(38.0, -121.0,
                                log=lambda m: None) == pytest.approx(-0.85)
+
+
+def _ncat(calls):
+    def fake(url, timeout):
+        calls.append(url)
+        return json.dumps({"srcOrthoht": "0.000", "destOrthoht": "0.712"}).encode()
+    return fake
+
+
+def test_refresh_asks_ncat_again(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(datum, "_urlopen", _ncat(calls))
+    cache = tmp_path / "vertshift.json"
+    datum.ncat_vertshift(45.5, -122.5, cache, log=lambda m: None)
+    datum.ncat_vertshift(45.5, -122.5, cache, refresh=True, log=lambda m: None)
+    assert len(calls) == 2
+
+
+def test_a_cache_of_another_point_fails_and_says_refresh(tmp_path, monkeypatch):
+    calls = []
+    monkeypatch.setattr(datum, "_urlopen", _ncat(calls))
+    cache = tmp_path / "vertshift.json"
+    datum.ncat_vertshift(45.5, -122.5, cache, log=lambda m: None)
+    # within the tolerance: the same point
+    datum.ncat_vertshift(45.5 + 1e-8, -122.5, cache, log=lambda m: None)
+    with pytest.raises(ValueError, match=r"vertshift\.json.*--refresh"):
+        datum.ncat_vertshift(45.6, -122.5, cache, log=lambda m: None)
+    assert len(calls) == 1

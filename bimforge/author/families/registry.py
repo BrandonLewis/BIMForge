@@ -319,7 +319,7 @@ def load_spec(path: Path | str) -> dict:
                          f"ground in the top-level `terrain:` block")
     gp = (spec.get("params") or {}).get("ground")
     old_3dep = isinstance(gp, dict) and str(gp.get("source", "")).lower() == "3dep"
-    if spec.get("terrain") is not None:
+    if "terrain" in spec:                # an empty `terrain:` is not a mapping
         if old_3dep:
             raise ValueError(f"{path.name}: ground: source 3dep and a terrain: "
                              f"block both name the ground; keep the terrain: block")
@@ -335,7 +335,7 @@ def load_spec(path: Path | str) -> dict:
                      "{source: terrain}")
     if spec.get("_terrain") is not None and not proj.get("epsg"):
         raise ValueError(f"{path.name}: "
-                         f"{'ground: source 3dep' if old_3dep else 'terrain:'} "
+                         f"{'ground: source 3dep' if old_3dep else 'terrain'}: "
                          f"needs project.epsg")
     spec["_notes"] = notes
     spec["_dir"] = str(base)

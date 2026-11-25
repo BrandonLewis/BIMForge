@@ -16,6 +16,8 @@ import urllib.request
 from pathlib import Path
 
 NCAT_URL = "https://geodesy.noaa.gov/api/ncat/llh"
+#: degrees a cached shift's point may differ from the one asked for
+_SAME_POINT_DEG = 1e-6
 
 
 def _urlopen(url, timeout):
@@ -28,7 +30,8 @@ def _urlopen(url, timeout):
 
 
 def ncat_vertshift(lat, lon, cache_path, *, in_vert="NGVD29",
-                   out_vert="NAVD88", fallback=None, log=print):
+                   out_vert="NAVD88", fallback=None, refresh=False,
+                   log=print):
     """``in_vert`` -> ``out_vert`` shift in metres at (lat, lon) from NOAA NCAT
     (VERTCON 3.0), cached to a small JSON.
 
@@ -42,11 +45,22 @@ def ncat_vertshift(lat, lon, cache_path, *, in_vert="NGVD29",
     no fallback, an unreachable NCAT raises ``RuntimeError``.
 
     The cache records ``{shift_m, source, lat, lon}`` so the provenance of a
-    cached shift (authority vs fallback) survives across runs.
+    cached shift (authority vs fallback) survives across runs. A cache for
+    another point (beyond 1e-6 degrees) fails, as a terrain cache of another
+    area does, naming the cache and ``--refresh``; ``refresh=True`` asks
+    NCAT again.
     """
     cache_path = Path(cache_path)
-    if cache_path.exists():
-        return json.loads(cache_path.read_text())["shift_m"]
+    if cache_path.exists() and not refresh:
+        had = json.loads(cache_path.read_text())
+        if (abs(float(had.get("lat", lat)) - float(lat)) > _SAME_POINT_DEG
+                or abs(float(had.get("lon", lon)) - float(lon))
+                > _SAME_POINT_DEG):
+            from .fetch import _stale
+            raise _stale(cache_path, f"holds the shift at ({had.get('lat')}, "
+                                     f"{had.get('lon')}), not at ({lat}, "
+                                     f"{lon}) asked for")
+        return had["shift_m"]
     try:
         q = {"lat": lat, "lon": lon, "orthoHt": 0.0,
              "inDatum": "NAD83(2011)", "outDatum": "NAD83(2011)",
