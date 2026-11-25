@@ -26,10 +26,12 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcAxis2Placement3D | build, dxf2bim | both |
 | IfcAxis2PlacementLinear | build | IFC4X3 |
 | IfcBeam | build | both |
-| IfcBuilding | build, dxf2bim | both |
+| IfcBridge | build | IFC4X3 |
+| IfcBridgePart | build | IFC4X3 |
+| IfcBuilding | IFC4X3: dxf2bim; IFC4: build, dxf2bim | both |
 | IfcBuildingElementProxy | build, dxf2bim | both |
 | IfcBuildingElementProxyType | build | both |
-| IfcBuildingStorey | build, dxf2bim | both |
+| IfcBuildingStorey | IFC4X3: dxf2bim; IFC4: build, dxf2bim | both |
 | IfcCartesianPoint | build, dxf2bim | both |
 | IfcCartesianPointList2D | dxf2bim | both |
 | IfcCartesianPointList3D | build | both |
@@ -60,6 +62,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcFaceBound | build | both |
 | IfcFaceOuterBound | build | both |
 | IfcFacetedBrep | build | both |
+| IfcFacility | build | IFC4X3 |
 | IfcFooting | build | both |
 | IfcFootingType | build | both |
 | IfcGeographicElement | build | both |

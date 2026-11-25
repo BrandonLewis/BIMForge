@@ -116,6 +116,24 @@ skip or read them. `model-elements` sends `route`, `based_on` and
 
 ### Changed
 
+- **The examples declare their IFC4X3 facility, by what they serve.** Each
+  shipped example sets `project.facility` and, where its elements need
+  parts, `spatial_parts:`, so its IFC4X3 file is Site > facility > parts in
+  place of Site > Building > Storey: the bridge is an IfcBridge GIRDER
+  (Superstructure; Substructure > Abutment 1, Bent 2, Abutment 3); the box
+  culvert and the culvert wingwall an IfcBridge CULVERT (each wingwall an
+  ABUTMENT part); the B3 walls, the D90 and pipe headwalls and the 732SW
+  barrier an IfcRoad with a ROADSIDE part (UsageType LATERAL); the
+  deck-mounted 842 barrier and the tubular handrail an IfcBridge with a
+  SURFACESTRUCTURE part; the demo box a generic IfcFacility. The road
+  corridor is unchanged; an example's IFC4 file keeps the building tree
+  (the facility is IFC4X3-only). No element's
+  GlobalId changes. The examples' IfcBuilding and IfcBuildingStorey are
+  gone, and in the bridge, the box culvert, the culvert wingwall and the
+  demo box, whose new tree has a different number of spatial entities, the
+  file-order ids of the site, the relationships and the quantity and
+  property sets renumber; `example_globalids.json` is re-recorded for every
+  example but the road corridor.
 - **The ground is contained in the IfcSite.** IFC 4.3 lists IfcSite as
   IfcGeographicElement's spatial container (a storey belongs to a building).
   The existing ground (IfcGeographicElement TERRAIN, from a `terrain:` block

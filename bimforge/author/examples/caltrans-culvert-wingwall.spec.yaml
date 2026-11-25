@@ -48,3 +48,11 @@ project:
   epsg: 2226
   base: [6594000.0, 1943000.0, 100.0]
   guid_ns: "3b7a5c2e-0000-4000-8000-0000000000d8"
+  facility: {kind: bridge, predefined_type: CULVERT}
+
+# IFC4X3: a culvert is a bridge (CULVERT); each wingwall retains the fill at
+# an end of it, as an abutment does
+spatial_parts:
+  - {match: "^WW1 ", part: {name: Wingwall WW1, predefined_type: ABUTMENT}}
+  - {match: "^WWE ", part: {name: Wingwall WWE, predefined_type: ABUTMENT}}
+  - {match: "^WWW ", part: {name: Wingwall WWW, predefined_type: ABUTMENT}}

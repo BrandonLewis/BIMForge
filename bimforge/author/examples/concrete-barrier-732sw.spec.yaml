@@ -29,3 +29,8 @@ project:
   # the model at the EPSG:2226 false origin)
   base: [6594000.0, 1943000.0]
   guid_ns: "6f0e5a1a-0000-4000-8000-000000000002"
+  facility: {kind: road}
+
+# IFC4X3: the road it serves, its roadside part
+spatial_parts:
+  - {match: ".", part: {name: Roadside, predefined_type: ROADSIDE, usage_type: LATERAL}}
