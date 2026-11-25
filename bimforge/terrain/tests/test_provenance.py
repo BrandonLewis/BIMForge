@@ -76,3 +76,13 @@ def test_the_mesh_spacing_carries_the_crs_unit(epsg, unit):
     prov = build_provenance("dem", {"crs_epsg": epsg}, {}, 0.0, 3.0, False)
     assert prov["MeshSpacing"] == 3.0
     assert prov["MeshSpacingUnit"] == unit
+
+
+def test_the_shift_source_is_written_when_given():
+    from bimforge.terrain.provenance import build_provenance
+    p = build_provenance("dem", {"crs_epsg": 2226}, {}, 0.71, 3.28, False,
+                         shift_source="NOAA NCAT VERTCON 3.0")
+    assert p["AppliedVerticalShift"] == -0.71
+    assert p["VerticalShiftSource"] == "NOAA NCAT VERTCON 3.0"
+    q = build_provenance("dem", {"crs_epsg": 2226}, {}, 0.0, 3.28, False)
+    assert "VerticalShiftSource" not in q

@@ -23,7 +23,8 @@ def spacing_unit(crs_epsg) -> str | None:
     return name
 
 
-def build_provenance(source, info, workunit, shift_m, spacing_m, carved):
+def build_provenance(source, info, workunit, shift_m, spacing_m, carved,
+                     shift_source=None):
     """Assemble the terrain provenance Pset dict.
 
     ``source`` is ``"dem"`` or ``"lpc"`` and selects the source block;
@@ -33,7 +34,10 @@ def build_provenance(source, info, workunit, shift_m, spacing_m, carved):
     index was unreachable - its keys are then omitted, the build continues);
     ``shift_m`` is the applied ``out_vert -> project`` vertical shift
     (recorded negated: the mesh moved by ``-shift_m``); ``carved`` echoes
-    whether the excavation boolean produced a closed carved solid.
+    whether the excavation boolean produced a closed carved solid;
+    ``shift_source`` names where the shift came from (``"spec vshift_m"``,
+    ``"NAVD88: none"``, ``"NOAA NCAT VERTCON 3.0"``), written as
+    ``VerticalShiftSource`` when given.
     """
     crs = info.get("crs") or (
         f"EPSG:{info['crs_epsg']} / EPSG:5703" if info.get("crs_epsg") else "")
@@ -68,6 +72,8 @@ def build_provenance(source, info, workunit, shift_m, spacing_m, carved):
         "License": "Public domain (US Government work)",
         "SurveyGrade": False,
     })
+    if shift_source:
+        prov["VerticalShiftSource"] = str(shift_source)
     unit = spacing_unit(info.get("crs_epsg"))
     if unit:
         prov["MeshSpacingUnit"] = unit
