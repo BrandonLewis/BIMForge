@@ -65,6 +65,13 @@ def test_slab_sits_in_the_model_frame_relative_to_the_base():
     assert run_pre(m).passed
 
 
+def test_a_local_pob_with_a_real_base_is_refused():
+    ctx = ProjectContext(name="b9", guid_ns=uuid.UUID(int=7),
+                         base_e=6594000.0, base_n=1943000.0, base_h=300.0)
+    with pytest.raises(ValueError, match=r"(?s)alignment pob .*State Plane"):
+        build(_params(), ctx)
+
+
 def test_slab_area_is_length_times_width():
     m = build(_params(), CTX)
     slab = m.element("Abut 1 approach slab type_n_30")

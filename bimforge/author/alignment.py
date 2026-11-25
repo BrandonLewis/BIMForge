@@ -610,6 +610,34 @@ def _resolve_pob(pl: dict) -> dict:
     return {"station": s0, "northing": n, "easting": e}
 
 
+#: How far (ft) a pob may sit from a real project base before it reads as a
+#: local-frame pob: the gate's local-coordinate limit
+POB_FAR_FT = 100_000.0
+
+
+def check_pob_survey(pob: dict, ctx, where: str) -> None:
+    """Refuse, once, a pob given in the local frame under a real base.
+
+    A pob is survey (State Plane) coordinates, as the bridge's is; to_model
+    makes the plan local to the base. A {0, 0} pob under a State Plane base
+    puts the structure at the zone's origin, which the gate refuses slice by
+    slice as survey coordinates baked into the geometry - the opposite of
+    the fix. A base at 0, 0 is a local model, where any pob is."""
+    be = float(getattr(ctx, "base_e", 0.0) or 0.0)
+    bn = float(getattr(ctx, "base_n", 0.0) or 0.0)
+    if be == 0.0 and bn == 0.0:
+        return
+    n, e = float(pob["northing"]), float(pob["easting"])
+    d = math.hypot(n - bn, e - be)
+    if d > POB_FAR_FT:
+        raise ValueError(
+            f"{where}: the alignment pob (northing {n:.1f}, easting {e:.1f}) "
+            f"is {d:,.0f} ft from the project base. The pob is survey (State "
+            "Plane) coordinates, as the bridge's is; {northing: 0, easting: "
+            "0} is the local frame. Give the pob in the CRS: the base point "
+            f"is northing {bn:.1f}, easting {be:.1f}.")
+
+
 def load(path: Path | str) -> AlignmentModel:
     """Parse an alignment YAML. The path is REQUIRED — no module-level default."""
     with open(path, "r", encoding="utf-8") as fh:

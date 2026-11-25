@@ -23,7 +23,8 @@ from __future__ import annotations
 import math
 
 from bimforge.author import family_dictionary as fd
-from bimforge.author.alignment import Alignment, WallSection, _resolve_pob, sta
+from bimforge.author.alignment import (Alignment, WallSection, _resolve_pob,
+                                       check_pob_survey, sta)
 from bimforge.author.model import Element, StructureModel
 from bimforge.author.modified import FIELD_DIMENSIONS
 from bimforge.author.primitives import Prism
@@ -152,7 +153,9 @@ def build(params: dict, ctx) -> StructureModel:
     if missing:
         raise ValueError(f"standard-plan params missing {missing}")
     pl = params["alignment"]
-    align = Alignment(_resolve_pob(pl), pl["run"], name=pl.get("name", "P"))
+    pob = _resolve_pob(pl)
+    check_pob_survey(pob, ctx, "standard-plan")
+    align = Alignment(pob, pl["run"], name=pl.get("name", "P"))
     tables = params["tables"]
     model = StructureModel("standard-plan", ctx)
     model.row_lookup = WallSection._lookup_key      # how a row is chosen

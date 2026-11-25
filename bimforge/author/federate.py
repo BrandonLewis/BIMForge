@@ -383,9 +383,11 @@ def _merge_source(tgt, src, storey_name: str, dest_storey, ctx, site,
                   seen=None) -> tuple[int, list]:
     """The storey path (IFC4 sources, and 4X3 sources with no facility tree):
     every non-feature product is re-contained in this source's storey, except
-    alignments (carried whole, placed by the caller) and what the source has
-    in its site (the ground), which goes to the target site. Returns
-    (products, the carried top-level alignments)."""
+    alignments (carried whole, placed by the caller) and every product the
+    source contains in its IfcSite, which goes to the target site: a
+    site-contained product belongs to the site. On this path that is
+    normally the ground, which emit_ifc contains in the site on every tree.
+    Returns (products, the carried top-level alignments)."""
     align_ids, tops = _alignment_ids(src)
     tops, dropped = _dedupe_alignments(src, tops, align_ids, seen)
     align_ids -= dropped

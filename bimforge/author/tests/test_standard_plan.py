@@ -151,6 +151,15 @@ def test_elevations_are_model_z_relative_to_base_h():
     assert stem.geometry.z_top == pytest.approx(9.0)
 
 
+def test_a_local_pob_with_a_real_base_is_refused_once():
+    """The pob is survey (State Plane) coordinates, as the bridge's is: a
+    {0, 0} pob under a real base would put the wall at the zone's origin, so
+    the family says so once, before the gate's per-slice findings."""
+    with pytest.raises(ValueError, match=r"(?s)alignment pob .*survey .*"
+                       r"State Plane.*northing 1943000.*easting 6594000"):
+        build(PARAMS, CTX_BASE)
+
+
 def test_wall_runs_along_its_bearing_in_the_model_frame():
     """A wall on a N 0 E line runs along model +y (north), its plan local to
     the project base, and its Lt front face lies west (-x) of the line: plan

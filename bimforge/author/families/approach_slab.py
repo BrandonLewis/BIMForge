@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 
-from bimforge.author.alignment import Alignment, _resolve_pob
+from bimforge.author.alignment import Alignment, _resolve_pob, check_pob_survey
 from bimforge.author.approach_slab_rebar import (
     approach_dowel_bars, approach_slab_bars)
 from bimforge.author.approach_slab_section import ApproachSlabSection
@@ -107,7 +107,9 @@ def build(params: dict, ctx) -> StructureModel:
     if missing:
         raise ValueError(f"approach-slab params missing {missing}")
     pl = params["alignment"]
-    align = Alignment(_resolve_pob(pl), pl["run"], name=pl.get("name", "P"))
+    pob = _resolve_pob(pl)
+    check_pob_survey(pob, ctx, "approach-slab")
+    align = Alignment(pob, pl["run"], name=pl.get("name", "P"))
     table = params["tables"]
     model = StructureModel("approach-slab", ctx)
 
