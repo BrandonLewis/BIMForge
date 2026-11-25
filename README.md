@@ -76,7 +76,8 @@ terrain:
 memory (finding families as `est-bim build --family-path` does), fetches the
 ground (or reads it from the cache) and reports its footprint, cells, source,
 vintage, quality level, shift and cache files; after it, `est-bim build`
-reads only the cache. `est-bim build --check-only` still fetches the terrain
+reads only the cache (except the 3DEP work-unit lookup, which is retried on
+each build while it has given no answer). `est-bim build --check-only` still fetches the terrain
 when the cache is cold, since the build adds the ground before the check-only
 return. A build never refetches by itself: when the footprint changes (a
 longer wall, another `margin_ft` or `spacing_m`), it fails naming the cache

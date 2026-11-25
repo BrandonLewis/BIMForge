@@ -73,7 +73,7 @@ A corridor on the old `ground: {source: 3dep}` with no `vshift_m` and an NGVD29 
 1. loads the spec as `est-bim build` does and builds the model in memory (no gate, no outputs), which fetches the terrain wherever the build would (`--refresh` refetches);
 2. prints the footprint (CRS units and the size in feet), cells, source, source project, acquisition dates, quality level, the shift and its source, and the cache files.
 
-A spec with no `terrain:` block (and no old `ground: {source: 3dep}`) prints `terrain: the spec asks for no terrain` and exits 0. Once it has run, `est-bim build` reads only the cache. `refresh` is a command flag only, so a build never refetches by itself.
+A spec with no `terrain:` block (and no old `ground: {source: 3dep}`) prints `terrain: the spec asks for no terrain` and exits 0. Once it has run, `est-bim build` reads only the cache, except the 3DEP work-unit lookup, which is retried on each build while it has given no answer (an empty answer is not cached). `refresh` is a command flag only, so a build never refetches by itself.
 
 ## Not changed
 
