@@ -144,10 +144,10 @@ def _in_lead_in(c, s: float) -> bool:
 
 
 def _terrain(model) -> str | None:
-    """The TERRAIN element's name, when the ground added one (3DEP)."""
+    """The TERRAIN element's name, when the ground added one."""
+    from bimforge.terrain.attach import is_terrain
     for el in model.elements:
-        if (el.ifc_class == "IfcGeographicElement"
-                and (el.predefined_type or "").upper() == "TERRAIN"):
+        if is_terrain(el):
             return el.name
     return None
 
@@ -356,7 +356,7 @@ def build(params: dict, ctx) -> "StructureModel":
         print(msg, file=sys.stderr)
 
     ground = from_params(params["ground"], al, ctx, ground_reach(c), model,
-                         log=log)
+                         log=log, terrain=params.get("terrain"))
     divide = per_component(c, ground)
     # a cut is ground taken out of the TERRAIN (emit_ifc #364), when there
     # is one to void and a schema with IfcEarthworksCut to void it with

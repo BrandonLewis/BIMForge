@@ -1,16 +1,19 @@
 """The ground a road corridor is measured against (roadmap P.6).
 
-`plane`: a plane through the alignment's point of beginning, for tests and
-the shipped example, so CI never touches the network. `3dep`: the USGS 3DEP
-1 m DEM over the corridor's footprint, cached under a path stem as
-bimforge.terrain caches it (rebuilds are offline), with the TERRAIN element
-added from the same cache. A ground answers `z(northing, easting)` in the
-project's vertical datum, feet.
+`terrain`: the spec's top-level `terrain:` block (G.9), the USGS 3DEP
+ground fetched over the corridor's footprint, cached under its path stem as
+bimforge.terrain caches it (rebuilds are offline), and added as the model's
+TERRAIN element. `plane`: a plane through the alignment's point of
+beginning, for tests and the shipped example, so CI never touches the
+network; with a `terrain:` block the corridor still measures against the
+plane, and the TERRAIN element is the fetched ground. `3dep` (0.1.132) is
+read as a `terrain:` block of its own `cache`, `spacing_m`, `margin_ft` and
+`vshift_m`. A ground answers `z(northing, easting)` in the project's
+vertical datum, feet.
 """
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 
 class PlaneGround:
@@ -104,52 +107,54 @@ def _plane_terrain(ground, alignment, ctx, reach: float, margin: float,
                                verts, tris, prov), ctx)
 
 
-def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
-    """The ground `gp` (the spec's `ground:`) names. `reach` is how far from
-    the line the corridor can reach, feet. Either ground adds its TERRAIN
-    element to `model` (when there is one), in the model frame: 3DEP's DEM,
-    or the plane meshed over the same footprint."""
+def from_params(gp: dict, alignment, ctx, reach: float, model, log=print,
+                terrain=None):
+    """The ground `gp` (the spec's `ground:`) names, which the corridor
+    calculates against. `reach` is how far from the line the corridor can
+    reach, feet; `terrain` is the spec's `terrain:` block (a
+    `bimforge.terrain.spec.TerrainSpec`), or None.
+
+    `source: terrain`: the terrain block's 3DEP ground, fetched over the
+    corridor's footprint, which it adds as the TERRAIN element. `source:
+    plane`: a test plane; the TERRAIN element is the terrain block's ground
+    when there is one, else the plane meshed over the same footprint.
+    `source: 3dep` (0.1.132) is read as a terrain block of its own settings.
+    The element is added in the model frame."""
     source = str((gp or {}).get("source", "")).lower()
+    if source == "3dep":
+        if terrain is not None:
+            raise ValueError("ground: source 3dep and a terrain: block both "
+                             "name the ground; keep the terrain: block")
+        if not gp.get("cache"):
+            raise ValueError("ground: source 3dep needs `cache`, the path stem "
+                             "its downloads are kept under")
+        from bimforge.terrain.spec import from_ground
+        terrain, source = from_ground(gp), "terrain"
     if source == "plane":
         n0, e0, _az = alignment.point_az(alignment.s_start)
         ground = PlaneGround(float(gp["elevation"]), n0=n0, e0=e0,
                              slope_n=float(gp.get("slope_n", 0.0)),
                              slope_e=float(gp.get("slope_e", 0.0)))
         if model is not None and ctx is not None:
-            _plane_terrain(ground, alignment, ctx, reach,
-                           float(gp.get("margin_ft", 200.0)), model)
+            if terrain is not None:
+                from bimforge.terrain.spec import attach_over
+                attach_over(model, ctx, terrain, footprint(alignment, reach),
+                            log=log)
+            else:
+                _plane_terrain(ground, alignment, ctx, reach,
+                               float(gp.get("margin_ft", 200.0)), model)
         return ground
-    if source == "3dep":
-        if not gp.get("cache"):
-            raise ValueError("ground: source 3dep needs `cache`, the path stem "
-                             "its downloads are kept under")
+    if source == "terrain":
+        if terrain is None:
+            raise ValueError("ground: source terrain needs a top-level "
+                             "terrain: block")
         if ctx is None or ctx.epsg is None:
-            raise ValueError("ground: source 3dep needs project.epsg")
-        import bimforge.terrain as terrain
-        from bimforge.bim.georef import crs_unit
-        from bimforge.terrain.attach import to_model_frame
-        # 3DEP reads the bbox and spacing in the CRS's own unit (ftUS for a
-        # State Plane zone in feet); elevations come back in metres. The
-        # model is in feet, so plan and height convert apart.
-        ft = ctx.ft_to_m
-        _unit, crs_m = crs_unit(ctx.epsg)
-        c = ft / crs_m                                 # CRS units per model ft
-        spacing_m = float(gp.get("spacing_m", 1.0))
-        spacing = spacing_m / crs_m
-        vshift = float(gp.get("vshift_m", 0.0))
-        # at least two DEM cells past the reach: a daylight in the grid's
-        # last half pixel would have no pixel centre beyond it to read
-        margin = max(float(gp.get("margin_ft", 200.0)), 2.0 * spacing_m / ft)
-        e0, n0, e1, n1 = footprint(alignment, reach + margin)
-        bbox = (e0 * c, n0 * c, e1 * c, n1 * c)
-        stem = str(gp["cache"])
-        grid = terrain.fetch_3dep_dem(bbox, spacing, ctx.epsg,
-                                      Path(stem + "-3DEP-DEM.tif"), log=log)
-        if model is not None:
-            to_model_frame(terrain.attach_terrain(
-                model, bbox, crs_epsg=ctx.epsg, cache_stem=stem,
-                unit_scale=1.0 / ft, plan_scale=1.0 / c, spacing_m=spacing,
-                vshift_m=vshift, log=log), ctx)
-        return GridGround(grid, ft, vshift, crs_per_ft=c)
+            raise ValueError("ground: the terrain needs project.epsg")
+        from bimforge.author.model import StructureModel
+        from bimforge.terrain.spec import attach_over, crs_per_ft
+        target = model if model is not None else StructureModel("ground", ctx)
+        _el, grid, shift = attach_over(target, ctx, terrain,
+                                       footprint(alignment, reach), log=log)
+        return GridGround(grid, ctx.ft_to_m, shift, crs_per_ft=crs_per_ft(ctx))
     raise ValueError(f"ground: source {gp.get('source') if gp else None!r} is "
-                     f"not plane or 3dep")
+                     f"not plane, terrain or 3dep")

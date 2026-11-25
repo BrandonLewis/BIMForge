@@ -58,8 +58,8 @@ def test_a_grid_is_read_bilinearly_in_feet():
      "cache"),
     ({"source": "3dep", "cache": "x"}, ProjectContext(name="g", guid_ns=uuid.UUID(int=5)),
      "epsg"),
-    ({"source": "lidar"}, None, "plane or 3dep"),
-    (None, None, "plane or 3dep"),
+    ({"source": "lidar"}, None, "plane, terrain or 3dep"),
+    (None, None, "plane, terrain or 3dep"),
 ])
 def test_bad_ground_is_refused(gp, ctx, match):
     with pytest.raises(ValueError, match=match):
@@ -91,6 +91,7 @@ def test_3dep_fetches_in_crs_units_and_reads_back_in_feet(monkeypatch, tmp_path,
 
     monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
+    monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
     ctx = ProjectContext(name="g", epsg=epsg, guid_ns=uuid.UUID(int=5))
     model = StructureModel("g", ctx)
     stem = str(tmp_path / "ml")
@@ -145,7 +146,9 @@ def test_the_fetch_margin_is_at_least_two_dem_cells(monkeypatch, tmp_path):
 
     monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
-    ctx = ProjectContext(name="g", epsg=2226, guid_ns=uuid.UUID(int=5))
+    monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
+    ctx = ProjectContext(name="g", epsg=2226, vertical_datum="NAVD88",
+                         guid_ns=uuid.UUID(int=5))
     from_params({"source": "3dep", "cache": str(tmp_path / "ml"), "margin_ft": 0.0},
                 line(), ctx, 40.0, StructureModel("g", ctx), log=lambda *_: None)
     r = 40.0 + 2.0 / US_FT
@@ -188,13 +191,74 @@ def test_a_plane_with_no_model_adds_nothing():
 
 def test_3dep_with_no_model_reads_ground_and_adds_nothing(monkeypatch, tmp_path):
     import bimforge.terrain as T
+    import bimforge.terrain.attach as A
 
     def fake_fetch(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
         return TerrainGrid(z=np.full((4, 4), 30.0), bbox_m=bbox_m,
                            spacing_m=spacing_m, crs_epsg=crs_epsg)
 
     monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
-    ctx = ProjectContext(name="g", epsg=2226, guid_ns=uuid.UUID(int=5))
+    monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
+    monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
+    ctx = ProjectContext(name="g", epsg=2226, vertical_datum="NAVD88",
+                         guid_ns=uuid.UUID(int=5))
     g = from_params({"source": "3dep", "cache": str(tmp_path / "ml")},
                     line(), ctx, 40.0, None, log=lambda *_: None)
     assert g.z(50.0, 0.0) == pytest.approx(30.0 / US_FT)     # 30 m, in ft
+
+
+def _fake_grid(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
+    xmin, ymin, xmax, ymax = bbox_m
+    cols = max(2, round((xmax - xmin) / spacing_m))
+    rows = max(2, round((ymax - ymin) / spacing_m))
+    return TerrainGrid(z=np.full((rows, cols), 30.48), bbox_m=bbox_m,
+                       spacing_m=spacing_m, crs_epsg=crs_epsg)
+
+
+def _ctx(vd="NAVD88"):
+    return ProjectContext(name="g", epsg=2226, vertical_datum=vd,
+                          guid_ns=uuid.UUID(int=5))
+
+
+def test_source_terrain_measures_against_the_terrain_block(monkeypatch, tmp_path):
+    import bimforge.terrain.attach as A
+    from bimforge.author.model import StructureModel
+    from bimforge.terrain.spec import TerrainSpec
+    monkeypatch.setattr(A, "fetch_3dep_dem", _fake_grid)
+    monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
+    ctx = _ctx()
+    model = StructureModel("g", ctx)
+    ts = TerrainSpec(cache=str(tmp_path / "ml"), margin_ft=10.0)
+    g = from_params({"source": "terrain"}, line(), ctx, 40.0, model,
+                    log=lambda *_: None, terrain=ts)
+    assert g.z(50.0, 0.0) == pytest.approx(30.48 / US_FT)
+    (t,) = [el for el in model.elements if el.predefined_type == "TERRAIN"]
+    assert t.geometry["provenance"]["VerticalShiftSource"] == "NAVD88: none"
+
+
+def test_source_terrain_needs_the_block():
+    with pytest.raises(ValueError, match="needs a top-level terrain: block"):
+        from_params({"source": "terrain"}, line(), _ctx(), 40.0, None)
+
+
+def test_a_plane_with_terrain_writes_the_fetched_ground(monkeypatch, tmp_path):
+    import bimforge.terrain.attach as A
+    from bimforge.author.model import StructureModel
+    from bimforge.terrain.spec import TerrainSpec
+    monkeypatch.setattr(A, "fetch_3dep_dem", _fake_grid)
+    monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
+    ctx = _ctx()
+    model = StructureModel("g", ctx)
+    g = from_params({"source": "plane", "elevation": 95.0}, line(), ctx, 40.0,
+                    model, log=lambda *_: None,
+                    terrain=TerrainSpec(cache=str(tmp_path / "ml")))
+    assert g.z(0.0, 0.0) == pytest.approx(95.0)              # the plane measures
+    (t,) = [el for el in model.elements if el.predefined_type == "TERRAIN"]
+    assert t.name.startswith("Existing ground - USGS 3DEP")  # not the plane
+
+
+def test_3dep_with_a_terrain_block_is_refused(tmp_path):
+    from bimforge.terrain.spec import TerrainSpec
+    with pytest.raises(ValueError, match="both name the ground"):
+        from_params({"source": "3dep", "cache": "x"}, line(), _ctx(), 40.0, None,
+                    terrain=TerrainSpec(cache=str(tmp_path / "ml")))
