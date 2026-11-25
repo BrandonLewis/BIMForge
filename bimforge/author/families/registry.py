@@ -311,6 +311,28 @@ def load_spec(path: Path | str) -> dict:
     if spec.get("spatial_parts") is not None:
         from bimforge.author.spatial import parse_rules
         parse_rules(spec["spatial_parts"], f"{path.name}: spatial_parts")
+    # the model's one existing ground (G.9): the terrain: block, and the
+    # road corridor's 0.1.132 ground: {source: 3dep} read as one
+    notes = []
+    gp = (spec.get("params") or {}).get("ground")
+    old_3dep = isinstance(gp, dict) and str(gp.get("source", "")).lower() == "3dep"
+    if spec.get("terrain") is not None:
+        if old_3dep:
+            raise ValueError(f"{path.name}: ground: source 3dep and a terrain: "
+                             f"block both name the ground; keep the terrain: block")
+        from bimforge.terrain.spec import parse as parse_terrain
+        spec["_terrain"] = parse_terrain(spec["terrain"], base.resolve(),
+                                         f"{path.name}: terrain")
+    elif old_3dep:
+        from bimforge.terrain.spec import from_ground
+        spec["_terrain"] = from_ground(gp)
+        spec["params"]["ground"] = {"source": "terrain"}
+        notes.append("note: ground: source 3dep is now terrain: {source: dem, "
+                     "cache, spacing_m, margin_ft, vshift_m} with ground: "
+                     "{source: terrain}")
+    if spec.get("_terrain") is not None and not proj.get("epsg"):
+        raise ValueError(f"{path.name}: terrain: needs project.epsg")
+    spec["_notes"] = notes
     spec["_dir"] = str(base)
     return spec
 
@@ -414,6 +436,14 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
     unread = str(gate_cfg.get("unread_params", unread_params)).lower()
     ignore = tuple(gate_cfg.get("ignore") or ())
     params = spec_params(spec, alignments)
+    terrain = spec.get("_terrain")
+    for note in spec.get("_notes") or ():
+        print(note, file=sys.stderr)
+    if terrain is not None and getattr(builder, "takes_terrain", False):
+        # a family that calculates against the ground fetches it itself, over
+        # its own footprint (the road corridor)
+        params = dict(params)
+        params["terrain"] = terrain
     if unread != "off":
         params = TrackedParams(params)
     model = builder(params, ctx)
@@ -450,6 +480,12 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
         # part yet, so these win over the paycodes' spatial_parts.
         from bimforge.author.spatial import apply_spatial_parts, parse_rules
         apply_spatial_parts(model, parse_rules(spec["spatial_parts"]))
+    if terrain is not None:
+        # the ground, once: over the model's footprint unless the family
+        # already added it
+        from bimforge.terrain.spec import add_spec_terrain
+        add_spec_terrain(model, ctx, terrain,
+                         log=lambda m: print(m, file=sys.stderr))
     pc_mod.apply(model, pc)
     gate.configure_solid_bodies(model, spec)
     if "ifc_instancing" in spec["outputs"]:         # overrides the family

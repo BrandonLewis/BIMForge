@@ -620,3 +620,7 @@ def build(params: dict, ctx) -> "StructureModel":
     if c.guard is not None:
         model.tables["guardrail"] = guardrail.to_csv(rails)
     return model
+
+#: the corridor calculates against the ground, so build_from_spec hands it the
+#: spec's terrain: block (params["terrain"]) instead of adding the ground after
+build.takes_terrain = True
