@@ -18,4 +18,4 @@ project:
   epsg: 2226
   base: [6594000.0, 1943000.0, 200.0]
   guid_ns: "3b7a5c2e-0000-4000-8000-000000000001"
-  facility: {kind: facility}
+  facility: {kind: facility, name: "Demo Box Structure"}

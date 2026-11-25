@@ -99,3 +99,54 @@ def test_the_example_is_written_in_its_facility(built, example):
             assert container.is_a("IfcSite")
         else:
             assert container.id() in home, (el.Name, container.is_a())
+
+
+def test_the_facility_is_named_for_the_structure(built):
+    # the example's structure, not the family id the facility defaults to
+    names = {n: next(x for x in f.by_type("IfcFacility")
+                     if not x.is_a("IfcBuilding")).Name
+             for n, f in built.items()}
+    assert names["caltrans-b3-retaining-wall"] == "B3 Retaining Wall"
+    assert names["caltrans-box-culvert"] == "Box Culvert"
+    assert not set(names.values()) & {
+        "standard-plan", "box-culvert", "culvert-wingwall", "culvert-headwall",
+        "pipe-headwall", "bridge-standard", "demo-box", "tubular-handrail",
+        "concrete-barrier-732sw", "concrete-barrier-842"}
+
+
+def _homes(f) -> dict:
+    """{element name: its container's name} for the contained elements."""
+    import ifcopenshell.util.element as E
+    return {el.Name: E.get_container(el).Name for el in f.by_type("IfcElement")
+            if E.get_container(el) is not None}
+
+
+def _parent(f, name) -> str:
+    (part,) = [p for p in f.by_type("IfcFacilityPart") if p.Name == name]
+    return part.Decomposes[0].RelatingObject.Name
+
+
+def test_the_bridge_parts_hold_their_members(built):
+    f = built["bridge-standard"]
+    homes = _homes(f)
+    assert {n for n, h in homes.items() if h == "Superstructure"} == {
+        "span 1 superstructure", "span 2 superstructure",
+        "B2 diaphragm cell 1", "B2 diaphragm cell 2"}
+    assert {n for n, h in homes.items() if h == "Bent 2"} == {
+        "B2 column 1", "B2 column 2", "B2 bent cap"}
+    assert {n for n, h in homes.items() if h == "Abutment 1"} == {
+        "A1 abutment stem", "A1 abutment backwall"}
+    assert {n for n, h in homes.items() if h == "Abutment 3"} == {
+        "A3 abutment stem", "A3 abutment backwall"}
+    for part in ("Abutment 1", "Bent 2", "Abutment 3"):
+        assert _parent(f, part) == "Substructure"
+    assert _parent(f, "Substructure") == _parent(f, "Superstructure")         == "Fixture Overcrossing"
+
+
+def test_each_wingwall_is_its_own_part(built):
+    homes = _homes(built["caltrans-culvert-wingwall"])
+    assert homes
+    for name, home in homes.items():
+        assert home == f"Wingwall {name.split()[0]}", name
+    assert set(homes.values()) == {
+        "Wingwall WW1", "Wingwall WWE", "Wingwall WWW"}

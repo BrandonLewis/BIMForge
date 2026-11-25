@@ -41,7 +41,7 @@ project:
   epsg: 2226
   base: [6594000.0, 1943000.0, 100.0]
   guid_ns: "3b7a5c2e-0000-4000-8000-0000000000d9"
-  facility: {kind: road}
+  facility: {kind: road, name: "D90 Culvert Headwall"}
 
 # IFC4X3: the road it serves, its roadside part
 spatial_parts:

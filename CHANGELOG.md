@@ -125,8 +125,9 @@ skip or read them. `model-elements` sends `route`, `based_on` and
   ABUTMENT part); the B3 walls, the D90 and pipe headwalls and the 732SW
   barrier an IfcRoad with a ROADSIDE part (UsageType LATERAL); the
   deck-mounted 842 barrier and the tubular handrail an IfcBridge with a
-  SURFACESTRUCTURE part; the demo box a generic IfcFacility. The road
-  corridor is unchanged; an example's IFC4 file keeps
+  SURFACESTRUCTURE part; the demo box a generic IfcFacility. Each facility
+  is named for its structure ("B3 Retaining Wall", "Box Culvert"), not the
+  family id. The road corridor is unchanged; an example's IFC4 file keeps
   the building tree (the facility is IFC4X3-only). No element's GlobalId
   changes. The examples' IfcBuilding and IfcBuildingStorey are
   gone, and in the bridge, the box culvert, the culvert wingwall and the
