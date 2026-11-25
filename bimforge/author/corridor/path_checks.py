@@ -29,8 +29,8 @@ CHECK_HEADER = "check,from,to,value,limit,reference"
 PATH_HEADER = ("station,side,separation_ft,offset_ft,hinge_elev_ft,path_elev_ft,"
                "difference_ft,grade_pct,strip,barrier,note")
 #: outputs.path lists a strip flatter than this (horizontal per vertical,
-#: under 1 %) as `level`: too flat to drain, and its ratio only the noise
-#: of thousandths of a foot over the strip's width
+#: under 1 %) as `level`: too flat to drain, so not a slope to read; the
+#: rise itself stays in difference_ft
 LEVEL_RATIO = 100.0
 #: 1003.1(14)
 MAX_GRADE = 0.05
@@ -557,8 +557,7 @@ def checks_csv(rows: list) -> str:
 def _strip_label(ps) -> str:
     """The strip column: its kind at a wall or on natural ground, else its
     slope ratio, or `level` where it has none (path._ratio's None) or is
-    flatter than LEVEL_RATIO - a ratio past that is noise in hundredths of
-    a foot, not a slope to read."""
+    flatter than LEVEL_RATIO - too flat to drain, so not a slope to read."""
     if ps.strip in ("wall-road", "wall-path", "ground"):
         return ps.strip
     if ps.ratio is None or ps.ratio > LEVEL_RATIO:
