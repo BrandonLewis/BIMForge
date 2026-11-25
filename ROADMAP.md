@@ -5,6 +5,28 @@ roadmap (`docs/ROADMAP.md` in `estimating-tools`, Phase 4) lists the bimforge
 rows by ID; this file holds the detail for work developed here. Update it in
 the same PR that finishes or adds an item.
 
+## Destination
+
+BIMForge is a factory for IFC models of heavy civil work. The factory is
+written once: a spec format, families, an agency's tables and dictionary, and
+gates. A job is then specified, not programmed: a whole public job, every bid
+item, is built from parameter files with no job-specific code, the same spec
+builds the same bytes, and a model is accepted by its checks with nobody
+reading it.
+
+**The measure is yield.** For a whole-job model: how many of its bid items,
+and of its elements, were built by a family, by a modified standard, by an
+element placed on an alignment, or by custom code. The route each element
+records (M.8) makes it countable (W.16).
+
+| | |
+|---|---|
+| Reference job | A Caltrans sound wall job modelled whole by hand: 59 bid items, 1,269 elements, validated IFC4X3 |
+| Built by the factory today | 0 of 59 bid items: all of it by 18 job scripts (about 4,650 lines) |
+| Target | The reference job rebuilt from parameter files alone, accepted by all three checks |
+
+**Waiting on the owner:** G.5, G.7 and G.8, open since 2026-11-14.
+
 ## Decisions
 
 | Date | Decision |
@@ -15,6 +37,8 @@ the same PR that finishes or adds an item.
 | 2026-11-15 | **Agency content lives in a pack: a subpackage of the wheel, `bimforge.caltrans` first.** The core keeps the kernel and the families no agency owns. A pack holds an agency's standard-plan tables, its families and its part of the dictionary, and nothing the core needs to build without it, so it can become a distribution of its own later (an extra cannot carry code or data). Only what public plans, standard plans and specifications state goes in: no prices, no bid data, no job identifiers. |
 | 2026-11-17 | **The model is the estimate's record, and a quantity says how it was derived.** Takeoffs are made from the model and checked against the plan sheets, so the IFC carries, for the estimating system to keep: what each element is (its dictionary class), the dimensions that size it, each quantity's formula over those dimensions where the shape has one, where it sits, and the record of its check. All of it in standard IFC places (classification reference, quantity sets, `Formula` on the quantity, IfcApproval), so any reader gets it. BidSheet.ai's side is D8 and rows 5.16 to 5.22 of its roadmap. |
 | 2026-11-20 | **Next after M.3: the road corridor family (P.6), then a command that runs the terrain (G.9), then a girder bridge family (P.5).** The girder family starts from the bespoke bridge models in the private Work repository: pick out the bridge types they build and make each one IFC4.3 compliant (typed, classified, under an IfcBridge, passing C.7, C.8 and C.12) as it moves into a family. This is ahead of P.4, which P.5 and P.6 were listed after. |
+| 2026-11-22 | **A whole job is the unit, and its families come from one already built.** The corpus (M.12) models entire jobs, every bid item, from the plans and the supplemental documents; the agency's quantity sheets and bid quantities are what a model is checked against, never what it is built from, so a disagreement is a finding. The first whole-job reference is a Caltrans sound wall job modelled by hand in the private Work repository: one validated IFC4X3 site model of 1,269 elements, built by 18 job scripts. Sorting those scripts gives the family list (W rows). An agent's output is a job's parameter files, each value citing its sheet; code is a family's, not a job's. |
+| 2026-11-25 | **A disputed rule is accepted with its reasoning on record.** Where a buildingSMART rule contradicts the standard it checks, bimforge writes what the standard says, and the rule goes on a short published list: the rule, the reasoning, the evidence, the report to buildingSMART and the date. A consumer accepts a model whose only rule findings are on that list, and records which. The list is reviewed at every rule-set bump and an entry leaves it when the rule or bimforge changes. It is for rules that are wrong, never for findings that are ours to fix (C.14). First entry: GRF005 (C.15). |
 | 2026-11-18 | **The spec stays the source of a model; an edit made anywhere is a spec change. Not ruled: the owner's leaning, to keep in mind.** A model is a reproducible, verifiable build from a spec, and that is worth keeping when models come to be created and edited in ProjectCommand, which is expected. So a model is never hand-edited and edits do not pile up in the file: a tool that changes a model exports a spec, and the model is rebuilt from it (M.16). Project records (progress, approvals, checks, actual cost) are not design and stay additions carried through a rebuild. The rule about not changing a producer's entities is, since we are the producer, a rule about issued states: nothing issued is changed silently. |
 
 ## Model exchange: contract and dictionary
@@ -28,9 +52,9 @@ reaches the takeoff with the same classification, type names and properties.
 | X.2 | Draft family dictionary: `bimforge/author/dictionary/bimforge-families.bsdd.json`. Covers what the typed families emit: Type 842 and 732SW barrier runs, B11-51 tubular handrailing and its parts, the D90 pipe guardrail, and the `BIMForge_LinearReference` properties. A test holds it to the built examples. | Done in #48 |
 | X.3 | IFC2X3 refused by name (`ifc_takeoff.require_supported_schema`). | Done in #48 |
 | X.4 | Families read their type names and standard-plan references from the dictionary; the string literals in `rail_run.py`, `barrier_template.py` and `headwall_926.py` go. | Done (`bimforge.author.family_dictionary`) |
-| X.5 | Section size as a property. It is baked into type names today ("B11-51 post HSS2x2x3/16"), so the dictionary can only match by name prefix. Write it as an IfcMaterialProfileSet on the type (an HSS 2x2x3/16 IfcRectangleHollowProfileDef under "B11-51 post"), after the C.5 readers unwrap set usages. The governing material goes first: readers (`governing_material`, ProjectCommand) take the first. | Next |
+| X.5 | Section size as a property. It is baked into type names today ("B11-51 post HSS2x2x3/16"), so the dictionary can only match by name prefix. Write it as an IfcMaterialProfileSet on the type (an HSS 2x2x3/16 IfcRectangleHollowProfileDef under "B11-51 post"), after the C.5 readers unwrap set usages. The governing material goes first: readers (`governing_material`, ProjectCommand) take the first. | Parked 2026-11-25: not on the path to a whole job from parameter files. Taken up again when a model has to be exchanged with a design office |
 | X.6 | Type the untyped families. The retaining wall, box culvert, headwalls, wingwalls, approach slab and bridge emit plain walls, footings and bars with no type, so the dictionary has nothing to name. Wall and slab types carry an IfcMaterialLayerSet, their occurrences the usage, after the C.5 readers unwrap set usages; the governing layer goes first. | Retaining wall (B3) typed: wall and footing types per wall type, with the B3 sheet as Reference; layer sets on the constant-thickness stems (1A, 6A, 6B), a plain material on the battered stems and the footings, as IFC's wall concept has it. The other families after |
-| X.7 | Revit and Tekla: IFC4 export presets and property mappings generated from the dictionary, then run `takeoff.ids` on real exports from both. Not yet checked: how much each tool takes from a file. | Next |
+| X.7 | Revit and Tekla: IFC4 export presets and property mappings generated from the dictionary, then run `takeoff.ids` on real exports from both. Not yet checked: how much each tool takes from a file. | Parked 2026-11-25: not on the path to a whole job from parameter files. Taken up again when a model has to be exchanged with a design office |
 | X.8 | An `est-bim` subcommand that runs the contract, so a user needs no separate checker. | Later |
 | X.10 | A FootPrint subcontext (audit Phase 1), in the PR of the first family that draws a FootPrint shape or the first reader that uses one: plan sheets reading outlines from the IFC, or an X.7 export showing Revit/Tekla plan views take it. Nothing writes or reads one today. Key the new context explicitly, as the Axis one is, so no pinned GlobalId moves. | Later |
 | X.9 | bSDD service: register an organisation code, publish the dictionary, write dictionary and class URIs on IfcClassification and IfcClassificationReference. The codes `bimforge` / `families` in the draft are placeholders, and the IFC property URI used for `Reference` is unverified against the live service. | Deferred (see Decisions) |
@@ -60,29 +84,34 @@ ProjectCommand. This is work in progress; C.9 is where its current state is stat
 | C.8 | buildingSMART's normative rules. Schema validity is the floor: the audit found almost no schema failures and many semantic ones. buildingSMART's own rule set (`ifc-gherkin-rules`, the checks its validation service runs) runs in CI on every file the conformance suite writes (`scripts/bsi_rules.py`, the `bsi-rules` job). A finding passes only if `scripts/bsi_baseline.yaml` lists it with the reason, and a listed finding no longer found fails too, so the baseline can only shrink. The first run fixed four findings (a typed occurrence's PredefinedType, a crest curve's radius sign, what `federate` strands, a deprecated wall type); three rules are accepted in the baseline. Remaining: clear the baseline. | Done in #97 (#94); baseline open |
 | C.9 | A profile of the schema, generated, and the conformance statement rendered from it. Not a copy of IFC4X3: the schema ships in IfcOpenShell as EXPRESS (C.7) and buildingSMART's rules cover what it cannot state (C.8). The profile is the part of it BIMForge writes and what it promises about it, from one source, as the takeoff contract is generated from the reader's own tables (X.1). **First, an inventory**, made by scanning every file the test suite writes: the entity types, relationships, property sets and quantity sets each command produces, on each schema. It needs no design and shows at once where a writer strays. **Then IDS documents per concept** (a bid schedule, an estimate schedule, a class reference, a borehole and its strata), so any IDS checker tests a file against the profile with no code of ours. **Then `docs/ifc-conformance.md`**, rendered from the two for each release: the schemas written, what sits in standard sets and what in BIMForge's own, every known deviation with its roadmap row (C.5, C.6), and the validator and rule-set versions the release passed. IDS cannot say that cost items nest correctly, that composed values sum, or that a rebuild kept its GlobalIds: those stay coded checks, and the profile lists them. It describes BIMForge's files; it is not a model view definition. Its readers are this CI, a conformed.ai worker accepting a model, and ProjectCommand, whose reader holds its attribute positions by hand. | Inventory done in #102 (0.1.127): `docs/ifc-inventory.md` (generated by `scripts/ifc_inventory.py`, held current in CI). IDS and statement after |
 | C.10 | New kinds of content arrive conformant: class references (M.1), quantity formulas (M.3), approvals (M.5), boreholes and strata (M.15). Each uses the standard entity, property set and quantity set where IFC has one, says in C.9 where it does not, and ships with its C.7 and C.8 checks. | With each M row |
-| C.11 | One command a consumer runs to accept a file: `est-bim validate` reports schema, where-rules, the normative rules, the takeoff contract (X.1, X.8) and the profile's IDS documents and coded checks (C.9) in one machine-readable result, with the versions used. The corpus build (M.12) accepts a model only when it is clean. | After C.7 and C.8 |
+| C.11 | One command a consumer runs to accept a file: `est-bim validate` reports schema, where-rules, the normative rules, the takeoff contract (X.1, X.8) and the profile's IDS documents and coded checks (C.9) in one machine-readable result, with the versions used. The corpus build (M.12) accepts a model only when it is clean. | Next (stage 1). conformed.ai's import of a model re-implements the three checks itself because this does not exist |
 | C.12 | buildingSMART's alignment checks, the ones its IFC4.3 sample models are held to (`IFC4.3.x-sample-models`, `test/alignment_tests.py`): every alignment layout ends with a zero-length segment, every IfcAlignment is aggregated to the IfcProject (directly or through a parent alignment), and every distance along a curve (IfcCurveSegment start and length, a directrix solid's parameters, IfcPointByDistanceExpression) is an IfcLengthMeasure. `gate.alignment_issues`, run on every file the conformance suite writes and on what `add-alignments` writes. Not yet in `est-bim validate` (C.11). | Done in #113 (0.1.130) |
 | C.13 | The IFC4X3 facility tree by default. Every shipped example writes IfcSite > IfcBuilding > IfcBuildingStorey, the bridge included, because `project.facility` is opt-in (`author.spatial`, #318). buildingSMART's certification scenes put a bridge under IfcBridge > IfcBridgePart (SUBSTRUCTURE > PIER, ABUTMENT, DECK, SUPERSTRUCTURE) and a road under IfcRoad > IfcRoadPart (ROADSEGMENT > CARRIAGEWAY, SHOULDER), and "spatial breakdown" is one of the criteria an importer is certified on. On IFC4X3 a family that knows its facility (the bridge, the approach slab, the barriers and handrail on a bridge, the culverts and walls on a road) writes it unless the spec says otherwise, with its parts from the family's own `spatial_parts` defaults; IFC4 keeps the building tree. Changes every example's spatial GlobalIds and what `federate` folds, so it is its own PR, with ProjectCommand told first. | Next |
+| C.14 | Clear the rule baseline. `scripts/bsi_baseline.yaml` accepts four buildingSMART rules, up from three when C.8 landed, and a model that breaks any of them is not accepted into the corpus. Ours to fix: **QTY001**, 34 outputs, the generic quantity set name (M.17, first step done); **PSE001**, 2 outputs, the terrain's own set under the reserved `Pset_` prefix (a rename, readers accepting both); **ALS016**, 5 outputs, alignment segments meeting about 1 mm apart where the rule allows 0.01 mm, because a curve's end is placed by its delta while IFC evaluates length over radius. Not ours: **GRF005** (C.15). The baseline may only shrink, and it is empty of our own findings before stage 4. | Next (stage 1) |
+| C.15 | Disputed rules (ruled 2026-11-25, see Decisions). The list lives in `scripts/bsi_baseline.yaml` under its own heading, apart from what is ours to fix, and is published in the conformance statement (C.9); `est-bim validate` (C.11) reports a disputed finding as disputed, not as a pass or a failure, so a consumer can accept on it and record it. **GRF005**, 32 outputs: every model in metres on a map in feet. The standard is plain: IfcMapConversion transforms the local engineering system into the map's, by "a scaling of the three axes (x,y,z), by the same IfcMapConversion.Scale", then a rotation, then a translation by Eastings and Northings, and Scale "must have the value of the scale from the source to the target units" (IFC4.3 documentation, `IfcMapConversion.md`). So local times Scale is map, and a metre model on a US-foot CRS has Scale 3.28083; IfcOpenShell's conversion agrees and documents 0.001 for a millimetre project on a metre CRS. The rule, read at the commit CI pins (`893f827`, release 1.0.2), quotes the same sentence in its description and its step reads "the quotient of the project length units and the target CRS length units", both giving 3.28083; but its code divides the CRS unit by the project unit (`features/steps/steps/crs.py`), giving 0.3048, and its own passing test file is a metre project on a US-foot CRS with Scale 0.3048. For the millimetre case the rule would want 1000. It is tagged industry practice. A model authored in the map's own units has Scale 1 and does not meet the rule. To do: move GRF005 under the disputed heading; the report to buildingSMART (drafted 2026-11-25, to be filed by the owner) linked from its entry. | Ruled; the list and the report next (stage 1) |
 
-## Order of work: models, corpus and search (set 2026-11-17)
+## Order of work (reset 2026-11-25)
 
-One epic across three repositories: this one, conformed.ai (#633) and
-BidSheet.ai (its roadmap, D8 and rows 5.16 to 5.28). One structure type goes
-through all three before anything widens, and the corpus is built out only
-after a small version shows the search finds useful neighbours.
+Replaces the order set on 2026-11-17. Of that order, the foundation is done
+(validation and buildingSMART's rules in CI, the inventory, the B3 wall typed,
+classed, dimensioned and with formulas), and the road corridor shipped ahead
+of the wall pilot it was scheduled behind. The epic still spans three
+repositories: this one, conformed.ai (its `docs/ROADMAP.md`, R rows) and
+BidSheet.ai (its roadmap, D8 and rows 5.16 to 5.28).
 
-| Stage | What | Rows here |
-|---|---|---|
-| 1. Foundation | Validation of every written file in CI and buildingSMART's rules against a baseline (both done in #97); the inventory; the retaining wall family (B3) typed from the dictionary with its class reference, dimensions and quantity formulas. conformed.ai exports its boring data alongside. | C.7, C.9 (inventory), C.8 (first run); X.4 and X.6 for the wall family; M.1 to M.3 |
-| 2. The retaining wall, through to a bid | The import carries class, dimensions and model version into BidSheet.ai, used on the owner's next bid. The check record follows: measurements recorded where they are taken (ProjectCommand, or a command after Bonsai), the takeoff's sum by the tool. | M.6; M.5 |
-| 3. Wall pilot | Ten to twenty public projects with retaining walls modelled on a conformed.ai worker, the ground surface included, inside the $200 a month API limit. Accepted on validation and agreement with the engineer's quantities; cost per project recorded. BidSheet.ai syncs them, joins prices and runs a small holdout. | M.12, M.14, C.11 |
-| **Decision** | Widen if the neighbours predict prices usefully and the cost per project fits the budget. | |
-| 4. Paving | The road corridor family: alignment, typical section, pavement courses by layer. Quantity is section times length, so it is held to the engineer's quantities tightly. Roadwork is in nearly every public project, so it yields the most data per project modelled. | P.6 |
-| 5. Grading | The same corridor: cut, fill and mass haul against the ground surface. Plan-sheet contours are not the engineer's survey, so the tolerance is looser and stated per project. Cut and fill balance and average haul are derived features. | P.6, M.13 |
-| 6. Bridges, in pieces | Barrier, handrail and approach slab (standard today); abutments and wingwalls (reusing the wall work); piles and footings once borings are in the models; superstructure when the girder bridge family exists. | P.4, M.15, P.5 |
-| Alongside | Modified standards; the rest of the pack moves and families; the remaining derived features; the full profile and conformance statement. | M.8 to M.11, P.3, P.4, M.13, C.9, C.10 |
+Gates before families: a model that fails a gate is not accepted into the
+corpus, so a family built before the gates are clean produces models nobody
+can use.
 
-The agency surveys (P.10, P.11) run in parallel and block none of this.
+| Stage | What | Rows | State |
+|---|---|---|---|
+| 1. Gates clean | The rule baseline emptied of what is ours to fix; one command that reports all three checks for a consumer; the ruling on disputed rules. | C.14, C.11, C.15, M.17 | Next |
+| 2. Every family to one standard | Each shipped family carries what the B3 wall carries. The grid under "Family readiness" is the list. | X.6, M.1 to M.3, M.8, M.9, M.17, W.17 | Next |
+| 3. The spec as a contract | A published schema for the spec, cited parameters, and custom code bounded so it still counts. This is what an agent's output is checked against. | W.14, W.13, W.15 | Next |
+| 4. The reference job, family by family | Placed along an alignment, drainage run, the corridor on a non-road job, sound wall on drilled piles. After each, the reference job is rebuilt and its yield reported. | W.1 to W.5, W.16 | After 1 to 3 |
+| **Decision** | With the reference job mostly off the line: is the yield high enough, and the cost per job low enough, to model the next jobs on a conformed.ai worker? | M.12 | |
+| 5. The second and third jobs | A rehabilitation job with a bridge, then an interchange: the girder bridge family, borings, the remaining families. | P.5, M.15, W.6 to W.8 | After the decision |
+| Alongside | The retaining wall through to a bid in BidSheet.ai; agency surveys; derived features. | M.6, P.10, P.11, M.13 | |
 
 ## The model as the estimate's record
 
@@ -138,6 +167,73 @@ is the brief for building one.
 | P.10 | Caltrans survey: inventory every 2025 Standard Plan and Standard Specification section, then a dictionary class for every type, series by series, and a pay item dictionary from the standard item codes. Today the manifest covers the B series and D80 to D91 (91 sheets), five tables are transcribed and eleven classes exist. | Next: needs someone assigned |
 | P.11 | City of Sacramento pack: the same survey over the city's standard drawings and standard specifications. Starts from the inventory; the S-280 and S-290 pipe inlet and outlet structure tables already exist in a private family and move in with it. | Next: needs someone assigned |
 | P.12 | Pack mechanics for more than one agency: a conformance test every pack passes (declared tables ship, table names are class codes, manifest present), and `est-bim` listing the packs and their tables. | With P.11 |
+
+## Family readiness
+
+What each shipped family's output carries, measured on 2026-11-25 by building
+its shipped example at 0.1.132 and reading the file (elements other than
+reinforcing bars). It replaces the "done for the B3 wall, the other families
+next" tails of X.6, M.1, M.2, M.3, M.8, M.9 and M.17: this grid is the list of
+what those rows still owe. A family is ready when its row is full, and a test
+holds every family to its row (W.17).
+
+| Family | Typed (X.6) | Class reference (M.1) | Dimensions (M.2) | Formulas (M.3) | Route (M.8) | Standard quantity set (M.17) |
+|---|---|---|---|---|---|---|
+| B3 retaining wall | all | all | all | all | all | none |
+| Road corridor | 65 of 83 | 82 of 83 | 82 of 83 | 82 of 83 | none | 82 of 83 |
+| B11-51 tubular handrail | all | all | none | none | none | none |
+| Type 732SW barrier | 52 of 58 | 52 of 58 | none | none | 4 of 58 | none |
+| Type 842 barrier | 4 of 10 | 4 of 10 | none | none | 4 of 10 | none |
+| Bridge (standard) | none | none | none | none | none | none |
+| Box culvert (D80) | none | none | none | none | none | none |
+| Culvert wingwall (D84) | none | none | none | none | none | none |
+| Pipe headwall (D89) | none | none | none | none | none | none |
+| Culvert headwall (D90) | none | none | none | none | none | none |
+
+Not measured, having no shipped example to build: approach slab, spillway,
+headwall 926, pipe supports. No family is ready. The two furthest along each
+lack one column: the wall its standard quantity set, the corridor its route.
+
+## Whole-job families
+
+Goal: a whole public job, every bid item, is built from parameter files with no
+job-specific code. From a sort on 2026-11-22 of the 18 scripts (about 4,650
+lines) that built the first whole-job reference model (see Decisions): about
+half the code becomes families, a fifth is already here or belongs in the
+kernel, and the rest is particular to that job. A second from-scratch design
+is expected to add to this list.
+
+Families, in the order that unlocks the most bid items across the first three
+target jobs:
+
+| ID | Item | State |
+|---|---|---|
+| W.1 | Placed along an alignment. One generic family for what is a run or a count at a station and offset: barrier and railing runs, fence, temporary barrier and screens, crash cushions, drums, and removals of the same (an existing element, marked for removal). A section or a symbol, a station range or a station, a side and an offset; the IFC class and predefined type by kind of item. Where the plans do not dimension the section it is an assumption, and the element says so. The road corridor already places guardrail and walls along its own alignment (P.6 V1.1); this family takes that placement out of the corridor so a job with no corridor has it, and the corridor uses it. | Stage 4, first |
+| W.2 | Drainage run. Inlets, pipe runs by station and invert, flared end sections, rock slope protection, and removals, as IfcPipeSegment, IfcDistributionChamberElement and their ports, sized from the D-series standard plans in the pack. | Next |
+| W.3 | The road corridor (P.6) on a job that is not a road job: a narrow paved strip along a structure, trench surfacing over a pipe, removal of existing surfacing, and structure excavation and backfill to the plans' limits of payment, in layers where the specifications pay them apart. | Stage 4. P.6 is done through V1.1 |
+| W.4 | Sound wall on drilled piles: piles at a spacing with skips where the plans straddle a utility, pile caps, the barrier under the wall, wall panels between expansion joints, coating by face. Needs the masonry sound wall standard plans in the pack's manifest, which leaves that series out today (P.10), and the 842SV variant in the barrier family. | After W.1 |
+| W.5 | A drilled-pile part, for any family with piles: the cage (bars and spiral by pitch zone) and inspection pipes. Weight is bar length times weight per foot, never solid volume times density, so faceting cannot move a pay quantity; a spiral is a shell of the same steel volume, not a helix. | With W.4 |
+| W.6 | Sign installation: panel, posts sized and counted by the specification and the standard plan, footing, from a sign schedule. On nearly every job as construction area signs. | Later |
+| W.7 | Barrier-mounted lighting and conduit, from the electrical standard plans: electroliers, pull boxes, conduit runs with their fittings at boxes and expansion joints, joined by ports. | Later |
+| W.8 | Masonry at the unit: every block by panel and course, grout, bars and joint filler, as a detail level of W.4, for checking a masonry price. | Later |
+
+Kernel and commands, for what the job scripts did that is not a family:
+
+| ID | Item | State |
+|---|---|---|
+| W.9 | A facility tree from a spec, as a command: elements sorted into IfcFacility and IfcFacilityPart nodes by rule, with a report of what matched nothing. Today a tool in the private repository run after `federate`. With it, a lighter copy of a model for viewers (faceted solids as triangulated sets, voids as interferences), which that job also scripted. | Next |
+| W.10 | Terrain from a designer's surface: a LandXML TIN for existing ground and a corridor surface for finished grade, clipped to the work, with a check against the plans' cross sections. Beside G.9, which fetches public elevation data where the designer's is not supplied. | With G.9 |
+| W.11 | Place a plan sheet by its station labels: match each label's foot on the drawn line to the alignment, fit the transform, and refuse above a stated residual (the job that did this held 0.2 ft over the line). It is how anything is measured off a sheet in project coordinates, so it belongs with `est-bim calibrate`. | Next |
+| W.12 | The model against the agency, per pay item, as an output of the takeoff: official quantity, modelled quantity, difference and element count. The corpus stores it (conformed.ai's item coverage); a difference is reported, never tuned away. | Next |
+| W.13 | Cited parameters. A spec's parameter may carry the sheet it was read from, and an assumption its reason, and the build can be told to refuse a parameter with neither. The reference job's parameter files already do this by comment (about 860 lines, every value cited); it becomes part of the spec, and what an agent's output is checked for. Feeds the modification record (M.8) and the spec export (M.16). | Next |
+| W.14 | A published schema for the spec. The format is defined today only by what `load_spec` and each family accept in code, so a spec is found wrong by building it. A JSON Schema for the spec and for each family's parameters, generated from the families and shipped in the wheel, lets a spec be validated before any build, tells an agent what a family takes without reading its source, and is checked in CI against the shipped examples. | Stage 3 |
+| W.15 | Custom code, bounded. A bespoke `bimforge.author` model is the escape for what no family builds, and stays one. It declares what it is based on (M.8), exposes the values it was written around as parameters with their citations (W.13), and is built by the same command through the same gates, so it counts in the yield as custom and not as nothing. A job script that reads no spec is not a model the factory accepts. | Stage 3 |
+| W.16 | Yield, reported. For a model: bid items and elements by route (family, modified, placed, custom, no geometry, not modelled), from the route each element records. Written beside the takeoff and stored by the corpus with the item coverage. It is the number under "Destination", reported after every family that lands. | Stage 4, with W.1 |
+| W.17 | A readiness test. One test builds every shipped family's example and holds it to its row of the grid under "Family readiness": a column a family has reached cannot be lost, and a new family ships with a full row or says which column it lacks and why. Families with no shipped example get one. | Stage 2 |
+
+Not families, and where they go: existing utilities drawn for a clearance check
+are the overlap gate (G.2); traffic control layouts and staged overlays wrote
+no IFC and are issue #76.
 
 ## Geometry: checks and outputs
 
