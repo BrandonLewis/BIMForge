@@ -537,7 +537,9 @@ def test_parameters_and_linear_reference_read_in_the_projects_foot():
         f.createIfcPropertySingleValue(
             "Batter", None, f.createIfcRatioMeasure(0.25 / 12)),
         f.createIfcPropertySingleValue(
-            "Note", None, f.createIfcLabel("x"))]
+            "Note", None, f.createIfcLabel("x")),
+        f.createIfcPropertySingleValue(
+            "Face", None, f.createIfcAreaMeasure(2.0))]
     ref = ifcopenshell.api.pset.add_pset(f, product=wall,
                                          name="BIMForge_LinearReference")
     ifcopenshell.api.pset.edit_pset(f, pset=ref, properties={
@@ -553,7 +555,11 @@ def test_parameters_and_linear_reference_read_in_the_projects_foot():
         "alignment": "LINE A", "station_start": 1000.0,
         "station_end": 1064.0, "offset_left_min": -1.0,
         "offset_left_max": 0.0, "unit": "FT"}
-    assert any("Note" in w and "not sent" in w for w in plan["warnings"])
+    # a text (a station's IfcLabel twin) is skipped: its number is sent
+    assert not any("Note" in w for w in plan["warnings"])
+    # a number that is neither a length nor a ratio is warned and not sent
+    assert any("Face" in w and "IfcAreaMeasure" in w and "not sent" in w
+               for w in plan["warnings"])
     assert "family_class" not in entry
 
 
@@ -622,10 +628,151 @@ def test_b3_wall_sends_class_type_plan_parameters_formula_and_model(
         assert e["standard_plan"] == fd.standard_plan(code)
         assert set(e["parameters"]) == set(fd.dimensions(code))
         assert e["quantities"]["concrete_cy"]["formula"] ==             "Length * Width * Height"
+        assert e["based_on"] == code
+        # the example's own Type 1 rows are rounded off the packaged ones
+        if code.startswith("retaining-wall-b3-type-1-") \
+                or code == "retaining-wall-b3-type-1":
+            assert e["route"] == "modified-by-value"
+            assert e["differences"]
+        else:
+            assert e["route"] == "standard" and "differences" not in e
     t6a = next(e for e in plan["elements"]
                if e["name"].startswith("T6a retaining wall stem"))
     assert t6a["parameters"]["DesignHeight"] == {"value": 6.0, "unit": "FT"}
     t5 = next(e for e in plan["elements"]
               if e["name"].startswith("T5 retaining wall stem"))
     assert t5["parameters"]["Batter"]["unit"] == "RATIO"
+    t1 = next(e for e in plan["elements"]
+              if e["name"].startswith("T1 retaining wall stem"))
+    assert t1["differences"][1] == {
+        "name": "Batter", "standard": pytest.approx(0.5 / 12, abs=1e-6), "actual": 0.0,
+        "unit": "RATIO", "source": "caltrans/2025/b3-retaining-wall "
+                                   "type_1_case_1.table.8.batter"}
     assert plan["warnings"] == []
+
+
+def _checked(volume=2.0, height_ft=8.0):
+    """test_checks' wall with a Bonsai check on its height and its volume."""
+    from bimforge.bim.checks import record_check
+    from bimforge.bim.tests.test_checks import WALL, _model
+    f = _model(height_ft=height_ft, volume=volume)
+    record_check(f, WALL, "BIMForge_Dimensions", "DesignHeight", sheet="S-3",
+                 sheet_value=8.0, unit="FT", revision="Add. 2",
+                 by="B. Lewis", day="2026-11-22")
+    record_check(f, WALL, "Qto_BaseQuantities", "GrossVolume", sheet="S-3",
+                 sheet_value=2.0 / CY_M3, unit="CY", day="2026-11-22")
+    return f, WALL
+
+
+def _sent_checks(f):
+    (entry,) = plan_modelled_elements(f)["elements"]
+    return {c["what"]: c for c in entry["checks"]}
+
+
+def test_a_check_is_sent_with_its_element_in_bidsheets_units():
+    f, _ = _checked()
+    checks = _sent_checks(f)
+    height = checks["BIMForge_Dimensions.DesignHeight"]
+    assert height == {
+        "what": "BIMForge_Dimensions.DesignHeight", "unit": "FT",
+        "sheet_value": 8.0, "model_value": 8.0, "value_now": 8.0,
+        "tolerance": 0.01, "result": "agrees", "standing": "agrees",
+        "value_source": "stated", "sheet": "S-3", "revision": "Add. 2",
+        "day": "2026-11-22", "by": "B. Lewis"}  # no build, no sha: no origin
+    volume = checks["Qto_BaseQuantities.GrossVolume"]
+    assert (volume["unit"], volume["standing"]) == ("CY", "agrees")
+    assert volume["value_now"] == pytest.approx(2.0 / CY_M3, abs=1e-6)
+
+
+def test_a_check_whose_value_moved_is_sent_lapsed_and_one_whose_target_went_gone():
+    from bimforge.bim.carry_forward import carry_forward
+    from bimforge.bim.tests.test_checks import _model
+    returned, _ = _checked()
+    rebuilt = _model(height_ft=9.0, volume=2.0)
+    for rel in rebuilt.by_type("IfcRelDefinesByProperties"):
+        if rel.RelatingPropertyDefinition.Name == "Qto_BaseQuantities":
+            rebuilt.remove(rel.RelatingPropertyDefinition)
+            rebuilt.remove(rel)
+    carry_forward(returned, rebuilt)
+    checks = _sent_checks(rebuilt)
+    height = checks["BIMForge_Dimensions.DesignHeight"]
+    assert (height["result"], height["standing"]) == ("agrees", "lapsed")
+    assert (height["model_value"], height["value_now"]) == (8.0, 9.0)
+    volume = checks["Qto_BaseQuantities.GrossVolume"]
+    assert volume["standing"] == "gone" and "value_now" not in volume
+
+
+def test_a_move_within_the_tolerance_does_not_lapse_a_check():
+    from bimforge.bim.carry_forward import carry_forward
+    from bimforge.bim.tests.test_checks import _model
+    returned, _ = _checked()
+    rebuilt = _model(height_ft=8.04, volume=2.0)
+    carry_forward(returned, rebuilt)
+    height = _sent_checks(rebuilt)["BIMForge_Dimensions.DesignHeight"]
+    assert height["standing"] == "agrees" and height["value_now"] == 8.04
+
+
+def test_an_element_with_no_check_has_no_checks_key():
+    from bimforge.bim.tests.test_checks import _model
+    (entry,) = plan_modelled_elements(_model())["elements"]
+    assert "checks" not in entry
+
+
+def test_cli_sends_a_takeoffs_sum_checked_against_the_model(tmp_path, capsys):
+    f, wall = _checked()
+    path = tmp_path / "m.ifc"
+    f.write(str(path))
+    takeoff = {"rows": [{"cost_code": "C1", "unit": "CY",
+                         "quantity": round(2.0 / CY_M3, 4),
+                         "elements": [{"global_id": wall,
+                                       "measure": "GrossVolume"}]}]}
+    tpath = tmp_path / "takeoff.json"
+    tpath.write_text(json.dumps(takeoff), encoding="utf-8")
+    out = tmp_path / "upsert.json"
+    assert cli.main(["model-elements", str(path), "--checked-takeoff",
+                     str(tpath), "--out", str(out)]) == 0
+    err = capsys.readouterr().err
+    assert "2 measurement check(s) sent, 0 lapsed or gone" in err
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["takeoff_check"]["kind"] == "takeoff-sum"
+    assert len(payload["elements"][0]["checks"]) == 2
+
+
+def _build_modified_b3(tmp_path):
+    """The B3 wall over the packaged tables with row 8's footing 7 ft wide
+    (`test_standard_plan_routes._modified_spec`), built to an IFC."""
+    import contextlib
+    import io
+
+    from bimforge.author.families.registry import build_from_spec
+    from bimforge.author.tests.test_standard_plan_routes import _modified_spec
+    spec = _modified_spec(tmp_path)
+    spec.write_text(spec.read_text("utf-8").replace(
+        "outputs: {dxf: out.dxf}", "outputs: {dxf: out.dxf, ifc: out.ifc}"),
+        "utf-8")
+    with contextlib.redirect_stderr(io.StringIO()):
+        assert build_from_spec(str(spec)) == 0
+    return tmp_path / "out.ifc"
+
+
+def test_model_elements_sends_the_route_and_differences(tmp_path):
+    ifc_path = _build_modified_b3(tmp_path)        # W_ft of row 8 -> 7.0
+    out = plan_modelled_elements(ifcopenshell.open(str(ifc_path)))
+    foot = next(e for e in out["elements"]
+                if e.get("family_class") == "retaining-wall-b3-type-1-footing")
+    stem = next(e for e in out["elements"]
+                if e.get("family_class") == "retaining-wall-b3-type-1")
+    assert foot["route"] == "modified-by-value"
+    assert foot["based_on"] == "retaining-wall-b3-type-1-footing"
+    w, heel = foot["differences"]
+    assert w["name"] == "W_ft" and w["unit"] == "FT"
+    assert w["standard"] == pytest.approx(6.5833, abs=1e-4)
+    assert w["actual"] == pytest.approx(7.0, abs=1e-4)
+    assert w["source"] == ("caltrans/2025/b3-retaining-wall "
+                           "type_1_case_1.table.8.W_ft")
+    assert heel == {"name": "HeelWidth", "standard": pytest.approx(4.25),
+                    "actual": pytest.approx(4.6667), "unit": "FT",
+                    "source": "caltrans/2025/b3-retaining-wall "
+                              "type_1_case_1.table.8.B_ft"}
+    assert stem["route"] == "standard" and "differences" not in stem
+    assert out["warnings"] == []

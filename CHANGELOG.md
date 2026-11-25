@@ -4,6 +4,165 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
 ## Unreleased
 
+**For ProjectCommand and BidSheet.ai:** `BIMForge_Route` holds the first
+`IfcComplexProperty`s BIMForge writes (one per changed value, UsageName
+`Difference`); a reader of property sets that expects single values must
+skip or read them. `model-elements` sends `route`, `based_on` and
+`differences`.
+
+### Added
+
+- **Modified standards are recorded (M.8, M.9).** Every element whose
+  family checks it (the B3 wall, the 842 and 732SW barriers) carries
+  `BIMForge_Route`: its `Route` (standard, modified-by-value,
+  modified-by-part, modified-by-section or bespoke), the class it is
+  `BasedOn` (its classification stays the standard's, so a Type 842 (MOD)
+  is found as a Type 842), and each value it changed as an
+  IfcComplexProperty (UsageName `Difference`) of `Standard`, `Actual` and
+  `Source`. The differences come from what the spec says: a project's
+  `tables_file` is compared with the packaged tables it names, or its
+  family's own (the B3 wall's `caltrans/b3-retaining-wall`), and the build
+  log lists every changed value and counts the values it adds; a row the
+  project's tables choose where the pack would choose another (a table
+  missing rows) is a `Row` difference; a barrier run's Mod dimensions (842,
+  732SW) are modified by value, its own `profile` modified by section. A
+  bespoke `bimforge.author` element may say what it is `based_on`. An
+  element its family does not check (the road corridor, the D-series,
+  B11-51) gets no route.
+  `gate: {modified: warn | error | off}` (default warn) lists, fails on,
+  or ignores modified elements. `model-elements` sends `route`,
+  `based_on` and `differences`. The shipped B3 examples' tables differ
+  from the 2025 pack in 13 values (rounded Type 1 rows), so their Type 1
+  slices are modified by value.
+
+## 0.1.132 — 2026-11-22
+
+The road corridor (P.6): pavement courses, cut and fill to daylight and mass haul (#118), then slope rules, automatic walls, guardrail and dimensions with arithmetic formulas (#122). `model-elements` now sends each element's measurement checks and, with `--checked-takeoff`, the takeoff's sum (#121), closing M.6's check.
+
+**For BidSheet.ai:** a `model-elements` element may carry `checks` (a list, each with `what`, `unit`, `sheet_value`, `model_value`, `value_now`, `tolerance`, `result`, `standing`, `value_source`, `sheet`, `revision`, `day`, `by`, `model_origin`; a key with no value is left out) and the call may carry `takeoff_check`; both are left out when empty. Only `standing` `agrees` is a check that still holds.
+
+**For ProjectCommand and BidSheet.ai:** quantity `Formula`s are now
+arithmetic (`+ - * /`, numbers, parentheses) and may name the element's
+`BIMForge_Dimensions` properties, so a reader that recomputes formulas must
+evaluate the wider grammar and look names up in the quantity's own set first,
+then in the element's dimensions; it should also cap a formula's length
+(1,000 characters) and refuse a result that is not finite. Road-corridor
+elements carry `StartStation` / `EndStation` dimensions (lengths, with
+`StartStationText` / `EndStationText` labels); `BIMForge_LinearReference`
+keeps its own `StationStart` / `StationEnd`. A corridor `Offset` is the
+centroid's, left positive, as the linear reference's offsets are.
+
+### Added
+
+- **Road corridor V1.1: slope rules, walls, guardrail, dimensions (P.6).**
+  Held to Caltrans practice (HDM 08/08/2025, TSSM April 2025, 2025 Standard
+  Plans A77N2 and A77N3):
+  - a fill rule that switches to a steeper slope above a fill height
+    (`fill.steep`, e.g. 4:1, then 2:1 above 10 ft); a cut that runs through
+    the soil, then a bench and a rock face below a depth that may vary by
+    station (`cut.rock`, e.g. 2:1, then 0.5:1); an optional footprint line
+    per side (`footprint_ft`);
+  - `walls: auto` (the only value `walls:` takes) places a wall wherever a slope finds no daylight or runs
+    past the footprint: a fill wall at the hinge carrying a barrier, a cut
+    wall beside a shoulder widened to 10 ft; a fill wall taller than
+    `max_wall_height_ft` becomes a structure candidate (a short bridge or a
+    culvert). `outputs.walls` and `outputs.structures` list them;
+  - guardrail (MGS) on every 2:1 fill and at both ends of each structure gap,
+    by the TSSM length of need for each direction of travel, in whole 12.5 ft
+    elements with a 150 ft minimum, joined where runs are 200 ft or less
+    apart, ending in terminals, Type AGT transitions at bridges and walls, or
+    SFT-M anchors; the 10:1 widening behind the rail runs its whole length.
+    Each run is an `IfcRailing` typed GUARDRAIL with its length, posts and
+    end treatments; `outputs.guardrail` lists them and flags a run under
+    150 ft or cut short by the alignment's end;
+  - courses, cut, fill and guardrail carry `BIMForge_Dimensions` from new
+    family-dictionary classes. Every element's `Length` has the Formula
+    `EndStation - StartStation`. A course's declared volume is now exact
+    (its section times the path its centroid travels, along plan and grade),
+    and `Volume = PathLength * Width * Thickness` (or the trapezoid through a
+    taper) is written wherever it holds within the formula check's tolerance.
+
+  The shipped example uses them all and adds a `RAIL-MGS` pay code (no item
+  number); its GlobalIds were re-recorded. Other examples are unchanged.
+- **The `road-corridor` family (P.6).** A road from an alignment, a
+  profile, a typical section and the ground:
+  - pavement courses are `IfcCourse` elements typed by `IfcCourseType`,
+    written as `IfcSectionedSolidHorizontal` along the alignment on IFC4X3
+    (a closed mesh on IFC4), under `IfcRoad` > ROADSEGMENT > CARRIAGEWAY /
+    SHOULDER / CENTRALRESERVE;
+  - cut and fill run to daylight, with an optional ditch, as
+    `IfcEarthworksCut` and `IfcEarthworksFill`, one of each per station
+    band; on IFC4X3 every cut voids the TERRAIN element;
+  - superelevation, width transitions, and gaps for bridges and walls;
+  - a mass-haul table, in a `BIMForge_MassHaul` property set on each band's
+    earthwork and as a CSV (`outputs.masshaul`, in CY), with shrink and
+    swell; the set's `StartStation` / `EndStation` are `IfcLengthMeasure`
+    and `CumulativeVolume` an `IfcVolumeMeasure`, in the file's metres as
+    `BIMForge_LinearReference` writes stations, with `StartStationText` /
+    `EndStationText` ("14+00.00");
+  - ground is a plane (tests and CI, which write a TERRAIN surface too) or
+    3DEP over the corridor's footprint, cached.
+
+  Each course's volume is checked against an independent average-end-area
+  figure, within 0.5%. The shipped example `road-corridor.spec.yaml` joins
+  the conformance set and the buildingSMART rules job.
+
+- **`Element.standard_qto`: a class's standard quantity set**
+  (`Qto_CourseBaseQuantities`, `Qto_EarthworksCutBaseQuantities`, ...),
+  written beside `Qto_BaseQuantities` and only on the class it belongs to
+  (M.17's first step). Where a name is in both, takeoff keeps reading
+  `Qto_BaseQuantities`, so no takeoff number changes.
+
+- **`model-elements` sends each element's measurement checks (M.6, M.5).**
+  An element with a check (ProjectCommand's or `est-bim check`'s) carries
+  `checks`: what was measured (`<set>.<name>`), the sheet value, the model
+  value it was checked at and the file's value now, in FT (the project's
+  foot), SF or CY, the tolerance, the result as recorded, the sheet,
+  revision, day, who and the model it was checked on, and its `standing`
+  as ProjectCommand reads it: the result, or `lapsed` when the file's
+  value has moved past the tolerance since (a rebuild that changed it), or
+  `gone` when the element no longer has what was checked.
+  `--checked-takeoff takeoff.json` also sends that takeoff's sum checked
+  against the model, as the call-level `takeoff_check`. Additive: BidSheet.ai
+  ignores both until it stores them.
+
+### Changed
+
+- **Quantity Formulas are arithmetic.** A `Formula` may use names, numbers,
+  `+ - * /` and parentheses (parsed, never evaluated as code), over the
+  quantity's own set and then the element's `BIMForge_Dimensions` numbers,
+  on `Qto_BaseQuantities` and on standard sets alike. A formula longer than
+  1,000 characters, one that cannot be read, or one whose result is not
+  finite fails only its own quantity. `BIMForge_Dimensions` may hold text
+  (`IfcLabel`, not sent as a parameter) and optional properties.
+
+### Fixed
+
+- **3DEP terrain on a feet CRS.** The terrain module sent the bounding box
+  and grid spacing to 3DEP in the CRS's own unit but scaled plan and height
+  by one factor, so it only worked on a metric CRS. `grid_to_mesh` and
+  `attach_terrain` take an optional `plan_scale`; existing callers are
+  unchanged.
+
+- **An uncarved terrain is declared a surface,** so the solid-body check no
+  longer reports its rim as open edges.
+
+- **The terrain's mesh spacing names its unit.** `Pset_BimforgeTerrain`
+  gains `MeshSpacingUnit` (the CRS's: `ftUS`, `ft` or `m`), and the build
+  log gives the spacing in it, not always "m".
+
+- **A facility on an alignment is positioned on it.** `IfcRelPositions`
+  now lists the `IfcRoad` (or other facility) as well as its elements.
+
+
+## 0.1.131 — 2026-11-22
+
+The check is recorded (M.5): every takeoff carries its sum checked against the model (#116), and `est-bim check` records a measurement made in Bonsai in the model, in ProjectCommand's shape (#117). A measurement check now comes through a rebuild whole.
+
+**For ProjectCommand:** a check written by `est-bim check` is the shape your `check.rs` writes, stamped with the application it was made in (`--app`, default Bonsai); recording one again replaces yours under its GlobalIds. A rebuild now carries the `Checked` IfcResourceApprovalRelationship, so a check reads back whole after `carry_forward`.
+
+**For estimating_tools and BidSheet.ai:** the takeoff JSON gains a top-level `check`; `CanonicalTakeoff.from_json` ignores it. Rows are unchanged.
+
 ### Added
 
 - **Every takeoff records its sum, checked against the model (M.5).**
@@ -17,6 +176,19 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   takeoff written earlier against a rebuilt model, by GlobalId: an element
   whose value moved or that is gone fails the rows it backs, and the
   command exits 1.
+- **`est-bim check` records a measurement made in Bonsai in the model
+  (M.5),** in the shape ProjectCommand writes and reads (its `check.rs`):
+  an IfcObjective of `SheetValue`, `ModelValue` and `Tolerance` metrics
+  naming what was measured by set and name, an IfcApproval with Level
+  `measurement` and Status `agrees` or `differs`, and the sheet as
+  IfcDocumentInformation, stamped with the application the check was made
+  in so a rebuild carries it. `--what` is a quantity
+  (`Qto_BaseQuantities.GrossVolume`) or a property
+  (`BIMForge_Dimensions.DesignHeight`); values are given in `--unit` (a
+  foot is the project's foot) and written in the file's units; without
+  `--measured` the file's own value is checked. Recording the same thing
+  again replaces the check under its ids, whoever recorded it. `--list`
+  lists every check a model carries.
 
 ### Fixed
 

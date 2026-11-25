@@ -8,6 +8,7 @@ docs/superpowers/plans/2026-08-30-barrier-template-refactor.md.
 """
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -36,6 +37,10 @@ class BarrierTemplate:
     #: IFC's "wall-like barrier to protect human or vehicle from falling ...
     #: along edges of bridges": the bridge-rail and wall-top barriers.
     predefined_type: str = "PARAPET"
+    #: The standard section's dimensions a run may Mod, {key: value} (M.8):
+    #: a run giving one at another value is "modified-by-value", a run with
+    #: its own `profile` "modified-by-section". None = no route set here.
+    standard_dims: dict | None = None
 
 
 def bar_elements(sname: str, label: str, bars: list) -> list:
@@ -90,6 +95,24 @@ def standard_plan(tmpl: BarrierTemplate) -> str | None:
     return fd.standard_plan(tmpl.family_id) if fd.has_class(tmpl.family_id) else None
 
 
+def run_route(tmpl: BarrierTemplate, run: dict) -> tuple:
+    """(route, differences) of one run (M.8): its own `profile` is a
+    section of its own; a Mod dimension at another value than the
+    standard's is a modified value; else standard. (None, []) for a
+    family with no `standard_dims`."""
+    if tmpl.standard_dims is None:
+        return None, []
+    if "profile" in run:
+        return "modified-by-section", []
+    where = standard_plan(tmpl) or tmpl.family_id
+    diffs = [{"name": k, "standard": float(std), "actual": float(run[k]),
+              "source": f"{where} {k}"}
+             for k, std in tmpl.standard_dims.items()
+             if k in run and not math.isclose(float(run[k]), float(std),
+                                              rel_tol=0.0, abs_tol=1e-9)]
+    return ("modified-by-value" if diffs else "standard"), diffs
+
+
 def begin_run(tmpl: BarrierTemplate, model: StructureModel, name: str) -> int:
     """Open one run: add its WHOLE, a geometry-less IfcWall (the family's
     predefined type) named ``"<run> <label> barrier run"`` and typed as the
@@ -110,12 +133,14 @@ def begin_run(tmpl: BarrierTemplate, model: StructureModel, name: str) -> int:
     return len(model.elements)
 
 
-def end_run(tmpl: BarrierTemplate, model: StructureModel, start: int) -> None:
+def end_run(tmpl: BarrierTemplate, model: StructureModel, start: int,
+            run: dict | None = None) -> None:
     """Close the run opened by `begin_run`: every element added since is a
     part of the whole (unless it is already part of something, e.g. a
     hosted handrail's parts, whose own whole then becomes a part of the
     run), and every concrete body (IfcWall) of the run carries the family's
-    predefined type and wall type."""
+    predefined type and wall type. Given the `run`, the whole and the
+    bodies of the family's class take its route (`run_route`)."""
     whole = model.elements[start - 1]
     for el in model.elements[start:]:
         if el.part_of is None:
@@ -127,6 +152,12 @@ def end_run(tmpl: BarrierTemplate, model: StructureModel, start: int) -> None:
                 el.type_name = run_type_name(tmpl)
             if el.family_class is None:
                 el.family_class = _family_class(tmpl)
+    route, diffs = run_route(tmpl, run) if run is not None else (None, [])
+    if route:
+        cls = _family_class(tmpl)
+        for el in [whole] + model.elements[start:]:
+            if el.family_class == cls:
+                el.route, el.differences = route, list(diffs)
 
 
 def build_barrier(tmpl: BarrierTemplate, params: dict, ctx) -> StructureModel:
@@ -190,7 +221,7 @@ def build_barrier(tmpl: BarrierTemplate, params: dict, ctx) -> StructureModel:
         if tmpl.extras_fn:
             for el in tmpl.extras_fn(name, run, section, length):
                 model.add(el)
-        end_run(tmpl, model, start)
+        end_run(tmpl, model, start, run)
     return model
 
 
@@ -250,7 +281,7 @@ def _build_curved_run(tmpl: BarrierTemplate, run: dict, name: str,
     if tmpl.extras_fn:
         for el in tmpl.extras_fn(name, run, section, length):
             model.add(el)
-    end_run(tmpl, model, start)
+    end_run(tmpl, model, start, run)
 
 
 def _geomless(e) -> bool:
@@ -465,4 +496,4 @@ def _build_on_alignment_run(tmpl: BarrierTemplate, run: dict, name: str,
     if tmpl.extras_fn:
         for el in tmpl.extras_fn(name, run, section, length):
             model.add(el)
-    end_run(tmpl, model, start)
+    end_run(tmpl, model, start, run)

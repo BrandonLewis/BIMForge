@@ -184,12 +184,13 @@ def _quantities(prod, qf: float) -> dict:
     dim = {"IfcQuantityLength": qf, "IfcQuantityArea": qf*qf, "IfcQuantityVolume": qf**3,
            "IfcQuantityWeight": 1.0, "IfcQuantityCount": 1.0}
     out: dict = {}
-    for rel in getattr(prod, "IsDefinedBy", []) or []:
-        if not rel.is_a("IfcRelDefinesByProperties"):
-            continue
-        pdef = rel.RelatingPropertyDefinition
-        if not pdef.is_a("IfcElementQuantity"):
-            continue
+    qsets = [rel.RelatingPropertyDefinition
+             for rel in getattr(prod, "IsDefinedBy", []) or []
+             if rel.is_a("IfcRelDefinesByProperties")
+             and rel.RelatingPropertyDefinition.is_a("IfcElementQuantity")]
+    # Qto_BaseQuantities last, so it wins over a standard set (M.17)
+    qsets.sort(key=lambda s: s.Name == "Qto_BaseQuantities")
+    for pdef in qsets:
         for q in pdef.Quantities or []:
             k = q.is_a()
             v = getattr(q, _QTY_VALUE.get(k, ""), None) if k in _QTY_VALUE else None

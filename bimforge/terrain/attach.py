@@ -14,19 +14,23 @@ from pathlib import Path
 from .datum import ncat_vertshift
 from .fetch import fetch_3dep_dem, fetch_3dep_lpc, workunit_meta
 from .grid import grid_to_mesh
-from .provenance import build_provenance
+from .provenance import build_provenance, spacing_unit
 from .solid import carve
 
 
 def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
                    spacing_m=3.0, source="dem", vshift_m=None,
                    vshift_lookup=None, lonlat=None, cuts=(), refresh=False,
-                   log=print):
+                   plan_scale=None, log=print):
     """Fetch USGS 3DEP existing ground over ``bbox_m`` and attach it to
     ``model`` as site-context terrain; returns the added Element.
 
-    ``bbox_m`` is the metric ``(xmin, ymin, xmax, ymax)`` footprint in the
-    project CRS ``crs_epsg``; ``source`` is ``"dem"`` (1 m raster) or
+    ``bbox_m`` is the ``(xmin, ymin, xmax, ymax)`` footprint in the project
+    CRS ``crs_epsg``, and ``spacing_m`` the cell size, both in that CRS's own
+    linear unit (US survey feet for a ftUS CRS; the names are historical);
+    elevations come back in metres. ``unit_scale`` takes metres to model
+    units (for z); ``plan_scale`` takes CRS units to model units (for n and
+    e), None meaning ``unit_scale`` (a metric CRS). ``source`` is ``"dem"`` (1 m raster) or
     ``"lpc"`` (lidar bare-earth; the WGS84 discovery bbox is derived from
     ``bbox_m`` via pyproj). ``cache_stem`` is the path stem every cache
     artifact (DEM TIFF, LPC grid npz, vshift/workunit JSON) hangs off, so
@@ -52,8 +56,6 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
     missing). The element name gains "(excavation carved)" only when the
     carve actually produced the closed solid.
     """
-    from bimforge.author.model import Element
-
     cache_stem = str(cache_stem)
     if source == "lpc":
         try:
@@ -95,8 +97,9 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
         wu = {}
         log("  terrain: no lon/lat available; work-unit vintage skipped")
 
-    verts, tris = grid_to_mesh(grid, unit_scale, shift)
-    log(f"  terrain: {len(verts)} {source.upper()} verts @ {spacing_m:g} m, "
+    verts, tris = grid_to_mesh(grid, unit_scale, shift, plan_scale)
+    unit = spacing_unit(crs_epsg) or "CRS units"
+    log(f"  terrain: {len(verts)} {source.upper()} verts @ {spacing_m:g} {unit}, "
         f"shift -{shift:.3f} m")
 
     closed = False
@@ -114,8 +117,18 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
     name = ("Existing ground - USGS 3DEP %s%s"
             % ("lidar" if source == "lpc" else "DEM",
                " (excavation carved)" if closed else ""))
+    return add_terrain(model, name, verts, tris, prov, closed)
+
+
+def add_terrain(model, name, verts, tris, provenance, closed=False):
+    """Add the TERRAIN reference element: IfcGeographicElement/TERRAIN, no
+    pay code, no quantities, its mesh carrying `provenance`. An open sheet
+    of ground is declared a surface (Element.body), so the solid-body check
+    does not read its rim as a broken solid; a carved one is a solid."""
+    from bimforge.author.model import Element
     return model.add(Element(
         name, ifc_class="IfcGeographicElement", predefined_type="TERRAIN",
         classifications=[], quantities={},
+        body="solid" if closed else "surface",
         geometry={"kind": "mesh", "verts": verts, "tris": tris,
-                  "units": "ft", "provenance": prov}))
+                  "units": "ft", "provenance": provenance}))

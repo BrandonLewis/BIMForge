@@ -13,6 +13,10 @@ The spec file:
     outputs: {dxf: CAD/x.dxf, ifc: CAD/x.ifc,
               takeoff_map: CAD/x-takeoff-map.yaml,
               qto: CAD/x-QTO.xlsx, step: null,
+              masshaul: CAD/x.masshaul.csv,   # a road corridor's mass haul
+              walls: CAD/x.walls.csv,   # a road corridor's automatic walls
+              structures: CAD/x.structures.csv,   # its structure candidates
+              guardrail: CAD/x.guardrail.csv,     # its guardrail runs
               ifc_allow_local: false,
               ifc_sweeps: exact}    # overrides ifc.sweeps for this emit
     ifc: {sweeps: exact}    # exact (default) | mesh: how alignment sweeps
@@ -25,7 +29,9 @@ The spec file:
       - {match: "(?i)abut", part: ABUTMENT}
     gate: {solid_bodies: warn,   # optional: warn (default) | error | off
            unread_params: warn, # optional: off (default) | warn | error -
-           ignore: [notes]}     #  params the family never reads (params_tracking)
+           ignore: [notes],     #  params the family never reads (params_tracking)
+           modified: warn}      # optional: warn (default) | error | off - the
+                                #  elements a project's tables modified (M.8)
     style_pack: ./palette   # optional: this job's palette (a pack directory,
                             #  relative to the spec, or a package), in place of
                             #  the org pack (#65)
@@ -55,6 +61,7 @@ pre (refuse-to-write; --check-only stops here) -> emitters -> gate post
 """
 from __future__ import annotations
 
+import copy
 import importlib
 import sys
 from pathlib import Path
@@ -69,7 +76,7 @@ def _shipped():
         approach_slab, box_culvert, bridge_standard, concrete_barrier_732sw,
         concrete_barrier_842, culvert_headwall,
         culvert_wingwall, demo_box, headwall_926, pipe_headwall, pipe_supports,
-        spillway, standard_plan, tubular_handrail)
+        road_corridor, spillway, standard_plan, tubular_handrail)
     return {
         "demo-box": demo_box.build,
         "pipe-supports": pipe_supports.build,
@@ -85,6 +92,7 @@ def _shipped():
         "concrete-barrier-732sw": concrete_barrier_732sw.build,
         "concrete-barrier-842": concrete_barrier_842.build,
         "approach-slab": approach_slab.build,
+        "road-corridor": road_corridor.build,
     }
 
 
@@ -154,12 +162,32 @@ def get(name: str, family_paths=()):
 
 
 REQUIRED_SPEC_KEYS = ("family", "params", "paycodes", "outputs", "project")
-OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs")
+OUTPUT_KEYS = ("dxf", "ifc", "takeoff_map", "qto", "step", "bbs", "masshaul",
+               "walls", "structures", "guardrail")
+#: outputs a family writes from StructureModel.tables, as CSV
+TABLE_OUTPUTS = ("walls", "structures", "guardrail")
 
 
 # Packs a spec's `params.tables_pack` can name: pack -> the module whose
 # `load_ref(ref)` returns the table.
 TABLE_PACKS = {"caltrans": "bimforge.caltrans"}
+
+# The packaged tables a family is the standard of: a spec that names no
+# `tables_pack` is compared with these (M.9), so a project's `tables_file`
+# that copies them reports nothing and one that changes a value says so.
+DEFAULT_TABLES_PACKS = {"standard-plan": "caltrans/b3-retaining-wall"}
+
+
+def _pack_label(ref) -> str:
+    """`caltrans/b3-retaining-wall` -> `caltrans/2025/b3-retaining-wall`:
+    the ref with the edition it resolved to."""
+    pack, _, rest = str(ref).partition("/")
+    if "/" not in rest:
+        edition = getattr(importlib.import_module(TABLE_PACKS[pack]),
+                          "EDITION", None)
+        if edition:
+            rest = f"{edition}/{rest}"
+    return f"{pack}/{rest}"
 
 
 def _load_tables_pack(spec_name: str, ref) -> dict:
@@ -219,8 +247,18 @@ def load_spec(path: Path | str) -> dict:
         # packaged tables first, in the order named; the project's own file
         # last, so its rows (a field-varied schedule, say) land on top
         tables: dict = {}
-        for ref in ([tp] if isinstance(tp, str) else tp or []):
+        refs = [tp] if isinstance(tp, str) else list(tp or [])
+        for ref in refs:
             _merge_tables(tables, _load_tables_pack(path.name, ref))
+        # the standard the project's file is compared with (M.9): the packs
+        # it named, else its family's own
+        standard_refs = refs or ([DEFAULT_TABLES_PACKS[spec["family"]]]
+                                 if spec["family"] in DEFAULT_TABLES_PACKS
+                                 else [])
+        baseline: dict = copy.deepcopy(tables)
+        if not refs:
+            for ref in standard_refs:
+                _merge_tables(baseline, _load_tables_pack(path.name, ref))
         if tf:
             tf_path = (base / tf).resolve()
             if not tf_path.exists():
@@ -230,6 +268,16 @@ def load_spec(path: Path | str) -> dict:
                 tf_path.read_text(encoding="utf-8")) or {})
         params["tables"] = tables
         spec["params"] = params
+        if standard_refs:
+            from bimforge.author.modified import table_differences
+            spec["_tables_standard"] = " + ".join(
+                _pack_label(r) for r in standard_refs)
+            spec["_tables_differences"] = (
+                table_differences(baseline, tables) if tf else [])
+            # the standard's own rows, so the build can say where the
+            # project's tables choose another row (M.9); on the spec, not in
+            # params, so the unread-params check never sees it
+            spec["_tables_baseline"] = baseline
     proj = spec.get("project") or {}
     if proj.get("alignments"):
         ap = (base / proj["alignments"]).resolve()
@@ -255,6 +303,11 @@ def load_spec(path: Path | str) -> dict:
     if unread is not None and str(unread).lower() not in UNREAD_PARAM_MODES:
         raise ValueError(f"{path.name}: gate.unread_params {unread!r} must be "
                          f"one of {UNREAD_PARAM_MODES}")
+    from bimforge.author.modified import MODIFIED_MODES, modified_mode
+    modified = (spec.get("gate") or {}).get("modified")
+    if modified is not None and modified_mode(modified) not in MODIFIED_MODES:
+        raise ValueError(f"{path.name}: gate.modified {modified!r} must be "
+                         f"one of {MODIFIED_MODES}")
     if spec.get("spatial_parts") is not None:
         from bimforge.author.spatial import parse_rules
         parse_rules(spec["spatial_parts"], f"{path.name}: spatial_parts")
@@ -364,6 +417,32 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
     if unread != "off":
         params = TrackedParams(params)
     model = builder(params, ctx)
+    # the project's changes to the packaged tables, then the route of every
+    # element its family checks (M.8, M.9), before anything reads them
+    from bimforge.author import modified as mod
+    diffs = spec.get("_tables_differences") or []
+    standard = spec.get("_tables_standard", "")
+    for line in mod.tables_lines(diffs, standard):
+        print(line, file=sys.stderr)
+    mod.assign_routes(model, diffs, standard,
+                      baseline=spec.get("_tables_baseline"))
+    if diffs and not any(el.table_reads or el.table_rows
+                         for el in model.elements):
+        print(f"warning: tables differ from {standard} but family "
+              f"{spec['family']} does not say which values its elements "
+              f"read; their routes are not recorded", file=sys.stderr)
+    modified = mod.modified_mode(gate_cfg.get("modified"))
+    if spec["outputs"].get("masshaul") and not model.mass_haul:
+        raise ValueError(f"{Path(spec_path).name}: outputs.masshaul is set, but "
+                         f"family {spec['family']!r} makes no mass haul (only a "
+                         f"road corridor does)")
+    for key in TABLE_OUTPUTS:
+        if spec["outputs"].get(key) and key not in model.tables:
+            raise ValueError(
+                f"{Path(spec_path).name}: outputs.{key} is set, but family "
+                f"{spec['family']!r} makes no {key} table here (a road "
+                f"corridor makes walls and structures with walls: auto, and "
+                f"guardrail with a steep fill rule or a guardrail: block)")
     place_from_spec(model, spec, alignments,
                     log=lambda m: print(m, file=sys.stderr))
     if spec.get("spatial_parts"):
@@ -380,6 +459,8 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
         model.ifc_sweeps = str(spec["ifc"]["sweeps"]).lower()
 
     extra_pre = [unread_params_check(params, ignore)] if unread == "error" else []
+    if modified == "error":
+        extra_pre.append(mod.modified_check(model))
     rep = gate.run_pre(model, pc, extra_checks=extra_pre)
     print(rep.format("pre"), file=sys.stderr)
     if unread == "warn":
@@ -387,6 +468,9 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
         for p in find_unread(params, ignore):
             print(f"warning: spec declares {p!r} but the family never reads it",
                   file=sys.stderr)
+    if modified == "warn":
+        for line in mod.modified_lines(model):
+            print(f"modified: {line}", file=sys.stderr)
     if not rep.passed:
         return 1
     if check_only:
@@ -434,6 +518,20 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
             from bimforge.author.emit_step import emit_step
             print(emit_step(model, outs["step"]), file=sys.stderr)
             written["step"] = outs["step"]
+        if outs.get("masshaul") and model.mass_haul:
+            from bimforge.author.corridor.masshaul import to_csv
+            p = Path(outs["masshaul"])
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(to_csv(model.mass_haul), encoding="utf-8")
+            print(f"mass haul written to {p}", file=sys.stderr)
+            written["masshaul"] = str(p)
+        for key in TABLE_OUTPUTS:
+            if outs.get(key):
+                p = Path(outs[key])
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(model.tables[key], encoding="utf-8")
+                print(f"{key} table written to {p}", file=sys.stderr)
+                written[key] = str(p)
     except Exception:
         # refuse-partial: an emitter failing mid-loop (unwritable path, disk
         # full) must not orphan the outputs already written — the same

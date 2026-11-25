@@ -685,6 +685,281 @@
       ],
       "CountryOfOrigin": "US",
       "DocumentReference": "ASTM A615 / A706"
+    },
+    {
+      "Code": "road-corridor-course",
+      "Name": "Corridor course",
+      "ClassType": "Class",
+      "Definition": "One pavement course of a road corridor under one component (a lane, a shoulder, a median) over one station band, both sides: an IfcCourse typed by the course's own IfcCourseType (HMA, AB, ...).",
+      "RelatedIfcEntityNamesList": [
+        "IfcCourse",
+        "IfcCourseARMOUR",
+        "IfcCourseBALLASTBED",
+        "IfcCourseCORE",
+        "IfcCourseFILTER",
+        "IfcCoursePAVEMENT",
+        "IfcCoursePROTECTION"
+      ],
+      "CountryOfOrigin": "US",
+      "ClassProperties": [
+        {
+          "Code": "Thickness",
+          "PropertyCode": "Thickness",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "Width",
+          "PropertyCode": "Width",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": false,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartWidth",
+          "PropertyCode": "StartWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": false,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndWidth",
+          "PropertyCode": "EndWidth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": false,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "Offset",
+          "PropertyCode": "Offset",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "PathLength",
+          "PropertyCode": "PathLength",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStation",
+          "PropertyCode": "StartStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStation",
+          "PropertyCode": "EndStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStationText",
+          "PropertyCode": "StartStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStationText",
+          "PropertyCode": "EndStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "road-corridor-cut",
+      "Name": "Corridor cut",
+      "ClassType": "Class",
+      "Definition": "The cut of a road corridor over one station band, both sides: ground removed down to the subgrade and its side slopes.",
+      "RelatedIfcEntityNamesList": [
+        "IfcEarthworksCut",
+        "IfcEarthworksCutCUT"
+      ],
+      "CountryOfOrigin": "US",
+      "ClassProperties": [
+        {
+          "Code": "MaxDepth",
+          "PropertyCode": "MaxDepth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "MeanDepth",
+          "PropertyCode": "MeanDepth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "SlopeRatio",
+          "PropertyCode": "SlopeRatio",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStation",
+          "PropertyCode": "StartStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStation",
+          "PropertyCode": "EndStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStationText",
+          "PropertyCode": "StartStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStationText",
+          "PropertyCode": "EndStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "RockDepth",
+          "PropertyCode": "RockDepth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": false,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "road-corridor-fill",
+      "Name": "Corridor fill",
+      "ClassType": "Class",
+      "Definition": "The fill of a road corridor over one station band, both sides: embankment from the ground up to the subgrade and its side slopes.",
+      "RelatedIfcEntityNamesList": [
+        "IfcEarthworksFill",
+        "IfcEarthworksFillEMBANKMENT"
+      ],
+      "CountryOfOrigin": "US",
+      "ClassProperties": [
+        {
+          "Code": "MaxDepth",
+          "PropertyCode": "MaxDepth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "MeanDepth",
+          "PropertyCode": "MeanDepth",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "SlopeRatio",
+          "PropertyCode": "SlopeRatio",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": false,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStation",
+          "PropertyCode": "StartStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStation",
+          "PropertyCode": "EndStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStationText",
+          "PropertyCode": "StartStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStationText",
+          "PropertyCode": "EndStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
+    },
+    {
+      "Code": "road-corridor-guardrail",
+      "Name": "Midwest guardrail system",
+      "ClassType": "Class",
+      "Definition": "A run of Midwest Guardrail System (MGS) along a road corridor's shoulder edge, from terminal, transition or anchor to terminal, transition or anchor: the W-beam band, its posts counted at 6'-3\".",
+      "RelatedIfcEntityNamesList": [
+        "IfcRailing",
+        "IfcRailingGUARDRAIL"
+      ],
+      "CountryOfOrigin": "US",
+      "DocumentReference": "Caltrans Standard Plan A77N3",
+      "ClassProperties": [
+        {
+          "Code": "RailHeight",
+          "PropertyCode": "RailHeight",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "PostSpacing",
+          "PropertyCode": "PostSpacing",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStation",
+          "PropertyCode": "StartStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStation",
+          "PropertyCode": "EndStation",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "StartStationText",
+          "PropertyCode": "StartStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        },
+        {
+          "Code": "EndStationText",
+          "PropertyCode": "EndStationText",
+          "PropertySet": "BIMForge_Dimensions",
+          "IsRequired": true,
+          "Description": "A dimension that sizes the element (M.2)."
+        }
+      ]
     }
   ],
   "Properties": [
@@ -846,6 +1121,185 @@
         "m"
       ],
       "Definition": "Heel (B): from the stem's front face to the footing's heel edge.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "Thickness",
+      "Name": "Thickness",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "A course's thickness, measured along the section's vertical axis, parallel to finished grade.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "Width",
+      "Name": "Width",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "A course's width across the road, all its bodies together (both sides), where it is the same at every station of its band.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "StartWidth",
+      "Name": "StartWidth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "A course's combined width at its start station, through a width transition.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "EndWidth",
+      "Name": "EndWidth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "A course's combined width at its end station, through a width transition.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "Offset",
+      "Name": "Offset",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "The section centroid's offset from the alignment, left (LT) positive, right (RT) negative: the band's area-weighted mean, of all the element's bodies together.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "PathLength",
+      "Name": "PathLength",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "The 3D length of the line the section's centroid travels between the element's stations, held at its Offset and height, following the alignment's curves and the profile's grades.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "StartStation",
+      "Name": "StartStation",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Station where the element starts: a length along the alignment.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "EndStation",
+      "Name": "EndStation",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Station where the element ends: a length along the alignment.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "StartStationText",
+      "Name": "StartStationText",
+      "DataType": "String",
+      "Definition": "StartStation as station text, such as 12+50.00.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities."
+    },
+    {
+      "Code": "EndStationText",
+      "Name": "EndStationText",
+      "DataType": "String",
+      "Definition": "EndStation as station text.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities."
+    },
+    {
+      "Code": "MaxDepth",
+      "Name": "MaxDepth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "The deepest cut or fill under the element: ground to the design line.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "MeanDepth",
+      "Name": "MeanDepth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "The element's volume over its plan area.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "SlopeRatio",
+      "Name": "SlopeRatio",
+      "DataType": "Real",
+      "Dimension": "0 0 0 0 0 0 0",
+      "PhysicalQuantity": "ratio",
+      "Definition": "The side slope, horizontal per vertical: a cut's soil ratio, or the steepest fill ratio in the band (none where every fill side is a wall).",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities."
+    },
+    {
+      "Code": "RockDepth",
+      "Name": "RockDepth",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Soil over rock in a cut: how far the rock surface lies under the ground, the band's mean.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "RailHeight",
+      "Name": "RailHeight",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Top of rail above the shoulder edge.",
+      "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
+    },
+    {
+      "Code": "PostSpacing",
+      "Name": "PostSpacing",
+      "DataType": "Real",
+      "Dimension": "1 0 0 0 0 0 0",
+      "PhysicalQuantity": "length",
+      "Units": [
+        "m"
+      ],
+      "Definition": "Guardrail post spacing, centre to centre.",
       "Description": "Property set BIMForge_Dimensions, written on every element of a class that declares it: the family's parameters that size the element and are not quantities. Measured in the project length unit."
     }
   ]

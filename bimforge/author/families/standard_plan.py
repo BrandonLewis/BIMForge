@@ -25,6 +25,7 @@ import math
 from bimforge.author import family_dictionary as fd
 from bimforge.author.alignment import Alignment, WallSection, _resolve_pob, sta
 from bimforge.author.model import Element, StructureModel
+from bimforge.author.modified import FIELD_DIMENSIONS
 from bimforge.author.primitives import Prism
 
 REQUIRED = ("alignment", "tables", "walls")
@@ -112,6 +113,23 @@ def _dimensions(cls, ws) -> dict:
     return {code: have[code] for code in fd.dimensions(cls)}
 
 
+#: The section attributes each element of a slice is built from (M.9)
+_STEM_PARTS = ("T", "batter")
+_FOOTING_PARTS = ("W", "C", "B", "F")
+
+
+def _table_reads(cls, ws, parts) -> dict:
+    """{table path: name} of the values `parts` of `ws` were read from: a
+    field named by the dimension `cls` declares for it, else by itself."""
+    declared = set(fd.dimensions(cls))
+    reads = {}
+    for part in parts:
+        for p in ws.sources.get(part, ()):
+            code = FIELD_DIMENSIONS.get(p[-1])
+            reads[p] = code if code in declared else str(p[-1])
+    return reads
+
+
 def wall_class(wall_type) -> str:
     """The dictionary class of a B3 wall type's stem ("retaining-wall-b3-
     type-1"); its footing's is the same code with "-footing"."""
@@ -126,6 +144,7 @@ def build(params: dict, ctx) -> StructureModel:
     align = Alignment(_resolve_pob(pl), pl["run"], name=pl.get("name", "P"))
     tables = params["tables"]
     model = StructureModel("standard-plan", ctx)
+    model.row_lookup = WallSection._lookup_key      # how a row is chosen
 
     for w in params["walls"]:
         tag = w["name"]
@@ -157,6 +176,8 @@ def build(params: dict, ctx) -> StructureModel:
                 psets=fd.reference_psets(foot_cls), family_class=foot_cls,
                 typed_late=True,
                 dimensions=_dimensions(foot_cls, ws), volume_formula="box",
+                table_reads=_table_reads(foot_cls, ws, _FOOTING_PARTS),
+                table_rows=dict(ws.rows),
                 quantities={"length_ft": b - a, "width_ft": ws.W,
                             "height_ft": ws.F, "volume_cf": p.volume_cf}))
             # stem at MID-HEIGHT thickness: the prism volume IS the trapezoid's
@@ -178,6 +199,8 @@ def build(params: dict, ctx) -> StructureModel:
                 psets=fd.reference_psets(stem_cls), family_class=stem_cls,
                 typed_late=True,
                 dimensions=_dimensions(stem_cls, ws), volume_formula="box",
+                table_reads=_table_reads(stem_cls, ws, _STEM_PARTS),
+                table_rows=dict(ws.rows),
                 layer_thickness_ft=th if layered else None, **place,
                 quantities={"length_ft": b - a, "width_ft": th,
                             "height_ft": h, "volume_cf": p.volume_cf}))

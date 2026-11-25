@@ -300,6 +300,49 @@ _QTY_ATTR = {"IfcQuantityArea": "AreaValue", "IfcQuantityLength": "LengthValue",
              "IfcQuantityVolume": "VolumeValue", "IfcQuantityCount": "CountValue",
              "IfcQuantityWeight": "WeightValue"}
 
+#: Element.standard_qto measure -> (IfcQuantity entity, power of ft_to_m)
+_STANDARD_MEASURES = {"length": ("IfcQuantityLength", 1),
+                      "area": ("IfcQuantityArea", 2),
+                      "volume": ("IfcQuantityVolume", 3)}
+
+
+def _standard_quantity(f, name: str, measure: str, value: float,
+                       ft_to_m: float, formula: str | None = None):
+    """One quantity of an Element.standard_qto set, converted to metres,
+    with its Formula (M.3) when the family gives one."""
+    if measure not in _STANDARD_MEASURES:
+        raise ValueError(f"standard quantity {name}: measure {measure!r} is "
+                         f"not one of {sorted(_STANDARD_MEASURES)}")
+    ent, power = _STANDARD_MEASURES[measure]
+    q = f.create_entity(ent, Name=name)
+    setattr(q, _QTY_ATTR[ent], float(value) * ft_to_m ** power)
+    if formula:
+        q.Formula = formula
+    return q
+
+#: Element.psets measure -> (IFC measure type, power of ft_to_m)
+_PSET_MEASURES = {"length": ("IfcLengthMeasure", 1),
+                  "area": ("IfcAreaMeasure", 2),
+                  "volume": ("IfcVolumeMeasure", 3)}
+
+
+def _pset_properties(f, props: dict, ft_to_m: float) -> dict:
+    """An Element.psets set as pset.edit_pset takes it: a (measure, value)
+    pair, the value in the feet domain, becomes that typed measure in the
+    file's metres; anything else is passed as it is."""
+    out = {}
+    for name, value in props.items():
+        if isinstance(value, tuple):
+            measure, x = value
+            if measure not in _PSET_MEASURES:
+                raise ValueError(f"property {name}: measure {measure!r} is "
+                                 f"not one of {sorted(_PSET_MEASURES)}")
+            ent, power = _PSET_MEASURES[measure]
+            value = f.create_entity(ent, round(float(x) * ft_to_m ** power, 9))
+        out[name] = value
+    return out
+
+
 #: An element's `volume_formula` -> the Formula its GrossVolume is written
 #: with (roadmap M.3), over names in the same quantity set
 VOLUME_FORMULAS = {"box": "Length * Width * Height",
@@ -1275,7 +1318,8 @@ def _late_typing(run, f, ctx, cache: dict, late: list) -> None:
             if not props:
                 continue
             pset = run("pset.add_pset", f, product=product, name=pset_name)
-            run("pset.edit_pset", f, pset=pset, properties=dict(props))
+            run("pset.edit_pset", f, pset=pset,
+                properties=_pset_properties(f, props, ctx.ft_to_m))
             pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{pset_name}")
             for rel in pset.DefinesOccurrence or ():
                 rel.GlobalId = ctx.guid(
@@ -1407,22 +1451,31 @@ def _material_layers(run, f, ctx, mctx, layered: list) -> None:
 def _dimensions(run, f, ctx, dimensioned: list) -> None:
     """Write each element's Element.dimensions (M.2) as BIMForge_Dimensions,
     each property the measure the family dictionary gives it, a length
-    scaled from feet. An element carries exactly what its class declares:
-    a class that declares a dimension the family did not size, or a
-    dimension no class declares, fails the build. After the sweep, the set
+    scaled from feet. An element carries every dimension its class requires
+    and none it does not declare; anything else fails the build. A text
+    dimension is an IfcLabel. After the sweep, the set
     keyed by its owner and name, its IfcRelDefinesByProperties by the set."""
     from bimforge.author import family_dictionary as fd
     for product, el in dimensioned:
         declared = fd.dimensions(el.family_class) if el.family_class else []
-        if set(el.dimensions) != set(declared):
+        required = (fd.required_dimensions(el.family_class)
+                    if el.family_class else [])
+        given = set(el.dimensions)
+        if not set(required) <= given <= set(declared):
             raise ValueError(
-                f"{el.name}: dimensions {sorted(el.dimensions)}, but its class "
-                f"{el.family_class!r} declares {sorted(declared)}")
-        if not declared:
+                f"{el.name}: dimensions {sorted(given)}, but its class "
+                f"{el.family_class!r} requires {sorted(required)} and "
+                f"declares {sorted(declared)}")
+        if not given:
             continue
         props = {}
         for code in declared:
+            if code not in given:
+                continue                    # an optional dimension
             ifc_type, scales = fd.measure(code)
+            if ifc_type == fd.TEXT[0]:
+                props[code] = f.create_entity(ifc_type, str(el.dimensions[code]))
+                continue
             value = float(el.dimensions[code]) * (ctx.ft_to_m if scales else 1.0)
             props[code] = f.create_entity(ifc_type, round(value, 9))
         pset = run("pset.add_pset", f, product=product, name=fd.DIMENSIONS)
@@ -1430,6 +1483,61 @@ def _dimensions(run, f, ctx, dimensioned: list) -> None:
         pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{fd.DIMENSIONS}")
         for rel in pset.DefinesOccurrence or ():
             rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByProperties/{pset.GlobalId}")
+
+
+def _routes(run, f, ctx, routed: list) -> None:
+    """Write each routed element's BIMForge_Route (M.8): its Route (a
+    `modified.ROUTES` value; "bespoke" when only `based_on` is set), the
+    class it is BasedOn, and each difference as an IfcComplexProperty
+    (UsageName "Difference") of Standard, Actual and Source, a length in
+    the file's metres. After the sweep, keyed as BIMForge_Dimensions is."""
+    from bimforge.author import modified as mod
+    for product, el in routed:
+        route = el.route or "bespoke"
+        if route not in mod.ROUTES:
+            raise ValueError(f"{el.name}: route {route!r} must be one of "
+                             f"{mod.ROUTES}")
+        props = {"Route": f.create_entity("IfcLabel", route)}
+        based = el.based_on or el.family_class
+        if based:
+            props["BasedOn"] = f.create_entity("IfcLabel", based)
+        pset = run("pset.add_pset", f, product=product, name=mod.ROUTE_PSET)
+        run("pset.edit_pset", f, pset=pset, properties=props)
+        extra = [_difference_property(f, ctx, d) for d in el.differences]
+        if extra:
+            pset.HasProperties = list(pset.HasProperties) + extra
+        pset.GlobalId = ctx.guid(f"pset/{product.GlobalId}/{mod.ROUTE_PSET}")
+        for rel in pset.DefinesOccurrence or ():
+            rel.GlobalId = ctx.guid(f"rel/IfcRelDefinesByProperties/{pset.GlobalId}")
+
+
+def _difference_property(f, ctx, d: dict):
+    """One difference {name, standard, actual, source} as an
+    IfcComplexProperty: Standard (left out for a value the project added)
+    and Actual in the measure `modified.difference_measure` gives the name,
+    a length scaled from feet, text an IfcLabel; Source an IfcLabel."""
+    from bimforge.author import modified as mod
+    ifc_type, per_ft = mod.difference_measure(d["name"])
+
+    def single(name, value):
+        if isinstance(value, str):
+            nv = f.create_entity("IfcLabel", value)
+        else:
+            v = float(value) * (per_ft * ctx.ft_to_m if per_ft else 1.0)
+            nv = f.create_entity(ifc_type, round(v, 9))
+        return f.create_entity("IfcPropertySingleValue", Name=name,
+                               NominalValue=nv)
+
+    parts = []
+    if d.get("standard") is not None:
+        parts.append(single("Standard", d["standard"]))
+    parts.append(single("Actual", d["actual"]))
+    if d.get("source"):
+        parts.append(f.create_entity("IfcPropertySingleValue", Name="Source",
+                                     NominalValue=f.create_entity(
+                                         "IfcLabel", d["source"])))
+    return f.create_entity("IfcComplexProperty", Name=d["name"],
+                           UsageName=mod.DIFFERENCE, HasProperties=parts)
 
 
 def _declare_types(run, f, project) -> None:
@@ -2121,6 +2229,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     classed: list = []         # (product, family class code): Element.family_class
     layered: list = []         # (product, el): Element.layer_thickness_ft
     dimensioned: list = []     # (product, el): a family_class or dimensions
+    routed: list = []          # (product, el): Element.route or based_on
     map_cache: dict = {}       # (instance key, style id) -> IfcRepresentationMap
     for m in models:
         _check_parts(m)
@@ -2191,7 +2300,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                                       ifc_class, typing))
             if el.typed_late:
                 late.append((product, el, ifc_class, typing))
-            family = el.family_class or (
+            family = el.family_class or el.based_on or (
                 "reinforcing-bar" if el.bar_size is not None
                 and product.is_a("IfcReinforcingBar") else None)
             if family:
@@ -2200,6 +2309,8 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                 layered.append((product, el))
             if el.family_class or el.dimensions:
                 dimensioned.append((product, el))
+            if el.route or el.based_on:
+                routed.append((product, el))
             if (el.bar_size is not None and not el.type_name
                     and product.is_a("IfcReinforcingBar")):
                 sized_bars.append((product, el))
@@ -2213,7 +2324,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                     pset = run("pset.add_pset", f, product=product,
                                name=pset_name)
                     run("pset.edit_pset", f, pset=pset,
-                        properties=dict(props))
+                        properties=_pset_properties(f, props, ctx.ft_to_m))
             # Issue #190: carry the estimator's per-element note (assumptions,
             # placement-honesty notes, sheet cites) onto IfcRoot.Description.
             # `or None` keeps an unset description a true null, not "".
@@ -2315,6 +2426,20 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
                         qq.Formula = formula
                     quantities.append(qq)
                 qto.Quantities = tuple(quantities)
+
+            # the class's standard set (roadmap M.17), beside the base set;
+            # it is defined for the class the model asked for only, so an
+            # element written as another (the #364 cut rewrite, the IFC4
+            # proxy fallback) carries none (bSI QTY001)
+            own_class = ifc_class == el.ifc_class
+            for qset, values in (el.standard_qto or {}).items():
+                if not values or not own_class:
+                    continue        # a set needs at least one quantity
+                sq = run("pset.add_qto", f, product=product, name=qset)
+                sq.Quantities = tuple(
+                    _standard_quantity(f, qname, spec[0], spec[1], ctx.ft_to_m,
+                                       spec[2] if len(spec) > 2 else None)
+                    for qname, spec in values.items())
 
             # provenance rides the solids dict (smallest carrier: no new Element
             # field) and emits as a Pset on the product — terrain's source/
@@ -2490,6 +2615,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     _family_classes(f, ctx, classed)
     _material_layers(run, f, ctx, mctx, layered)
     _dimensions(run, f, ctx, dimensioned)
+    _routes(run, f, ctx, routed)
     _declare_types(run, f, project)
 
     # then pin every relationship's member order (see _pin_relationship_order:

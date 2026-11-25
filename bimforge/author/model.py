@@ -115,6 +115,31 @@ class Element:
     #: ones its `family_class` declares, written as BIMForge_Dimensions with
     #: the measure the dictionary gives each ({"DesignHeight": 8.0}).
     dimensions: dict = field(default_factory=dict)
+    #: The route the element was built by (roadmap M.8), one of
+    #: `modified.ROUTES`: the family sets it (a barrier's), or
+    #: `build_from_spec` gives one to every typed element that says what it
+    #: read (`table_reads`, `table_rows`). None = no route written (an
+    #: element nothing checks), unless `based_on` is set, which makes it
+    #: "bespoke".
+    route: str | None = None
+    #: The class a modified or bespoke element is based on, by dictionary
+    #: Code; None = its `family_class`.
+    based_on: str | None = None
+    #: What it changed from its standard (M.8): [{"name", "standard",
+    #: "actual", "source"}], a dimension Code or the table field as name,
+    #: values in the author domain (feet, a ratio, text); "standard" None
+    #: for a row the project added.
+    differences: list = field(default_factory=list)
+    #: The packaged table values it was built from (M.9), {table path:
+    #: name}: `modified.assign_routes` turns the ones the project changed
+    #: into `differences`.
+    table_reads: dict = field(default_factory=dict)
+    #: The rows it was built from (M.9), {table path: (design H, the key
+    #: the family chose)}, e.g. {("type_1a_case_1", "table"): (10.0, 12)}:
+    #: `modified.assign_routes` looks the same H up in the packaged table
+    #: (by `StructureModel.row_lookup`) and, when the pack would choose
+    #: another row, records a "Row" difference.
+    table_rows: dict = field(default_factory=dict)
     #: How the element's GrossVolume was derived (roadmap M.3), written as
     #: its `Formula` over names in the same quantity set: "box" (Length *
     #: Width * Height, a prism the family sized), "section" (CrossSectionArea
@@ -125,7 +150,18 @@ class Element:
     #: Property sets written on the product, {pset name: {property: value}}:
     #: the schema's Pset_*Common sets (Reference = the standard plan, e.g.
     #: {"Pset_RailingCommon": {"Reference": "B11-51"}}) or a project pset.
+    #: A ("length" | "area" | "volume", value) pair, the value in the feet
+    #: domain, is written as that IFC measure in the file's metres.
     psets: dict = field(default_factory=dict)
+    #: The class's standard quantity set (roadmap M.17), {set name:
+    #: {quantity name: (measure, value) or (measure, value, formula)}},
+    #: measure one of "length", "area", "volume", values in the feet
+    #: domain: emit_ifc writes each as an IfcElementQuantity beside
+    #: Qto_BaseQuantities, which consumers read until M.17 retires it, a
+    #: formula as the quantity's Formula (M.3), over names in the same set or
+    #: the element's BIMForge_Dimensions ({"Qto_CourseBaseQuantities":
+    #: {"Length": ("length", 100.0, "EndStation - StartStation")}}).
+    standard_qto: dict = field(default_factory=dict)
     #: The element this one is a PART of (IfcRelAggregates), by name: a
     #: post or rail of a handrail run, an end block of a barrier run. The
     #: part leaves the spatial container and hangs under its whole, which
@@ -265,6 +301,20 @@ class StructureModel:
     #: `ifc: {sweeps: mesh}`; `emit_ifc(sweeps=)` / `outputs.ifc_sweeps`
     #: override it for one emit (emit_ifc.SWEEP_MODES).
     ifc_sweeps: str = "exact"
+    #: How the family chooses a tabulated row (M.9): `(table, H) -> key`
+    #: (standard_plan sets `WallSection._lookup_key`), so the build can
+    #: say which row the packaged tables would have chosen for each
+    #: element's `table_rows`; None = rows are not checked.
+    row_lookup: object = None
+    #: A road corridor's mass-haul table (corridor.masshaul.HaulRow per
+    #: station band), written to `outputs.masshaul` as a CSV; [] otherwise.
+    mass_haul: list = field(default_factory=list)
+    #: Tables a family writes as CSV outputs, {output key: CSV text}: a
+    #: road corridor's "walls" and "structures" (walls: auto) and
+    #: "guardrail" (a steep fill rule or a guardrail: block); {} otherwise.
+    #: The registry writes each to outputs.<key> and refuses an output
+    #: key the model has no table for.
+    tables: dict = field(default_factory=dict)
 
     def add(self, element: Element) -> Element:
         if any(e.name == element.name for e in self.elements):

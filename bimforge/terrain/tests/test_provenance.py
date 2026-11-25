@@ -69,3 +69,10 @@ def test_source_crs_falls_back_to_info_crs_string():
     assert prov["SourceCRS"] == "EPSG:32610"
     prov = build_provenance("dem", {}, {}, 0.0, 3.0, False)
     assert prov["SourceCRS"] == ""
+
+
+@pytest.mark.parametrize("epsg, unit", [(2226, "ftUS"), (26942, "m")])
+def test_the_mesh_spacing_carries_the_crs_unit(epsg, unit):
+    prov = build_provenance("dem", {"crs_epsg": epsg}, {}, 0.0, 3.0, False)
+    assert prov["MeshSpacing"] == 3.0
+    assert prov["MeshSpacingUnit"] == unit
