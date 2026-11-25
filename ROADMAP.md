@@ -247,6 +247,23 @@ surface and the ground. What these rows change is what that measurement
 becomes. Figures are from the hypothetical road-and-bridge test project's
 corridor (9,319 ft, two bridges, 61 cut and 64 fill bands).
 
+Order (set 2026-11-25): the shapes and checks first, then what decides a
+balance, then the 4D work, then the agency comparison.
+
+1. E.5 and G.5, with stage 1 (gates clean): the earthwork's shapes and its
+   carve check are trusted before its numbers are worked on, and everything
+   after is written in its final form.
+2. E.3, E.2, then E.4's stripping, before the test road's corridor is called
+   final: each changes its balance or its cost. E.2 leans to rock and soil
+   as two elements per band, since a schedule takes rock apart. Stripping comes
+   first in E.4 because it lowers the ground every volume is measured from;
+   then keying and benching, then unsuitable material; structure excavation
+   joins the haul when the families that dig it supply it (P.5).
+3. E.7, after E.2 and E.3, whose segments and materials it divides by.
+4. E.1 when ProjectCommand can apply a cut to the ground in plan; worth most
+   after E.7, so a 4D view has the pieces to show.
+5. E.6 with W.12 (stage 4), when models are compared with bid quantities.
+
 | ID | Item | State |
 |---|---|---|
 | E.1 | The existing ground stays whole, and a cut voids it. The corridor already writes each cut voiding the TERRAIN (#364), the standard form, and the one a 4D view needs: a viewer takes a cut out of the ground when its task is done, where a terrain carved at build time shows every pit from the first day. The cost is in the viewer: a full 3D boolean of 61 cuts against the test road's terrain did not finish in 50 min, so that project wrote its cuts unhosted. The ground is a height field, so a viewer can apply its voids in plan, far more cheaply; ProjectCommand is asked to. The finished grade as a surface of its own is G.10, so a viewer that can do neither still shows the end state. The carve stays, as a check (G.5). | Planned |
