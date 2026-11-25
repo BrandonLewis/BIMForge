@@ -246,6 +246,28 @@ def test_fetch_grid_picks_the_dem_cache_path(tmp_path, monkeypatch):
                     "refresh": True}
 
 
+def test_fetch_grid_lpc_hands_over_bbox_wgs_and_stem(tmp_path, monkeypatch):
+    pytest.importorskip("pyproj")
+    seen = {}
+
+    def fake_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
+                 refresh=False, log=print):
+        seen.update(bbox=bbox_m, spacing=spacing_m, epsg=crs_epsg,
+                    wgs=wgs_bbox, stem=cache_stem, refresh=refresh)
+        return _grid(crs_epsg=crs_epsg)
+
+    monkeypatch.setattr(A, "fetch_3dep_lpc", fake_lpc)
+    monkeypatch.setattr(A, "fetch_3dep_dem", _never)
+    bbox = (6594000.0, 1943000.0, 6594500.0, 1943400.0)
+    A.fetch_grid(bbox, crs_epsg=2226, cache_stem=str(tmp_path / "site"),
+                 spacing_m=2.5, source="lpc", log=lambda *_: None)
+    assert seen["bbox"] == bbox and seen["spacing"] == 2.5
+    assert seen["epsg"] == 2226 and seen["stem"] == str(tmp_path / "site")
+    lon0, lat0, lon1, lat1 = [float(x) for x in seen["wgs"].split(",")]
+    assert lon0 < lon1 and lat0 < lat1
+    assert -125 < lon0 < -114 and 32 < lat0 < 42        # California
+
+
 def test_is_terrain_and_to_model_frame():
     from bimforge.author.model import Element
     m = _model()

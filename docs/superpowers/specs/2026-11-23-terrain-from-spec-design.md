@@ -24,7 +24,7 @@ terrain:
   source: dem          # dem (3DEP 1 m DEM, default) | lpc (lidar bare earth)
   cache: terrain/site  # path stem, relative to the spec's directory; required
   margin_ft: 200       # around the footprint (default 200)
-  spacing_m: 1.0       # cell size, in the CRS's own unit as attach_terrain takes it (default 1.0)
+  spacing_m: 1.0       # cell size, in METRES (default 1.0)
   vshift_m: 0.71       # optional: overrides the datum rule
 ```
 

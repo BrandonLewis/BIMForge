@@ -565,7 +565,7 @@ def model_footprint(model, ctx) -> tuple:
     """(e_min, n_min, e_max, n_max), survey feet: the plan extent of every
     element's placed geometry, leaving out the ground itself."""
     from bimforge.author.emit_ifc import body_dicts
-    from bimforge.author.gate import _solid_points
+    from bimforge.author.extent import plan_extent
     from bimforge.terrain.attach import is_terrain
     xs, ys = [], []
     for el in model.elements:
@@ -576,8 +576,12 @@ def model_footprint(model, ctx) -> tuple:
         for dicts in body_dicts(el):
             for d in dicts:
                 k = 1.0 if d.get("units", "ft") == "ft" else 1.0 / 12.0
-                for p in _solid_points(d):
-                    x, y = p[0] * k, p[1] * k
+                ext = plan_extent(d)
+                if ext is None:
+                    continue
+                for x, y in ((ext[0], ext[1]), (ext[2], ext[1]),
+                             (ext[2], ext[3]), (ext[0], ext[3])):
+                    x, y = x * k, y * k
                     xs.append(x * c - y * s + el.x_ft)
                     ys.append(x * s + y * c + el.y_ft)
     if not xs:
@@ -661,7 +665,7 @@ def report_lines(el, ctx, ts: TerrainSpec) -> list:
     return lines
 ```
 
-`AppliedVerticalShift` is written negated (`-shift_m`), so the report negates it back. Using `gate._solid_points` (one leading underscore) from another package is deliberate: it is the one walk over every body kind; do not copy it.
+`AppliedVerticalShift` is written negated (`-shift_m`), so the report negates it back. The footprint uses `bimforge.author.extent.plan_extent`, the true plan extent of each body kind (a tube along its axis with its outer radius, a ribbon with its width), not `gate._solid_points`, whose representative points (a tube's origin, a box's centre) understate it.
 
 - [ ] **Step 4: Run them; they pass.** Then `bimforge/terrain/tests` in full: all pass.
 

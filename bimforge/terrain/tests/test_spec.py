@@ -4,11 +4,15 @@ Offline: NCAT's transport (bimforge.terrain.datum._urlopen) is replaced."""
 import json
 import uuid
 
+import numpy as np
 import pytest
 
+from bimforge.author.model import Element, StructureModel
 from bimforge.author.project import ProjectContext
+from bimforge.terrain import attach as A
 from bimforge.terrain import datum as D
 from bimforge.terrain import spec as S
+from bimforge.terrain.grid import TerrainGrid
 
 
 def ctx(vd=None, epsg=2226):
@@ -93,13 +97,6 @@ def test_crs_per_ft_and_the_base_lonlat():
     assert -123.0 < lon < -120.0 and 37.0 < lat < 40.0      # CA zone 2
 
 
-import numpy as np
-
-from bimforge.author.model import Element, StructureModel
-from bimforge.terrain import attach as A
-from bimforge.terrain.grid import TerrainGrid
-
-
 def _box(name, x, y, bearing=0.0):
     return Element(name, ifc_class="IfcWall", x_ft=x, y_ft=y, bearing_deg=bearing,
                    geometry={"kind": "prism", "base": [(0, 0), (10, 0), (10, 2), (0, 2)],
@@ -116,6 +113,51 @@ def test_the_footprint_is_the_placed_plan_extent_in_survey_feet():
     assert (e0, n0) == pytest.approx((6594000.0, 1943000.0))
     # b's (10, 2) corner turned 90 deg: (-2, 10), placed at (98, 60)
     assert (e1, n1) == pytest.approx((6594000.0 + 100.0, 1943000.0 + 60.0))
+
+
+def _el(name, geometry, **kw):
+    return Element(name, ifc_class="IfcWall", geometry=geometry, **kw)
+
+
+def test_a_100_ft_tube_reaches_its_far_end():
+    c = ctx("NAVD88")
+    m = StructureModel("f", c)
+    m.add(_el("pipe", {"kind": "tube", "units": "ft", "x0": 0.0, "y0": 5.0,
+                       "length": 100.0, "cz": 3.0, "r_outer": 1.5,
+                       "wall": 0.1, "axis": "x"}))
+    e0, n0, e1, n1 = S.model_footprint(m, c)
+    assert (e1 - e0, n1 - n0) == pytest.approx((100.0, 3.0))
+    assert (e0, n0) == pytest.approx((c.base_e, c.base_n + 3.5))
+
+
+def test_a_box_at_the_extent_edge_counts_its_half_size():
+    c = ctx("NAVD88")
+    m = StructureModel("f", c)
+    m.add(_el("slab", {"kind": "box", "units": "ft",
+                       "boxes": [(0, 0, 0, 2, 2, 1), (50, 10, 0, 10, 4, 1)]}))
+    e0, n0, e1, n1 = S.model_footprint(m, c)
+    assert (e0, n0, e1, n1) == pytest.approx(
+        (c.base_e - 1, c.base_n - 1, c.base_e + 55, c.base_n + 12))
+
+
+def test_a_ribbon_counts_its_width():
+    c = ctx("NAVD88")
+    m = StructureModel("f", c)
+    m.add(_el("edge", {"kind": "ribbon", "units": "ft", "width": 12.0,
+                       "points": [(0, 0, 0), (100, 0, 0)]}))
+    e0, n0, e1, n1 = S.model_footprint(m, c)
+    assert (e0, n0, e1, n1) == pytest.approx(
+        (c.base_e, c.base_n - 6, c.base_e + 100, c.base_n + 6))
+
+
+def test_an_inch_unit_prism_is_scaled_to_feet():
+    c = ctx("NAVD88")
+    m = StructureModel("f", c)
+    m.add(_el("plate", {"kind": "prism", "units": "in", "z_bot": 0.0,
+                        "z_top": 1.0,
+                        "base": [(0, 0), (120, 0), (120, 24), (0, 24)]}))
+    e0, n0, e1, n1 = S.model_footprint(m, c)
+    assert (e1 - e0, n1 - n0) == pytest.approx((10.0, 2.0))
 
 
 def test_a_model_with_no_geometry_has_no_footprint():
@@ -182,3 +224,27 @@ def test_the_report_names_the_footprint_source_and_shift(tmp_path, monkeypatch):
                  "CA_NoCAL_2018", "2018-04-01 to 2018-05-01", "QL2",
                  "shift 0.000 m (NAVD88: none)", "site-3DEP-DEM.tif"):
         assert want in text, want
+
+
+def test_the_margin_floor_is_two_cells(tmp_path, monkeypatch):
+    seen = []
+
+    def fake(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
+        seen.append(bbox_m)
+        return _flat(bbox_m, spacing_m, crs_epsg, cache_path)
+
+    monkeypatch.setattr(A, "fetch_3dep_dem", fake)
+    monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
+    c = ctx("NAVD88")
+    ts = S.TerrainSpec(cache=str(tmp_path / "site"), margin_ft=20.0,
+                       spacing_m=10.0)
+    S.attach_over(StructureModel("f", c), c, ts,
+                  (6594000.0, 1943000.0, 6594100.0, 1943060.0),
+                  log=lambda *_: None)
+    grow = 2 * 10.0 / c.ft_to_m                      # ~65.6 ft, not 20
+    per_ft = S.crs_per_ft(c)
+    x0, y0, x1, y1 = seen[0]
+    assert x0 == pytest.approx((6594000.0 - grow) * per_ft)
+    assert y0 == pytest.approx((1943000.0 - grow) * per_ft)
+    assert x1 == pytest.approx((6594100.0 + grow) * per_ft)
+    assert y1 == pytest.approx((1943060.0 + grow) * per_ft)

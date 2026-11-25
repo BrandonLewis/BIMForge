@@ -23,8 +23,8 @@ SOURCES = ("dem", "lpc")
 @dataclass
 class TerrainSpec:
     """A parsed `terrain:` block. `cache` is the path stem every download
-    hangs off; `spacing_m` is in the CRS's own unit, as `attach_terrain`
-    takes it (the name is historical); `refresh` is set only by `est-bim
+    hangs off; `spacing_m` is METRES (attach_over converts it to the
+    CRS's unit for `attach_terrain`); `refresh` is set only by `est-bim
     terrain --refresh`, never by a spec."""
 
     cache: str
@@ -122,7 +122,7 @@ def model_footprint(model, ctx) -> tuple:
     """(e_min, n_min, e_max, n_max), survey feet: the plan extent of every
     element's placed geometry, leaving out the ground itself."""
     from bimforge.author.emit_ifc import body_dicts
-    from bimforge.author.gate import _solid_points
+    from bimforge.author.extent import plan_extent
     from bimforge.terrain.attach import is_terrain
     xs, ys = [], []
     for el in model.elements:
@@ -133,8 +133,13 @@ def model_footprint(model, ctx) -> tuple:
         for dicts in body_dicts(el):
             for d in dicts:
                 k = 1.0 if d.get("units", "ft") == "ft" else 1.0 / 12.0
-                for p in _solid_points(d):
-                    x, y = p[0] * k, p[1] * k
+                ext = plan_extent(d)
+                if ext is None:
+                    continue
+                # the extent's corners, turned by the element's bearing
+                for x, y in ((ext[0], ext[1]), (ext[2], ext[1]),
+                             (ext[2], ext[3]), (ext[0], ext[3])):
+                    x, y = x * k, y * k
                     xs.append(x * c - y * s + el.x_ft)
                     ys.append(x * s + y * c + el.y_ft)
     if not xs:
