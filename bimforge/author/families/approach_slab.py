@@ -16,6 +16,7 @@ from bimforge.author.approach_slab_rebar import (
 from bimforge.author.approach_slab_section import ApproachSlabSection
 from bimforge.author.model import Element, StructureModel
 from bimforge.author.primitives import Prism, bar_role
+from bimforge.author.sweep import to_model, to_model_elev
 
 REQUIRED = ("alignment", "tables", "slabs")
 
@@ -116,15 +117,17 @@ def build(params: dict, ctx) -> StructureModel:
         width = float(s["width_ft"])
         if width <= 0.0:
             raise ValueError(f"{tag}: width_ft must be positive")
-        z0 = float(s.get("soffit_elev_ft", 0.0))
+        # the soffit is an elevation: model z = E - base_h (ProjectContext.local)
+        z0 = to_model_elev(ctx, float(s.get("soffit_elev_ft", 0.0)))
         skew = float(s.get("skew_deg", 0.0))
         if abs(skew) > _MAX_SKEW_DEG:
             raise ValueError(
                 f"{tag}: skew_deg {skew} exceeds +/-{_MAX_SKEW_DEG} deg "
                 f"(width/cos(skew) becomes unstable near 90 deg)")
-        corners = _slab_corners(
+        # survey (n, e) corners -> model (x=east, y=north), local to the base
+        corners = [to_model(ctx, n, e)[:2] for n, e in _slab_corners(
             align, float(s["station"]), skew,
-            sec.length_ft, width, s.get("approach", "ahead"))
+            sec.length_ft, width, s.get("approach", "ahead"))]
         p = Prism(_slab_element_name(tag, sec.type_key), corners, z0, z0 + sec.thickness_ft,
                   dims_ft=(sec.length_ft, width), ifc="IfcSlab",
                   layer="S-CONC-OTLN")

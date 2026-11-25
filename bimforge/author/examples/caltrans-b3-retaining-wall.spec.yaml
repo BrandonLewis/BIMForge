@@ -3,7 +3,7 @@ family: standard-plan
 params:
   tables_file: ./caltrans-b3-tables.example.yaml
   alignment:
-    pob: {station: 0.0, northing: 0.0, easting: 0.0}
+    pob: {station: 0.0, northing: 1943000.0, easting: 6594000.0}
     run: [{kind: tangent, bearing: "N 0-0-0 E", length: 64.0}]
   walls:
     - name: R1

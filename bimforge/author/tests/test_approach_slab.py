@@ -45,6 +45,26 @@ def test_slab_concrete_volume():
     assert run_pre(m).passed
 
 
+def test_slab_sits_in_the_model_frame_relative_to_the_base():
+    """The soffit is an elevation and the corners survey (n, e): the slab
+    lands at model z = E - base_h, its plan local to the project base with
+    x east and y north (to_model, #156). On a N 0 E line an ahead slab at
+    station 100 runs y 100..130 and spans x -22..22."""
+    ctx = ProjectContext(name="b9", guid_ns=uuid.UUID(int=7),
+                         base_e=6594000.0, base_n=1943000.0, base_h=300.0)
+    p = _params(soffit_elev_ft=310.0)
+    p["alignment"] = {**ALIGN, "pob": {"station": 0.0, "northing": 1943000.0,
+                                       "easting": 6594000.0}}
+    m = build(p, ctx)
+    g = m.element("Abut 1 approach slab type_n_30").geometry
+    assert g.z_bot == pytest.approx(10.0)
+    assert g.z_top == pytest.approx(11.25)
+    xs, ys = [c[0] for c in g.base], [c[1] for c in g.base]
+    assert (min(xs), max(xs)) == (pytest.approx(-22.0), pytest.approx(22.0))
+    assert (min(ys), max(ys)) == (pytest.approx(100.0), pytest.approx(130.0))
+    assert run_pre(m).passed
+
+
 def test_slab_area_is_length_times_width():
     m = build(_params(), CTX)
     slab = m.element("Abut 1 approach slab type_n_30")

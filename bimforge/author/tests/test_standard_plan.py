@@ -118,3 +118,48 @@ def test_b3_example_spec_builds_check_only():
     spec = (Path(__file__).resolve().parents[1]
             / "examples" / "caltrans-b3-retaining-wall.spec.yaml")
     assert build_from_spec(spec, check_only=True) == 0
+
+
+#: A project base off the origin, horizontally and vertically: the frame a
+#: real job has, and the one the base-zero tests above cannot tell apart
+#: from the survey frame.
+CTX_BASE = ProjectContext(name="f", guid_ns=uuid.UUID(int=7),
+                          base_e=6594000.0, base_n=1943000.0, base_h=100.0)
+
+
+def _real_pob(params, n=1943000.0, e=6594000.0):
+    import copy
+    out = copy.deepcopy(params)
+    out["alignment"]["pob"] = {"station": 0.0, "northing": n, "easting": e}
+    return out
+
+
+def _corners(el):
+    return el.geometry.base
+
+
+def test_elevations_are_model_z_relative_to_base_h():
+    """A footing bottom at elevation 100 and a top of wall at 109 sit at
+    model z 0 and 9 when the project base is at elevation 100 (the model
+    frame is z = E - base_h, as every alignment family writes it)."""
+    m = build(_real_pob(PARAMS), CTX_BASE)
+    foot = m.element("R1 retaining wall footing 0+00.00")
+    stem = m.element("R1 retaining wall stem 0+00.00")
+    assert foot.geometry.z_bot == pytest.approx(0.0)
+    assert foot.geometry.z_top == pytest.approx(1.0)
+    assert stem.geometry.z_bot == pytest.approx(1.0)
+    assert stem.geometry.z_top == pytest.approx(9.0)
+
+
+def test_wall_runs_along_its_bearing_in_the_model_frame():
+    """A wall on a N 0 E line runs along model +y (north), its plan local to
+    the project base, and its Lt front face lies west (-x) of the line: plan
+    points are (northing, easting) until to_model swaps them (#156)."""
+    m = build(_real_pob(PARAMS), CTX_BASE)
+    foot = m.element("R1 retaining wall footing 0+00.00")
+    xs = [p[0] for p in _corners(foot)]
+    ys = [p[1] for p in _corners(foot)]
+    assert min(ys) == pytest.approx(0.0) and max(ys) == pytest.approx(8.0)
+    # toe C = 2 ft to the Lt (west), heel B = 4 ft to the Rt (east)
+    assert min(xs) == pytest.approx(-2.0) and max(xs) == pytest.approx(4.0)
+    assert run_pre(m).passed

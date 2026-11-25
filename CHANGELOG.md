@@ -140,6 +140,27 @@ skip or read them. `model-elements` sends `route`, `based_on` and
 
 ### Fixed
 
+- **The B3 wall, the D90 headwall and the approach slab are built in the
+  model frame.** The model is z = elevation - `project.base`'s elevation, x
+  east and y north, local to the base (`ProjectContext.local`), as the
+  bridge and the road corridor build it. The `standard-plan` family (the B3
+  wall) put its footing-bottom and top-of-wall elevations into the model as
+  they were, and its plan points as (northing, easting): a wall on a N 0 E
+  line ran east, mirrored about the 45 degree diagonal (#156). The
+  `culvert-headwall` family (D90) lifted the structure to `fl_elev_ft`
+  without taking off the base elevation, and the `approach-slab` family put
+  its slab at `soffit_elev_ft` as it was and its corners as (northing,
+  easting) survey coordinates. A spec whose `project.base` has a nonzero
+  elevation, and any B3 alignment, now builds in the right place: each such
+  structure sat its base elevation too high (100 ft in the shipped B3 and
+  D90 examples), and a B3 wall ran mirrored, in the IFC, the DXF, the KML
+  and against a `terrain:` ground. A B3 or approach-slab alignment's `pob`
+  is survey coordinates, as the bridge's is: one given in the local frame
+  of a project with a State Plane base (the B3 examples' `{northing: 0,
+  easting: 0}`) now lands the wall at the zone's origin, which the gate
+  refuses as survey coordinates baked into the geometry. The two B3 examples
+  give the base point's real coordinates; their walls stay at the origin.
+
 - `est-bim add-alignments` (`bim.add_alignment.add_alignments`) crashed on
   a profile with two PVIs (no vertical curve): it is written as one
   gradient.

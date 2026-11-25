@@ -407,6 +407,21 @@ def test_fl_places_pipe_invert_at_flowline():
     assert run_pre(m).passed                          # placement doesn't break gate
 
 
+def test_fl_is_model_z_relative_to_base_h():
+    # The model frame is z = elevation - base_h (ProjectContext.local): with the
+    # project base at elevation 90, an FL of 100 puts the emitted invert at
+    # model z 10, not 100 (the build used to drop base_h and float the
+    # structure base_h ft above its flow line in every consumer).
+    ctx = ProjectContext(name="hw", guid_ns=uuid.UUID(int=90), base_h=90.0)
+    spec = {**SPEC, "structures": [
+        {**SPEC["structures"][0], "name": "HWIN", "kind": "headwall",
+         "fl_elev_ft": 100.0}]}
+    m = build(spec, ctx)
+    invert_local = (1.5 + 0.5) - 1.5
+    hw = [e for e in m.elements if e.name.startswith("HWIN ")]
+    assert hw and all(e.z_ft + invert_local == pytest.approx(10.0) for e in hw)
+
+
 def test_endwall_fl_above_headwall_raises():
     with pytest.raises(ValueError, match="EW .* HW|flow line"):
         build({**SPEC, "structures": [

@@ -42,7 +42,7 @@ def test_the_stem_and_footing_read_their_own_fields():
 #: example spec's first wall; its tables are the project's `t.yaml`.
 WALL_8FT_PARAMS = (
     "{tables_file: ./t.yaml, "
-    "alignment: {pob: {station: 0.0, northing: 0.0, easting: 0.0}, "
+    "alignment: {pob: {station: 0.0, northing: 1943000.0, easting: 6594000.0}, "
     "run: [{kind: tangent, bearing: 'N 0-0-0 E', length: 32.0}]}, "
     "walls: [{name: R1, wall_type: 1, front_side: Lt, "
     "beg: {station: 0.0}, end: {station: 32.0}, grid_ft: 8.0, "
