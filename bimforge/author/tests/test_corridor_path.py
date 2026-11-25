@@ -575,6 +575,14 @@ def test_a_path_beyond_the_centre_of_curvature_is_refused():
         curved("L", "L", radius=40.0)
 
 
+def test_a_separation_peak_between_the_curvature_samples_is_refused():
+    # 40 ft out at 10+12 only: the outer shoulder 71 ft in on a 60 ft
+    # radius, between the check's 25 ft samples (10+00 and 10+23.56)
+    with pytest.raises(ValueError, match=r"10\+12\.00.*centre of curvature"):
+        curved("L", "L", radius=60.0,
+               separation=[[1000, 10.0], [1012, 40.0], [1020, 10.0]])
+
+
 def test_edge_points_are_found_in_their_own_planes():
     road = Profile(grade(100.0, pct=8.0)["curves"])
     c = corridor(path(profile=grade(99.51, pct=8.0)), prof=road)
@@ -1106,6 +1114,21 @@ def test_a_path_gap_over_a_road_gap_waives_the_deck_and_the_approach():
     assert approaches(c) == []
 
 
+@pytest.mark.parametrize("dip, gap, match", [
+    # 10 ft to 2 ft at 13+00 and back: the path gap hides the low row, but
+    # its transition foot each side, 12+49 and 13+51, is beside the road
+    (2.0, (1250, 1350), r"path\.separation: 3\.36 ft at 12\+49\.00 is under the "
+                        r"5 ft minimum"),
+    (0.5, (1290, 1310), r"path\.separation: 0\.85 ft at 12\+89\.00 is under "
+                        r"deck_separation_ft 1\.5"),
+])
+def test_the_separation_is_held_up_to_a_path_gap_s_transition(dip, gap, match):
+    sep = [[1000, 10.0], [1300, dip], [1600, 10.0]]
+    with pytest.raises(ValueError, match=match):
+        corridor(path(separation=sep,
+                      gaps=[{"from": gap[0], "to": gap[1], "kind": "structure"}]))
+
+
 def test_inside_a_path_gap_the_separation_is_not_held_to_5_ft():
     sep = [[1000, 10.0], [1450, 10.0], [1500, 3.0], [1550, 3.0], [1600, 10.0]]
     with pytest.raises(ValueError, match=r"3\.00 ft at 15\+00\.00 is under the 5 ft"):
@@ -1141,8 +1164,10 @@ def test_a_road_gap_end_within_a_foot_of_a_path_gap_is_waived_as_its_separation_
 
 def test_a_road_gap_end_exactly_a_foot_outside_a_path_gap_keeps_its_approach():
     # the path's section is built at that station: the deck is met there and
-    # the approach leads to it; the separation is the deck's, not 5 ft
-    sep = [[1000, 10.0], [1300, 10.0], [1400, 1.5], [1501, 1.5], [1601, 10.0]]
+    # the approach leads to it; the separation is the deck's, not 5 ft. The
+    # road gap's start is inside the path gap, so it has no approach: the
+    # path narrows inside the path gap, 10 ft at its transition foot 13+79
+    sep = [[1000, 10.0], [1379, 10.0], [1400, 1.5], [1501, 1.5], [1601, 10.0]]
     c = corridor(deck_path(separation=sep, gaps=[{"from": 1380, "to": 1500,
                                                   "kind": "structure"}]),
                  gaps=[{"from": 1400, "to": 1501, "kind": "structure"}])

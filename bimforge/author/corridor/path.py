@@ -455,8 +455,10 @@ def _check_curvature(c, step: float = 25.0) -> None:
     from bimforge.author.corridor.section import grade_edge  # section imports path
     p = c.path
     n = max(int(math.ceil((p.s_end - p.s_start) / step)), 1)
-    ats = [p.s_start + (p.s_end - p.s_start) * i / n for i in range(n + 1)]
-    for s in ats:
+    ats = {p.s_start + (p.s_end - p.s_start) * i / n for i in range(n + 1)}
+    # and every separation row, where the path is farthest out between them
+    ats |= {s for s, _v in p.separation if p.covers(s)}
+    for s in sorted(ats):
         if _on_deck(c, s) or p.in_own(s):
             continue
         k = p.alignment.curvature(s)
@@ -492,6 +494,9 @@ def validate(c) -> None:
             at |= {g.start, g.end}
     for o in p.own:                # the beside section stands at both ends
         at |= {o.start, o.end}
+    for g in p.gaps:               # and at a path gap's transition feet: a
+        # separation row inside the gap is skipped, the ramp to it is not
+        at |= {g.start - PATH_TRANSITION_FT, g.end + PATH_TRANSITION_FT}
     for s in sorted(at):
         if (not p.covers(s) or _on_deck(c, s) or p.in_gap(s, PATH_TRANSITION_FT)
                 or p.in_own(s)):

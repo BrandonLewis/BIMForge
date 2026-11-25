@@ -415,6 +415,20 @@ def test_a_path_fill_wall_takes_a_rail_at_the_path_s_outer_edge():
     assert outer.spatial_part.predefined_type == "SHAREDUSEPATH"
 
 
+def test_a_level_strip_is_listed_as_level():
+    # a level road and path: the road's subgrade hinge 17 ft out at 300 -
+    # 12 x 0.02 - 5 x 0.05 - (0.4 + 1.0) = 298.11, and the path's inner
+    # shoulder edge 8 ft beyond it at 298.21 - 2 x 0.05 = 298.11: the strip
+    # between them is level, no ratio
+    p = copy.deepcopy(PARAMS)
+    p["gaps"] = []
+    p["profile"] = grade(300.0, 0.0)
+    p["path"] = dict(copy.deepcopy(PATH), separation=[[1000, 10.0]],
+                     profile=grade(298.21, 0.0))
+    rows = [r.split(",") for r in build(p).tables["path"].splitlines()[1:]]
+    assert rows and {(r[4], r[8]) for r in rows} == {("298.110", "level")}
+
+
 def test_the_family_writes_the_path_tables(built):
     m, _log = built
     assert m.tables["path"].splitlines()[0].startswith("station,side,separation_ft")

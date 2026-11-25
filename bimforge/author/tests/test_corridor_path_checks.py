@@ -1,6 +1,7 @@
 """road-corridor V1.2 part C: the path's advisory checks (HDM 1003.1)."""
 import csv
 import io
+import math
 
 import pytest
 
@@ -312,3 +313,11 @@ def test_a_deck_with_a_waived_approach_carries_the_separation_it_has():
                        [1600, 10.0]]
     (row,) = pc.deck_width_rows(corridor(p, gaps=GAP))
     assert row.value == pytest.approx(41.0)
+
+
+@pytest.mark.parametrize("ratio, label", [
+    (None, "level"), (62999.1, "level"), (100.01, "level"), (100.0, "100.00"),
+    (2.0, "2.00"), (math.inf, "level")])
+def test_a_strip_flatter_than_100_to_1_is_level(ratio, label):
+    from bimforge.author.corridor.path import PathSection
+    assert pc._strip_label(PathSection("slope", ratio, None, {})) == label
