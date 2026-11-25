@@ -27,6 +27,17 @@ def survey_point(alignment, profile, s: float, u: float, v: float) -> tuple:
             profile.elev(s) + v * cg)
 
 
+def tangent3(alignment, profile, s: float) -> tuple:
+    """The road's unit 3D tangent at station s, (north, east, up): the
+    normal of the section plane `survey_point` builds. Analytic (the plan
+    azimuth and the grade), so exact; a chord of survey points is not."""
+    _n, _e, az = alignment.point_az(s)
+    a = math.radians(az)
+    g = profile.grade(s)
+    cg = 1.0 / math.sqrt(1.0 + g * g)
+    return (math.cos(a) * cg, math.sin(a) * cg, g * cg)
+
+
 def densify(alignment, profile, stations: list) -> list:
     """`stations` with more between them where a plan curve or a vertical
     curve needs them, by the sweep engine's own step rules (SweptSection.
@@ -47,3 +58,31 @@ def densify(alignment, profile, stations: list) -> list:
         out.extend(a + ds * i / n for i in range(n))
     out.append(stations[-1])
     return out
+
+
+#: stations closer than this are one station, feet
+STATION_TOL_FT = 1e-6
+
+
+def merge_stations(have: list, more, tol: float = STATION_TOL_FT) -> list:
+    """`have` (ascending, distinct) with each of `more` not within `tol` of
+    a station already kept, ascending: two rails ending at one station, or
+    a rail end on a wall's or a band's station, cut one section."""
+    out = list(have)
+    for s in sorted(more):
+        if all(abs(s - k) > tol for k in out):
+            out.append(s)
+    return sorted(out)
+
+
+def geometry_stations(al, prof, s0: float, s1: float) -> list:
+    """The alignment's and the profile's own points strictly inside (s0,
+    s1): segment ends (PC, PT, and the PI where tangents meet), and each
+    vertical curve's BVC, PVI and EVC. frame.densify steps between the
+    stations it is given and does not add these, so a section must be cut
+    at each one."""
+    # alignment.Profile's vertical curves are symmetric: the PVI is mid-curve
+    pvis = [c["bvc_station"] + 0.5 * c["length_ft"] for c in prof.curves]
+    out = set(al.seg_breaks(s0, s1)) | set(prof.breaks(s0, s1))
+    out.update(s for s in pvis if s0 + 1e-9 < s < s1 - 1e-9)
+    return sorted(out)

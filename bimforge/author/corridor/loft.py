@@ -16,7 +16,7 @@ import bisect
 import math
 from dataclasses import dataclass
 
-from bimforge.author.alignment import poly_area
+from bimforge.author.alignment import poly_area, sta
 from bimforge.author.corridor.frame import survey_point
 from bimforge.author.primitives import (_outward_tris, _signed_area2,
                                         clean_ring, ear_clip, face_volume)
@@ -24,12 +24,18 @@ from bimforge.author.sweep import SweptSection, _seg_dist, ring_centroid, to_mod
 
 #: Gauss-Legendre nodes and weights on [-1, 1], 5 points: exact for a
 #: polynomial of degree 9 in station, ample for a bay's blended ring (area
-#: quadratic, first moments cubic) in a frame constant on an arc
+#: quadratic, first moments cubic) in a frame constant on an arc. pappus's
+#: integrands are those; centroid_path's speed is a chord, O(h^2) accurate,
+#: so its path is only as exact as that chord
 _GAUSS = ((-0.9061798459386640, 0.2369268850561891),
           (-0.5384693101056831, 0.4786286704993665),
           (0.0, 0.5688888888888889),
           (0.5384693101056831, 0.4786286704993665),
           (0.9061798459386640, 0.2369268850561891))
+
+#: a blended ring (or lofts together) with less area than this, square
+#: feet, has no centroid to measure: refused rather than divided by
+MIN_AREA_SF = 1e-9
 
 
 def _moments(ring: list) -> tuple:
@@ -42,6 +48,19 @@ def _moments(ring: list) -> tuple:
         qu += (u0 + u1) * cr
         qv += (v0 + v1) * cr
     return a / 2.0, qu / 6.0, qv / 6.0
+
+
+def _blend(pairs: list, t: float) -> tuple:
+    """(area, first moment in u, first moment in v) of the rings `pairs`
+    [(ring at the bay's start, ring at its end)] blended vertex for vertex
+    at fraction t of the bay, as IFC blends them (StationLoft.ring_at),
+    summed over the pairs."""
+    area = qu = qv = 0.0
+    for ra, rb in pairs:
+        da, du, dv = _moments([(ua + t * (ub - ua), va + t * (vb - va))
+                               for (ua, va), (ub, vb) in zip(ra, rb)])
+        area, qu, qv = area + da, qu + du, qv + dv
+    return area, qu, qv
 
 
 @dataclass(frozen=True)
@@ -67,7 +86,8 @@ def pappus(lofts: list) -> Pappus:
     sin(gamma) along N. Both by 5-point Gauss-Legendre per bay, on the rings
     blended as IFC blends them (ring_at): within a bay A is quadratic and
     the moments cubic in station, and kappa and the grade's rate constant,
-    since the stations hold every geometry point."""
+    since the stations hold every geometry point. Lofts with next to no
+    area over their length (MIN_AREA_SF a foot) are a ValueError."""
     first = lofts[0]
     al, prof, ss = first.alignment, first.profile, first.stations
     if any(lf.stations != ss for lf in lofts[1:]):
@@ -84,15 +104,14 @@ def pappus(lofts: list) -> Pappus:
         for x, w in _GAUSS:
             t = 0.5 * (1.0 + x)
             s = a + h * t
-            area = qu = qv = 0.0
-            for ra, rb in pairs:
-                da, du, dv = _moments([(ua + t * (ub - ua), va + t * (vb - va))
-                                       for (ua, va), (ub, vb) in zip(ra, rb)])
-                area, qu, qv = area + da, qu + du, qv + dv
+            area, qu, qv = _blend(pairs, t)
             g = prof.grade(s)
             nodes.append((0.5 * h * w, area, qu, qv, al.curvature(s), g,
                           gp / (1.0 + g * g)))
     weight = sum(n[0] * n[1] for n in nodes)
+    if weight <= MIN_AREA_SF * (ss[-1] - ss[0]):
+        raise ValueError(f"{first.name}: no area from {sta(ss[0])} to "
+                         f"{sta(ss[-1])}, so no centroid")
     ub = sum(n[0] * n[2] for n in nodes) / weight
     vb = sum(n[0] * n[3] for n in nodes) / weight
     volume = path = 0.0
@@ -104,6 +123,56 @@ def pappus(lofts: list) -> Pappus:
         path += dw * math.sqrt(along ** 2 + (k * ub * sg) ** 2
                                + (k * vb * sg) ** 2)
     return Pappus(volume, path, ub, vb)
+
+
+def centroid_path(lofts: list, h: float = 0.01) -> Pappus:
+    """pappus, the centroid's line following the blended rings' own
+    centroid at each station rather than held parallel to the profile
+    grade line: a path course rises and falls on its own profile and
+    drifts with its separation (V1.2 C). The volume is pappus's exact one;
+    the path is 5-point Gauss-Legendre per bay of the centroid's speed, the
+    chord of its survey points over station +/- h, as path.cos_theta takes
+    the paved centre's tangent (so a course's depth, thickness / cos theta,
+    and its centroid's line read the same tangent). The chord makes the
+    speed O(h^2) accurate, not exact: on an arc of radius R it runs short
+    by (h / R)^2 / 6. h must be positive, and is held to 0.04 of a short
+    bay so the chord stays inside it (the outer nodes sit 0.047 of a bay
+    in). Offset and height are the centroid's area-weighted means. A bay
+    whose blended rings have under MIN_AREA_SF is a ValueError."""
+    first = lofts[0]
+    al, prof, ss = first.alignment, first.profile, first.stations
+    if any(lf.stations != ss for lf in lofts[1:]):
+        raise ValueError(f"{first.name}: centroid_path needs lofts on the same "
+                         f"stations")
+    if not h > 0.0:
+        raise ValueError(f"{first.name}: centroid_path's chord h must be "
+                         f"positive, not {h}")
+    volume = pappus(lofts).volume_cf
+    path = weight = usum = vsum = 0.0
+    for i, (a, b) in enumerate(zip(ss, ss[1:])):
+        bay = b - a
+        pairs = [(lf.rings[i], lf.rings[i + 1]) for lf in lofts]
+        d = min(h, 0.04 * bay)
+        dt = d / bay
+        for x, w in _GAUSS:
+            t = 0.5 * (1.0 + x)
+            cents = []
+            for tt in (t, t - dt, t + dt):
+                area, qu, qv = _blend(pairs, tt)
+                if area <= MIN_AREA_SF:
+                    raise ValueError(f"{first.name}: no area from {sta(a)} to "
+                                     f"{sta(b)}, so no centroid")
+                cents.append((area, qu / area, qv / area))
+            (area, u, v), (_a0, u0, v0), (_a1, u1, v1) = cents
+            p0 = survey_point(al, prof, a + bay * t - d, u0, v0)
+            p1 = survey_point(al, prof, a + bay * t + d, u1, v1)
+            speed = math.dist(p0, p1) / (2.0 * d)
+            dw = 0.5 * bay * w
+            path += dw * speed
+            weight += dw * area
+            usum += dw * area * u
+            vsum += dw * area * v
+    return Pappus(volume, path, usum / weight, vsum / weight)
 
 
 class StationLoft:

@@ -280,3 +280,21 @@ def test_a_rerun_on_the_same_file_writes_the_same_ids():
     assert {"IfcAlignmentSegment", "IfcReferent", "IfcRelNests",
             "IfcAlignmentVertical", "IfcPropertySet"} <= set(a.values())
     assert a == build()
+
+
+def test_a_two_pvi_profile_is_written_as_one_grade():
+    f = _model()
+    # ZIGZAG runs 10+00 to 14+50; 90.0 to 99.0 over 450 ft is 2 %
+    block = dict(ZIGZAG, profile={"pvis": [{"station": 1000.0, "elevation": 90.0},
+                                           {"station": 1450.0, "elevation": 99.0}],
+                                  "vc_length_ft": 0.0})
+    (rep,) = add_alignments(f, [block])
+    assert rep["vertical"]
+    (al,) = f.by_type("IfcAlignment")
+    segs = [s.DesignParameters
+            for s in alapi.get_layout_segments(alapi.get_vertical_layout(al))]
+    grades = [s for s in segs if s.HorizontalLength > 0]
+    assert [s.PredefinedType for s in grades] == ["CONSTANTGRADIENT"]
+    assert grades[0].StartGradient == pytest.approx(0.02)
+    assert grades[0].HorizontalLength == pytest.approx(450.0 * M_PER_FT)
+    assert not alignment_issues(f)

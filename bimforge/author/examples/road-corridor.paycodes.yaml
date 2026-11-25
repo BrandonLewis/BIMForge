@@ -1,5 +1,11 @@
-# Road corridor: pavement courses and earthwork (CY), guardrail (LF).
+# Road corridor: pavement courses and earthwork (CY), guardrail and path rail (LF).
 rules:
+  - match: "(?i)^PATH-HMA "
+    group: rc_path_hma
+  - match: "(?i)^PATH-AB "
+    group: rc_path_ab
+  - match: "(?i)^Path rail "
+    group: rc_path_rail
   - match: "(?i)^HMA "
     group: rc_hma
   - match: "(?i)^AB "
@@ -16,6 +22,9 @@ groups:
   rc_cut: {measure: GrossVolume}
   rc_fill: {measure: GrossVolume}
   rc_mgs: {measure: Length}
+  rc_path_hma: {measure: GrossVolume}
+  rc_path_ab: {measure: GrossVolume}
+  rc_path_rail: {measure: Length}
 codes:
   PAVE-HMA:
     group: rc_hma
@@ -46,3 +55,18 @@ codes:
     measure: Length
     unit: LF
     description: "Midwest guardrail system (steel post)"
+  PATH-HMA:
+    group: rc_path_hma
+    measure: GrossVolume
+    unit: CY
+    description: "Hot mix asphalt (shared-use path)"
+  PATH-AB:
+    group: rc_path_ab
+    measure: GrossVolume
+    unit: CY
+    description: "Class 2 aggregate base (shared-use path)"
+  RAIL-PATH:
+    group: rc_path_rail
+    measure: Length
+    unit: LF
+    description: "Path rail on a wall (42 in)"

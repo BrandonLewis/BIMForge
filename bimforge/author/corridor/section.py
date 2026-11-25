@@ -11,7 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from bimforge.author.alignment import sta
-from bimforge.author.corridor.params import SIDES, WIDENING_SLOPE, Ditch
+from bimforge.author.corridor.params import (SIDES, WALL_TRANSITION_FT,
+                                             WIDENING_SLOPE, Ditch)
 
 #: points on each side's slope line, hinge and daylight included: fixed, so
 #: every station's earthwork line has the same count and lofts point to point
@@ -43,12 +44,13 @@ class NoDaylight(ValueError):
 
 @dataclass(frozen=True)
 class Side:
-    kind: str           # "cut", "fill" or "wall"
+    kind: str           # "cut", "fill" or "wall"; V1.2 C: "path" (path.side)
     line: list          # [(u, v)] from the hinge out to daylight or the wall
     guarded: bool = False          # V1.1: a steep fill behind guardrail
     #: V1.1: the side's nominal slope ratio: cut_ratio on any cut side (even
     #: a side-hill cut whose ditch edge runs down at the fill ratio), the
-    #: fill or steep ratio on a fill side; None on a wall
+    #: fill or steep ratio on a fill side; None on a wall. V1.2 C: on the
+    #: path's side, the strip's (path.PathSection.ratio), None where level
     ratio: float | None = None
 
 
@@ -61,6 +63,14 @@ class Section:
     sides: dict         # side -> Side
     #: the points on each side's slope line in the earthwork (side_samples)
     samples: int = SIDE_SAMPLES
+    #: V1.2 C: side -> its slope line's point count where it is not
+    #: `samples` (the path's side: path.side_count)
+    side_counts: dict | None = None
+    #: V1.2 C: the path's part of the section (path.PathSection), or None
+    path: object = None
+
+    def count(self, side: str) -> int:
+        return (self.side_counts or {}).get(side, self.samples)
 
     def earthwork_line(self, per_component=1) -> list:
         """Left daylight to right daylight across the subgrade, with the same
@@ -84,10 +94,10 @@ class Section:
             raise ValueError(f"per_component: each count must be an int of "
                              f"at least 1, not {counts}")
         sub = {side: _divided(self.subgrade[side], counts) for side in SIDES}
-        left = list(reversed(_samples(self.sides["L"].line, self.samples)))
+        left = list(reversed(_samples(self.sides["L"].line, self.count("L"))))
         under_left = list(reversed(sub["L"][:-1]))
         under_right = sub["R"][1:]
-        right = _samples(self.sides["R"].line, self.samples)[1:]
+        right = _samples(self.sides["R"].line, self.count("R"))[1:]
         return left + under_left + under_right + right
 
     def width(self) -> float:
@@ -178,7 +188,7 @@ def _side(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
 
 
 def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
-           rail: bool = False) -> Side:
+           rail: bool = False, widen: bool = True) -> Side:
     """The side's slope from `hinge` out to daylight: cut (the ditch, V1.1's
     rock face and bench, then the backslope) or fill (V1.1: the steep ratio
     behind the rail's widening where the fill at the hinge is over the
@@ -195,7 +205,11 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
     where no rail runs and the fill is not guarded they collapse onto the
     hinge, so a side keeps one vertex for each point of its configuration
     and a ditch lofts to the ditch moved out behind the widening, not onto
-    the widening."""
+    the widening.
+
+    With `widen` False (the path's slopes, V1.2 C) the steep ratio still
+    applies over its height but no widening is taken: the points collapse
+    onto the hinge as where no rail runs."""
     hu, hv = hinge
     sl = c.slopes
     fill_ratio, guarded = sl.fill_ratio, False
@@ -203,7 +217,8 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
     collapsed = [hinge, hinge] if c.guard is not None else []
     if ground_dz(s, hu, hv) > 0.0:
         kind = "cut"
-        start = [hinge] + (_widening(c, s, side, sign) if rail else collapsed)
+        start = [hinge] + (_widening(c, s, side, sign) if widen and rail
+                           else collapsed)
         pts, face = _cut(c, s, side, sign, start, sl.ditch, ground_dz)
         rock = sl.rock
         if (rock is not None and rock.catchment is not None
@@ -224,7 +239,8 @@ def _slope(c, s: float, side: str, sign: float, hinge: tuple, ground_dz,
         # height, measured from the shoulder
         if sl.steep is not None and -ground_dz(s, hu, hv) > sl.steep.above_height:
             fill_ratio, guarded = sl.steep.ratio, True
-        pts += _widening(c, s, side, sign) if guarded or rail else collapsed
+        pts += (_widening(c, s, side, sign) if widen and (guarded or rail)
+                else collapsed)
     # up the backslope while the ground is above the slope's start; on a side
     # hill the ditch's outer edge can stand above the ground, and the side
     # then runs down at the fill ratio from there
@@ -373,12 +389,21 @@ def grade_edge(c, s: float, side: str) -> tuple:
     return _grade(c, s, side)[-1]
 
 
-def needs_wall(c, s: float, side: str, ground_dz, rail: bool = False) -> str | None:
-    """The wall `side` needs at station s, "cut" or "fill", when its slope
-    does not fit (no daylight within the limit, or past the footprint);
+def needs_wall(c, s: float, side: str, ground_dz, rail: bool = False,
+               location: str = "outer") -> str | None:
+    """The wall `side` needs at station s when its slope does not fit (no
+    daylight within the limit, or past the footprint): "cut" or "fill";
     None when it fits, or where a wall gap already stands. With `rail`, the
-    slope behind a guardrail's widening (_slope)."""
-    if c.wall(side, s) is not None:
+    slope behind a guardrail's widening (_slope). V1.2 C: on the path's
+    side, where the path is, `location` "outer" asks of the path's outer
+    slope ("path-fill" or "path-cut") and "strip" of the strip between the
+    road and the path ("strip-road" or "strip-path")."""
+    if c.path is not None and side == c.path.side and c.path_at(s):
+        from bimforge.author.corridor import path as path_mod
+        u, v = grade_edge(c, s, side)
+        return path_mod.needs_wall(c, s, (u, v - c.depth()),
+                                   _named(ground_dz, side), rail, location)
+    if location != "outer" or c.wall(side, s) is not None:
         return None
     sign = 1.0 if side == "L" else -1.0
     u, v = grade_edge(c, s, side)
@@ -392,6 +417,20 @@ def needs_wall(c, s: float, side: str, ground_dz, rail: bool = False) -> str | N
 
 #: how close the station a side turns at is found, feet
 _TURN_FT = 1e-9
+
+#: no section is added where a side turns closer than this to a station,
+#: feet: the strip either side would be a sliver
+TURN_GAP_FT = 0.01
+
+
+def in_lead_in(c, s: float) -> bool:
+    """Whether station s is strictly inside an automatic wall's
+    WALL_TRANSITION_FT lead-in, either side of the road: a turn on one side
+    is a section across both, and the wall's side there is a slope that
+    walls.find has not checked."""
+    return any(g.start - WALL_TRANSITION_FT < s < g.start
+               or g.end < s < g.end + WALL_TRANSITION_FT
+               for g in c.gaps if g.auto is not None)
 
 
 def kind_changes(c, a: Section, b: Section, ground_dz) -> list:
@@ -445,9 +484,14 @@ def _named(ground_dz, side: str):
 def resolve(c, s: float, ground_dz, rail=()) -> Section:
     """The section of corridor `c` at station `s` (params.Corridor). `rail`
     names the sides a guardrail runs past at s: each takes the widening
-    behind it (_slope)."""
+    behind it (_slope). V1.2 C: where the path is (c.path_at), its side is
+    path.side's: the strip, the path and its outer slope."""
     depth = c.depth()
     grade, subgrade, courses, sides = {}, {}, {}, {}
+    counts, path_sec = None, None
+    if c.path is not None:
+        from bimforge.author.corridor import path as path_mod
+        counts = {c.path.side: path_mod.side_count(c)}
     for side in SIDES:
         sign = 1.0 if side == "L" else -1.0
         pts = _grade(c, s, side)
@@ -461,6 +505,11 @@ def resolve(c, s: float, ground_dz, rail=()) -> Section:
                 courses[k, j, side] = [(u0, v0 - above), (u1, v1 - above),
                                        (u1, v1 - above - t), (u0, v0 - above - t)]
             above += t
-        sides[side] = _side(c, s, side, sign, subgrade[side][-1],
-                            _named(ground_dz, side), side in rail)
-    return Section(s, grade, courses, subgrade, sides, side_samples(c))
+        if c.path is not None and side == c.path.side and c.path_at(s):
+            sides[side], path_sec = path_mod.side(
+                c, s, subgrade[side][-1], _named(ground_dz, side), side in rail)
+        else:
+            sides[side] = _side(c, s, side, sign, subgrade[side][-1],
+                                _named(ground_dz, side), side in rail)
+    return Section(s, grade, courses, subgrade, sides, side_samples(c),
+                   side_counts=counts, path=path_sec)

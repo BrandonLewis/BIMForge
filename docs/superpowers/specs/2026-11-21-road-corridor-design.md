@@ -49,8 +49,8 @@ New package `bimforge/author/corridor/`, plus the family module.
 
 ### Gaps
 
-- `kind: structure` stops the corridor between two stations. No course or earthwork element lies inside the range, and both ends close on the end station's section plane, square to the 3D tangent, so on a grade an end face leans into the gap by depth x grade (0.014 ft for 1.4 ft of courses on 1%). Earthwork columns stay vertical. The bridge is a separate model, federated by shared GlobalIds.
-- `kind: wall` with `side` and `offset` replaces that side's slope with a level line at subgrade out to the offset; the earthwork closes on a vertical face there. Stations are cut 1 ft outside each end of a wall gap, so the change from slope to wall happens within 1 ft. The wall itself is a separate family.
+- `kind: structure` stops the corridor between two stations. No course or earthwork element lies inside the range, and both ends close on the end station's section plane, square to the 3D tangent, so on a grade an end face leans into the gap by depth x grade (0.014 ft for 1.4 ft of courses on 1%). The earthwork ends on the same plane: its columns run along the leaning section rays (a point v up sits v sin(grade angle) back along the line), triangulated in station and offset, so an earthwork end face is in the section plane too. The bridge is a separate model, federated by shared GlobalIds.
+- `kind: wall` with `side` and `offset` replaces that side's slope with a level line at subgrade out to the offset; the earthwork closes on a face along the section rays there, leaning back with the grade. Stations are cut 1 ft outside each end of a wall gap, so the change from slope to wall happens within 1 ft. The wall itself is a separate family.
 - Gaps must lie on the alignment. A structure gap may not overlap any other gap, and two walls on the same side may not overlap; walls on opposite sides may.
 
 ### Spatial tree and quantities

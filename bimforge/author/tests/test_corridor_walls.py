@@ -198,10 +198,29 @@ def test_too_tall_walls_side_by_side_are_one_structure_candidate():
 def test_the_wall_and_structure_tables():
     rows = [walls.WallRow("R", "fill", 1000.0, 1111.0, 17.0, 15.66, 21.21, True)]
     assert walls.walls_csv(rows) == (
-        walls.WALL_HEADER + "\n" "R,fill,1000.00,1111.00,17.00,15.66,21.21,yes,yes\n")
+        walls.WALL_HEADER + "\n" "R,fill,1000.00,1111.00,17.00,15.66,21.21,yes,yes,outer\n")
     assert walls.walls_csv([]) == walls.WALL_HEADER + "\n"
     assert walls.structures_csv([walls.StructureRow("R", 1000.0, 1111.0, 21.21, 1000.0)]) == (
-        walls.STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00\n")
+        walls.STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00,road,outer\n")
+
+
+def test_a_structure_candidate_keeps_its_wall_s_location():
+    # an own stretch's wall (V1.2 C) is on its own stations: it is never
+    # merged with a wall of another location, even where they overlap and
+    # carry the same thing
+    rows = [walls.WallRow("R", "fill", 100.0, 200.0, 23.0, 8.0, 12.0, True,
+                          location="own 1", carries="path"),
+            walls.WallRow("L", "fill", 150.0, 250.0, 23.0, 8.0, 11.0, True,
+                          location="outer", carries="path"),
+            walls.WallRow("R", "wall-path", 150.0, 250.0, 23.0, 8.0, 13.0, True,
+                          location="strip", carries="path")]
+    got = walls.structures(rows, [100.0, 150.0, 200.0, 250.0], lambda s: 0.0)
+    assert sorted((r.location, r.side, r.start, r.end) for r in got) == [
+        ("outer", "L", 150.0, 250.0), ("own 1", "R", 100.0, 200.0),
+        ("strip", "R", 150.0, 250.0)]
+    (own,) = [r for r in got if r.location == "own 1"]
+    assert walls.structures_csv([own]).splitlines()[1] == (
+        "R,100.00,200.00,12.00,100.00,path,own 1")
 
 
 def test_same_kind_walls_closer_than_a_station_interval_are_one_wall():
@@ -238,3 +257,267 @@ def test_same_kind_walls_merge_and_other_kinds_or_a_bridge_keep_them_apart():
     bridged = corridor(walls="auto", gaps=[{"from": 440, "to": 445, "kind": "structure"}])
     assert len([g for g in bridged.with_walls(
         [a, Gap(446.0, 475.0, "wall", "L", None, auto="fill")]).gaps if g.auto]) == 2
+
+
+# --- V1.2 C: walls in the strip and on the path's outer side ---------------
+
+from dataclasses import replace
+
+from bimforge.author.alignment import Alignment, Profile
+from bimforge.author.corridor import walls as W
+from bimforge.author.corridor.params import Gap as _Gap
+from bimforge.author.corridor.params import parse as _parse
+
+_AL = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0},
+                [{"kind": "tangent", "bearing": "N 0-0-0 E", "length": 1000.0}],
+                name="T")
+_PROF = Profile([{"bvc_station": 1000.0, "bvc_elev": 100.0, "g_in_pct": 0.0,
+                  "g_out_pct": 0.0, "length_ft": 1000.0, "evc_station": 2000.0,
+                  "evc_elev": 100.0}])
+
+
+def _curve(elev, pct):
+    return {"bvc_station": 1000.0, "bvc_elev": elev, "g_in_pct": pct,
+            "g_out_pct": pct, "length_ft": 1000.0, "evc_station": 2000.0,
+            "evc_elev": elev + 10.0 * pct}
+
+
+def _path_corridor(elev, side="L", grade=0.0, path=None, **over):
+    """BASE (the module's) with walls: auto and a path on `side` 10 ft out,
+    its inner edge at `elev` at 10+00, the road at 100.00 there; both at
+    `grade` percent. `path` overrides the path's keys."""
+    p = copy.deepcopy(BASE)
+    p.update(walls="auto", **over)
+    p["path"] = {"side": side, "separation": [[1000, 10.0]], "width": 12.0,
+                 "courses": [{"name": "PATH-AB", "type": "CORE", "thickness": 0.75}],
+                 "profile": {"curves": [_curve(elev, grade)]}}
+    p["path"].update(path or {})
+    prof = _PROF if grade == 0.0 else Profile([_curve(100.0, grade)])
+    return _parse(p, 1000.0, 2000.0, alignment=_AL, profile=prof)
+
+
+def _level(h):
+    return lambda s, u, v: h - v
+
+
+def test_a_wall_s_token_says_where_it_stands_and_what_it_carries():
+    assert [(_Gap(0, 1, "wall", "L", auto=a).strip, _Gap(0, 1, "wall", "L", auto=a).carries)
+            for a in ("fill", "cut", "path-fill", "strip-road", "strip-path")] == [
+        (False, "road"), (False, "road"), (False, "path"), (True, "path"),
+        (True, "path")]
+
+
+def test_a_path_far_below_the_road_takes_a_strip_wall_over_its_stations():
+    c = _path_corridor(87.51)                              # 12 ft below the edge
+    found = W.find(c, [1400.0, 1425.0, 1450.0], _level(-5.0))
+    assert [(g.side, g.auto, g.start, g.end) for g in found] == [
+        ("L", "strip-road", 1400.0, 1450.0)]               # the run's ends
+    c = c.with_walls(found)
+    (row,) = [r for r in W.rows(c, [], _level(-5.0)) if r.location == "strip"]
+    assert (row.kind, row.carries, row.barrier) == ("wall-road", "path", True)
+    # the road's edge of shoulder (-0.49) over the strip at q (-12.59)
+    assert row.max_height == pytest.approx(12.10)
+    assert row.offset == pytest.approx(17.0)
+
+
+def test_a_path_far_above_the_road_takes_a_wall_at_its_shoulder():
+    c = _path_corridor(111.51)                             # 12 ft above
+    c = c.with_walls(W.find(c, [1400.0, 1450.0], _level(-5.0)))
+    rows = [r for r in W.rows(c, [], _level(-5.0)) if r.location == "strip"]
+    (row,) = rows
+    assert (row.kind, row.barrier) == ("wall-path", False)
+    assert row.max_height == pytest.approx(13.30)          # q 11.41 over -1.89
+    assert row.offset == pytest.approx(25.0)
+
+
+def test_a_strip_wall_and_an_outer_wall_may_share_stations():
+    # 12 ft above, and a footprint at 50 ft: the path's 2:1 outer fill from
+    # o (41, 11.17) would daylight 32.34 ft beyond it, past the footprint
+    c = _path_corridor(111.51, section=dict(BASE["section"], side_slopes=dict(
+        BASE["section"]["side_slopes"], footprint_ft={"L": 50.0})))
+    found = W.find(c, [1400.0, 1450.0], _level(-5.0))
+    assert sorted((g.auto, g.strip) for g in found) == [
+        ("path-fill", False), ("strip-path", True)]
+    c = c.with_walls(found)                                # no "too close" error
+    assert c.wall("L", 1425.0).auto == "path-fill"
+    assert c.wall("L", 1425.0, strip=True).auto == "strip-path"
+    # the path-fill wall's face at o (41 ft out, 11.17) over the ground at -5
+    (row,) = [r for r in W.rows(c, [], _level(-5.0)) if r.location == "outer"]
+    assert (row.kind, row.carries, row.barrier) == ("fill", "path", False)
+    assert row.max_height == pytest.approx(16.17)
+    assert row.offset == pytest.approx(41.0)
+
+
+def test_a_too_tall_strip_wall_is_a_structure_candidate_carrying_the_path():
+    c = _path_corridor(87.51, max_wall_height_ft=10)
+    c = c.with_walls(W.find(c, [1400.0, 1450.0], _level(-5.0)))
+    rows = W.rows(c, [], _level(-5.0))
+    (cand,) = W.structures(rows, [1400.0, 1450.0], lambda s: 95.0)
+    assert (cand.side, cand.carries) == ("L", "path")
+    assert (cand.carries, cand.location) == ("path", "strip")
+    assert W.STRUCTURE_HEADER.endswith(",carries,location")
+    assert W.structures_csv([cand]).splitlines()[1].endswith(",path,strip")
+    # location is appended, so a path-less table keeps V1.1's columns
+    assert W.WALL_HEADER.split(",") == [
+        "side", "kind", "start", "end", "offset_ft", "min_height_ft",
+        "max_height_ft", "barrier", "too_tall", "location"]
+
+
+def test_only_a_path_wall_ends_the_path_s_outer_slope():
+    # a road fill wall on the path's side at a path station (set by hand:
+    # with_walls refuses one over the path's stations, and one can only
+    # touch them at its end) is the road's, not the path's: the path's
+    # outer slope there is still a slope, and asks for its own wall
+    from bimforge.author.corridor import path as path_mod
+    from bimforge.author.corridor.section import grade_edge
+    c = _path_corridor(99.51)                              # level with the road
+    road = replace(c, gaps=(_Gap(1000.0, 1400.0, "wall", "L", None, auto="fill"),))
+    hinge = (lambda u, v: (u, v - c.depth()))(*grade_edge(c, 1400.0, "L"))
+    sec = resolve(road, 1400.0, _level(-5.0))
+    assert sec.sides["L"].line[-1] != sec.sides["L"].line[-2]   # a slope
+    assert path_mod.needs_wall(road, 1400.0, hinge, _level(-500.0)) == "path-fill"
+    path = replace(c, gaps=(_Gap(1000.0, 1400.0, "wall", "L", None,
+                                 auto="path-fill"),))
+    assert path_mod.needs_wall(path, 1400.0, hinge, _level(-500.0)) is None
+    sec = resolve(path, 1400.0, _level(-5.0))
+    assert sec.sides["L"].line[-1] == sec.sides["L"].line[-2]   # [o, o]
+
+
+def test_road_walls_on_either_side_of_the_path_are_not_merged_over_it():
+    # path stations shorter than an interval: two road fill walls just
+    # outside them stay two, so no road wall stands on the path's stations
+    c = _path_corridor(99.51, stations={"interval": 50.0})
+    c = replace(c, path=replace(c.path, s_start=1410.0, s_end=1430.0))
+    merged = c.with_walls([_Gap(1380.0, 1408.0, "wall", "L", None, auto="fill"),
+                           _Gap(1432.0, 1460.0, "wall", "L", None, auto="fill")])
+    assert [(g.start, g.end) for g in merged.gaps if g.auto == "fill"] == [
+        (1380.0, 1408.0), (1432.0, 1460.0)]
+    # and one handed in over the path's stations is refused
+    with pytest.raises(ValueError, match="road fill wall on the L side .* overlaps "
+                                         "the path's stations"):
+        c.with_walls([_Gap(1400.0, 1420.0, "wall", "L", None, auto="fill")])
+
+
+def test_a_strip_row_in_the_walls_table():
+    c = _path_corridor(87.51)
+    c = c.with_walls(W.find(c, [1400.0, 1425.0, 1450.0], _level(-5.0)))
+    rows = [r for r in W.rows(c, [], _level(-5.0)) if r.location == "strip"]
+    assert W.walls_csv(rows).splitlines()[1] == (
+        "L,wall-road,1400.00,1450.00,17.00,12.10,12.10,yes,no,strip")
+
+
+def test_a_path_on_the_right_takes_its_strip_wall_on_the_right():
+    c = _path_corridor(87.51, side="R")
+    found = W.find(c, [1400.0, 1425.0, 1450.0], _level(-5.0))
+    assert [(g.side, g.auto, g.start, g.end) for g in found] == [
+        ("R", "strip-road", 1400.0, 1450.0)]
+    (row,) = [r for r in W.rows(c.with_walls(found), [], _level(-5.0))
+              if r.location == "strip"]
+    assert (row.side, row.kind, row.barrier) == ("R", "wall-road", True)
+    assert row.max_height == pytest.approx(12.10)
+    assert row.offset == pytest.approx(17.0)
+
+
+@pytest.mark.parametrize("elev, token, height, offset", [
+    # on 6 %, both profiles parallel: a point d ft off the road's profile
+    # (at its own station) has v = d cg, cg = 1 / sqrt(1.0036) = 0.998205.
+    # wall-road: the edge (-0.49) over q ((-12.49 - 0.10) cg), times cg:
+    # (12.59 cg - 0.49) cg = 12.0557
+    (87.51, "strip-road", 12.0557, 17.0),
+    # wall-path: q ((11.51 - 0.10) cg) over the hinge level (-1.89), times
+    # cg: (11.41 cg + 1.89) cg = 13.2557
+    (111.51, "strip-path", 13.2557, 25.0)])
+def test_a_strip_wall_s_height_on_a_graded_road(elev, token, height, offset):
+    c = _path_corridor(elev, grade=6.0).with_walls(
+        [_Gap(1400.0, 1450.0, "wall", "L", None, auto=token)])
+    (row,) = W.rows(c, [], _level(-5.0))
+    assert row.max_height == pytest.approx(height, abs=1e-4)
+    assert row.min_height == pytest.approx(height, abs=1e-4)
+    assert row.offset == pytest.approx(offset)
+
+
+def _deep_left(s, u, v):
+    # no ground within 150 ft on the left: every left slope needs a wall
+    return (-500.0 if u > 0.0 else -5.0) - v
+
+
+@pytest.mark.parametrize("stations, at, expect", [
+    # the path from 14+00: the road's fill wall ends there, the path's
+    # outer wall starts there
+    ([1400.0, 2000.0], [1350.0, 1375.0, 1399.0, 1400.0, 1425.0, 1450.0],
+     [("fill", 1350.0, 1400.0), ("path-fill", 1400.0, 1450.0)]),
+    # the path to 14+00: the other way round
+    ([1000.0, 1400.0], [1350.0, 1375.0, 1400.0, 1401.0, 1425.0, 1450.0],
+     [("path-fill", 1350.0, 1400.0), ("fill", 1400.0, 1450.0)])])
+def test_a_wall_runs_into_the_path_s_stretch_at_its_end_station(stations, at, expect):
+    c = _path_corridor(99.51, path={"stations": stations})
+    found = W.find(c, at, _deep_left)
+    assert [(g.auto, g.start, g.end) for g in found if g.side == "L"] == expect
+    c = c.with_walls(found)                                # nothing raises
+    for s in (1399.0, 1400.0, 1401.0):
+        resolve(c, s, _deep_left)
+    assert resolve(c, 1400.0, _deep_left).path is not None
+
+
+def test_walls_under_two_feet_apart_away_from_the_path_s_ends_are_refused():
+    c = _path_corridor(99.51, path={"stations": [1400.0, 2000.0]})
+    with pytest.raises(ValueError, match="under 2 ft apart"):
+        c.with_walls([_Gap(1300.0, 1399.0, "wall", "L", None, auto="fill"),
+                      _Gap(1400.5, 1450.0, "wall", "L", None, auto="path-fill")])
+
+
+@pytest.mark.parametrize("gap, message", [
+    (_Gap(1400.0, 1450.0, "wall", "R", None, auto="path-fill"),
+     r"path-fill wall on the R side .*; path.side is L"),
+    (_Gap(1400.0, 1450.0, "wall", "R", None, auto="strip-road"),
+     r"strip-road wall on the R side .*; path.side is L"),
+    (_Gap(1300.0, 1450.0, "wall", "L", None, auto="strip-path"),
+     r"strip-path wall .* off the path's stations \(14\+00.00 to 19\+50.00\) "
+     r"at 13\+00.00"),
+    (_Gap(1900.0, 2000.0, "wall", "L", None, auto="path-cut"),
+     r"path-cut wall .* off the path's stations .* at 20\+00.00")])
+def test_a_path_or_strip_wall_off_the_path_is_refused(gap, message):
+    c = _path_corridor(99.51, path={"stations": [1400.0, 1950.0]})
+    with pytest.raises(ValueError, match=message):
+        c.with_walls([gap])
+
+
+def test_a_path_or_strip_wall_without_a_path_is_refused():
+    with pytest.raises(ValueError, match="strip-road wall on the L side .* with no path"):
+        corridor(walls="auto").with_walls(
+            [_Gap(400.0, 450.0, "wall", "L", None, auto="strip-road")])
+
+
+def test_an_unknown_wall_token_is_refused():
+    c = corridor(walls="auto")
+    c = replace(c, gaps=(_Gap(400.0, 450.0, "wall", "L", None, auto="strip-bad"),))
+    with pytest.raises(ValueError, match="'strip-bad' is not one of"):
+        W.rows(c, [], level(-5.0))
+
+
+def _high_left(s, u, v):
+    # ground far above on the left: every left slope needs a cut wall
+    return (500.0 if u > 0.0 else -5.0) - v
+
+
+@pytest.mark.parametrize("stations, at, expect", [
+    # the path from 14+00: the road's cut wall ends a lead-in short of it
+    ([1400.0, 2000.0], [1350.0, 1375.0, 1399.0, 1400.0, 1425.0, 1450.0],
+     [("cut", 1350.0, 1399.0), ("path-cut", 1400.0, 1450.0)]),
+    # the path to 14+00: the road's cut wall starts a lead-in past it
+    ([1000.0, 1400.0], [1350.0, 1375.0, 1400.0, 1401.0, 1425.0, 1450.0],
+     [("path-cut", 1350.0, 1400.0), ("cut", 1401.0, 1450.0)])])
+def test_a_cut_wall_s_widening_ends_before_the_path_s_stretch(stations, at, expect):
+    from bimforge.author.corridor import path as path_mod
+    c = _path_corridor(99.51, path={"stations": stations})
+    found = W.find(c, at, _high_left)
+    assert [(g.auto, g.start, g.end) for g in found if g.side == "L"] == expect
+    c = c.with_walls(found)                                # nothing raises
+    # the path is placed from the unwidened edge over its end's first foot
+    near = (1400.0, 1400.5, 1401.0) if stations[0] == 1400.0 else (
+        1399.0, 1399.5, 1400.0)
+    for s in near:
+        sf = path_mod.surface(c, s)
+        assert (sf.edge[0], sf.q[0], sf.inner[0]) == pytest.approx((17.0, 25.0, 27.0))
+    for s in (1399.0, 1400.0, 1401.0):
+        resolve(c, s, _high_left)

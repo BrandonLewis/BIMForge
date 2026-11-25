@@ -14,7 +14,7 @@
 
 ## Conventions for every task
 
-- Work in `C:\Users\brand\PycharmProjects\BIMForge\.claude\worktrees\feat-estimate5d-internal-schedule`, branch `feat/g9-terrain-spec`.
+- Work in the branch's worktree, `.claude/worktrees/feat-estimate5d-internal-schedule`, branch `feat/g9-terrain-spec`.
 - Run tests with `PYTHONPATH=. C:/Python314/python.exe -m pytest -q -p no:cacheprovider <paths>`.
 - Most `.py` files are CRLF. Edit them with the Edit tool (it keeps the line endings), or a Python script using `open(..., newline="")`. Never `sed -i` a CRLF file. Check with `file <path>`.
 - Lint: `C:/Python314/python.exe -m ruff check <files>` must pass.
