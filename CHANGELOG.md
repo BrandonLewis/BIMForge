@@ -12,6 +12,24 @@ skip or read them. `model-elements` sends `route`, `based_on` and
 
 ### Added
 
+- **Terrain from a spec (G.9).** A top-level `terrain:` block gives any
+  model its existing ground: `{source: dem | lpc, cache, margin_ft,
+  spacing_m, vshift_m}`, one IfcGeographicElement TERRAIN from USGS 3DEP
+  (the 1 m DEM or the lidar point cloud's bare earth) over the plan extent
+  of the model's elements grown by `margin_ft`, cached under `cache` so
+  rebuilds are offline. The shift from 3DEP's NAVD88 comes from `vshift_m`,
+  else from `project.vertical_datum` (NAVD88 none, NGVD29 by NOAA NCAT at
+  the base point), and is written into the provenance with its source
+  (`VerticalShiftSource`). The road corridor measures against the same
+  ground with `ground: {source: terrain}`; a plane-ground corridor with a
+  `terrain:` block keeps its plane levels and carries the fetched ground.
+  `est-bim terrain SPEC [--refresh] [--family-path DIR]` fetches the ground
+  ahead of the build and reports its footprint, cells, source, vintage,
+  quality level, shift and cache files. A cached DEM now records the area it
+  was fetched for beside it (`<cache>.json`), and a lidar grid its bbox and
+  CRS: a build whose footprint, margin, spacing or CRS has changed fails,
+  naming the cache and `est-bim terrain SPEC --refresh`, where it stretched
+  the old raster over the new area. A `params.terrain` key is refused.
 - **Modified standards are recorded (M.8, M.9).** Every element whose
   family checks it (the B3 wall, the 842 and 732SW barriers) carries
   `BIMForge_Route`: its `Route` (standard, modified-by-value,
@@ -34,6 +52,16 @@ skip or read them. `model-elements` sends `route`, `based_on` and
   `based_on` and `differences`. The shipped B3 examples' tables differ
   from the 2025 pack in 13 values (rounded Type 1 rows), so their Type 1
   slices are modified by value.
+
+### Changed
+
+- The road corridor's `ground: {source: 3dep, cache, spacing_m, margin_ft,
+  vshift_m}` is now read as `terrain:` plus `ground: {source: terrain}`,
+  with a build-log note; the IFC is the same. It takes its shift from
+  `project.vertical_datum` when it gives no `vshift_m`: an NGVD29 project
+  now gets the NCAT shift where it got 0, and a spec with no `vshift_m` and
+  no or an unrecognised `project.vertical_datum` now fails, "has no rule;
+  give terrain.vshift_m", where it built with a shift of 0.
 
 ## 0.1.132 — 2026-11-22
 

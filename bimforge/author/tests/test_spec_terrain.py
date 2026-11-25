@@ -233,3 +233,15 @@ def test_params_terrain_is_reserved(tmp_path):
     with pytest.raises(ValueError, match="params.terrain is reserved.*top-level "
                                          "`terrain:` block"):
         R.load_spec(p)
+
+
+def test_a_wall_with_terrain_passes_the_validators(tmp_path, monkeypatch):
+    import ifcopenshell
+    import ifcopenshell.validate as V
+    offline(monkeypatch)
+    p = b3_spec(tmp_path, {"cache": "terrain/site", "spacing_m": 3.0})
+    assert R.build_from_spec(p) == 0
+    f = ifcopenshell.open(str(tmp_path / "out" / "b3.ifc"))
+    log = V.json_logger()
+    V.validate(f, log)
+    assert not log.statements, log.statements[:3]
