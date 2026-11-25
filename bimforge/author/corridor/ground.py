@@ -72,14 +72,6 @@ def footprint(alignment, reach: float) -> tuple:
 PLANE_CELL_FT = 50.0
 
 
-def _to_model_frame(terrain, ctx) -> None:
-    """The TERRAIN mesh, (northing, easting, elevation) as bimforge.terrain
-    meshes it, moved into the model frame every other body is in."""
-    from bimforge.author.sweep import to_model
-    d = terrain.geometry
-    d["verts"] = [to_model(ctx, n, e, z) for n, e, z in d["verts"]]
-
-
 def _plane_terrain(ground, alignment, ctx, reach: float, margin: float,
                    model) -> None:
     """The plane as a TERRAIN element over the footprint a 3DEP fetch would
@@ -87,7 +79,7 @@ def _plane_terrain(ground, alignment, ctx, reach: float, margin: float,
     is, so a cut voids it exactly as it voids 3DEP ground."""
     import numpy as np
 
-    from bimforge.terrain.attach import add_terrain
+    from bimforge.terrain.attach import add_terrain, to_model_frame
     from bimforge.terrain.grid import TerrainGrid, grid_to_mesh
     cell = PLANE_CELL_FT
     margin = max(margin, 2.0 * cell)
@@ -108,8 +100,8 @@ def _plane_terrain(ground, alignment, ctx, reach: float, margin: float,
             "PlaneSlopeE": ground.slope_e, "MeshSpacing": cell,
             "MeshSpacingUnit": "ftUS" if abs(k - 1200.0 / 3937.0) < 1e-12 else "ft",
             "Carved": False, "SurveyGrade": False}
-    _to_model_frame(add_terrain(model, "Existing ground - design plane",
-                                verts, tris, prov), ctx)
+    to_model_frame(add_terrain(model, "Existing ground - design plane",
+                               verts, tris, prov), ctx)
 
 
 def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
@@ -135,6 +127,7 @@ def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
             raise ValueError("ground: source 3dep needs project.epsg")
         import bimforge.terrain as terrain
         from bimforge.bim.georef import crs_unit
+        from bimforge.terrain.attach import to_model_frame
         # 3DEP reads the bbox and spacing in the CRS's own unit (ftUS for a
         # State Plane zone in feet); elevations come back in metres. The
         # model is in feet, so plan and height convert apart.
@@ -153,7 +146,7 @@ def from_params(gp: dict, alignment, ctx, reach: float, model, log=print):
         grid = terrain.fetch_3dep_dem(bbox, spacing, ctx.epsg,
                                       Path(stem + "-3DEP-DEM.tif"), log=log)
         if model is not None:
-            _to_model_frame(terrain.attach_terrain(
+            to_model_frame(terrain.attach_terrain(
                 model, bbox, crs_epsg=ctx.epsg, cache_stem=stem,
                 unit_scale=1.0 / ft, plan_scale=1.0 / c, spacing_m=spacing,
                 vshift_m=vshift, log=log), ctx)

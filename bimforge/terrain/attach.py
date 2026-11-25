@@ -18,10 +18,37 @@ from .provenance import build_provenance, spacing_unit
 from .solid import carve
 
 
+def fetch_grid(bbox_m, *, crs_epsg, cache_stem, spacing_m, source="dem",
+               refresh=False, log=print):
+    """The 3DEP TerrainGrid over ``bbox_m`` (CRS units), fetched or read from
+    the cache under ``cache_stem``: the 1 m DEM (``source="dem"``) or the
+    lidar point cloud's bare earth (``"lpc"``, its WGS84 discovery bbox
+    derived from ``bbox_m`` via pyproj). Elevations are NAVD88 metres."""
+    cache_stem = str(cache_stem)
+    if source == "lpc":
+        try:
+            from pyproj import Transformer
+        except ImportError as e:
+            raise RuntimeError(
+                "pyproj is required for the lpc terrain source — "
+                'pip install "bimforge[terrain]"') from e
+        to_ll = Transformer.from_crs(crs_epsg, 4326, always_xy=True)
+        lo1, la1 = to_ll.transform(bbox_m[0], bbox_m[1])
+        lo2, la2 = to_ll.transform(bbox_m[2], bbox_m[3])
+        wgs = (f"{min(lo1, lo2)},{min(la1, la2)},"
+               f"{max(lo1, lo2)},{max(la1, la2)}")
+        return fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs, cache_stem,
+                              refresh=refresh, log=log)
+    return fetch_3dep_dem(bbox_m, spacing_m, crs_epsg,
+                          Path(cache_stem + "-3DEP-DEM.tif"),
+                          refresh=refresh, log=log)
+
+
 def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
                    spacing_m=3.0, source="dem", vshift_m=None,
                    vshift_lookup=None, lonlat=None, cuts=(), refresh=False,
-                   plan_scale=None, log=print):
+                   plan_scale=None, grid=None, vshift_source=None,
+                   log=print):
     """Fetch USGS 3DEP existing ground over ``bbox_m`` and attach it to
     ``model`` as site-context terrain; returns the added Element.
 
@@ -55,26 +82,16 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
     and degrades, logged, to the open surface if the mesh-boolean deps are
     missing). The element name gains "(excavation carved)" only when the
     carve actually produced the closed solid.
+
+    ``grid`` is an already-fetched TerrainGrid over ``bbox_m``, which is then
+    not fetched again; ``vshift_source`` is written into the provenance as
+    ``VerticalShiftSource``.
     """
     cache_stem = str(cache_stem)
-    if source == "lpc":
-        try:
-            from pyproj import Transformer
-        except ImportError as e:
-            raise RuntimeError(
-                "pyproj is required for the lpc terrain source — "
-                'pip install "bimforge[terrain]"') from e
-        to_ll = Transformer.from_crs(crs_epsg, 4326, always_xy=True)
-        lo1, la1 = to_ll.transform(bbox_m[0], bbox_m[1])
-        lo2, la2 = to_ll.transform(bbox_m[2], bbox_m[3])
-        wgs = (f"{min(lo1, lo2)},{min(la1, la2)},"
-               f"{max(lo1, lo2)},{max(la1, la2)}")
-        grid = fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs, cache_stem,
-                              refresh=refresh, log=log)
-    else:
-        grid = fetch_3dep_dem(bbox_m, spacing_m, crs_epsg,
-                              Path(cache_stem + "-3DEP-DEM.tif"),
-                              refresh=refresh, log=log)
+    if grid is None:
+        grid = fetch_grid(bbox_m, crs_epsg=crs_epsg, cache_stem=cache_stem,
+                          spacing_m=spacing_m, source=source,
+                          refresh=refresh, log=log)
 
     if vshift_m is not None:
         shift = float(vshift_m)
@@ -112,7 +129,8 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
 
     info = dict(grid.info)
     info.setdefault("crs_epsg", grid.crs_epsg)
-    prov = build_provenance(source, info, wu, shift, spacing_m, closed)
+    prov = build_provenance(source, info, wu, shift, spacing_m, closed,
+                            shift_source=vshift_source)
 
     name = ("Existing ground - USGS 3DEP %s%s"
             % ("lidar" if source == "lpc" else "DEM",
@@ -132,3 +150,19 @@ def add_terrain(model, name, verts, tris, provenance, closed=False):
         body="solid" if closed else "surface",
         geometry={"kind": "mesh", "verts": verts, "tris": tris,
                   "units": "ft", "provenance": provenance}))
+
+
+def is_terrain(el) -> bool:
+    """The element is the model's existing ground: IfcGeographicElement
+    TERRAIN."""
+    return (el.ifc_class == "IfcGeographicElement"
+            and (el.predefined_type or "").upper() == "TERRAIN")
+
+
+def to_model_frame(el, ctx) -> None:
+    """Move a TERRAIN element's mesh, (northing, easting, elevation) in survey
+    feet as `attach_terrain` and `add_terrain` mesh it, into the model frame
+    every other body is in (x east, y north, local to the project base)."""
+    from bimforge.author.sweep import to_model
+    d = el.geometry
+    d["verts"] = [to_model(ctx, n, e, z) for n, e, z in d["verts"]]

@@ -215,3 +215,45 @@ def test_the_log_gives_the_spacing_in_the_crs_unit(tmp_path, monkeypatch, epsg, 
                           spacing_m=3.0, vshift_m=0.0, log=logs.append)
     assert el.geometry["provenance"]["MeshSpacingUnit"] == unit
     assert any(f"@ 3 {unit}," in line for line in logs), logs
+
+
+def test_a_supplied_grid_is_not_fetched_and_the_shift_source_is_kept(tmp_path,
+                                                                     monkeypatch):
+    monkeypatch.setattr(A, "fetch_3dep_dem", _never)
+    monkeypatch.setattr(A, "fetch_3dep_lpc", _never)
+    monkeypatch.setattr(A, "workunit_meta", _never)
+    m = _model()
+    el = A.attach_terrain(m, (0.0, 0.0, 4.0, 4.0), crs_epsg=26942,
+                          cache_stem=str(tmp_path / "site"), unit_scale=FT,
+                          spacing_m=1.0, vshift_m=0.0, vshift_source="NAVD88: none",
+                          grid=_grid(), log=lambda *_: None)
+    assert el.geometry["provenance"]["VerticalShiftSource"] == "NAVD88: none"
+
+
+def test_fetch_grid_picks_the_dem_cache_path(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False, log=print):
+        seen.update(cache=str(cache_path), refresh=refresh)
+        return _grid()
+
+    monkeypatch.setattr(A, "fetch_3dep_dem", fake_dem)
+    g = A.fetch_grid((0.0, 0.0, 4.0, 4.0), crs_epsg=26942,
+                     cache_stem=str(tmp_path / "site"), spacing_m=1.0,
+                     refresh=True, log=lambda *_: None)
+    assert g.z.shape == (4, 4)
+    assert seen == {"cache": str(tmp_path / "site") + "-3DEP-DEM.tif",
+                    "refresh": True}
+
+
+def test_is_terrain_and_to_model_frame():
+    from bimforge.author.model import Element
+    m = _model()
+    el = A.add_terrain(m, "g", [(10.0, 20.0, 30.0)], [], {})
+    assert A.is_terrain(el)
+    assert not A.is_terrain(Element("w", ifc_class="IfcWall"))
+    ctx = ProjectContext(name="t", epsg=26942, base_e=5.0, base_n=8.0,
+                         base_h=1.0, guid_ns=uuid.UUID(int=11))
+    A.to_model_frame(el, ctx)
+    # (northing 10, easting 20, elevation 30) -> x = 20 - 5, y = 10 - 8, z = 29
+    assert el.geometry["verts"] == [(15.0, 2.0, 29.0)]
