@@ -369,7 +369,7 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
   - a run ending 0.2 ft off the rejoin point is an error;
   - a hand-over at a station without natural ground between is an error;
   - a run that swings back into the road's footprint is an error naming both stations;
-  - a 150 ft radius is listed at 25 mph and 30 mph but not at 20;
+  - a 150 ft radius is listed at 30 mph but not at 20 (the radius tables hold only the design speeds a path takes);
   - its IfcAlignment passes `gate.alignment_issues`, and a two-PVI path profile builds.
 - **Equestrian tread:**
   - the section with a tread is hand-worked, covering the buffer, the tread, the clear strip and the outer slope;

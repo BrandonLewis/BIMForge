@@ -260,7 +260,10 @@ class Corridor:
     def path_at(self, s: float) -> bool:
         """Whether the path is part of the section at station s (V1.2 C): on
         its stations, and not strictly inside a structure gap (there it is
-        on the deck, and no section is cut)."""
+        on the deck, and no section is cut). Not path_checks.on_deck (the path
+        on the road's deck) nor path._on_deck (the structure gap alone): this
+        is also false within a path gap and its transition foot, in an own
+        stretch, and off the path's stations."""
         p = self.path
         if p is None or not p.covers(s):
             return False

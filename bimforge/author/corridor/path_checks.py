@@ -107,7 +107,9 @@ def _within(a: float, b: float) -> list:
 
 def on_deck(c, s: float) -> bool:
     """Strictly inside a road structure gap, not in a path gap and not in an
-    own stretch: the path is on the road's deck."""
+    own stretch: the path is on the road's deck. (path._on_deck is the
+    structure gap alone; Corridor.path_at is whether a section carries the
+    path, also false off its stations and within a path gap's transition.)"""
     return (not c.path.in_gap(s) and not c.path.in_own(s)
             and any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
                     for g in c.gaps))
@@ -372,10 +374,19 @@ def _shielded(rails, side: str, s: float) -> bool:
     return any(r.side == side and r.start - 1e-6 <= s <= r.end + 1e-6 for r in rails)
 
 
+def shields(rails, walls_=()) -> list:
+    """What stands between the road and its path, each with side, start
+    and end: the road's guardrail runs (guardrail.RailRun) and the strip
+    walls at the road's hinge (walls.WallRow `wall-road`), whose barrier
+    is the road's, as V1.1's automatic fill wall carries one. The rail on
+    a `wall-path` is the path's, not a barrier from the road."""
+    return list(rails) + [w for w in walls_
+                          if w.kind == "wall-road" and w.location == "strip"]
+
+
 def barrier_rows(c, rails) -> list:
-    """A separation under 10 ft with no road guardrail (`rails`,
-    guardrail.RailRun) on the path's side: a barrier is needed
-    (1003.1(7)). Off the decks."""
+    """A separation under 10 ft with no barrier (`rails`: `shields`) on the
+    path's side: a barrier is needed (1003.1(7)). Off the decks."""
     from bimforge.author.corridor.path import BARRIER_SEPARATION_FT
     p = c.path
 
@@ -526,7 +537,7 @@ def _order(row) -> tuple:
 def checks(c, rails, walls_) -> list:
     """Every advisory row for corridor `c`'s path, by start station, then
     its own stretches' rows (`own <n> ...`) by their own stations."""
-    found = (grade_rows(c) + deck_rows(c) + crest_rows(c) + barrier_rows(c, rails)
+    found = (grade_rows(c) + deck_rows(c) + crest_rows(c) + barrier_rows(c, shields(rails, walls_))
              + approach_rows(c) + path_gap_rows(c) + equestrian_rows(c)
              + deck_width_rows(c) + wall_rows(walls_) + own_rows(c))
     return sorted(found, key=_order)
@@ -562,15 +573,17 @@ def _own_ends(p, s: float) -> list:
             if abs(s - at) <= _EPS]
 
 
-def path_csv(c, secs: list, rails) -> str:
+def path_csv(c, secs: list, rails, walls_=()) -> str:
     """outputs.path: one row per section of `secs` that carries the path,
     and one per corridor station on a deck the path crosses. The table is
     on road stations, so it has none inside an own stretch: the hand-over
     and the rejoin rows note it ("own <n> hand-over" / "own <n> rejoin"),
-    and without a section row there one is written as a path gap's is."""
+    and without a section row there one is written as a path gap's is.
+    The barrier is `rail` where one of `shields(rails, walls_)` stands."""
     from bimforge.author.corridor.path import BARRIER_SEPARATION_FT, on_approach
     p = c.path
     prof = p.road_profile
+    guard = shields(rails, walls_)
     rows = []
     for sec in secs:
         ps = sec.path
@@ -580,7 +593,7 @@ def path_csv(c, secs: list, rails) -> str:
         hinge = prof.elev(s) + (sf.edge[1] - c.depth()) * sf.cg
         pz, g = p.profile.elev(s), path_grade(c, s)
         under = sf.separation < BARRIER_SEPARATION_FT - _EPS
-        barrier = ("rail" if under and _shielded(rails, p.side, s)
+        barrier = ("rail" if under and _shielded(guard, p.side, s)
                    else "yes" if under else "no")
         note = ";".join(x for x, on in (("approach", on_approach(c, s)),
                                         ("grade>5%", abs(g) > MAX_GRADE + 1e-12),

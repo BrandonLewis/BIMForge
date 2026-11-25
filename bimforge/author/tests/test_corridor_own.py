@@ -928,11 +928,17 @@ TIGHT = [dict(x, radius=150.0, length=round(x["length"] / 2.0, 5)) for x in BUMP
 TIGHT_TO = 1100.0 + 205.212
 
 
-def test_a_150_ft_radius_is_listed_at_25_and_30_mph_but_not_20():
+def test_the_radius_tables_hold_the_speeds_a_path_takes():
+    from bimforge.author.corridor.path import DESIGN_SPEEDS
+    assert set(own_mod.MIN_RADIUS_FT) == set(own_mod.NO_SUPER_RADIUS_FT) == set(
+        pc.SSD_FT) == set(DESIGN_SPEEDS) == {20, 30}
+
+
+def test_a_150_ft_radius_is_listed_at_30_mph_but_not_20():
     c = corridor(own_path(run=TIGHT, to=TIGHT_TO))
     (own,) = c.path.own
     assert own_mod.radius_rows(own, 20) == []
-    for speed in (25, 30):
+    for speed in (30,):
         found = own_mod.radius_rows(own, speed)
         assert len(found) == 6
         assert {r.check for r in found} == {
@@ -947,13 +953,13 @@ def test_a_150_ft_radius_is_listed_at_25_and_30_mph_but_not_20():
 
 
 def test_a_radius_at_the_limit_is_not_listed():
-    # 160 ft is the 25 mph minimum, though under its no-superelevation 180
-    run = [dict(x, radius=160.0, length=round(x["length"] * 160.0 / 300.0, 5))
+    # 260 ft is the 30 mph minimum, though under its no-superelevation 320
+    run = [dict(x, radius=260.0, length=round(x["length"] * 260.0 / 300.0, 5))
            for x in BUMP]
-    (own,) = corridor(own_path(run=run, to=1100.0 + 4 * 160.0 * math.sin(
+    (own,) = corridor(own_path(run=run, to=1100.0 + 4 * 260.0 * math.sin(
         math.radians(20.0)))).path.own
-    assert {r.check for r in own_mod.radius_rows(own, 25)} == {
-        "own 1 radius under the no-superelevation radius at 25 mph"}
+    assert {r.check for r in own_mod.radius_rows(own, 30)} == {
+        "own 1 radius under the no-superelevation radius at 30 mph"}
 
 
 def test_the_path_s_checks_take_in_its_own_stretches():

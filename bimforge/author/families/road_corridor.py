@@ -1108,7 +1108,7 @@ def build(params: dict, ctx) -> "StructureModel":
     if c.path is not None:
         from bimforge.author.corridor import path_checks
         model.tables["path"] = path_checks.path_csv(c, sorted(every, key=lambda x: x.s),
-                                                    rails)
+                                                    rails, wall_rows)
         model.tables["path_checks"] = path_checks.checks_csv(
             path_checks.checks(c, rails, wall_rows))
     return model

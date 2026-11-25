@@ -445,6 +445,11 @@ def deck_elevation(c, s: float) -> float:
 
 
 def _on_deck(c, s: float) -> bool:
+    # strictly inside a road structure gap, whatever the path does there (a
+    # path gap or an own stretch over it too): no road section is cut, so
+    # nothing of the path's beside section is checked; path_checks.on_deck
+    # is the narrower "the path is ON the road's deck", Corridor.path_at
+    # the wider "the path is in the section"
     return any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
                for g in c.gaps)
 

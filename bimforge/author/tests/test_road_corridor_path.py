@@ -429,6 +429,23 @@ def test_a_level_strip_is_listed_as_level():
     assert rows and {(r[4], r[8]) for r in rows} == {("298.110", "level")}
 
 
+def test_a_road_side_strip_wall_s_barrier_shields_the_path():
+    # 8 ft out and 6 ft below the road: a wall at the road's hinge all the
+    # way, carrying the road's barrier (walls: barrier yes). The path table
+    # says the barrier is there and the checks list no barrier needed
+    p = copy.deepcopy(PARAMS)
+    p["gaps"], p["walls"] = [], "auto"
+    p["path"] = dict(copy.deepcopy(PATH), separation=[[1000, 8.0]],
+                     profile=grade(292.0, 1.0))
+    m = build(p)
+    walls = [r.split(",") for r in m.tables["walls"].splitlines()[1:]]
+    assert [(w[1], w[2], w[3], w[7]) for w in walls] == [
+        ("wall-road", "1000.00", "1600.00", "yes")]
+    rows = [r.split(",") for r in m.tables["path"].splitlines()[1:]]
+    assert rows and {(r[8], r[9]) for r in rows} == {("wall-road", "rail")}
+    assert "barrier needed" not in m.tables["path_checks"]
+
+
 def test_the_family_writes_the_path_tables(built):
     m, _log = built
     assert m.tables["path"].splitlines()[0].startswith("station,side,separation_ft")

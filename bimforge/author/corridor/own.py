@@ -39,9 +39,10 @@ HANDOVER_FT = 0.01
 ARC_TOL_FT = 0.01
 ARC_TOL_RATIO = 5e-6
 #: HDM 1003.1(10): the least radius, and the radius under which a path
-#: would need superelevation (its cross slope stays at most 2 %), by speed
-MIN_RADIUS_FT = {20: 90.0, 25: 160.0, 30: 260.0}
-NO_SUPER_RADIUS_FT = {20: 100.0, 25: 180.0, 30: 320.0}
+#: would need superelevation (its cross slope stays at most 2 %), by speed:
+#: at the design speeds a path takes (path.DESIGN_SPEEDS, Table 1003.1)
+MIN_RADIUS_FT = {20: 90.0, 30: 260.0}
+NO_SUPER_RADIUS_FT = {20: 100.0, 30: 320.0}
 #: an own profile's grade at a hand-over or rejoin meets path.profile's within
 #: this, %: a few places written (5 dp, or a 2 dp length) and a break this small
 #: has no crest to size
