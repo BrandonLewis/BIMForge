@@ -7,8 +7,8 @@ typed by IfcCourseType, IfcEarthworksCut and IfcEarthworksFill).
 One element per course, component and station band (both sides' lofts),
 and one cut and one fill per band. A structure gap ends a run: each run is
 its own ROADSEGMENT, and its first and last sections close the courses with
-their caps and the earthwork with vertical columns, so nothing lies inside
-the gap.
+their caps and the earthwork with faces in the section plane, so nothing
+lies inside the gap.
 
 V1.1: with `walls: auto` the family first finds where no slope fits
 (corridor.walls) and adds a wall gap there, built as a listed wall is, then
@@ -26,33 +26,22 @@ from __future__ import annotations
 import math
 import sys
 
+# a run's stations and where a side turns are the corridor's (corridor.frame,
+# corridor.section); named here too for the family's callers
+from bimforge.author.corridor.frame import (  # noqa: F401
+    STATION_TOL_FT, geometry_stations, merge_stations)
+from bimforge.author.corridor.section import TURN_GAP_FT  # noqa: F401
+from bimforge.author.corridor.section import in_lead_in as _in_lead_in
+
 REQUIRED = ("alignment", "profile", "ground", "section")
 LAYER = "C-ROAD"
 #: how far a course's exact volume may stray from its average end areas,
 #: and its mesh from its exact volume (check_arc_faceting's
 #: FACET_TOLERANCE, the same 0.5%)
 AEA_TOL = 0.005
-#: no section is added where a side turns closer than this to a station,
-#: feet: the strip either side would be a sliver
-TURN_GAP_FT = 0.01
 #: how many times walls: auto may add walls the guardrail's widening needs
 #: and lay the rail again
 RAIL_WALL_ROUNDS = 5
-
-
-#: stations closer than this are one station, feet
-STATION_TOL_FT = 1e-6
-
-
-def merge_stations(have: list, more, tol: float = STATION_TOL_FT) -> list:
-    """`have` (ascending, distinct) with each of `more` not within `tol` of
-    a station already kept, ascending: two rails ending at one station, or
-    a rail end on a wall's or a band's station, cut one section."""
-    out = list(have)
-    for s in sorted(more):
-        if all(abs(s - k) > tol for k in out):
-            out.append(s)
-    return sorted(out)
 
 
 def bands(stations: list, s_start: float, band: float) -> list:
@@ -66,19 +55,6 @@ def bands(stations: list, s_start: float, band: float) -> list:
         else:
             out.append([k, i, i + 1])
     return [(i0, i1) for _k, i0, i1 in out]
-
-
-def geometry_stations(al, prof, s0: float, s1: float) -> list:
-    """The alignment's and the profile's own points strictly inside (s0,
-    s1): segment ends (PC, PT, and the PI where tangents meet), and each
-    vertical curve's BVC, PVI and EVC. frame.densify steps between the
-    stations it is given and does not add these, so a section must be cut
-    at each one."""
-    # alignment.Profile's vertical curves are symmetric: the PVI is mid-curve
-    pvis = [c["bvc_station"] + 0.5 * c["length_ft"] for c in prof.curves]
-    out = set(al.seg_breaks(s0, s1)) | set(prof.breaks(s0, s1))
-    out.update(s for s in pvis if s0 + 1e-9 < s < s1 - 1e-9)
-    return sorted(out)
 
 
 def per_component(c, ground) -> list:
@@ -106,7 +82,38 @@ def ground_reach(c) -> float:
     half = max(sum(_widest(c, comp, side) for comp in c.components)
                for side in SIDES)
     walls = [g.offset for g in c.gaps if g.kind == "wall" and g.offset is not None]
-    return max([half + c.slopes.daylight_limit] + walls)
+    out = max([half + c.slopes.daylight_limit] + walls)
+    if c.path is not None:
+        p = c.path
+        # the road's widest side, the path's farthest separation, its paved
+        # width and both shoulders, then the daylight limit: conservative,
+        # as the widest side and the farthest separation need not be at
+        # one station, and the strip lies inside it
+        far = max(v for _s, v in p.separation) + p.width + 2.0 * p.shoulder_width
+        if p.equestrian is not None:
+            # a tread: the buffer, the tread and its clear strip in place of
+            # the outer shoulder
+            eq = p.equestrian
+            far += eq.buffer + eq.width + eq.clear - p.shoulder_width
+        out = max(out, half + far + c.slopes.daylight_limit)
+        for o in p.own:
+            # an own stretch (V1.2 C): how far its centreline wanders from
+            # the road's, sampled every OWN_REACH_STEP_FT or closer, then
+            # its half section (the paved half and the shoulder, or the
+            # tread out to its clear strip) and the daylight limit
+            half_own = (far - max(v for _s, v in p.separation) - 0.5 * p.width
+                        - p.shoulder_width)
+            road = [(n, e) for n, e, _s in p.alignment.densify(o.start, o.end,
+                                                              OWN_REACH_STEP_FT)]
+            wander = max(min(math.hypot(n - rn, e - re) for rn, re in road)
+                         for n, e, _t in o.alignment.densify(0.0, o.length,
+                                                             OWN_REACH_STEP_FT))
+            out = max(out, wander + half_own + c.slopes.daylight_limit)
+    return out
+
+
+#: how often ground_reach samples an own stretch and the road beside it, feet
+OWN_REACH_STEP_FT = 5.0
 
 
 def _widest(c, comp, side: str) -> float:
@@ -132,17 +139,6 @@ def across_crown(left: list, right: list) -> list:
     return list(left) + list(right[::-1][1:-1])
 
 
-def _in_lead_in(c, s: float) -> bool:
-    """Whether station s is strictly inside an automatic wall's
-    WALL_TRANSITION_FT lead-in, either side of the road: a turn on one side
-    is a section across both, and the wall's side there is a slope that
-    walls.find has not checked."""
-    from bimforge.author.corridor.params import WALL_TRANSITION_FT
-    return any(g.start - WALL_TRANSITION_FT < s < g.start
-               or g.end < s < g.end + WALL_TRANSITION_FT
-               for g in c.gaps if g.auto is not None)
-
-
 def _terrain(model) -> str | None:
     """The TERRAIN element's name, when the ground added one (3DEP)."""
     for el in model.elements:
@@ -160,6 +156,386 @@ def _parts(r: int) -> tuple:
     return seg, {kind: {"name": f"Segment {r} {kind}", "predefined_type": pt,
                         "usage_type": "LATERAL", "parent": seg}
                  for kind, pt in PART_TYPES.items()}
+
+
+def path_part(segment: dict, r: int) -> dict:
+    """Run r's shared-use path (V1.2 C): an IfcRoadPart beside its
+    CARRIAGEWAY and SHOULDER, USERDEFINED SHAREDUSEPATH (IfcRoadPartTypeEnum
+    has no path value; SIDEWALK is for pedestrians)."""
+    return {"name": f"Segment {r} shared-use path",
+            "predefined_type": "SHAREDUSEPATH", "usage_type": "LATERAL",
+            "parent": segment, "family_class": "road-corridor-shared-use-path"}
+
+
+def tread_part(segment: dict, r: int) -> dict:
+    """Run r's equestrian tread (V1.2 C): its own IfcRoadPart beside the
+    path's, USERDEFINED EQUESTRIANTRAIL, which its courses, its fence and
+    the rail on a wall along it belong to."""
+    return {"name": f"Segment {r} equestrian tread",
+            "predefined_type": "EQUESTRIANTRAIL", "usage_type": "LATERAL",
+            "parent": segment, "family_class": "road-corridor-equestrian-tread"}
+
+
+#: the path's rail body: a band this deep from the wall's top up to the
+#: rail's height, on the path's side of the face, feet
+PATH_RAIL_DEPTH_FT = 0.25
+PATH_RAIL_TYPE = "Path rail"
+#: the rail on a wall along the tread (an outer wall, with a tread)
+EQUESTRIAN_RAIL_TYPE = "Equestrian rail"
+#: the fence's body: a band this deep on the buffer, toward the tread, up
+#: to its height, feet
+FENCE_DEPTH_FT = 0.25
+FENCE_TYPE = "Path fence"
+
+
+def run_of(runs: list, s: float, what: str) -> int:
+    """The number (from 1) of the corridor run, of `runs` (each its
+    sections), that station s is on: the ROADSEGMENT of `what` (named in the
+    error), which starts there."""
+    from bimforge.author.alignment import sta
+    for r, secs in enumerate(runs, start=1):
+        if secs[0].s - 1e-6 <= s <= secs[-1].s + 1e-6:
+            return r
+    raise ValueError(f"{what}: starts at {sta(s)}, on no corridor run "
+                     f"(inside a structure gap?)")
+
+
+def path_rail_walls(c) -> list:
+    """The wall gaps that carry the path's rail: a strip wall at the path's
+    inner shoulder, a fill wall on its outer side."""
+    return [g for g in c.gaps if g.auto in ("strip-path", "path-fill")]
+
+
+def on_tread(c, g) -> bool:
+    """Whether wall gap `g` runs along the equestrian tread: an outer wall,
+    which stands at o, the tread's clear strip's end, where there is one.
+    A strip wall is beside the paved path, so it keeps the path's rail."""
+    return c.path.equestrian is not None and not g.strip
+
+
+def path_rail_name(c, g) -> str:
+    """The name of the rail on wall gap `g`."""
+    from bimforge.author.alignment import sta
+    kind = EQUESTRIAN_RAIL_TYPE if on_tread(c, g) else PATH_RAIL_TYPE
+    return f"{kind} {g.side} STA {sta(g.start)} to {sta(g.end)}"
+
+
+def railing_element(name: str, al, prof, ctx, stations: list, rings: list,
+                    predefined: str, type_name: str, family_class: str,
+                    height: float, part: dict):
+    """An IfcRailing lofted through `rings` at `stations` (V1.2 C: the
+    path's rail, the tread's rail and fence, beside the road or on an own
+    stretch), BIMForge_Guardrail its height and stations, Length =
+    EndStation - StartStation."""
+    from bimforge.author.alignment import sta
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor.loft import StationLoft
+    from bimforge.author.model import Element
+    a, b = stations[0], stations[-1]
+    loft = StationLoft(name, al, prof, ctx, stations, rings, ifc="IfcRailing",
+                       layer=LAYER)
+    return Element(
+        name, ifc_class="IfcRailing", geometry=[loft], predefined_type=predefined,
+        type_name=type_name, typed_late=True, family_class=family_class,
+        material="Steel", layer=LAYER, body="solids", spatial_part=part,
+        quantities={"length_ft": b - a, "volume_cf": loft.volume_cf},
+        dimensions={"RailHeight": height, **dims.stations(a, b)},
+        psets={"BIMForge_Guardrail": {
+            "RailHeight": ("length", height),
+            "StartStation": ("length", a), "EndStation": ("length", b),
+            "StartStationText": sta(a), "EndStationText": sta(b)}},
+        standard_qto={"Qto_RailingBaseQuantities": {
+            "Length": ("length", b - a, dims.LENGTH)}})
+
+
+def _band(base: tuple, inward: float, height: float, cg: float,
+          depth: float) -> list:
+    """A rail's or the fence's ring: `depth` from `base` toward `inward`
+    (+1 or -1 in u), from base's level up `height` of elevation (v is
+    along the plane: over the grade's cos `cg`)."""
+    (bu, bv), x = base, base[0] + inward * depth
+    top = bv + height / cg
+    return [(bu, bv), (x, bv), (x, top), (bu, top)]
+
+
+def path_rail_element(g, c, al, prof, ctx, segment: dict, r: int):
+    """The rail on wall gap `g` as an IfcRailing GUARDRAIL: a
+    PATH_RAIL_DEPTH_FT band from the wall's top (q for a strip wall, o for
+    an outer one) up its height, on the path's side of the face, lofted at
+    the corridor's stations along the road's profile. Along the tread (an
+    outer wall, with one) it is the tread's Equestrian rail, 54 in by
+    default, in run r's tread part; otherwise the path's 42 in Path rail,
+    in its path part; `segment` is run r's ROADSEGMENT."""
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor.frame import densify
+    from bimforge.author.corridor.path import surface
+    p = c.path
+    if on_tread(c, g):
+        height, kind, cls = (p.equestrian.rail_height, EQUESTRIAN_RAIL_TYPE,
+                             dims.EQUESTRIAN_RAIL)
+        part = tread_part(segment, r)
+    else:
+        height, kind, cls = p.rail_height, PATH_RAIL_TYPE, dims.PATH_RAIL
+        part = path_part(segment, r)
+    stations = densify(al, prof, c.stations(
+        g.start, g.end, geometry_stations(al, prof, g.start, g.end)))
+    rings = []
+    for s in stations:
+        sf = surface(c, s)
+        base, inward = (sf.q, p.sign) if g.strip else (sf.o, -p.sign)
+        rings.append(_band(base, inward, height, sf.cg, PATH_RAIL_DEPTH_FT))
+    return railing_element(path_rail_name(c, g), al, prof, ctx, stations, rings,
+                           "GUARDRAIL", kind, cls, height, part)
+
+
+def fence_element(c, al, prof, ctx, stations: list, surfaces: list, part: dict,
+                  label: str = ""):
+    """The open rail fence over `stations` (consecutive; `surfaces` the
+    path's surface at each, path.Surface beside the road or own.OwnSurface
+    on an own stretch, whose `label` is "path <n> ") as an IfcRailing
+    FENCE: a FENCE_DEPTH_FT band on the buffer, from `clear_ft` in from the
+    tread's inner edge (the surface's `fence`) toward the tread, up
+    `fence_height_ft`, lofted at those stations."""
+    from bimforge.author.alignment import sta
+    from bimforge.author.corridor import dimensions as dims
+    p = c.path
+    height = p.equestrian.fence_height
+    # the tread is out from the paved path, +sign in u, beside the road and
+    # on an own stretch alike (its inner edge is on the -sign side)
+    rings = [_band(sf.fence, p.sign, height, sf.cg, FENCE_DEPTH_FT) for sf in surfaces]
+    name = (f"{FENCE_TYPE} {label}{p.side} STA {sta(stations[0])} to "
+            f"{sta(stations[-1])}")
+    return railing_element(name, al, prof, ctx, stations, rings, "FENCE", FENCE_TYPE,
+                           dims.PATH_FENCE, height, part)
+
+
+def path_runs(secs: list, breaks=(), has=None) -> list:
+    """[(i0, i1)]: the index ranges of `secs` (one band's sections) the path
+    is built over: consecutive sections that carry it, two at least, cut
+    again at each station of `breaks` (curvature_steps inside the band: the
+    path's courses step there, path_rings). Each break must
+    be a section's station, as geometry_stations makes it; one that is not
+    is a ValueError, as a stretch across it would blend over the step.
+    `has(sec)` is whether a section carries the path: by default its
+    `path`; on an own stretch every section does."""
+    from bimforge.author.alignment import sta
+    for b in breaks:
+        if not any(abs(sec.s - b) <= STATION_TOL_FT for sec in secs):
+            raise ValueError(f"road-corridor: the alignment's segment end at "
+                             f"{sta(b)} is no section's station")
+
+    def cut(i):
+        return any(abs(secs[i].s - b) <= STATION_TOL_FT for b in breaks)
+
+    out, start = [], None
+    if has is None:
+        def has(sec):
+            return sec.path is not None
+
+    for i, sec in enumerate(list(secs) + [None]):
+        here = sec is not None and has(sec)
+        if here and start is None:
+            start = i
+        elif here and cut(i) and i > start:
+            out.append((start, i))
+            start = i
+        elif not here and start is not None:
+            if i - 1 > start:
+                out.append((start, i - 1))
+            start = None
+    return out
+
+
+def curvature_steps(al, s0: float, s1: float) -> list:
+    """The alignment's segment ends strictly inside (s0, s1) where its
+    curvature steps (a PC, a PT, a curve into one of another radius): not
+    a join of two tangents, or of two curves alike."""
+    return [b for b in al.seg_breaks(s0, s1)
+            if al.curvature(b, 1.0) != al.curvature(b, -1.0)]
+
+
+def at_break(al, s: float) -> bool:
+    """Whether station s is one of curvature_steps, within STATION_TOL_FT."""
+    return any(abs(s - b) <= STATION_TOL_FT
+               for b in curvature_steps(al, s - 1.0, s + 1.0))
+
+
+def path_rings(c, al, ss: list, bs: list, tread: bool = False, own=None) -> list:
+    """[[ring per station] per path course] over one stretch of a band
+    (with `tread`, per tread course): each section's own
+    (section.Section.path), but at a step in the
+    alignment's curvature the stretch starts or ends on (a PC, a PT;
+    curvature_steps), the ring on the
+    stretch's own side (path.surface's `toward`). The road's curvature
+    steps there, and with it the path's grade along its own length and
+    theta: a ring read across the step (the section's, its chord over
+    s +/- h solved with both curvatures) is neither side's, and the bay's
+    blend from it misses PathLength * Width * Thickness by 1e-4 and more
+    (a 3 % path on a 7 % road at R 500, 33 ft out).
+
+    With `own` (own.Own), `al` is its own alignment, `bs` its own sections
+    (own.OwnSection) and the one-sided ring own.own_surface's: the paved
+    courses are centred on that alignment (cos theta 1), but the tread's
+    centre is off it, and its chord across a PC, a PT or a reverse-curve
+    join misses by some 3e-6 on a graded curve."""
+    from bimforge.author.corridor import own as own_mod
+    from bimforge.author.corridor.path import course_rings, surface, tread_rings
+    p = c.path
+
+    def rings_of(sec):
+        sec = sec if own is not None else sec.path
+        return sec.tread_courses if tread else sec.courses
+
+    count = len(p.equestrian.courses) if tread else len(p.courses)
+    out = [[rings_of(sec)[k] for sec in bs] for k in range(count)]
+    for i, toward in ((0, 1.0), (len(ss) - 1, -1.0)):
+        if at_break(al, ss[i]):
+            sf = (surface(c, ss[i], toward=toward) if own is None
+                  else own_mod.own_surface(p, own, ss[i], toward=toward))
+            one = tread_rings(p.equestrian, sf) if tread else course_rings(p, sf)
+            for k, rings in enumerate(out):
+                rings[i] = one[k]
+    return out
+
+
+def add_courses(model, courses, label: str, al, prof, ctx, ss: list, rings: list,
+                part: dict, log) -> None:
+    """One IfcCourse per course of `courses` (V1.2 C: the path's or the
+    tread's) over stations `ss`, `rings[k]` course k's ring at each, one
+    body named "<course> <label>" in road part `part`. Its exact volume and
+    its centroid's line are loft.centroid_path's; the Volume formula is
+    written where it holds and logged where it does not."""
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor.loft import StationLoft, centroid_path
+    from bimforge.author.gate import FORMULA_TOLERANCE
+    from bimforge.author.model import Element
+    b0, b1 = ss[0], ss[-1]
+    for k, course in enumerate(courses):
+        name = f"{course.name} {label}"
+        lofts = [StationLoft(name, al, prof, ctx, ss, rings[k], ifc="IfcCourse",
+                             layer=LAYER)]
+        centroid = centroid_path(lofts)
+        vol = centroid.volume_cf
+        aea = lofts[0].average_end_area_cf
+        shape, volume = dims.course_volume(vol, centroid.path_ft,
+                                           lofts[0].widths_ft, course.thickness)
+        if len(volume) == 2:
+            log(f"road-corridor: {name}: Volume formula withheld: PathLength * "
+                f"Width * Thickness is not its exact volume within "
+                f"{FORMULA_TOLERANCE:g}")
+        model.add(Element(
+            name, ifc_class="IfcCourse", geometry=lofts,
+            predefined_type=course.type, type_name=course.name,
+            material=course.name, layer=LAYER, body="solids",
+            spatial_part=part, family_class=dims.COURSE,
+            dimensions={"Thickness": course.thickness, **shape,
+                        "Offset": centroid.offset_ft,
+                        "PathLength": centroid.path_ft, **dims.stations(b0, b1)},
+            quantities={"length_ft": b1 - b0, "volume_cf": vol},
+            standard_qto={"Qto_CourseBaseQuantities": {
+                "Length": ("length", b1 - b0, dims.LENGTH),
+                "Width": ("length", lofts[0].mean_width_ft),
+                "Thickness": ("length", course.thickness),
+                "Volume": volume}}))
+        model.stated_quantities.append(
+            (f"{name}: exact volume vs average end area", vol, aea,
+             AEA_TOL * max(aea, 1.0)))
+
+
+def add_path_courses(model, c, al, prof, ctx, ss: list, bs: list, part: dict,
+                     log, tread: bool = False, own=None) -> None:
+    """The path's courses over one stretch of a band: stations `ss`, their
+    sections `bs`, each course one body under the paved width (path_rings);
+    with `tread` the equestrian tread's, under the tread's width, as the
+    paved courses are; with `own` (own.Own) on that own stretch, `al` and
+    `prof` its own and `bs` its own sections, named "path <n>" or "tread
+    <n>". add_courses writes each; the formula is withheld where the bays'
+    blend cannot follow theta (a separation row's kink inside the
+    stretch)."""
+    from bimforge.author.alignment import sta
+    where = "tread" if tread else "path"
+    if own is not None:
+        where = f"{where} {own.index}"
+    add_courses(model, c.path.equestrian.courses if tread else c.path.courses,
+                f"{where} STA {sta(ss[0])} to {sta(ss[-1])}", al, prof, ctx, ss,
+                path_rings(c, al, ss, bs, tread=tread, own=own), part, log)
+
+
+def earthwork_elements(c, tag: str, ss: list, bs: list, cut: list, fill: list,
+                       cut_d: float, fill_d: float, segment: dict, host) -> list:
+    """The band's cut and fill elements, "Cut <tag>" and "Fill <tag>" (V1,
+    V1.1's dimensions), from earthwork.strip's columns `cut` and `fill` and
+    their deepest `cut_d` and `fill_d`, over the band's stations `ss` and
+    sections `bs`: the road's, or (V1.2 C) an own stretch's on its own
+    stations, `c` the corridor its slopes are read on (own.own_corridor).
+    A cut voids `host`, the TERRAIN, where there is one."""
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor import earthwork
+    from bimforge.author.corridor.params import SIDES
+    from bimforge.author.model import Element
+    b0, b1 = ss[0], ss[-1]
+    # the band's mean width, weighted by length as a course's is
+    width = dims.band_mean(ss, [sec.width() for sec in bs])
+    cut_cf = sum(p.volume_cf for p in cut)
+    fill_cf = sum(p.volume_cf for p in fill)
+    out = []
+    if cut:
+        cut_dims = {"MaxDepth": cut_d,
+                    "MeanDepth": mean_depth(cut_cf, cut),
+                    "SlopeRatio": c.slopes.cut_ratio,
+                    **dims.stations(b0, b1)}
+        if c.slopes.rock is not None:
+            # how far down the rock lies, the band's mean by length
+            cut_dims["RockDepth"] = dims.band_mean(
+                ss, [c.slopes.rock.depth_at(s) for s in ss])
+        out.append(Element(
+            f"Cut {tag}", ifc_class="IfcEarthworksCut",
+            geometry=earthwork.merge(f"Cut {tag}", "cut", cut),
+            predefined_type="CUT", layer=LAYER, body="solids",
+            spatial_part=segment, voids=host,
+            family_class=dims.CUT, dimensions=cut_dims,
+            quantities={"length_ft": b1 - b0, "volume_cf": cut_cf},
+            standard_qto={"Qto_EarthworksCutBaseQuantities": {
+                "Length": ("length", b1 - b0, dims.LENGTH),
+                "Width": ("length", width),
+                "Depth": ("length", cut_d),
+                "UndisturbedVolume": ("volume", cut_cf),
+                "LooseVolume": ("volume", cut_cf * (1.0 + c.swell))}}))
+    if fill:
+        bank = fill_cf / (1.0 - c.shrink)
+        # the steepest fill slope the band's sections take; none where
+        # every fill side is a wall (SlopeRatio is optional)
+        ratios = [sec.sides[side].ratio for sec in bs for side in SIDES
+                  if sec.sides[side].kind == "fill"
+                  and sec.sides[side].ratio is not None]
+        fill_dims = {"MaxDepth": fill_d,
+                     "MeanDepth": mean_depth(fill_cf, fill),
+                     **dims.stations(b0, b1)}
+        if ratios:
+            fill_dims["SlopeRatio"] = min(ratios)
+        out.append(Element(
+            f"Fill {tag}", ifc_class="IfcEarthworksFill",
+            geometry=earthwork.merge(f"Fill {tag}", "fill", fill),
+            predefined_type="EMBANKMENT", layer=LAYER, body="solids",
+            spatial_part=segment, family_class=dims.FILL,
+            dimensions=fill_dims,
+            quantities={"length_ft": b1 - b0, "volume_cf": fill_cf},
+            standard_qto={"Qto_EarthworksFillBaseQuantities": {
+                "Length": ("length", b1 - b0, dims.LENGTH),
+                "Width": ("length", width),
+                "Depth": ("length", fill_d),
+                "CompactedVolume": ("volume", fill_cf),
+                "LooseVolume": ("volume", bank * (1.0 + c.swell))}}))
+    return out
+
+
+def road_walls(c, side: str) -> list:
+    """The wall gaps on `side` that bound the road's guardrail: listed walls,
+    V1.1's automatic road walls, and a strip wall at the road's hinge
+    (V1.2 C). A wall on the path's outer side, or one at the path's
+    shoulder, is not the road's."""
+    return [g for g in c.gaps if g.kind == "wall" and g.side == side
+            and g.auto in (None, "fill", "cut", "strip-road")]
 
 
 def lay_rails(c, runs: list) -> list:
@@ -183,7 +559,7 @@ def lay_rails(c, runs: list) -> list:
     for side in SIDES:
         walls = [(g.start - WALL_TRANSITION_FT, g.end + WALL_TRANSITION_FT)
                  if g.auto == "cut" else (g.start, g.end)
-                 for g in c.gaps if g.kind == "wall" and g.side == side]
+                 for g in road_walls(c, side)]
         for secs in runs:
             s0, s1 = secs[0].s, secs[-1].s
             spans = guardrail.spans([sec.s for sec in secs],
@@ -213,7 +589,7 @@ def under_rail(c, rails: list, s: float) -> tuple:
     def in_lead_in(side):
         return any(g.start - lead <= s < g.start - 1e-6
                    or g.end + 1e-6 < s <= g.end + lead
-                   for g in c.gaps if g.kind == "wall" and g.side == side)
+                   for g in road_walls(c, side))
 
     return tuple(sorted({r.side for r in rails
                          if r.start - 1e-6 <= s <= r.end + 1e-6
@@ -224,34 +600,22 @@ def rail_stations(c, rails: list, s0: float, s1: float) -> list:
     """The stations on [s0, s1] a section is cut at for `rails`: each rail's
     ends, and a foot past each wall lead-in under a rail, so the widening
     starts and stops at them."""
-    from bimforge.author.corridor.params import WALL_TRANSITION_FT
+    from bimforge.author.corridor.params import SIDES, WALL_TRANSITION_FT
     out = [s for r in rails for s in (r.start, r.end)]
-    for g in c.gaps:
-        if g.kind != "wall":
-            continue
-        for s in (g.start - 2 * WALL_TRANSITION_FT, g.end + 2 * WALL_TRANSITION_FT):
-            if any(r.side == g.side and r.start - 1e-6 <= s <= r.end + 1e-6
-                   for r in rails):
-                out.append(s)
+    for side in SIDES:
+        for g in road_walls(c, side):
+            for s in (g.start - 2 * WALL_TRANSITION_FT,
+                      g.end + 2 * WALL_TRANSITION_FT):
+                if any(r.side == g.side and r.start - 1e-6 <= s <= r.end + 1e-6
+                       for r in rails):
+                    out.append(s)
     return [s for s in out if s0 - 1e-6 <= s <= s1 + 1e-6]
-
-
-def rail_segment(rail, runs: list) -> int:
-    """The number (from 1) of the corridor run, of `runs` (each its
-    sections), that `rail` starts on: its ROADSEGMENT."""
-    from bimforge.author.alignment import sta
-    r = next((r for r, secs in enumerate(runs, start=1)
-              if secs[0].s - 1e-6 <= rail.start <= secs[-1].s + 1e-6), None)
-    if r is None:
-        raise ValueError(f"{rail_name(rail)}: starts at {sta(rail.start)}, on "
-                         f"no corridor run (inside a structure gap?)")
-    return r
 
 
 def mean_depth(volume_cf: float, columns: list) -> float:
     """A band's mean cut or fill depth: its volume over the plan area under
     its columns (earthwork.plan_area_sf). Every column has plan area
-    (earthwork._column drops one that has none), so a band with earthwork
+    (earthwork.strip drops a triangle that has none), so a band with earthwork
     has some; MeanDepth is a required dimension, so none gives 0 rather
     than a division by zero."""
     from bimforge.author.corridor import earthwork
@@ -332,6 +696,136 @@ def _rail_warnings(rail, c) -> list:
     return out
 
 
+def section_at(runs: list, s: float):
+    """The section of `runs` (each corridor run's, by station) at station
+    s, within STATION_TOL_FT, or None."""
+    return next((sec for secs in runs for sec in secs
+                 if abs(sec.s - s) <= STATION_TOL_FT), None)
+
+
+def own_rail_element(c, o, g, al, prof, ctx, part: dict, tpart: dict):
+    """The rail on own stretch `o`'s fill wall `g` (own stations) as an
+    IfcRailing GUARDRAIL, as path_rail_element's beside the road: a
+    PATH_RAIL_DEPTH_FT band from the wall's top, q on the inner side or o
+    on the outer, back toward the paved path, lofted along the own
+    alignment `al` and profile `prof` at its corridor's stations. With a
+    tread, a wall on the outer side runs along it and takes the
+    Equestrian rail, in the tread's part `tpart`; otherwise the Path rail,
+    in the path's `part`."""
+    from bimforge.author.alignment import sta
+    from bimforge.author.corridor import dimensions as dims
+    from bimforge.author.corridor import own as own_mod
+    from bimforge.author.corridor.frame import densify
+    p = c.path
+    oc = own_mod.own_corridor(c, o)
+    stations = densify(al, prof, oc.stations(
+        g.start, g.end, geometry_stations(al, prof, g.start, g.end)))
+    # the outer side: the one the inner edge is not on (OwnSurface.inward)
+    outer = (g.side == "L") != (own_mod.own_surface(p, o, g.start).inward > 0)
+    if p.equestrian is not None and outer:
+        height, kind, cls, where = (p.equestrian.rail_height, EQUESTRIAN_RAIL_TYPE,
+                                    dims.EQUESTRIAN_RAIL, tpart)
+    else:
+        height, kind, cls, where = p.rail_height, PATH_RAIL_TYPE, dims.PATH_RAIL, part
+    rings = []
+    for t in stations:
+        sf = own_mod.own_surface(p, o, t)
+        base, sign = own_mod._start(sf, g.side)
+        rings.append(_band(base, -sign, height, sf.cg, PATH_RAIL_DEPTH_FT))
+    name = f"{kind} path {o.index} {g.side} STA {sta(g.start)} to {sta(g.end)}"
+    return railing_element(name, al, prof, ctx, stations, rings, "GUARDRAIL", kind,
+                           cls, height, where)
+
+
+def add_own(model, c, o, ground, ctx, log, runs: list, host) -> list:
+    """Own stretch `o` (corridor.own.Own) of corridor `c`'s path (V1.2 C):
+    its walls (with walls: auto) and sections, its plan footprint checked
+    against the road's, run by run, then band by band on its own
+    stationing its courses and the tread's (path <n>, tread <n>), cut at
+    its curvature steps as the path's are beside the road, its cut and
+    fill (Cut path <n> ..., Fill path <n> ...), and the rails on its fill
+    walls and its fence: all lofted along its own alignment and profile,
+    so emit_alignments writes its IfcAlignment. They are in the path's and
+    the tread's parts of the run `o` hands over from; its earthwork, by
+    its own stations, is not in the road's mass haul. `runs` are the
+    road's sections; returns its walls' rows (walls.WallRow) and its
+    structure candidates (walls.StructureRow) on its own stations, their
+    low points on its own centreline."""
+    from bimforge.author.alignment import sta
+    from bimforge.author.corridor import earthwork
+    from bimforge.author.corridor import own as own_mod
+    from bimforge.author.corridor import walls as auto_walls
+    from bimforge.author.corridor.frame import survey_point
+    p = c.path
+    al, prof = o.alignment, o.profile
+
+    def survey(t, u, v):
+        return survey_point(al, prof, t, u, v)
+
+    def ground_dz(t, u, v):
+        n, e, z = survey(t, u, v)
+        return ground.z(n, e) - z
+
+    def road_survey(s, u, v):
+        return survey_point(p.alignment, p.road_profile, s, u, v)
+
+    oc = own_mod.own_corridor(c, o)
+    if c.auto_walls:
+        o, oc = own_mod.find_walls(c, oc, o, ground_dz)
+    secs_runs = own_mod.own_sections(c, oc, o, ground_dz)
+    # the road's sections along the stretch, where it is the road's alone
+    # (path_at: False), each run's apart so no edge spans a structure gap
+    lo, hi = o.start + own_mod.HANDOVER_FT, o.end - own_mod.HANDOVER_FT
+    for secs in secs_runs:
+        mine = own_mod.plan(survey, ground.z, secs, own=o)
+        for road in runs:
+            along = [sec for sec in road if lo - 1e-6 <= sec.s <= hi + 1e-6]
+            if along:
+                own_mod.check_footprints(
+                    o, own_mod.plan(road_survey, ground.z, along), mine)
+    r = run_of(runs, o.start, f"path.own[{o.entry}]")
+    segment = _parts(r)[0]
+    part, tpart = path_part(segment, r), tread_part(segment, r)
+    eq = p.equestrian
+    for secs in secs_runs:
+        stations = [x.s for x in secs]
+        for i0, i1 in bands(stations, 0.0, c.band):
+            ss, bs = stations[i0:i1 + 1], secs[i0:i1 + 1]
+            tag = f"path {o.index} STA {sta(ss[0])} to {sta(ss[-1])}"
+            # cut where the own alignment's curvature steps: so does the
+            # tread's theta (path_rings)
+            for p0, p1 in path_runs(bs, curvature_steps(al, ss[0], ss[-1]),
+                                    has=lambda sec: True):
+                add_path_courses(model, c, al, prof, ctx, ss[p0:p1 + 1],
+                                 bs[p0:p1 + 1], part, log, own=o)
+                if eq is not None:
+                    add_path_courses(model, c, al, prof, ctx, ss[p0:p1 + 1],
+                                     bs[p0:p1 + 1], tpart, log, tread=True, own=o)
+            cut, fill, cut_d, fill_d = [], [], 0.0, 0.0
+            for a, b in zip(bs, bs[1:]):
+                cp, fp, cd, fd = earthwork.strip(f"{tag} {sta(a.s)}", a, b, survey,
+                                                 ground.z, ctx)
+                cut += cp
+                fill += fp
+                cut_d, fill_d = max(cut_d, cd), max(fill_d, fd)
+            for el in earthwork_elements(oc, tag, ss, bs, cut, fill, cut_d, fill_d,
+                                         segment, host):
+                model.add(el)
+    for g in o.walls:
+        if g.auto == "path-fill":
+            model.add(own_rail_element(c, o, g, al, prof, ctx, part, tpart))
+    if eq is not None and eq.fence:
+        # over each own run: it stops at the stretch's own gaps
+        for secs in secs_runs:
+            model.add(fence_element(c, al, prof, ctx, [x.s for x in secs],
+                                    [x.surface for x in secs], tpart,
+                                    label=f"path {o.index} "))
+    every = [x for secs in secs_runs for x in secs]
+    rows = own_mod.wall_rows(c, oc, o, ground_dz, secs=every)
+    return rows, auto_walls.structures(rows, [x.s for x in every],
+                                       lambda t: ground.z(*survey(t, 0.0, 0.0)[:2]))
+
+
 def build(params: dict, ctx) -> "StructureModel":
     from bimforge.author.alignment import Alignment, Profile, sta
     from bimforge.author.corridor import dimensions as dims
@@ -350,7 +844,7 @@ def build(params: dict, ctx) -> "StructureModel":
     al_p = params["alignment"]
     al = Alignment(al_p["pob"], al_p["run"], name=al_p.get("name", "ML"))
     prof = Profile(params["profile"]["curves"])
-    c = parse(params, al.s_start, al.s_end)
+    c = parse(params, al.s_start, al.s_end, alignment=al, profile=prof)
     model = StructureModel("road-corridor", ctx)
     def log(msg):
         print(msg, file=sys.stderr)
@@ -528,6 +1022,16 @@ def build(params: dict, ctx) -> "StructureModel":
                     model.stated_quantities.append(
                         (f"{name}: exact volume vs average end area", vol, aea,
                          AEA_TOL * max(aea, 1.0)))
+            if c.path is not None:
+                # cut where the alignment's curvature steps as well: so
+                # does theta
+                for p0, p1 in path_runs(bs, curvature_steps(al, b0, b1)):
+                    add_path_courses(model, c, al, prof, ctx, ss[p0:p1 + 1],
+                                     bs[p0:p1 + 1], path_part(segment, r), log)
+                    if c.path.equestrian is not None:
+                        add_path_courses(model, c, al, prof, ctx, ss[p0:p1 + 1],
+                                         bs[p0:p1 + 1], tread_part(segment, r), log,
+                                         tread=True)
             cut, fill, cut_d, fill_d = [], [], 0.0, 0.0
             for a, b in zip(bs, bs[1:]):
                 cp, fp, cd, fd = earthwork.strip(f"{tag} {sta(a.s)}", a, b,
@@ -536,66 +1040,44 @@ def build(params: dict, ctx) -> "StructureModel":
                 cut += cp
                 fill += fp
                 cut_d, fill_d = max(cut_d, cd), max(fill_d, fd)
-            # the band's mean width, weighted by length as a course's is
-            width = dims.band_mean(ss, [sec.width() for sec in bs])
+            els = [model.add(el) for el in earthwork_elements(
+                c, tag, ss, bs, cut, fill, cut_d, fill_d, segment, host)]
             cut_cf = sum(p.volume_cf for p in cut)
             fill_cf = sum(p.volume_cf for p in fill)
-            els = []
-            if cut:
-                cut_dims = {"MaxDepth": cut_d,
-                            "MeanDepth": mean_depth(cut_cf, cut),
-                            "SlopeRatio": c.slopes.cut_ratio,
-                            **dims.stations(b0, b1)}
-                if c.slopes.rock is not None:
-                    # how far down the rock lies, the band's mean by length
-                    cut_dims["RockDepth"] = dims.band_mean(
-                        ss, [c.slopes.rock.depth_at(s) for s in ss])
-                els.append(model.add(Element(
-                    f"Cut {tag}", ifc_class="IfcEarthworksCut",
-                    geometry=earthwork.merge(f"Cut {tag}", "cut", cut),
-                    predefined_type="CUT", layer=LAYER, body="solids",
-                    spatial_part=segment, voids=host,
-                    family_class=dims.CUT, dimensions=cut_dims,
-                    quantities={"length_ft": b1 - b0, "volume_cf": cut_cf},
-                    standard_qto={"Qto_EarthworksCutBaseQuantities": {
-                        "Length": ("length", b1 - b0, dims.LENGTH),
-                        "Width": ("length", width),
-                        "Depth": ("length", cut_d),
-                        "UndisturbedVolume": ("volume", cut_cf),
-                        "LooseVolume": ("volume", cut_cf * (1.0 + c.swell))}})))
-            if fill:
-                bank = fill_cf / (1.0 - c.shrink)
-                # the steepest fill slope the band's sections take; none
-                # where every fill side is a wall (SlopeRatio is optional)
-                ratios = [sec.sides[side].ratio for sec in bs for side in SIDES
-                          if sec.sides[side].kind == "fill"
-                          and sec.sides[side].ratio is not None]
-                fill_dims = {"MaxDepth": fill_d,
-                             "MeanDepth": mean_depth(fill_cf, fill),
-                             **dims.stations(b0, b1)}
-                if ratios:
-                    fill_dims["SlopeRatio"] = min(ratios)
-                els.append(model.add(Element(
-                    f"Fill {tag}", ifc_class="IfcEarthworksFill",
-                    geometry=earthwork.merge(f"Fill {tag}", "fill", fill),
-                    predefined_type="EMBANKMENT", layer=LAYER, body="solids",
-                    spatial_part=segment, family_class=dims.FILL,
-                    dimensions=fill_dims,
-                    quantities={"length_ft": b1 - b0, "volume_cf": fill_cf},
-                    standard_qto={"Qto_EarthworksFillBaseQuantities": {
-                        "Length": ("length", b1 - b0, dims.LENGTH),
-                        "Width": ("length", width),
-                        "Depth": ("length", fill_d),
-                        "CompactedVolume": ("volume", fill_cf),
-                        "LooseVolume": ("volume", bank * (1.0 + c.swell))}})))
             hauls.append((b0, b1, cut_cf, fill_cf))
             haul_elements.append(els)
     # after every run's courses and earthwork, so their order is V1's
     for rail in rails:
-        model.add(rail_element(rail, c, al, prof, ctx,
-                               _parts(rail_segment(rail, runs))[0]))
+        r = run_of(runs, rail.start, rail_name(rail))
+        model.add(rail_element(rail, c, al, prof, ctx, _parts(r)[0]))
         for msg in _rail_warnings(rail, c):
             log(msg)
+    if c.path is not None:
+        for g in path_rail_walls(c):
+            r = run_of(runs, g.start, path_rail_name(c, g))
+            model.add(path_rail_element(g, c, al, prof, ctx, _parts(r)[0], r))
+        eq = c.path.equestrian
+        if eq is not None and eq.fence:
+            # over the tread's stations, one per stretch of sections that
+            # carry the path: it stops at road and path gaps
+            for r, secs in enumerate(runs, start=1):
+                for i0, i1 in path_runs(secs):
+                    model.add(fence_element(
+                        c, al, prof, ctx, [x.s for x in secs[i0:i1 + 1]],
+                        [x.path.surface for x in secs[i0:i1 + 1]],
+                        tread_part(_parts(r)[0], r)))
+    own_rows, own_structures = [], []
+    if c.path is not None:
+        from bimforge.author.corridor import own as own_mod
+        for o in c.path.own:
+            # the beside sections at both ends (stations_extra cuts them)
+            ends = [section_at(runs, s) or resolve(c, s, ground_dz,
+                                                   rail=under_rail(c, rails, s))
+                    for s in (o.start, o.end)]
+            own_mod.check_handover(o, *ends)
+            got, candidates = add_own(model, c, o, ground, ctx, log, runs, host)
+            own_rows += got
+            own_structures += candidates
     model.mass_haul = masshaul.mass_haul(hauls, c.shrink)
     for els, row in zip(haul_elements, model.mass_haul):
         for el in els:
@@ -608,15 +1090,25 @@ def build(params: dict, ctx) -> "StructureModel":
                 "EndStationText": sta(row.station),
                 "CumulativeVolume": ("volume",
                                      row.cumulative_cy * masshaul.CF_PER_CY)}
+    wall_rows = []
     if c.auto_walls:
         # outputs.walls and outputs.structures (the registry writes them);
         # a structure candidate's low point is the lowest ground on the
         # centreline among the stations cut
-        rows = auto_walls.rows(c, every, ground_dz)
-        model.tables["walls"] = auto_walls.walls_csv(rows)
+        rows = wall_rows = auto_walls.rows(c, every, ground_dz)
+        # an own stretch's walls and structure candidates too, on its own
+        # stations (location "own <n>"), after the road's
+        model.tables["walls"] = auto_walls.walls_csv(rows + own_rows)
         model.tables["structures"] = auto_walls.structures_csv(
             auto_walls.structures(rows, sorted(sec.s for sec in every),
-                                  lambda s: ground.z(*survey(s, 0.0, 0.0)[:2])))
+                                  lambda s: ground.z(*survey(s, 0.0, 0.0)[:2]))
+            + own_structures)
     if c.guard is not None:
         model.tables["guardrail"] = guardrail.to_csv(rails)
+    if c.path is not None:
+        from bimforge.author.corridor import path_checks
+        model.tables["path"] = path_checks.path_csv(c, sorted(every, key=lambda x: x.s),
+                                                    rails, wall_rows)
+        model.tables["path_checks"] = path_checks.checks_csv(
+            path_checks.checks(c, rails, wall_rows))
     return model

@@ -55,10 +55,12 @@ def station(sta: float, decimals: int = 2) -> str:
     >>> station(10500.0, decimals=0)
     '105+00'
     """
-    hundreds = int(sta // 100)
-    rem = sta - hundreds * 100
+    mag = round(abs(sta), decimals)  # so 1299.999999 is 13+00.00, not 12+100.00
+    sign = "-" if sta < 0 and mag > 0 else ""   # -0.001 is 0+00.00, not -0+00.00
+    hundreds = int(mag // 100)
+    rem = mag - hundreds * 100
     width = 2 if decimals == 0 else decimals + 3
-    return f"{hundreds}+{rem:0{width}.{decimals}f}"
+    return f"{sign}{hundreds}+{rem:0{width}.{decimals}f}"
 
 
 def dms(degrees: float, minutes: float = 0.0, seconds: float = 0.0) -> float:

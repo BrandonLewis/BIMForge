@@ -273,7 +273,10 @@ def add_alignments(f, alignments: list[dict], tol_ft: float = 0.01,
             vp = [((p["station"] - A.s_start) * M_PER_FT, (p["elevation"] - oh) / mc[3]) for p in pv]
             vp[-1] = ((A.s_end - A.s_start) * M_PER_FT, vp[-1][1])
             vlen = [float(prof.get("vc_length_ft", 0.0)) * M_PER_FT] * (len(vp) - 2)
-        vertical = bool(vp and vlen)       # as create_by_pi_method decided it
+        # any profile is written: two PVIs (no interior one, so no curve
+        # lengths) are one gradient, which the PI method lays out from an
+        # empty `lengths`
+        vertical = vp is not None
         ifc_al = alapi.create(f, al["name"], include_vertical=vertical)
         _horizontal(f, alapi, alapi.get_horizontal_layout(ifc_al), A, mc)
         if vertical:

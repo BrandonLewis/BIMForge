@@ -440,16 +440,18 @@ def test_on_ifc4x3_every_cut_voids_the_plane_s_terrain(x3, model):
 
 
 def test_the_terrain_leaves_the_volumes_and_the_haul_as_they_were(model):
-    # as built before the plane wrote its terrain
+    # as built before the plane wrote its terrain; re-recorded when the
+    # earthwork columns began following the leaning section rays (up to
+    # 0.011 % a band)
     assert [round(r.cumulative_cy, 3) for r in model.mass_haul] == [
-        328.116, 439.509, 366.388, 320.249, 239.668]
+        328.153, 439.551, 366.427, 320.296, 239.715]
     assert {e.name: round(e.quantities["volume_cf"], 3) for e in model.elements
             if e.name.startswith("Cut ")} == {
-        "Cut STA 10+00.00 to 11+00.00": 8942.793,
-        "Cut STA 11+00.00 to 12+00.00": 4005.584,
-        "Cut STA 12+00.00 to 13+00.00": 2212.546,
-        "Cut STA 13+00.00 to 13+50.00": 886.26,
-        "Cut STA 14+00.00 to 15+00.00": 1583.731}
+        "Cut STA 10+00.00 to 11+00.00": 8943.786,
+        "Cut STA 11+00.00 to 12+00.00": 4005.903,
+        "Cut STA 12+00.00 to 13+00.00": 2212.674,
+        "Cut STA 13+00.00 to 13+50.00": 886.303,
+        "Cut STA 14+00.00 to 15+00.00": 1583.732}
 
 
 def test_the_earthwork_carries_its_standard_set_and_the_haul(x3):
@@ -630,10 +632,10 @@ def test_the_steep_road_finds_its_walls(steep):
     # 45.57 ft, its rock cut by 55.6 ft)
     assert steep.tables["walls"] == (
         WALL_HEADER + "\n"
-        "R,fill,1000.00,1111.00,17.00,15.66,21.21,yes,yes\n"
-        "R,fill,1197.00,1267.00,17.00,7.86,11.36,yes,no\n")
+        "R,fill,1000.00,1111.00,17.00,15.66,21.21,yes,yes,outer\n"
+        "R,fill,1197.00,1267.00,17.00,7.86,11.36,yes,no,outer\n")
     assert steep.tables["structures"] == (
-        STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00\n")
+        STRUCTURE_HEADER + "\n" "R,1000.00,1111.00,21.21,1000.00,road,outer\n")
 
 
 def test_the_steep_road_benches_its_tall_rock_faces():
@@ -763,7 +765,7 @@ def test_a_cut_wall_widens_only_its_side_s_shoulder():
     p["section"]["side_slopes"]["footprint_ft"] = {"L": 150, "R": 40}
     m = build(p, CTX)
     assert m.tables["walls"] == (
-        WALL_HEADER + "\n" "R,cut,1133.00,1600.00,22.00,5.39,28.74,no,no\n")
+        WALL_HEADER + "\n" "R,cut,1133.00,1600.00,22.00,5.39,28.74,no,no,outer\n")
     assert m.tables["structures"] == STRUCTURE_HEADER + "\n"
     outer = {}
     for el in courses(m):
@@ -828,7 +830,7 @@ def test_a_side_turning_inside_a_wall_s_lead_in_takes_no_section_there():
     # turn takes none (the strip across it is lofted from 11+11 to 11+12)
     m = build(copy.deepcopy(TURN_IN_LEAD_IN), CTX)
     assert m.tables["walls"].splitlines()[1:] == [
-        "R,fill,1000.00,1111.00,17.00,6.17,11.72,yes,no"]
+        "R,fill,1000.00,1111.00,17.00,6.17,11.72,yes,no,outer"]
     stations = {s for el in courses(m) for lf in el.geometry for s in lf.stations}
     assert {1111.0, 1112.0} <= stations
     assert not [s for s in stations if 1111.0 < s < 1112.0]
@@ -1108,8 +1110,8 @@ def test_a_slope_the_widening_pushes_past_the_footprint_takes_a_wall():
         "L,1027.00,1129.00,102.00,WALL,WALL,17,0,2,0,yes,no\n"
         "R,1111.00,1197.00,86.00,WALL,WALL,14,0,2,0,yes,no\n")
     rows = m.tables["walls"].splitlines()
-    assert "L,fill,1000.00,1027.00,17.00,16.46,17.81,yes,no" in rows
-    assert "L,fill,1129.00,1158.00,17.00,9.91,11.36,yes,no" in rows
+    assert "L,fill,1000.00,1027.00,17.00,16.46,17.81,yes,no,outer" in rows
+    assert "L,fill,1129.00,1158.00,17.00,9.91,11.36,yes,no,outer" in rows
     _closed_earthwork(m)
 
 
@@ -1659,12 +1661,14 @@ def test_a_rail_on_no_corridor_run_is_named():
     from types import SimpleNamespace as NS
 
     from bimforge.author.corridor.guardrail import AGT, RailRun
-    from bimforge.author.families.road_corridor import rail_segment
+    from bimforge.author.families.road_corridor import rail_name, run_of
     runs = [[NS(s=1000.0), NS(s=1350.0)], [NS(s=1400.0), NS(s=1500.0)]]
-    assert rail_segment(RailRun("L", 1400.0, 1450.0, AGT, AGT), runs) == 2
+    rail = RailRun("L", 1400.0, 1450.0, AGT, AGT)
+    assert run_of(runs, rail.start, rail_name(rail)) == 2
     with pytest.raises(ValueError, match=r"Guardrail L STA 13\+60\.00 to 13\+70\.00: "
                        r"starts at 13\+60\.00, on no corridor run"):
-        rail_segment(RailRun("L", 1360.0, 1370.0, AGT, AGT), runs)
+        rail = RailRun("L", 1360.0, 1370.0, AGT, AGT)
+        run_of(runs, rail.start, rail_name(rail))
 
 
 def test_mean_depth_with_no_plan_area_is_zero():

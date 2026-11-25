@@ -35,6 +35,106 @@ skip or read them. `model-elements` sends `route`, `based_on` and
   from the 2025 pack in 13 values (rounded Type 1 rows), so their Type 1
   slices are modified by value.
 
+- **Road corridor part C: a shared-use path on its own profile (P.6).** All
+  optional (`params.path`); a spec without it builds as before. Held to the
+  Caltrans HDM (08/08/2025), Index 1003.1, and the USFS Equestrian Design
+  Guidebook (2007) as guidance:
+  - the path is part of one side of the road's section while it is beside
+    the road: its paved edge `separation` ft from the road's outer edge of
+    shoulder (5 ft at least - up to a path gap's 1 ft transition foot, so a
+    row inside the gap cannot hide a narrowing beside it - narrowing to the
+    deck's 1.5 ft over `approach_ft` each side of a bridge, where it must
+    meet the deck within 0.01 ft), on the profile the spec gives, its courses held normal to its
+    own grade; cut, fill and walls are one earthwork over the whole section,
+    counted once, and a course's `Volume = PathLength * Width * Thickness`
+    holds across curve ends;
+  - between road and path: natural ground where both slopes daylight apart,
+    else a slope at `strip.max_ratio` (2:1) or flatter (guarded below a
+    higher road where steeper than `fill.ratio`), else a wall at the road's
+    hinge (with its barrier) or at the path's shoulder (with the path's
+    42 in rail); `walls: auto` places them;
+  - `path.gaps`: the path on a structure of its own; `path.equestrian`: an
+    unpaved tread beyond a buffer, with an optional open rail fence and a
+    54 in rail on walls along it; `path.own`: stretches where the path
+    leaves the road on a corridor of its own (its own alignment, profile,
+    section, walls and earthwork), handed over where natural ground lies
+    between, its footprint never crossing the road's, its profile carrying
+    the path's grade on at both ends (both along the path's centreline, so
+    on a road curve path.profile's per-station grade over 1 - kappa u), its
+    radius (at 20 or 30 mph, `design_speed_mph`), grade and crest checks and
+    its runs followed along the path's own length;
+  - `outputs.path` lists the path by road station (an own stretch's
+    hand-over and rejoin rows note it, `own <n> hand-over` / `rejoin`; a
+    strip with no slope or flatter than 100:1 is `level`; the barrier is
+    `rail` where the road's guardrail or a `wall-road` strip wall's barrier
+    stands, and no barrier-needed check is listed there);
+    `outputs.path_checks` lists
+    every advisory deviation (grade over 5 %, over 2 % sustained, crests
+    short of stopping sight distance with the 30 mph downgrade rule,
+    separations needing a barrier, approaches under 5 ft, strip walls, steep
+    decks, the deck width a tread needs, radii on own stretches, the
+    equestrian guidance).
+- **For ProjectCommand and BidSheet.ai:** the path is an `IfcRoadPart`
+  USERDEFINED, ObjectType `SHAREDUSEPATH` (class
+  `road-corridor-shared-use-path`), and a tread one of ObjectType
+  `EQUESTRIANTRAIL` (`road-corridor-equestrian-tread`): spatial parts now
+  carry a family-dictionary class reference. Their courses are `IfcCourse`
+  (class `road-corridor-course`, named `<course> path STA ...`,
+  `<course> tread STA ...`, and `<course> path <n> STA ...` on an own
+  stretch's stationing). Rails on walls holding the path up are
+  `IfcRailing` GUARDRAIL typed "Path rail" (`road-corridor-path-rail`) or
+  "Equestrian rail" (`road-corridor-equestrian-rail`); the fence is
+  `IfcRailing` FENCE typed "Path fence" (`road-corridor-path-fence`,
+  USERDEFINED FENCE on IFC4). Each carries `BIMForge_Guardrail` with
+  `RailHeight` and its stations, and `Length = EndStation - StartStation`.
+  An own stretch has its own `IfcAlignment` (`<road> path <n>`), and its
+  `Cut path <n> ...` / `Fill path <n> ...` are not in the road's mass haul,
+  which is by road station. `outputs.walls` gains a `location` column
+  (`outer`, `strip`, `own <n>`) and strip walls the kinds `wall-road` and
+  `wall-path`; `outputs.structures` gains `carries` (`road` or `path`) and
+  `location` (as the walls table's), the last two columns. The road-corridor
+  example gains a path on the right; its GlobalIds were
+  re-recorded.
+
+### Fixed
+
+- `est-bim add-alignments` (`bim.add_alignment.add_alignments`) crashed on
+  a profile with two PVIs (no vertical curve): it is written as one
+  gradient.
+
+- **An element is stationed on the alignment it lies along.** With a short
+  second alignment (an own path stretch's), an element along its extension
+  went to it - `locate_many` clamps a point past an end and keeps only its
+  square offset - and was stationed at its end station (`0+00.00` to
+  `0+00.01`): the path, tread, fence, rails and road fill beside the road
+  before the hand-over and after the rejoin. The linear reference (the
+  build's and `est-bim stations`) now ranks the alignments by true plan
+  distance (past an end, the distance to it), and an element mostly past
+  the nearest one's end goes to an alignment it lies along only if that is
+  within twice the nearest distance, or the nearest plus the element's own
+  plan extent. So an element just past a short alignment's end - an
+  approach slab or a wingwall past a bridge's - stays on it, stationed at
+  its end, rather than going to a crossing road it lies along farther off.
+
+- **`station()` rounds before it splits,** so 1299.999999 ft is `13+00.00`,
+  not `12+100.00`. A negative station prints its sign in front of the
+  rounded value: -50 ft is `-0+50.00` (it was `-1+50.00`, the hundreds
+  floored), and -0.001 ft is `0+00.00` (it was `-1+100.00`).
+
+- **Road-corridor earthwork follows the leaning section rays.** A corridor
+  section stands square to the road's 3D tangent, so a point v up sits
+  v sin(grade angle) back along the line; earthwork columns stood
+  vertically over plan triangles folded over at short bays on a grade (a
+  wall's 1 ft lead-in, a path's 1 ft end transition), leaving the body not
+  closed and the volume over-counted (54 % off the post gate for a fill wall
+  on 7 %). Columns are now triangulated in station and offset and run along
+  each corner's section ray to the ground. Earthwork volumes move: +0.09 % on
+  the V1.1 example (now the test fixture; 1,008,083.5 to 1,009,008.4 cf),
+  +0.03 % on V1, with the mass haul. The earthwork's plan
+  rings come from its ground corners, for cut as well as fill, and MaxDepth /
+  MeanDepth shift slightly (V1.1's last fill band: MaxDepth 22.6011 to
+  22.5600 ft).
+
 ## 0.1.132 — 2026-11-22
 
 The road corridor (P.6): pavement courses, cut and fill to daylight and mass haul (#118), then slope rules, automatic walls, guardrail and dimensions with arithmetic formulas (#122). `model-elements` now sends each element's measurement checks and, with `--checked-takeoff`, the takeoff's sum (#121), closing M.6's check.

@@ -188,7 +188,8 @@ def test_a_mass_haul_output_needs_a_family_that_makes_one(tmp_path):
         registry.build_from_spec(spec, check_only=True)
 
 
-@pytest.mark.parametrize("key", ["walls", "structures", "guardrail"])
+@pytest.mark.parametrize("key", ["walls", "structures", "guardrail", "path",
+                                 "path_checks"])
 def test_a_corridor_table_output_needs_a_family_that_makes_it(tmp_path, key):
     spec = _stage_example(tmp_path)
     text = spec.read_text(encoding="utf-8")

@@ -121,12 +121,15 @@ class SpatialPart:
     usage_type: str | None = None
     #: the part this one is aggregated under (None: under the facility)
     parent: "SpatialPart | None" = None
+    #: the family-dictionary class the part references (M.1), e.g. the
+    #: road corridor's shared-use path; None for most parts
+    family_class: str | None = None
 
     @property
     def bare(self) -> bool:
         """Only a name: a reference to a part declared in full elsewhere."""
         return (self.predefined_type is None and self.usage_type is None
-                and self.parent is None)
+                and self.parent is None and self.family_class is None)
 
     def lineage(self) -> list["SpatialPart"]:
         """This part's ancestors, outermost first, then the part itself."""
@@ -150,7 +153,8 @@ def parse_part(value, where: str = "spatial_part") -> SpatialPart | None:
     if isinstance(value, str):
         return SpatialPart(name=value)
     if isinstance(value, dict):
-        unknown = set(value) - {"name", "predefined_type", "usage_type", "parent"}
+        unknown = set(value) - {"name", "predefined_type", "usage_type", "parent",
+                                "family_class"}
         if unknown:
             raise ValueError(f"{where}: unknown keys {sorted(unknown)}")
         if not value.get("name"):
@@ -164,9 +168,12 @@ def parse_part(value, where: str = "spatial_part") -> SpatialPart | None:
             predefined_type=(str(value["predefined_type"])
                              if value.get("predefined_type") else None),
             usage_type=str(usage).upper() if usage else None,
-            parent=parse_part(value.get("parent"), f"{where}.parent"))
+            parent=parse_part(value.get("parent"), f"{where}.parent"),
+            family_class=(str(value["family_class"])
+                          if value.get("family_class") else None))
     raise ValueError(f"{where}: expected a part name or a mapping "
-                     f"{{name, predefined_type?, usage_type?, parent?}}, got {value!r}")
+                     f"{{name, predefined_type?, usage_type?, parent?, family_class?}}, "
+                     f"got {value!r}")
 
 
 @dataclass(frozen=True)

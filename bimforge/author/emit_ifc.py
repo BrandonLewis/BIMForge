@@ -2234,6 +2234,12 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
     for m in models:
         _check_parts(m)
         _check_typing(m)
+    # a facility part's dictionary class (SpatialPart.family_class), written
+    # with the elements' after the sweep
+    for m, home, fac in zip(models, homes, facilities):
+        for name, part in _model_parts(m, fac).items():
+            if part.family_class and name in home.parts:
+                classed.append((home.parts[name], part.family_class))
     by_material: dict = {}     # material name -> [products]
     mat_appear: dict = {}      # material name -> the appearance it resolved on
     mat_category: dict = {}    # material name -> (IfcMaterial.Category, element)

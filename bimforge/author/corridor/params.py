@@ -141,6 +141,20 @@ class Gap:
                                    # centreline; None: at the hinge
     auto: str | None = None        # an automatic wall's kind: "fill", "cut"
 
+    @property
+    def strip(self) -> bool:
+        """An automatic wall in the strip between the road and its path
+        (V1.2 C): `strip-road` at the road's hinge, `strip-path` at the
+        path's inner shoulder."""
+        return (self.auto or "").startswith("strip-")
+
+    @property
+    def carries(self) -> str:
+        """What a wall's stretch carries, as a structure candidate: the
+        road, or the path (a strip wall, or a wall on the path's outer side,
+        `path-fill` / `path-cut`)."""
+        return "path" if (self.auto or "").startswith(("strip-", "path-")) else "road"
+
 
 @dataclass(frozen=True)
 class Corridor:
@@ -163,6 +177,12 @@ class Corridor:
     #: the guardrail a steep fill takes; None without a steep rule or a
     #: `guardrail:` block
     guard: Guard | None = None
+    #: V1.2 C: the shared-use path beside the road (corridor.path.Path)
+    path: object = None
+    #: V1.2 C: an own stretch's corridor (own.own_corridor): both its sides
+    #: are the path's, so its walls are `path-fill` and `path-cut` with no
+    #: path beside it
+    own: bool = False
 
     def width(self, comp: Component, side: str, s: float) -> float:
         """The component's width; through an automatic cut wall the
@@ -196,9 +216,12 @@ class Corridor:
         """Every course's thickness: finished grade to subgrade."""
         return sum(c.thickness for c in self.courses)
 
-    def wall(self, side: str, s: float) -> Gap | None:
+    def wall(self, side: str, s: float, strip: bool = False) -> Gap | None:
+        """The wall gap on `side` at station s: an outer one (a listed wall,
+        a V1.1 automatic wall, a wall on the path's outer side), or with
+        `strip` one in the strip between the road and its path."""
         for g in self.gaps:
-            if (g.kind == "wall" and g.side == side
+            if (g.kind == "wall" and g.side == side and g.strip == strip
                     and g.start - _EPS <= s <= g.end + _EPS):
                 return g
         return None
@@ -234,6 +257,22 @@ class Corridor:
             out.append((s, self.s_end))
         return out
 
+    def path_at(self, s: float) -> bool:
+        """Whether the path is part of the section at station s (V1.2 C): on
+        its stations, and not strictly inside a structure gap (there it is
+        on the deck, and no section is cut). Not path_checks.on_deck (the path
+        on the road's deck) nor path._on_deck (the structure gap alone): this
+        is also false within a path gap and its transition foot, in an own
+        stretch, and off the path's stations."""
+        p = self.path
+        if p is None or not p.covers(s):
+            return False
+        from bimforge.author.corridor.path import PATH_TRANSITION_FT  # path imports us
+        if p.in_gap(s, PATH_TRANSITION_FT) or p.in_own(s):
+            return False
+        return not any(g.kind == "structure" and g.start + _EPS < s < g.end - _EPS
+                       for g in self.gaps)
+
     def stations(self, s0: float, s1: float, extra=()) -> list:
         """Where to cut sections on [s0, s1]: every `interval` and `band`
         from the alignment's start, every table and gap station, 1 ft
@@ -251,6 +290,9 @@ class Corridor:
             if g.kind == "wall":
                 cuts.update((g.start - WALL_TRANSITION_FT,
                              g.end + WALL_TRANSITION_FT))
+        if self.path is not None:
+            from bimforge.author.corridor.path import stations_extra
+            cuts.update(stations_extra(self))
         cuts.update(extra)
         out = []
         for s in sorted(x for x in cuts if s0 - _EPS <= x <= s1 + _EPS):
@@ -288,6 +330,37 @@ class Corridor:
                         f"from {sta(w.start)} to {sta(w.end)}, against the "
                         f"listed wall gap {sta(g.start)} to {sta(g.end)}; list "
                         f"the wall or let walls: auto place it, not both")
+            path = self.path
+            if w.strip or (w.auto.startswith("path-") and not self.own):
+                # a wall of the path's (V1.2 C) stands on the path's side,
+                # over its stations; on an own stretch's corridor either
+                # side's outer wall is the path's
+                if path is None:
+                    raise ValueError(
+                        f"walls: auto: a {w.auto} wall on the {w.side} side from "
+                        f"{sta(w.start)} to {sta(w.end)}, with no path")
+                if w.side != path.side:
+                    raise ValueError(
+                        f"walls: auto: a {w.auto} wall on the {w.side} side from "
+                        f"{sta(w.start)} to {sta(w.end)}; path.side is {path.side}")
+                if not (path.s_start - _EPS <= w.start and w.end <= path.s_end + _EPS):
+                    at = w.start if w.start < path.s_start - _EPS else w.end
+                    raise ValueError(
+                        f"walls: auto: a {w.auto} wall on the {w.side} side from "
+                        f"{sta(w.start)} to {sta(w.end)} is off the path's "
+                        f"stations ({sta(path.s_start)} to {sta(path.s_end)}) at "
+                        f"{sta(at)}")
+            if (path is not None and w.side == path.side and not w.strip
+                    and not w.auto.startswith("path-")
+                    and w.start < path.s_end - _EPS and w.end > path.s_start + _EPS):
+                # find never places one there (section.needs_wall asks the
+                # path's side for path- and strip- walls); the road's side
+                # on the path's stations is the strip
+                raise ValueError(
+                    f"walls: auto: a road {w.auto} wall on the {w.side} side from "
+                    f"{sta(w.start)} to {sta(w.end)} overlaps the path's stations "
+                    f"({sta(path.s_start)} to {sta(path.s_end)}), where that side is "
+                    f"the strip and the path")
             if w.auto == "cut" and self.widened() is None:
                 raise ValueError(
                     f"walls: auto puts a cut wall on the {w.side} side from "
@@ -297,9 +370,11 @@ class Corridor:
         # each ending on a slope that fits; closer, the side has neither a
         # wall nor a slope there, and a cut wall's widening reaches under
         # its neighbour
-        autos = sorted(walls, key=lambda g: (g.side, g.start))
+        autos = sorted(walls, key=lambda g: (g.side, g.strip, g.start))
         for p, q in zip(autos, autos[1:]):
-            if p.side == q.side and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS:
+            if (p.side == q.side and p.strip == q.strip
+                    and q.start - p.end < 2 * WALL_TRANSITION_FT - _EPS
+                    and not self._at_path_edge(p, q)):
                 raise ValueError(
                     f"walls: auto puts a {p.auto} wall on the {p.side} side from "
                     f"{sta(p.start)} to {sta(p.end)} and a {q.auto} wall from "
@@ -309,16 +384,49 @@ class Corridor:
         return replace(self, gaps=tuple(sorted(listed + walls,
                                                key=lambda g: (g.start, g.side or ""))))
 
+    def _at_path_edge(self, p: Gap, q: Gap) -> bool:
+        """Whether automatic walls p and q (q after p, one side) meet at the
+        path's first or last station (V1.2 C): a road wall ending there and
+        the path's outer wall starting there, or the other way round
+        (walls.find ends them so). A road cut wall ends its lead-in there
+        instead, WALL_TRANSITION_FT short of it, so its shoulder is back to
+        width on the path's first station. The section changes there, and
+        each has its own lead-in on its own side; anywhere else the 2 ft
+        rule holds."""
+        path = self.path
+        if path is None or p.side != path.side:
+            return False
+        ours = [g.auto.startswith("path-") for g in (p, q)]
+        if ours[0] == ours[1]:
+            return False
+        lead = [WALL_TRANSITION_FT if g.auto == "cut" else 0.0 for g in (p, q)]
+        return any(abs(p.end + lead[0] - b) <= _EPS
+                   and abs(q.start - lead[1] - b) <= _EPS
+                   for b in (path.s_start, path.s_end))
+
     def _merged(self, walls: tuple) -> tuple:
         """`walls` (automatic) with each side's walls of one kind under one
-        station interval apart, no structure gap between, made one."""
+        station interval apart, no structure gap between, made one. A road
+        wall on the path's side is not merged over the path's stations
+        (V1.2 C): there that side is the strip and the path. A strip or
+        path wall is not merged over a path gap (there is no path to hold
+        up); a road wall inside one is the road's own and may run through."""
+        path = self.path
         out = []
-        for w in sorted(walls, key=lambda g: (g.side, g.auto, g.start)):
+        for w in sorted(walls, key=lambda g: (g.side, g.strip, g.auto, g.start)):
             p = out[-1] if out else None
             if (p is not None and p.side == w.side and p.auto == w.auto
                     and w.start - p.end < self.interval - _EPS
                     and not any(g.kind == "structure" and g.start < w.start + _EPS
-                                and g.end > p.end - _EPS for g in self.gaps)):
+                                and g.end > p.end - _EPS for g in self.gaps)
+                    and not (path is not None and w.side == path.side
+                             and not w.strip and not w.auto.startswith("path-")
+                             and path.s_start < w.start + _EPS
+                             and path.s_end > p.end - _EPS)
+                    and not (path is not None and w.side == path.side
+                             and (w.strip or w.auto.startswith("path-"))
+                             and any(g.start < w.start + _EPS and g.end > p.end - _EPS
+                                     for g in path.gaps))):
                 out[-1] = replace(p, end=max(p.end, w.end))
             else:
                 out.append(w)
@@ -582,9 +690,12 @@ def _gaps(params: dict, s_start: float, s_end: float) -> list:
     return out
 
 
-def parse(params: dict, s_start: float, s_end: float) -> Corridor:
+def parse(params: dict, s_start: float, s_end: float, alignment=None,
+          profile=None) -> Corridor:
     """The corridor `params` describe on an alignment from `s_start` to
-    `s_end`; ValueError names the first field that is wrong."""
+    `s_end`; ValueError names the first field that is wrong. A `path:`
+    (V1.2 C) is placed against the road's `alignment` and `profile`
+    (bimforge.author.alignment.Alignment and Profile), which it needs."""
     if not float(s_end) > float(s_start):
         raise ValueError(f"alignment: ends at {sta(s_end)}, not past its "
                          f"start {sta(s_start)}")
@@ -608,7 +719,7 @@ def parse(params: dict, s_start: float, s_end: float) -> Corridor:
         raise ValueError(f"walls: {walls!r} is not 'auto'; a wall at stations "
                          f"you choose is a gap (gaps: [{{kind: wall, side, "
                          f"offset, from, to}}])")
-    return Corridor(
+    c = Corridor(
         s_start=float(s_start), s_end=float(s_end),
         components=tuple(comps), courses=tuple(_courses(sec)),
         slopes=slopes,
@@ -621,4 +732,11 @@ def parse(params: dict, s_start: float, s_end: float) -> Corridor:
         auto_walls=walls == "auto",
         max_wall_height=_num(params.get("max_wall_height_ft", 30.0),
                              "max_wall_height_ft"),
-        guard=_guard(params.get("guardrail"), slopes.steep is not None))
+        guard=_guard(params.get("guardrail"),
+                     slopes.steep is not None or params.get("path") is not None))
+    if params.get("path") is None:
+        return c
+    from bimforge.author.corridor.path import parse_path, validate
+    c = replace(c, path=parse_path(params["path"], c, alignment, profile))
+    validate(c)
+    return c
