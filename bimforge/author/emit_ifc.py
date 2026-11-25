@@ -1824,15 +1824,23 @@ class _Home:
     The building path has one container (the storey). The facility path has
     the facility (or, for kind `site`, the IfcSite) plus one part per distinct
     `Element.spatial_part`. `keyed` lists the spatial entities that carry an
-    explicit GlobalId, so the deterministic sweep leaves them alone."""
+    explicit GlobalId, so the deterministic sweep leaves them alone. `site` is
+    the IfcSite: the existing ground (IfcGeographicElement TERRAIN) is always
+    contained there, whatever the tree, because IFC 4.3 lists IfcSite as
+    IfcGeographicElement's spatial container (a storey belongs to a building,
+    a road to its road)."""
 
-    def __init__(self, default, parts=None, keyed=(), owner=""):
+    def __init__(self, default, parts=None, keyed=(), owner="", site=None):
         self.default = default
         self.parts = parts or {}
         self.keyed = list(keyed)
         self.owner = owner
+        self.site = site
 
     def container_for(self, el):
+        from bimforge.terrain.attach import is_terrain
+        if self.site is not None and is_terrain(el):
+            return self.site
         part = getattr(el, "spatial_part", None)
         if part is not None and part.name in self.parts:
             return self.parts[part.name]
@@ -1944,14 +1952,14 @@ def _facility_tree(run, f, ctx, models, facilities, site, project, combined):
                          ifc_class="IfcBuildingStorey", name=m.name)
             spatials += [building, storey]
             aggregates += [(building, site), (storey, building)]
-            homes.append(_Home(storey, owner=m.name))
+            homes.append(_Home(storey, owner=m.name, site=site))
             continue
         if fac.facility_class is None:              # kind: site
             if any(getattr(e, "spatial_part", None) for e in m.elements):
                 print(f"note: {m.name!r}: facility kind 'site' has no parts; "
                       "spatial_part is ignored and elements are contained in "
                       "the IfcSite.", file=sys.stderr)
-            homes.append(_Home(site, owner=m.name))
+            homes.append(_Home(site, owner=m.name, site=site))
             continue
         facility = run("root.create_entity", f, ifc_class=fac.facility_class,
                        name=fac.name or m.name)
@@ -1979,7 +1987,8 @@ def _facility_tree(run, f, ctx, models, facilities, site, project, combined):
             aggregates.append((ent, parts[parent.name] if parent else facility))
             parts[name] = ent
         homes.append(_Home(facility, parts,
-                           keyed=[facility, *parts.values()], owner=m.name))
+                           keyed=[facility, *parts.values()], owner=m.name,
+                           site=site))
 
     run("aggregate.assign_object", f, products=[site], relating_object=project)
     for child, parent in aggregates:
@@ -2156,7 +2165,7 @@ def emit_combined_ifc(models, path: str, paycodes=None, *,
         for spatial in (site, *buildings, *storeys):
             run("geometry.edit_object_placement", f, product=spatial,
                 matrix=np.eye(4))
-        homes = [_Home(storey) for storey in storeys]
+        homes = [_Home(storey, site=site) for storey in storeys]
     else:
         # Issue #318: the IFC4X3 facility tree. A separate branch so the
         # building path above stays byte-identical (golden test).

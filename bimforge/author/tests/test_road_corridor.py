@@ -385,6 +385,11 @@ def test_the_tree_is_road_segment_lateral_part(x3):
         assert not cut.ContainedInStructure
         (rel,) = cut.VoidsElements
         assert rel.RelatingBuildingElement.PredefinedType == "TERRAIN"
+    # the ground itself is contained in the IfcSite, not the road: IFC 4.3
+    # lists IfcSite as IfcGeographicElement's spatial container
+    (ground,) = [g for g in f.by_type("IfcGeographicElement")
+                 if g.PredefinedType == "TERRAIN"]
+    assert E.get_container(ground).is_a("IfcSite")
 
 
 def _only_point_contacts(found: list) -> list:

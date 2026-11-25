@@ -261,3 +261,41 @@ def test_federate_leaves_no_stranded_placement(tmp_path):
     loose = [e.id() for cls in ("IfcAxis2Placement3D", "IfcDirection")
              for e in f.by_type(cls) if not f.get_total_inverses(e)]
     assert loose == []
+
+
+def _wall_on_ground(path, schema="IFC4X3_ADD2"):
+    """A footing with its existing ground (TERRAIN), on the building path."""
+    import dataclasses
+
+    from bimforge.terrain.attach import add_terrain
+    m = StructureModel("wall", dataclasses.replace(_ctx(), schema=schema))
+    p = Prism("footing", [(-2, -2), (2, -2), (2, 2), (-2, 2)],
+              z_bot=0.0, z_top=2.0, ifc="IfcFooting")
+    m.add(Element.from_geometry(p.name, p, ifc_class="IfcFooting"))
+    add_terrain(m, "Existing ground", [(-9.0, -9.0, -1.0), (9.0, -9.0, -1.0),
+                                       (-9.0, 9.0, -1.0), (9.0, 9.0, -1.0)],
+                [(0, 1, 2), (1, 3, 2)], {"Source": "test"})
+    emit_ifc(m, str(path))
+
+
+@pytest.mark.parametrize("schema", ["IFC4X3_ADD2", "IFC4"])
+def test_federate_keeps_the_ground_in_the_site(tmp_path, schema):
+    """The ground is contained in the IfcSite in a source (IFC 4.3 lists
+    IfcSite as IfcGeographicElement's container) and stays there federated,
+    while the source's other products go to its storey as before."""
+    import dataclasses
+
+    import ifcopenshell
+    import ifcopenshell.util.element as E
+    src = tmp_path / "w.ifc"
+    _wall_on_ground(src, schema)
+    out = tmp_path / "fed.ifc"
+    res = federate([(src, "Wall")], str(out),
+                   dataclasses.replace(_ctx(), schema=schema))
+    f = ifcopenshell.open(str(out))
+    (ground,) = f.by_type("IfcGeographicElement")
+    assert E.get_container(ground) == f.by_type("IfcSite")[0]
+    (footing,) = f.by_type("IfcFooting")
+    assert E.get_container(footing).is_a("IfcBuildingStorey")
+    assert E.get_container(footing).Name == "Wall"
+    assert res.products == 2 and res.facilities == 0

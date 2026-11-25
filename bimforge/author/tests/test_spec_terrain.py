@@ -115,12 +115,11 @@ def test_a_b3_wall_gets_one_ground_around_it(tmp_path, monkeypatch, capsys):
     f = ifcopenshell.open(str(tmp_path / "out" / "b3.ifc"))
     (g,) = [e for e in f.by_type("IfcGeographicElement")
             if e.PredefinedType == "TERRAIN"]
-    # contained where the model's every element is (emit_ifc's default
-    # container: the storey on the IFC4 building path), as the corridor's
-    # TERRAIN is
-    container = g.ContainedInStructure[0].RelatingStructure
-    (wall,) = [e for e in f.by_type("IfcWall")][:1]
-    assert container == wall.ContainedInStructure[0].RelatingStructure
+    # contained in the IfcSite, whatever tree the walls are in (IFC 4.3 lists
+    # IfcSite as IfcGeographicElement's spatial container), as the
+    # corridor's TERRAIN is
+    (rel,) = g.ContainedInStructure
+    assert rel.RelatingStructure == f.by_type("IfcSite")[0]
     prov = _terrain_pset(g)
     assert prov["Source"] == "USGS 3DEP 1m DEM"
     assert prov["VerticalShiftSource"] == "NAVD88: none"

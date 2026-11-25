@@ -116,6 +116,16 @@ skip or read them. `model-elements` sends `route`, `based_on` and
 
 ### Changed
 
+- **The ground is contained in the IfcSite.** IFC 4.3 lists IfcSite as
+  IfcGeographicElement's spatial container (a storey belongs to a building).
+  The existing ground (IfcGeographicElement TERRAIN, from a `terrain:` block
+  or the road corridor's ground) was contained where the structure's other
+  elements are: the storey, or the IfcRoad for the road corridor. It is now
+  contained in the IfcSite on every tree and schema, and stays there when
+  federated; a cut still voids it. The road corridor's
+  IfcRelContainedInSpatialStructure that held only the ground now relates
+  the site; its GlobalId is unchanged. A building/storey source whose only
+  site product is its ground is still federated by the storey path.
 - The road corridor's `ground: {source: 3dep, cache, spacing_m, margin_ft,
   vshift_m}` is now read as `terrain:` plus `ground: {source: terrain}`,
   with a build-log note; the old and the new form give the same IFC. It
