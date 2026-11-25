@@ -74,11 +74,16 @@ def _turn(d: float) -> float:
     return (d + 180.0) % 360.0 - 180.0
 
 
+def _centre_u(c, p, s: float) -> float:
+    """The path's centreline offset beside the road at road station s."""
+    from bimforge.author.corridor.section import grade_edge  # section imports path
+    return grade_edge(c, s, p.side)[0] + p.sign * (p.separation_at(s) + 0.5 * p.width)
+
+
 def centre_point(c, p, s: float) -> tuple:
     """(northing, easting, azimuth): the path's centreline beside the road
     at road station s, heading the road's way."""
-    from bimforge.author.corridor.section import grade_edge  # section imports path
-    u = grade_edge(c, s, p.side)[0] + p.sign * (p.separation_at(s) + 0.5 * p.width)
+    u = _centre_u(c, p, s)
     n, e, az = p.alignment.point_az(s)
     ln, le = p.alignment.left_normal(s)
     return n + u * ln, e + u * le, az
@@ -232,9 +237,15 @@ def parse_own(value, p, c) -> tuple:
                     f"{abs(got - want):.4f} ft off (more than {MEET_TOL_FT:g} ft)")
         # the path carries on its grade across each end (as path.profile
         # does between its curves): a break would be a vertical angle the
-        # checks' crest curves do not see
-        for st, rs, which in ((0.0, a, "hand-over"), (al.s_end, b, "rejoin")):
-            got, want = 100.0 * prof.grade(st), 100.0 * p.profile.grade(rs)
+        # checks' crest curves do not see. Both along the path's centreline:
+        # the own profile's is per own foot, path.profile's per road
+        # station, which the centreline runs 1 - kappa u feet to on a curve
+        # (path_checks.path_grade), kappa read on the beside side of the end
+        for st, rs, which, side in ((0.0, a, "hand-over", -1.0),
+                                    (al.s_end, b, "rejoin", 1.0)):
+            got = 100.0 * prof.grade(st)
+            want = 100.0 * p.profile.grade(rs) / (
+                1.0 - p.alignment.curvature(rs, side) * _centre_u(c, p, rs))
             if abs(got - want) > GRADE_TOL_PCT:
                 raise ValueError(
                     f"{at}.profile: its grade at the {which} ({sta(st)}, road "

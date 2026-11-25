@@ -1315,3 +1315,54 @@ def test_an_own_crest_short_of_its_distance_at_20_mph():
               if r.check.startswith("own 1 crest")]
     assert row.check == "own 1 crest VC short of SSD at 20 mph"
     assert (row.value, row.limit) == (20.0, pytest.approx(2.0 * 125.0 - 1600.0 / 8.0))
+
+
+def _dms(deg):
+    d = int(deg)
+    m = int((deg - d) * 60.0)
+    return f"{d}-{m}-{(deg - d - m / 60.0) * 3600.0:.9f}"
+
+
+def concentric_own(g0, g1):
+    """The road on a 500 ft left curve at 5 %, the path on the right 33 ft
+    out (17 + 10 + 6) on the road's grade, and an own stretch from 11+00 to
+    13+00 concentric with it (radius 533), its profile one curve from g0 %
+    to g1 % rising the path's 10 ft. Beside the road the path's centreline
+    runs 533 / 500 ft per road station, so its true grade is 5 / 1.066 =
+    4.6904 %."""
+    from bimforge.author.alignment import Profile
+    road = Alignment({"station": 1000.0, "northing": 0.0, "easting": 0.0,
+                      "azimuth": 0.0},
+                     [{"kind": "curve", "delta": _dms(math.degrees(1000.0 / 500.0)),
+                       "turn": "L", "radius": 500.0, "length": 1000.0}], name="T")
+    length = 533.0 * 200.0 / 500.0
+    run = [{"kind": "curve", "delta": _dms(math.degrees(200.0 / 500.0)), "turn": "L",
+            "radius": 533.0, "length": length}]
+    z0 = 99.51 + 0.05 * 100.0
+    own = {"from": 1100, "to": 1300, "run": run, "profile": {"curves": [{
+        "bvc_station": 0.0, "bvc_elev": z0, "g_in_pct": g0, "g_out_pct": g1,
+        "length_ft": length, "evc_station": length,
+        "evc_elev": z0 + length * (g0 + g1) / 200.0}]}}
+    params = copy.deepcopy(BASE)
+    params["path"] = path(side="R", separation=[[1000, 10.0]],
+                          profile=grade(99.51, pct=5.0), own=[own])
+    return parse(params, 1000.0, 2000.0, alignment=road,
+                 profile=Profile(grade(100.0, pct=5.0)["curves"]))
+
+
+#: the path's true grade beside the road, % along its centreline
+TRUE_PCT = 5.0 / (1.0 + 33.0 / 500.0)
+
+
+def test_a_curved_hand_over_compares_the_path_s_true_grade():
+    # 4.6904 % along the own stretch carries the path's grade on: built
+    (own,) = concentric_own(TRUE_PCT, TRUE_PCT).path.own
+    assert own.length == pytest.approx(213.2)
+    assert own.profile.elev(own.length) == pytest.approx(99.51 + 0.05 * 300.0)
+    # leaving at the road's 5 % per station and easing to 4.38 % to rise
+    # the same 10 ft: a 0.31 % break in the path's grade at the hand-over
+    g1 = 2.0 * 1000.0 / 213.2 - 5.0
+    with pytest.raises(ValueError, match=r"path\.own\[0\]\.profile: its grade at "
+                                         r"the hand-over .* is 5 % and path\.profile's "
+                                         r"4\.6904"):
+        concentric_own(5.0, g1)
