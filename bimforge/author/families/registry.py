@@ -314,6 +314,9 @@ def load_spec(path: Path | str) -> dict:
     # the model's one existing ground (G.9): the terrain: block, and the
     # road corridor's 0.1.132 ground: {source: 3dep} read as one
     notes = []
+    if "terrain" in (spec.get("params") or {}):
+        raise ValueError(f"{path.name}: params.terrain is reserved; give the "
+                         f"ground in the top-level `terrain:` block")
     gp = (spec.get("params") or {}).get("ground")
     old_3dep = isinstance(gp, dict) and str(gp.get("source", "")).lower() == "3dep"
     if spec.get("terrain") is not None:
@@ -325,13 +328,15 @@ def load_spec(path: Path | str) -> dict:
                                          f"{path.name}: terrain")
     elif old_3dep:
         from bimforge.terrain.spec import from_ground
-        spec["_terrain"] = from_ground(gp)
+        spec["_terrain"] = from_ground(gp, f"{path.name}: ground: source 3dep")
         spec["params"]["ground"] = {"source": "terrain"}
         notes.append("note: ground: source 3dep is now terrain: {source: dem, "
                      "cache, spacing_m, margin_ft, vshift_m} with ground: "
                      "{source: terrain}")
     if spec.get("_terrain") is not None and not proj.get("epsg"):
-        raise ValueError(f"{path.name}: terrain: needs project.epsg")
+        raise ValueError(f"{path.name}: "
+                         f"{'ground: source 3dep' if old_3dep else 'terrain:'} "
+                         f"needs project.epsg")
     spec["_notes"] = notes
     spec["_dir"] = str(base)
     return spec
@@ -586,3 +591,33 @@ def build_from_spec(spec_path: Path | str, check_only: bool = False,
     post = gate.run_post(model, written, pc, extra_checks=extra_post)
     print(post.format("post"), file=sys.stderr)
     return 0 if post.passed else 1
+
+
+def terrain_from_spec(spec_path: Path | str, refresh: bool = False,
+                      family_paths=(), log=None):
+    """Fetch the ground a spec asks for (or read it from the cache), building
+    the model in memory to find its footprint: no gate, nothing written.
+    Returns (TERRAIN elements, ProjectContext, TerrainSpec), or ([], None,
+    None) when the spec asks for none."""
+    from bimforge.author.project import ProjectContext
+    from bimforge.terrain.attach import is_terrain
+    from bimforge.terrain.spec import add_spec_terrain
+    spec = load_spec(spec_path)
+    terrain = spec.get("_terrain")
+    if terrain is None:
+        return [], None, None
+    terrain.refresh = bool(refresh)
+    say = log or (lambda m: print(m, file=sys.stderr))
+    for note in spec.get("_notes") or ():
+        say(note)
+    builder = get(spec["family"], family_paths)
+    ctx = ProjectContext.from_spec(spec["project"])
+    alignments = spec_alignments(spec)
+    params = spec_params(spec, alignments)
+    if getattr(builder, "takes_terrain", False):
+        params = dict(params)
+        params["terrain"] = terrain
+    model = builder(params, ctx)
+    place_from_spec(model, spec, alignments)
+    add_spec_terrain(model, ctx, terrain, log=say)
+    return [el for el in model.elements if is_terrain(el)], ctx, terrain

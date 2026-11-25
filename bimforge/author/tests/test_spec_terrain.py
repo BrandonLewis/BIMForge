@@ -207,3 +207,29 @@ def test_a_plane_corridor_with_terrain_carries_one_ground(tmp_path, monkeypatch)
     grounds = [e for e in f.by_type("IfcGeographicElement")
                if e.PredefinedType == "TERRAIN"]
     assert len(grounds) == 1 and "3DEP" in grounds[0].Name
+
+
+def test_the_old_ground_without_cache_names_the_file_and_the_form(tmp_path):
+    p = corridor_spec(tmp_path, {"source": "3dep"})
+    with pytest.raises(ValueError,
+                       match=r"rc\.spec\.yaml: ground: source 3dep: needs `cache`"):
+        R.load_spec(p)
+
+
+def test_the_old_ground_without_epsg_names_the_old_form(tmp_path):
+    p = corridor_spec(tmp_path, {"source": "3dep", "cache": "x"})
+    s = yaml.safe_load(p.read_text())
+    s["project"]["epsg"] = None
+    p.write_text(yaml.safe_dump(s), encoding="utf-8")
+    with pytest.raises(ValueError, match="ground: source 3dep needs project.epsg"):
+        R.load_spec(p)
+
+
+def test_params_terrain_is_reserved(tmp_path):
+    p = b3_spec(tmp_path)
+    s = yaml.safe_load(p.read_text())
+    s["params"]["terrain"] = {"cache": "x"}
+    p.write_text(yaml.safe_dump(s), encoding="utf-8")
+    with pytest.raises(ValueError, match="params.terrain is reserved.*top-level "
+                                         "`terrain:` block"):
+        R.load_spec(p)

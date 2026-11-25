@@ -62,13 +62,13 @@ def parse(block, base_dir, where: str = "terrain") -> TerrainSpec:
                        vshift_m=None if vs is None else float(vs))
 
 
-def from_ground(gp: dict) -> TerrainSpec:
+def from_ground(gp: dict, where: str = "ground: source 3dep") -> TerrainSpec:
     """The road corridor's 0.1.132 `ground: {source: 3dep, cache,
     spacing_m, margin_ft, vshift_m}` as the `terrain:` block it now is (its
-    cache path as written, as it was read then)."""
+    cache path as written, as it was read then); `where` heads its errors."""
     return parse({k: gp[k] for k in ("cache", "spacing_m", "margin_ft",
                                      "vshift_m") if k in gp},
-                 None, "ground")
+                 None, where)
 
 
 def crs_per_ft(ctx) -> float:

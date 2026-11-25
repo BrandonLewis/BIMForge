@@ -33,6 +33,20 @@ def _urlretrieve(url, path):
     urllib.request.urlretrieve(url, str(path))
 
 
+REFRESH = "run `est-bim terrain SPEC --refresh` to fetch it again"
+
+
+def _stale(cache, why):
+    """The error a build stops on when its cache holds another area: only
+    `est-bim terrain --refresh` refetches, never a build by itself."""
+    return ValueError(f"terrain: the cache {cache} {why}; {REFRESH}")
+
+
+def _same_bbox(a, b, spacing):
+    """Two bboxes agree to a hundredth of a cell."""
+    return all(abs(float(p) - float(q)) <= 0.01 * spacing for p, q in zip(a, b))
+
+
 def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
                    log=print):
     """TerrainGrid of NAVD88-metre elevations over `bbox_m` in the project
@@ -48,8 +62,15 @@ def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
     adjustAspectRatio off). Fine for SurveyGrade-FALSE context terrain; swap
     in tifffile to read the true geotransform if survey-tight fidelity is
     ever needed.
+
+    Beside the TIFF, `<cache>.json` records the area it was fetched for
+    (bbox, CRS, cols, rows, spacing); a cache hit for any other area fails,
+    naming the cache and `est-bim terrain --refresh`, rather than stretch
+    the old raster over the new bbox. A TIFF with no record (made before
+    there was one) is held to its shape: (rows, cols) or the same failure.
     """
     import io
+    import json
     import time
     import urllib.parse
     import numpy as np
@@ -63,9 +84,24 @@ def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
     xmin, ymin, xmax, ymax = bbox_m
     cols = max(2, int(round((xmax - xmin) / spacing_m)))
     rows = max(2, int(round((ymax - ymin) / spacing_m)))
+    asked = {"bbox": [float(v) for v in (xmin, ymin, xmax, ymax)],
+             "crs_epsg": int(crs_epsg), "cols": cols, "rows": rows,
+             "spacing": float(spacing_m)}
+    side = Path(str(cache_path) + ".json")
     if cache_path.exists() and not refresh:
         log(f"  terrain DEM: cache hit {cache_path.name}")
         raw = cache_path.read_bytes()
+        if side.exists():
+            had = json.loads(side.read_text())
+            if (had.get("crs_epsg") != asked["crs_epsg"]
+                    or (had.get("cols"), had.get("rows")) != (cols, rows)
+                    or not _same_bbox(had.get("bbox") or (), asked["bbox"],
+                                      spacing_m)):
+                raise _stale(cache_path,
+                             f"holds {had.get('cols')}x{had.get('rows')} cells "
+                             f"over {had.get('bbox')} (EPSG:"
+                             f"{had.get('crs_epsg')}), not the {cols}x{rows} "
+                             f"over {asked['bbox']} (EPSG:{crs_epsg}) asked for")
     else:
         q = {"bbox": f"{xmin},{ymin},{xmax},{ymax}", "bboxSR": str(crs_epsg),
              "imageSR": str(crs_epsg), "size": f"{cols},{rows}",
@@ -86,9 +122,17 @@ def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
         if raw is None:
             raise RuntimeError("3DEP DEM fetch failed after 5 attempts")
         cache_path.write_bytes(raw)
+        side.write_text(json.dumps(asked))
         log(f"  terrain DEM: fetched {len(raw) / 1024:.0f} KB -> "
             f"{cache_path.name}")
     z = np.asarray(Image.open(io.BytesIO(raw)), dtype="float64")
+    if not side.exists():
+        # a cache from before the record: its shape is all there is to check
+        if z.shape != (rows, cols):
+            raise _stale(cache_path, f"holds {z.shape[1]}x{z.shape[0]} cells, "
+                                     f"not the {cols}x{rows} asked for")
+        log(f"  terrain DEM: {cache_path.name} has no record of its area; "
+            f"its {cols}x{rows} cells are taken as the bbox asked for")
     return TerrainGrid(z=z, bbox_m=(xmin, ymin, xmax, ymax),
                        spacing_m=float(spacing_m), crs_epsg=int(crs_epsg),
                        info={})
@@ -141,7 +185,8 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
     to duck under, and the mean matches the DEM's interpolated surface,
     which keeps cross-source comparison honest (see `bin_points`). The heavy
     LAZ tiles cache locally; the small gridded .npz is the reproducible
-    artifact.
+    artifact, and it records its bbox and CRS: a hit for any other area
+    fails, as the DEM's does, naming `est-bim terrain --refresh`.
     """
     import json
     import urllib.parse
@@ -152,6 +197,13 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
         # cache file whose path the caller controls.
         dd = np.load(grid_cache)
         log(f"  terrain LPC: cache hit {grid_cache.name}")
+        had = [float(dd[k]) for k in ("xmin", "ymin", "xmax", "ymax")]
+        crs = int(dd["crs_epsg"]) if "crs_epsg" in dd else int(crs_epsg)
+        if crs != int(crs_epsg) or not _same_bbox(had, bbox_m, spacing_m):
+            # its own bbox is the record (older grids carry no CRS)
+            raise _stale(grid_cache, f"holds {had} (EPSG:{crs}), not the "
+                                     f"{list(map(float, bbox_m))} (EPSG:"
+                                     f"{crs_epsg}) asked for")
         return TerrainGrid(z=dd["z"],
                            bbox_m=(float(dd["xmin"]), float(dd["ymin"]),
                                    float(dd["xmax"]), float(dd["ymax"])),
@@ -207,7 +259,8 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
     info = {"project": project, "tiles": len(items),
             "publication": items[0].get("publicationDate", "")}
     np.savez_compressed(grid_cache, z=z, xmin=xmin, ymin=ymin,
-                        xmax=xmax, ymax=ymax, info=json.dumps(info))
+                        xmax=xmax, ymax=ymax, crs_epsg=int(crs_epsg),
+                        info=json.dumps(info))
     log(f"  terrain LPC: {len(items)} tile(s) {project}, class-2 gridded "
         f"{rows}x{cols} @ {spacing_m:g} m -> {grid_cache.name}")
     return TerrainGrid(z=z, bbox_m=(xmin, ymin, xmax, ymax),
