@@ -39,11 +39,11 @@ The corridor's `ground:` says only what the corridor calculates against:
 - `ground: {source: plane, elevation, slope_n, slope_e}`: a test plane, for CI and the shipped example. With no `terrain:` block it adds its plane TERRAIN element, as today, so the example's cuts still have a host to void. With a `terrain:` block the plane still sets the corridor's levels, cut and fill, and the element written is the fetched ground, not the plane.
 - `ground: {source: 3dep, cache, spacing_m, margin_ft, vshift_m}`, the 0.1.132 form, keeps working. It is read as `terrain: {source: dem, cache, spacing_m, margin_ft, vshift_m}` plus `ground: {source: terrain}`, with a build-log note: `ground: source 3dep is now terrain: {...} with ground: {source: terrain}`. The IFC is the same either way. A spec with both the old form and a `terrain:` block fails: `ground: source 3dep and a terrain: block both name the ground; keep the terrain: block`. No shipped spec or fixture uses the old form.
 
-The corridor receives the `TerrainSpec` from `build_from_spec` (as `params["terrain"]`, set only when its ground's source is `terrain` or the translated `3dep`, so no other family is handed a key it does not read).
+The corridor receives the `TerrainSpec` from `build_from_spec` as `params["terrain"]` whenever the spec has a terrain block, whatever its ground's source. Only a family whose `build` says `takes_terrain` is handed it, so no other family gets a key it does not read.
 
 ## Who adds the element
 
-One rule: the TERRAIN element is added once. A family that calculates against the ground (the corridor, on `source: terrain`) adds it over its own footprint while it builds. Otherwise, when the spec has `terrain:`, `build_from_spec` adds it after the family builds (and after `spatial_parts` and the routes), over the model's footprint; a plane TERRAIN element is then replaced by the fetched one.
+One rule: the TERRAIN element is added once. A family that takes the terrain (the corridor, on `source: terrain` or `source: plane`) adds the fetched ground over its own footprint while it builds, so its cuts void that element. Otherwise, when the spec has `terrain:`, `build_from_spec` adds it after the family builds (and after `spatial_parts` and the routes), over the model's footprint, unless the model already has a TERRAIN element.
 
 The model's footprint: the plan extent of every element's placed geometry (model frame x and y, feet), leaving out TERRAIN elements and elements with no geometry, converted to CRS coordinates by `base_e + x`, `base_n + y` (`ProjectContext.local` reversed) and the CRS unit, then grown by `margin_ft` each way. It reuses the model's bounds code (`placement.local_bounds` over placed bodies, as `backfill._placed_bounds` places them).
 
