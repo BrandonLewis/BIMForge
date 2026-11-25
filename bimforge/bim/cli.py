@@ -17,6 +17,7 @@
   est-bim kml     model.ifc [--out model.kml]
   est-bim kmz     model.ifc [--out model.kmz] [--geoid-shift-m M] [--omit RE] [--massing] [--collada | --gltf]
   est-bim build   spec.yaml [--check-only]
+  est-bim terrain spec.yaml [--refresh] [--family-path DIR]   fetch the spec's terrain: ground ahead of the build
   est-bim stations model.ifc [--out stationed.ifc] [--csv stations.csv]
   est-bim elevation set.yaml [--ifc model.ifc] [--out sheets.dxf] [--date YYYY-MM-DD]
 
@@ -2208,6 +2209,20 @@ def _load_surface_points(path):
     return P[:, :3]
 
 
+def _run_terrain(args) -> int:
+    """The spec's ground, fetched or from the cache, reported."""
+    from bimforge.author.families.registry import terrain_from_spec
+    from bimforge.terrain.spec import report_lines
+    els, ctx, ts = terrain_from_spec(args.spec, refresh=args.refresh,
+                                     family_paths=args.family_paths)
+    if not els:
+        print("terrain: the spec asks for no terrain")
+        return 0
+    for el in els:
+        print("\n".join(report_lines(el, ctx, ts)))
+    return 0
+
+
 def _run_terrain_diff(args) -> int:
     """Plan-frame surface vs a terrain grid cache on one datum -> CSV [+PNG]."""
     if args.against:
@@ -3230,6 +3245,15 @@ def main(argv=None) -> int:
                    help="style the IFC with this palette (a pack directory or "
                         "package), over the spec's style_pack and the org pack")
 
+    tr = sub.add_parser("terrain", help="fetch the existing ground a build spec's "
+                                        "terrain: block asks for, ahead of the "
+                                        "build, and report it")
+    tr.add_argument("spec", help="build spec YAML")
+    tr.add_argument("--refresh", action="store_true",
+                    help="fetch again over a cached download")
+    tr.add_argument("--family-path", action="append", default=[], dest="family_paths",
+                    metavar="DIR", help="as for est-bim build; repeatable")
+
     stn = sub.add_parser("stations", help="write every element's station / offset "
                                           "along its IfcAlignment into the IFC")
     stn.add_argument("ifc", help="an IFC4X3 model with an IfcAlignment")
@@ -3333,6 +3357,12 @@ def main(argv=None) -> int:
             return _run_terrain_diff(args)
         if args.cmd == "label-crops":
             return _run_label_crops(args)
+        if args.cmd == "terrain":
+            try:
+                return _run_terrain(args)
+            except (OSError, ValueError, KeyError, RuntimeError) as exc:
+                print(f"error: {exc}", file=sys.stderr)
+                return 1
         if args.cmd == "build":
             from bimforge.author.families.registry import build_from_spec
             try:

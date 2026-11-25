@@ -156,3 +156,208 @@ def test_workunit_meta_unreachable_returns_empty(tmp_path, monkeypatch):
                            log=logs.append)
     assert meta == {}                          # the build continues without vintage
     assert any("skipped" in ln for ln in logs)
+
+# ---------------------------------------------------- a cache of another area
+
+def test_dem_fetch_writes_what_it_asked_for_beside_the_cache(tmp_path,
+                                                             monkeypatch):
+    raw = _tiff_bytes([[1.0, 2.0], [3.0, 4.0]])
+    monkeypatch.setattr(F, "_urlopen", lambda url, timeout: io.BytesIO(raw))
+    cache = tmp_path / "dem.tif"
+    F.fetch_3dep_dem((0.0, 0.0, 2.0, 2.0), 1.0, 32610, cache,
+                     log=lambda s: None)
+    side = json.loads((tmp_path / "dem.tif.json").read_text())
+    assert side == {"bbox": [0.0, 0.0, 2.0, 2.0], "crs_epsg": 32610,
+                    "cols": 2, "rows": 2, "spacing": 1.0}
+    monkeypatch.setattr(F, "_urlopen", _no_transport)
+    g = F.fetch_3dep_dem((0.0, 0.0, 2.0, 2.0), 1.0, 32610, cache,
+                         log=lambda s: None)        # the same area: a hit
+    assert g.z.shape == (2, 2)
+
+
+@pytest.mark.parametrize("bbox, spacing, epsg", [
+    ((0.0, 0.0, 2.0, 3.0), 1.0, 32610),     # a longer wall
+    ((0.0, 0.0, 2.0, 2.0), 0.5, 32610),     # finer cells
+    ((0.0, 0.0, 2.0, 2.0), 1.0, 2226),      # another CRS
+])
+def test_dem_cache_of_another_area_fails_and_says_refresh(
+        tmp_path, monkeypatch, bbox, spacing, epsg):
+    raw = _tiff_bytes([[1.0, 2.0], [3.0, 4.0]])
+    monkeypatch.setattr(F, "_urlopen", lambda url, timeout: io.BytesIO(raw))
+    cache = tmp_path / "dem.tif"
+    F.fetch_3dep_dem((0.0, 0.0, 2.0, 2.0), 1.0, 32610, cache,
+                     log=lambda s: None)
+    monkeypatch.setattr(F, "_urlopen", _no_transport)  # a build never refetches
+    with pytest.raises(ValueError, match=r"dem\.tif.*--refresh"):
+        F.fetch_3dep_dem(bbox, spacing, epsg, cache, log=lambda s: None)
+    monkeypatch.setattr(F, "_urlopen", lambda url, timeout: io.BytesIO(raw))
+    F.fetch_3dep_dem(bbox, spacing, epsg, cache, refresh=True,
+                     log=lambda s: None)            # --refresh refetches
+    assert json.loads((tmp_path / "dem.tif.json").read_text())["crs_epsg"] == epsg
+
+
+def test_dem_cache_without_a_sidecar_is_held_to_its_shape(tmp_path,
+                                                          monkeypatch):
+    cache = tmp_path / "dem.tif"
+    cache.write_bytes(_tiff_bytes([[1.0, 2.0], [3.0, 4.0]]))
+    monkeypatch.setattr(F, "_urlopen", _no_transport)
+    logs = []
+    F.fetch_3dep_dem((0.0, 0.0, 2.0, 2.0), 1.0, 32610, cache, log=logs.append)
+    assert any("no record of its area" in ln for ln in logs)
+    with pytest.raises(ValueError, match="--refresh"):
+        F.fetch_3dep_dem((0.0, 0.0, 4.0, 2.0), 1.0, 32610, cache,
+                         log=lambda s: None)
+
+
+def _lpc_cache(tmp_path, bbox=(0.0, 0.0, 2.0, 2.0), crs=None):
+    stem = tmp_path / "site"
+    extra = {} if crs is None else {"crs_epsg": crs}
+    np.savez_compressed(str(stem) + "-3DEP-LPC-grid-1m.npz",
+                        z=np.ones((2, 2)), xmin=bbox[0], ymin=bbox[1],
+                        xmax=bbox[2], ymax=bbox[3],
+                        info=json.dumps({"project": "P"}), **extra)
+    return stem
+
+
+def test_lpc_cache_hit_of_the_same_area(tmp_path, monkeypatch):
+    stem = _lpc_cache(tmp_path, crs=32610)
+    monkeypatch.setattr(F, "_urlopen", _no_transport)
+    g = F.fetch_3dep_lpc((0.0, 0.0, 2.0, 2.0), 1.0, 32610, "", stem,
+                         log=lambda s: None)
+    assert g.z.shape == (2, 2) and g.info == {"project": "P"}
+
+
+@pytest.mark.parametrize("bbox, epsg, crs", [
+    ((0.0, 0.0, 3.0, 2.0), 32610, 32610),   # a longer footprint
+    ((0.0, 0.0, 2.0, 2.0), 2226, 32610),    # another CRS
+    ((0.0, 0.0, 3.0, 2.0), 32610, None),    # an older cache, another area
+])
+def test_lpc_cache_of_another_area_fails_and_says_refresh(
+        tmp_path, monkeypatch, bbox, epsg, crs):
+    stem = _lpc_cache(tmp_path, crs=crs)
+    monkeypatch.setattr(F, "_urlopen", _no_transport)
+    with pytest.raises(ValueError, match=r"LPC-grid-1m\.npz.*--refresh"):
+        F.fetch_3dep_lpc(bbox, 1.0, epsg, "", stem, log=lambda s: None)
+
+
+def test_the_stale_message_fits_the_cli_and_the_library(tmp_path):
+    msg = str(F._stale(tmp_path / "dem.tif", "holds another area"))
+    assert "est-bim terrain SPEC --refresh" in msg and "refresh=True" in msg
+
+
+@pytest.mark.parametrize("bbox", [None, [0.0, 0.0, 2.0], "0,0,2,2"])
+def test_dem_sidecar_without_four_bbox_values_is_a_mismatch(
+        tmp_path, monkeypatch, bbox):
+    cache = tmp_path / "dem.tif"
+    cache.write_bytes(_tiff_bytes([[1.0, 2.0], [3.0, 4.0]]))
+    side = {"crs_epsg": 32610, "cols": 2, "rows": 2, "spacing": 1.0}
+    if bbox is not None:
+        side["bbox"] = bbox
+    (tmp_path / "dem.tif.json").write_text(json.dumps(side))
+    monkeypatch.setattr(F, "_urlopen", _no_transport)
+    with pytest.raises(ValueError, match=r"dem\.tif.*--refresh"):
+        F.fetch_3dep_dem((0.0, 0.0, 2.0, 2.0), 1.0, 32610, cache,
+                         log=lambda s: None)
+
+
+def test_dem_cache_of_a_larger_area_still_fails(tmp_path, monkeypatch):
+    # the DEM's bbox decides its mesh: a containing DEM is not the one asked for
+    raw = _tiff_bytes(np.ones((4, 4)))
+    monkeypatch.setattr(F, "_urlopen", lambda url, timeout: io.BytesIO(raw))
+    cache = tmp_path / "dem.tif"
+    F.fetch_3dep_dem((0.0, 0.0, 4.0, 4.0), 1.0, 32610, cache,
+                     log=lambda s: None)
+    monkeypatch.setattr(F, "_urlopen", _no_transport)
+    with pytest.raises(ValueError, match="--refresh"):
+        F.fetch_3dep_dem((1.0, 1.0, 3.0, 3.0), 1.0, 32610, cache,
+                         log=lambda s: None)
+
+
+def test_lpc_cache_containing_the_area_is_taken_at_its_own_bbox(
+        tmp_path, monkeypatch):
+    stem = _lpc_cache(tmp_path, bbox=(0.0, 0.0, 4.0, 4.0), crs=32610)
+    monkeypatch.setattr(F, "_urlopen", _no_transport)
+    g = F.fetch_3dep_lpc((1.0, 1.0, 3.0, 2.5), 1.0, 32610, "", stem,
+                         log=lambda s: None)
+    assert g.bbox_m == (0.0, 0.0, 4.0, 4.0)       # its true bbox, not stretched
+
+
+def _fake_laspy(monkeypatch, reads):
+    """laspy answered locally: every tile four class-2 returns at z = 5 m
+    over (0, 0)..(2, 2), in a header with no CRS (read as EPSG:6350)."""
+    import sys
+    import types
+
+    class _Las:
+        class header:
+            @staticmethod
+            def parse_crs():
+                return None
+        x = np.array([0.5, 1.5, 0.5, 1.5])
+        y = np.array([0.5, 0.5, 1.5, 1.5])
+        z = np.full(4, 5.0)
+        classification = np.full(4, 2)
+
+    def read(path):
+        reads.append(path)
+        return _Las()
+
+    monkeypatch.setitem(sys.modules, "laspy", types.SimpleNamespace(read=read))
+
+
+def test_lpc_refresh_rebins_the_tiles_on_disk_and_downloads_the_rest(
+        tmp_path, monkeypatch):
+    pytest.importorskip("pyproj")
+    stem = _lpc_cache(tmp_path, crs=6350)
+    lpc = tmp_path / "site-LPC"
+    lpc.mkdir()
+    (lpc / "a.laz").write_bytes(b"on disk")
+    items = {"items": [
+        {"downloadURL": "https://x/Projects/CA_P/a.laz", "sizeInBytes": 1},
+        {"downloadURL": "https://x/Projects/CA_P/b.laz", "sizeInBytes": 1}]}
+    monkeypatch.setattr(F, "_urlopen", lambda url, timeout: io.BytesIO(
+        json.dumps(items).encode()))
+    got = []
+
+    def retrieve(url, path):
+        got.append(url)
+        path.write_bytes(b"fetched")
+
+    monkeypatch.setattr(F, "_urlretrieve", retrieve)
+    reads = []
+    _fake_laspy(monkeypatch, reads)
+    g = F.fetch_3dep_lpc((0.0, 0.0, 2.0, 2.0), 1.0, 6350, "w", stem,
+                         refresh=True, log=lambda s: None)
+    assert got == ["https://x/Projects/CA_P/b.laz"]   # a.laz is not fetched again
+    assert len(reads) == 2 and np.allclose(g.z, 5.0)
+    assert (lpc / "b.laz").read_bytes() == b"fetched"
+    assert not list(lpc.glob("*.part"))
+
+
+def test_workunit_meta_refresh_asks_again(tmp_path, monkeypatch):
+    calls = []
+
+    def fake(url, timeout):
+        calls.append(url)
+        return io.BytesIO(json.dumps(_WU_PAYLOAD).encode())
+
+    monkeypatch.setattr(F, "_urlopen", fake)
+    cache = tmp_path / "workunit.json"
+    F.workunit_meta(-120.0, 38.0, cache, log=lambda s: None)
+    F.workunit_meta(-120.0, 38.0, cache, refresh=True, log=lambda s: None)
+    assert len(calls) == 2
+
+
+def test_an_unreachable_index_is_not_cached_so_a_later_run_retries(
+        tmp_path, monkeypatch):
+    def boom(url, timeout):
+        raise OSError("index down")
+
+    monkeypatch.setattr(F, "_urlopen", boom)
+    cache = tmp_path / "workunit.json"
+    assert F.workunit_meta(-120.0, 38.0, cache, log=lambda s: None) == {}
+    assert not cache.exists()
+    monkeypatch.setattr(F, "_urlopen", lambda url, timeout: io.BytesIO(
+        json.dumps(_WU_PAYLOAD).encode()))
+    assert F.workunit_meta(-120.0, 38.0, cache,
+                           log=lambda s: None)["ql"] == "QL2"

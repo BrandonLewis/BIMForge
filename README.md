@@ -51,6 +51,44 @@ caltrans/2025/d89-pipe-headwall` (or a list), and put the project's own rows in
 `tables_file`, which merges over them. Family module names must be unique: the
 folder is imported by plain module name.
 
+## Existing ground
+
+A top-level `terrain:` block gives any spec's model its existing ground: one
+IfcGeographicElement TERRAIN from USGS 3DEP, over the plan extent of the
+model's elements grown by `margin_ft`, with its provenance. It needs
+`project.epsg` and a real `project.base`. 3DEP heights are NAVD88: the shift
+to the project's datum is `vshift_m` when given, else none for a NAVD88
+`project.vertical_datum`, NOAA NCAT at the base point for NGVD29, and any
+other datum fails until `vshift_m` is given. The road corridor measures its
+cut and fill against the same ground with `ground: {source: terrain}`
+(`ground: {source: plane, ...}` stays for tests and the shipped example).
+
+```yaml
+terrain:
+  source: dem          # dem (3DEP 1 m DEM, default) | lpc (lidar bare earth)
+  cache: terrain/site  # path stem, relative to the spec's directory; required
+  margin_ft: 200       # around the footprint (default 200)
+  spacing_m: 1.0       # cell size, in METRES (default 1.0)
+  vshift_m: 0.71       # optional: overrides the datum rule
+```
+
+`est-bim terrain SPEC [--refresh] [--family-path DIR]` builds the model in
+memory (finding families as `est-bim build --family-path` does), fetches the
+ground (or reads it from the cache) and reports its footprint, cells, source,
+vintage, quality level, shift and cache files; after it, `est-bim build`
+reads only the cache (except the 3DEP work-unit lookup, which is retried on
+each build while it has given no answer). `est-bim build --check-only` still fetches the terrain
+when the cache is cold, since the build adds the ground before the check-only
+return. A build never refetches by itself: when the footprint changes (a
+longer wall, another `margin_ft` or `spacing_m`), it fails naming the cache
+until `est-bim terrain SPEC --refresh` fetches the new area; so does an
+NGVD29 shift cached for another base point. `--refresh` fetches every cache
+again: the DEM, the NCAT shift and the work-unit vintage. On `source: lpc` a
+cached grid that covers the new footprint is used as it is, another
+`spacing_m` fetches by itself (the grid's file name carries its spacing), and
+`--refresh` re-bins the LAZ tiles already on disk, downloading only the ones
+missing (delete the `<cache>-LPC` folder to download them all again).
+
 ## What a viewer sees
 
 The IFC is written for FreeCAD, Revit and Bonsai as much as for the takeoff:

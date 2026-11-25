@@ -33,6 +33,37 @@ def _urlretrieve(url, path):
     urllib.request.urlretrieve(url, str(path))
 
 
+REFRESH = ("run `est-bim terrain SPEC --refresh` (or pass refresh=True) "
+           "to fetch it again")
+
+
+def _stale(cache, why):
+    """The error a build stops on when its cache holds another area: only
+    `est-bim terrain --refresh` (refresh=True) refetches, never a build by
+    itself."""
+    return ValueError(f"terrain: the cache {cache} {why}; {REFRESH}")
+
+
+def _four(bbox) -> bool:
+    """A bbox is four numbers; a record missing or short of them is not one."""
+    return isinstance(bbox, (list, tuple)) and len(bbox) == 4
+
+
+def _same_bbox(a, b, spacing):
+    """Two bboxes agree to a hundredth of a cell."""
+    return (_four(a) and _four(b)
+            and all(abs(float(p) - float(q)) <= 0.01 * spacing
+                    for p, q in zip(a, b)))
+
+
+def _holds_bbox(a, b, spacing):
+    """Bbox `a` contains bbox `b`, to a hundredth of a cell."""
+    tol = 0.01 * spacing
+    return (_four(a) and _four(b)
+            and a[0] <= b[0] + tol and a[1] <= b[1] + tol
+            and a[2] >= b[2] - tol and a[3] >= b[3] - tol)
+
+
 def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
                    log=print):
     """TerrainGrid of NAVD88-metre elevations over `bbox_m` in the project
@@ -48,8 +79,15 @@ def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
     adjustAspectRatio off). Fine for SurveyGrade-FALSE context terrain; swap
     in tifffile to read the true geotransform if survey-tight fidelity is
     ever needed.
+
+    Beside the TIFF, `<cache>.json` records the area it was fetched for
+    (bbox, CRS, cols, rows, spacing); a cache hit for any other area fails,
+    naming the cache and `est-bim terrain --refresh`, rather than stretch
+    the old raster over the new bbox. A TIFF with no record (made before
+    there was one) is held to its shape: (rows, cols) or the same failure.
     """
     import io
+    import json
     import time
     import urllib.parse
     import numpy as np
@@ -63,9 +101,24 @@ def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
     xmin, ymin, xmax, ymax = bbox_m
     cols = max(2, int(round((xmax - xmin) / spacing_m)))
     rows = max(2, int(round((ymax - ymin) / spacing_m)))
+    asked = {"bbox": [float(v) for v in (xmin, ymin, xmax, ymax)],
+             "crs_epsg": int(crs_epsg), "cols": cols, "rows": rows,
+             "spacing": float(spacing_m)}
+    side = Path(str(cache_path) + ".json")
     if cache_path.exists() and not refresh:
         log(f"  terrain DEM: cache hit {cache_path.name}")
         raw = cache_path.read_bytes()
+        if side.exists():
+            had = json.loads(side.read_text())
+            if (had.get("crs_epsg") != asked["crs_epsg"]
+                    or (had.get("cols"), had.get("rows")) != (cols, rows)
+                    or not _same_bbox(had.get("bbox"), asked["bbox"],
+                                      spacing_m)):
+                raise _stale(cache_path,
+                             f"holds {had.get('cols')}x{had.get('rows')} cells "
+                             f"over {had.get('bbox')} (EPSG:"
+                             f"{had.get('crs_epsg')}), not the {cols}x{rows} "
+                             f"over {asked['bbox']} (EPSG:{crs_epsg}) asked for")
     else:
         q = {"bbox": f"{xmin},{ymin},{xmax},{ymax}", "bboxSR": str(crs_epsg),
              "imageSR": str(crs_epsg), "size": f"{cols},{rows}",
@@ -86,9 +139,17 @@ def fetch_3dep_dem(bbox_m, spacing_m, crs_epsg, cache_path, refresh=False,
         if raw is None:
             raise RuntimeError("3DEP DEM fetch failed after 5 attempts")
         cache_path.write_bytes(raw)
+        side.write_text(json.dumps(asked))
         log(f"  terrain DEM: fetched {len(raw) / 1024:.0f} KB -> "
             f"{cache_path.name}")
     z = np.asarray(Image.open(io.BytesIO(raw)), dtype="float64")
+    if not side.exists():
+        # a cache from before the record: its shape is all there is to check
+        if z.shape != (rows, cols):
+            raise _stale(cache_path, f"holds {z.shape[1]}x{z.shape[0]} cells, "
+                                     f"not the {cols}x{rows} asked for")
+        log(f"  terrain DEM: {cache_path.name} has no record of its area; "
+            f"its {cols}x{rows} cells are taken as the bbox asked for")
     return TerrainGrid(z=z, bbox_m=(xmin, ymin, xmax, ymax),
                        spacing_m=float(spacing_m), crs_epsg=int(crs_epsg),
                        info={})
@@ -141,7 +202,13 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
     to duck under, and the mean matches the DEM's interpolated surface,
     which keeps cross-source comparison honest (see `bin_points`). The heavy
     LAZ tiles cache locally; the small gridded .npz is the reproducible
-    artifact.
+    artifact, and it records its bbox and CRS. A hit whose bbox contains the
+    one asked for is taken at its own bbox (the grid carries it, so nothing
+    is stretched: a shorter wall reads the grid it has); one that does not
+    contain it fails, as the DEM's does, naming `est-bim terrain --refresh`.
+    refresh=True asks TNM for the tiles again and re-bins them, downloading
+    only the tiles not already on disk (a tile's name is its content; delete
+    the `-LPC` folder to download them all again).
     """
     import json
     import urllib.parse
@@ -152,6 +219,15 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
         # cache file whose path the caller controls.
         dd = np.load(grid_cache)
         log(f"  terrain LPC: cache hit {grid_cache.name}")
+        had = [float(dd[k]) for k in ("xmin", "ymin", "xmax", "ymax")]
+        crs = int(dd["crs_epsg"]) if "crs_epsg" in dd else int(crs_epsg)
+        if crs != int(crs_epsg) or not _holds_bbox(had, list(bbox_m),
+                                                   spacing_m):
+            # its own bbox is the record (older grids carry no CRS)
+            raise _stale(grid_cache, f"holds {had} (EPSG:{crs}), which does "
+                                     f"not cover the "
+                                     f"{list(map(float, bbox_m))} (EPSG:"
+                                     f"{crs_epsg}) asked for")
         return TerrainGrid(z=dd["z"],
                            bbox_m=(float(dd["xmin"]), float(dd["ymin"]),
                                    float(dd["xmax"]), float(dd["ymax"])),
@@ -184,10 +260,13 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
     for it in items:
         fn = it["downloadURL"].split("/")[-1]
         p = lpc_dir / fn
-        if not p.exists() or refresh:
+        if not p.exists():
             log(f"  terrain LPC: downloading {fn} "
                 f"({it.get('sizeInBytes', 0) / 1e6:.0f} MB)")
-            _urlretrieve(it["downloadURL"], p)
+            # beside it first, so a broken download is never taken for a tile
+            part = p.with_name(p.name + ".part")
+            _urlretrieve(it["downloadURL"], part)
+            part.replace(p)
         las = laspy.read(str(p))
         crs = las.header.parse_crs()
         horiz = crs.sub_crs_list[0] if (crs and crs.is_compound) else crs
@@ -207,7 +286,8 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
     info = {"project": project, "tiles": len(items),
             "publication": items[0].get("publicationDate", "")}
     np.savez_compressed(grid_cache, z=z, xmin=xmin, ymin=ymin,
-                        xmax=xmax, ymax=ymax, info=json.dumps(info))
+                        xmax=xmax, ymax=ymax, crs_epsg=int(crs_epsg),
+                        info=json.dumps(info))
     log(f"  terrain LPC: {len(items)} tile(s) {project}, class-2 gridded "
         f"{rows}x{cols} @ {spacing_m:g} m -> {grid_cache.name}")
     return TerrainGrid(z=z, bbox_m=(xmin, ymin, xmax, ymax),
@@ -215,18 +295,21 @@ def fetch_3dep_lpc(bbox_m, spacing_m, crs_epsg, wgs_bbox, cache_stem,
                        info=info)
 
 
-def workunit_meta(lon, lat, cache_path, log=print):
+def workunit_meta(lon, lat, cache_path, refresh=False, log=print):
     """Acquisition vintage and quality of the 3DEP work unit covering
     (lon, lat), from the USGS 3DEP elevation index. Both the DEM and the LPC
     over a site derive from the SAME work unit, so this stamps one
-    authoritative vintage into either path. Cached; returns {} (and the
-    build still runs) if the index is unreachable.
+    authoritative vintage into either path. Cached (refresh=True asks
+    again); returns {} (and the build still runs) if the index is
+    unreachable, and caches nothing then, so a later run asks again.
     """
     import json
     import urllib.parse
     cache_path = Path(cache_path)
-    if cache_path.exists():
-        return json.loads(cache_path.read_text())
+    if cache_path.exists() and not refresh:
+        had = json.loads(cache_path.read_text())
+        if had:               # an older cache kept an empty answer: ask again
+            return had
     meta = {}
     try:
         import datetime
@@ -253,8 +336,8 @@ def workunit_meta(lon, lat, cache_path, log=print):
                     "ql": a.get("ql", "")}
     except Exception as e:
         log(f"  terrain: 3DEP index lookup skipped ({e})")
-    cache_path.write_text(json.dumps(meta))
     if meta:
+        cache_path.write_text(json.dumps(meta))
         log(f"  terrain: 3DEP work unit {meta['workunit']} collected "
             f"{meta['collect_start']}..{meta['collect_end']} {meta['ql']}")
     return meta

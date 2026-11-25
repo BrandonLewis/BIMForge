@@ -521,9 +521,13 @@ def on_3dep(monkeypatch, tmp_path):
 
     monkeypatch.setattr(T, "fetch_3dep_dem", fake_fetch)
     monkeypatch.setattr(A, "fetch_3dep_dem", fake_fetch)
+    # the ground passes the base point's lon/lat, so the vintage is looked up
+    monkeypatch.setattr(A, "workunit_meta", lambda *a, **k: {})
     p = copy.deepcopy(PARAMS)
+    # CTX names no vertical datum, so the shift is given (G.9: a 3DEP ground
+    # without one fails rather than assuming none)
     p["ground"] = {"source": "3dep", "cache": str(tmp_path / "rc"), "margin_ft": 0.0,
-                   "spacing_m": 6.0}
+                   "spacing_m": 6.0, "vshift_m": 0.0}
     return p
 
 
