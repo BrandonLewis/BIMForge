@@ -41,9 +41,10 @@ skip or read them. `model-elements` sends `route`, `based_on` and
   Guidebook (2007) as guidance:
   - the path is part of one side of the road's section while it is beside
     the road: its paved edge `separation` ft from the road's outer edge of
-    shoulder (5 ft at least, narrowing to the deck's 1.5 ft over
-    `approach_ft` each side of a bridge, where it must meet the deck within
-    0.01 ft), on the profile the spec gives, its courses held normal to its
+    shoulder (5 ft at least - up to a path gap's 1 ft transition foot, so a
+    row inside the gap cannot hide a narrowing beside it - narrowing to the
+    deck's 1.5 ft over `approach_ft` each side of a bridge, where it must
+    meet the deck within 0.01 ft), on the profile the spec gives, its courses held normal to its
     own grade; cut, fill and walls are one earthwork over the whole section,
     counted once, and a course's `Volume = PathLength * Width * Thickness`
     holds across curve ends;
@@ -57,10 +58,16 @@ skip or read them. `model-elements` sends `route`, `based_on` and
     54 in rail on walls along it; `path.own`: stretches where the path
     leaves the road on a corridor of its own (its own alignment, profile,
     section, walls and earthwork), handed over where natural ground lies
-    between, its footprint never crossing the road's, its radius, grade and
-    crest checks and its runs followed along the path's own length;
+    between, its footprint never crossing the road's, its profile carrying
+    the path's grade on at both ends (both along the path's centreline, so
+    on a road curve path.profile's per-station grade over 1 - kappa u), its
+    radius (at 20 or 30 mph, `design_speed_mph`), grade and crest checks and
+    its runs followed along the path's own length;
   - `outputs.path` lists the path by road station (an own stretch's
-    hand-over and rejoin rows note it, `own <n> hand-over` / `rejoin`);
+    hand-over and rejoin rows note it, `own <n> hand-over` / `rejoin`; a
+    strip with no slope or flatter than 100:1 is `level`; the barrier is
+    `rail` where the road's guardrail or a `wall-road` strip wall's barrier
+    stands, and no barrier-needed check is listed there);
     `outputs.path_checks` lists
     every advisory deviation (grade over 5 %, over 2 % sustained, crests
     short of stopping sight distance with the 30 mph downgrade rule,

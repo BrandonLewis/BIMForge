@@ -200,6 +200,7 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 
 - It is on the path's own stationing, which starts at 0+00 at the hand-over.
 - It must meet `path.profile` at both ends within 0.01 ft. `path.profile` is on road stations.
+- Its grade must carry `path.profile`'s on at both ends, within 0.001 %. Both are compared along the path's centreline: on a road curve the centreline runs 1 − κu ft per road station, so `path.profile`'s grade there is divided by it (as the grade checks do).
 
 **The section and earthwork**
 
@@ -235,7 +236,7 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
 - The path's side of the road's section ends at the road's hinge and takes V1.1's outer slope, with its automatic walls and guardrail. The section is the one the road would have without a path.
 - **Inside a road gap too:** where a path gap overlaps a road structure gap, the road's deck carries no path there. Its width is the bridge family's business. The family only lists the overlap.
 - **The path's profile still runs through the gap.** It is the path structure's grade, so the grade and crest checks apply to it as anywhere else, and the deck's grade does not.
-- The separation through the gap is the path structure's offset from the road. It is kept in `outputs.path` but not held to the 5 ft rule, since a bridge is separated by its own edge.
+- The separation through the gap is the path structure's offset from the road. It is kept in `outputs.path` but not held to the 5 ft rule, since a bridge is separated by its own edge. The rule (and `deck_separation_ft`) holds again from the gap's 1 ft transition foot outward, so a separation row inside the gap cannot hide a narrowing beside the road.
 
 **At a path gap's ends**
 
@@ -278,7 +279,7 @@ The strip runs from the road's hinge to the outer edge of the path's inner shoul
   - The required length is L = AS²/1600 when S < L, or L = 2S − 1600/A when S > L.
   - S is 125 ft at 20 mph and 230 ft at 30 mph.
   - A downgrade steeper than 4 % for more than 500 ft takes 30 mph whatever `design_speed_mph` says (Table 1003.1). The check works this out for each curve, from the grades on its two sides.
-- **Separation under 10 ft**: a barrier is needed.
+- **Separation under 10 ft**: a barrier is needed, unless the road's guardrail or a strip wall at the road's hinge (`wall-road`, with the road's barrier on top) stands there.
 - **Separation under 5 ft** on an approach.
 - **A wall in the strip**, with its side and height.
 
@@ -337,11 +338,12 @@ Without the correction, a 2 % grade difference would miss by about 2e-4, and the
     deck, in a path gap, or on an own-stretch row);
   - the difference between them;
   - the path's grade;
-  - the strip: its slope ratio, `level`, `ground` (natural ground between),
+  - the strip: its slope ratio, `level` (no slope, or flatter than 100:1), `ground` (natural ground between),
     `wall-road` or `wall-path`; `deck` on a deck the path crosses, `path gap`
     in a path gap, `own <n>` at an own stretch's hand-over or rejoin with no
     section row there;
-  - the barrier: `rail` (needed and the rail is there), `yes` (needed),
+  - the barrier: `rail` (needed and there: the road's guardrail, or a
+    `wall-road` strip wall's barrier), `yes` (needed),
     `no`, `deck` on a deck, and empty in a path gap or an own-stretch row;
   - a note, `;`-separated: `approach`, `grade>5%`, `deck`, `path gap`, and
     `own <n> hand-over` / `own <n> rejoin` at an own stretch's ends (the
