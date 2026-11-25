@@ -24,3 +24,9 @@ def test_other_drives_and_words_are_not_paths():
     rx = deorg_scan.pattern()
     for line in (f"D:{BS}data{BS}users", "the users of the scan", "c:users"):
         assert not rx.search(line), line
+
+
+def test_a_jwt_is_flagged_but_not_a_globalid_with_eyj_in_it():
+    rx = deorg_scan.pattern()
+    assert rx.search("ey" + "JhbGciOiJIUzI1NiJ9.e30.x")
+    assert not rx.search('"1IZEYJJifTDO4H7Hv3vVsg": "IfcRelDefinesByProperties"')

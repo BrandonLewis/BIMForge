@@ -34,7 +34,9 @@ def _word(token: str) -> str:
 BIDS = _word(r"b2[0-9]{3}")
 PATHS = r"/home/[a-z][a-z0-9_-]*/|/Users/|c:/users|c:\\+users"
 SECRETS = (
-    r"BEGIN [A-Z ]*PRIVATE KEY|eyJ[A-Za-z0-9_-]{10,}|"
+    # a JWT's header is always `eyJ` exactly: matched with case, or a random
+    # GlobalId (`...EYJJifTDO4...`) reads as one
+    r"BEGIN [A-Z ]*PRIVATE KEY|(?-i:eyJ)[A-Za-z0-9_-]{10,}|"
     r"Bearer [A-Za-z0-9._-]{20,}|ApiKey [A-Za-z0-9._-]{16,}"
 )
 
