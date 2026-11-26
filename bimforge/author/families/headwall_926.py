@@ -142,7 +142,8 @@ def build(params: dict, ctx) -> StructureModel:
             quantities={"count": n, "length_ft": n * L_ft,
                         "weight_lb": vol_in3 * STEEL_LB_PER_IN3,
                         "volume_cf": vol_in3 / IN3_PER_CF},
-            z_ft=0.0, layer="S-STEEL"))
+            # the bars' z is from the top of footing
+            z_ft=el_tf, layer="S-STEEL"))
 
     # ---- OPTION: guardrail (posts + one rail along the wall top)
     gr = p.get("guardrail")

@@ -184,7 +184,9 @@ skip or read them. `model-elements` sends `route`, `based_on` and
   without taking off the base elevation. `approach-slab` put its slab at
   `soffit_elev_ft` as it was and its corners as (northing, easting) survey
   coordinates. `headwall-926` put `el_top_hw` and `el_invert` (and the
-  footing, cutoff and pipe opening derived from them) in as they were. A
+  footing, cutoff and pipe opening derived from them) in as they were, and
+  set its trash rack at z 0 where the bars are measured from the top of
+  footing, so the rack sat below the structure instead of over the pipe. A
   spec whose `project.base` has a nonzero elevation, and any B3 alignment,
   now builds in the right place: each such structure sat its base elevation
   too high (100 ft in the shipped B3 and D90 examples), and a B3 wall ran

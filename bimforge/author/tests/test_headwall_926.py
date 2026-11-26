@@ -55,6 +55,18 @@ def test_elevations_are_model_z_relative_to_base_h():
     assert run_pre(m).passed
 
 
+def test_trash_rack_sits_over_the_opening():
+    # The rack's bars are centred on the pipe: their z is from the top of
+    # footing, so the element sits at the top of footing, not at z 0.
+    ctx = ProjectContext(name="f", guid_ns=uuid.UUID(int=8), base_h=100.0)
+    m = build({**PARAMS, "rack": {"bars": 7}}, ctx)
+    rack = m.element("trash rack")
+    (_host, opening), = m.openings
+    for (_x, _y, z_in, *_size) in rack.geometry["boxes"]:
+        assert rack.z_ft + z_in / 12.0 == pytest.approx(opening.geometry["cz"])
+    assert run_pre(m).passed
+
+
 def test_options_are_off_by_default_and_add_steel():
     m = build(PARAMS, CTX)
     names = [e.name for e in m.elements]

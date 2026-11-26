@@ -612,6 +612,7 @@ def _resolve_pob(pl: dict) -> dict:
 
 #: How far (ft) a pob may sit from a real project base before it reads as a
 #: local-frame pob: the gate's local-coordinate limit
+#: (gate.LOCAL_COORD_LIMIT_FT); keep the two equal
 POB_FAR_FT = 100_000.0
 
 
@@ -634,7 +635,8 @@ def check_pob_survey(pob: dict, ctx, where: str) -> None:
             f"{where}: the alignment pob (northing {n:.1f}, easting {e:.1f}) "
             f"is {d:,.0f} ft from the project base. The pob is survey (State "
             "Plane) coordinates, as the bridge's is; {northing: 0, easting: "
-            "0} is the local frame. Give the pob in the CRS: the base point "
+            "0} is the local frame, and a pob with its northing and easting "
+            "swapped is as far off. Give the pob in the CRS: the base point "
             f"is northing {bn:.1f}, easting {be:.1f}.")
 
 
