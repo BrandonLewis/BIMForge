@@ -6,13 +6,16 @@ contract (docs/globalid-contract.md) calls stable. The other roots
 (relationships, property sets) are numbered by file order, so a writer
 change that inserts an IfcRoot ahead of them would renumber them all.
 
-`fixtures/example_globalids.json` was recorded at 0.1.121, before the
-Phase 1 typing work (C.4): every element's id by name, and every IfcRoot's
-id with its class. A writer change may ADD roots (a type, a declaration);
-it may not move or drop one. An element may change class (a proxy that
-becomes a virtual element), which the contract says keeps its id. An
-example added later is recorded as it first ships (caltrans-b3-wall-types
-at 0.1.128).
+`fixtures/example_globalids.json` holds every element's id by name, and
+every IfcRoot's id with its class. It was first recorded at 0.1.121,
+before the Phase 1 typing work (C.4), and re-recorded for every example but
+the road corridor when the examples declared their IFC4X3 facilities (the
+facility tree drops the building and storey and renumbers the file-order
+ids of four examples; no element's id changed). The road corridor's block
+was last re-recorded for its V1.1 and path changes. A writer change may ADD
+roots (a type, a declaration); it may not move or drop one. An element may
+change class (a proxy that becomes a virtual element), which the contract
+says keeps its id. An example added later is recorded as it first ships.
 
 Re-record only for a change that is meant to renumber, and say so in the
 changelog: a renumbered element is a new element to BidSheet.

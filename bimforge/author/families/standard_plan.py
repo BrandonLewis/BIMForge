@@ -23,10 +23,12 @@ from __future__ import annotations
 import math
 
 from bimforge.author import family_dictionary as fd
-from bimforge.author.alignment import Alignment, WallSection, _resolve_pob, sta
+from bimforge.author.alignment import (Alignment, WallSection, _resolve_pob,
+                                       check_pob_survey, sta)
 from bimforge.author.model import Element, StructureModel
 from bimforge.author.modified import FIELD_DIMENSIONS
 from bimforge.author.primitives import Prism
+from bimforge.author.sweep import to_model, to_model_elev
 
 REQUIRED = ("alignment", "tables", "walls")
 
@@ -130,6 +132,16 @@ def _table_reads(cls, ws, parts) -> dict:
     return reads
 
 
+def _plan(align, ctx, station, offset, side):
+    """A station/offset as a model-frame plan point. `station_offset` speaks
+    survey (northing, easting); the model is x=east, y=north, local to the
+    project base, so it goes through `to_model` like every alignment family
+    (#156: used raw, the pair mirrors the wall about the 45 deg diagonal)."""
+    n, e = align.station_offset(station, offset, side)
+    x, y, _z = to_model(ctx, n, e)
+    return x, y
+
+
 def wall_class(wall_type) -> str:
     """The dictionary class of a B3 wall type's stem ("retaining-wall-b3-
     type-1"); its footing's is the same code with "-footing"."""
@@ -141,7 +153,9 @@ def build(params: dict, ctx) -> StructureModel:
     if missing:
         raise ValueError(f"standard-plan params missing {missing}")
     pl = params["alignment"]
-    align = Alignment(_resolve_pob(pl), pl["run"], name=pl.get("name", "P"))
+    pob = _resolve_pob(pl)
+    check_pob_survey(pob, ctx, "standard-plan")
+    align = Alignment(pob, pl["run"], name=pl.get("name", "P"))
     tables = params["tables"]
     model = StructureModel("standard-plan", ctx)
     model.row_lookup = WallSection._lookup_key      # how a row is chosen
@@ -157,16 +171,17 @@ def build(params: dict, ctx) -> StructureModel:
             mid = (a + b) / 2.0
             H = _wall_H(w, mid)
             ws = WallSection(w["wall_type"], H, tables)
-            fb = _wall_footing_bottom(w, mid)
+            # elevations -> model z (E - base_h), the frame every emitter reads
+            fb = to_model_elev(ctx, _wall_footing_bottom(w, mid))
             ft_top = fb + ws.F
-            z_top = (_wall_top(w, a) + _wall_top(w, b)) / 2.0
+            z_top = to_model_elev(ctx, (_wall_top(w, a) + _wall_top(w, b)) / 2.0)
             h = z_top - ft_top
             if h <= 0.0:
                 continue
-            foot = [align.station_offset(a, ws.C, front),
-                    align.station_offset(b, ws.C, front),
-                    align.station_offset(b, ws.B, back),
-                    align.station_offset(a, ws.B, back)]
+            foot = [_plan(align, ctx, a, ws.C, front),
+                    _plan(align, ctx, b, ws.C, front),
+                    _plan(align, ctx, b, ws.B, back),
+                    _plan(align, ctx, a, ws.B, back)]
             p = Prism(f"{tag} retaining wall footing {sta(a)}", foot, fb, ft_top,
                       dims_ft=(b - a, ws.W), ifc="IfcFooting")
             model.add(Element.from_geometry(
@@ -182,10 +197,10 @@ def build(params: dict, ctx) -> StructureModel:
                             "height_ft": ws.F, "volume_cf": p.volume_cf}))
             # stem at MID-HEIGHT thickness: the prism volume IS the trapezoid's
             th = ws.T + ws.batter * h / 2.0
-            stem = [align.station_offset(a, 0.0, front),
-                    align.station_offset(b, 0.0, front),
-                    align.station_offset(b, th, back),
-                    align.station_offset(a, th, back)]
+            stem = [_plan(align, ctx, a, 0.0, front),
+                    _plan(align, ctx, b, 0.0, front),
+                    _plan(align, ctx, b, th, back),
+                    _plan(align, ctx, a, th, back)]
             layered = ws.wall_type in CONSTANT_STEM
             place = {}
             if layered:

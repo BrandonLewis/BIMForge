@@ -25,3 +25,4 @@ project:
   epsg: 2226
   base: [6594000.0, 1943000.0, 100.0]
   guid_ns: "3b7a5c2e-0000-4000-8000-0000000000d8"
+  facility: {kind: bridge, name: "Box Culvert", predefined_type: CULVERT}

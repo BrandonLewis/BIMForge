@@ -44,6 +44,7 @@ from bimforge.author.footing_run import FootingRun, step_rise_ft
 from bimforge.author.model import Element, StructureModel
 from bimforge.author.primitives import (BatteredWall, bar_role, mitre_offset,
                                        outward_normals)
+from bimforge.author.sweep import to_model_elev
 from bimforge.author.type_836_section import type_836_section
 
 REQUIRED = ("tables", "structures")
@@ -429,10 +430,13 @@ def build(params: dict, ctx) -> StructureModel:
         # whole structure by fl_elev - invert_local -- placing the emitted
         # invert EXACTLY at fl_elev_ft, per the spec ("FL = pipe invert"). With
         # no fl_elev_ft the structure stays on the local datum (z=0), unplaced.
+        # The FL is an elevation, the lift a model z: z = E - base_h
+        # (ProjectContext.local), so the base comes off here.
         if "fl_elev_ft" in s:
             pr = float(s["pipe"]["dia_ft"]) / 2.0
             cz_local = float(s["pipe"].get("center_z_ft", pr + 0.5))
-            zlift = float(s["fl_elev_ft"]) - (cz_local - pr)
+            zlift = (to_model_elev(ctx, float(s["fl_elev_ft"]))
+                     - (cz_local - pr))
             (ew_fls if s.get("kind", "headwall") == "endwall"
              else hw_fls).append(float(s["fl_elev_ft"]))
         else:

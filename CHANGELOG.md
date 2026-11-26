@@ -116,6 +116,39 @@ skip or read them. `model-elements` sends `route`, `based_on` and
 
 ### Changed
 
+- **The examples declare their IFC4X3 facility, by what they serve.** Each
+  shipped example sets `project.facility` and, where its elements need
+  parts, `spatial_parts:`, so its IFC4X3 file is Site > facility > parts in
+  place of Site > Building > Storey: the bridge is an IfcBridge GIRDER
+  (Superstructure; Substructure > Abutment 1, Bent 2, Abutment 3); the box
+  culvert and the culvert wingwall an IfcBridge CULVERT (each wingwall an
+  ABUTMENT part); the B3 walls, the D90 and pipe headwalls and the 732SW
+  barrier an IfcRoad with a ROADSIDE part (UsageType LATERAL); the
+  deck-mounted 842 barrier and the tubular handrail an IfcBridge with a
+  SURFACESTRUCTURE part; the demo box a generic IfcFacility. Each facility
+  is named for its structure ("B3 Retaining Wall", "Box Culvert"), not the
+  family id. The road corridor is unchanged; an example's IFC4 file keeps
+  the building tree (the facility is IFC4X3-only). No element's GlobalId
+  changes. The examples' IfcBuilding and IfcBuildingStorey are
+  gone, and in the bridge, the box culvert, the culvert wingwall and the
+  demo box, whose new tree has a different number of spatial entities, the
+  file-order ids of the site, the relationships and the quantity and
+  property sets renumber; `example_globalids.json` is re-recorded for every
+  example but the road corridor.
+- **The ground is contained in the IfcSite.** IFC 4.3 lists IfcSite as
+  IfcGeographicElement's spatial container (a storey belongs to a building).
+  The existing ground (IfcGeographicElement TERRAIN, from a `terrain:` block
+  or the road corridor's ground) was contained where the structure's other
+  elements are: the storey, or the IfcRoad for the road corridor. It is now
+  contained in the IfcSite on every tree and schema, and stays there when
+  federated; a cut still voids it. The road corridor's
+  IfcRelContainedInSpatialStructure that held only the ground now relates
+  the site; its GlobalId is unchanged. `federate`'s storey path (an IFC4
+  source, or a 4X3 one with a building tree) now moves every product a
+  source contains in its IfcSite to the target site, where it put it in the
+  source's storey; a site-contained product belongs to the site. A
+  building/storey source whose only site product is its ground is still
+  federated by the storey path.
 - The road corridor's `ground: {source: 3dep, cache, spacing_m, margin_ft,
   vshift_m}` is now read as `terrain:` plus `ground: {source: terrain}`,
   with a build-log note; the old and the new form give the same IFC. It
@@ -139,6 +172,35 @@ skip or read them. `model-elements` sends `route`, `based_on` and
   is.
 
 ### Fixed
+
+- **Four families are built in the model frame: `standard-plan` (the B3
+  wall), `culvert-headwall` (D90), `approach-slab` and `headwall-926`.** The
+  model is z = elevation - `project.base`'s elevation, x east and y north,
+  local to the base (`ProjectContext.local`), as the bridge and the road
+  corridor build it. `standard-plan` put its footing-bottom and top-of-wall
+  elevations into the model as they were, and its plan points as (northing,
+  easting): a wall on a N 0 E line ran east, mirrored about the 45 degree
+  diagonal (#156). `culvert-headwall` lifted the structure to `fl_elev_ft`
+  without taking off the base elevation. `approach-slab` put its slab at
+  `soffit_elev_ft` as it was and its corners as (northing, easting) survey
+  coordinates. `headwall-926` put `el_top_hw` and `el_invert` (and the
+  footing, cutoff and pipe opening derived from them) in as they were, and
+  set its trash rack at z 0 where the bars are measured from the top of
+  footing, so the rack sat below the structure instead of over the pipe. A
+  spec whose `project.base` has a nonzero elevation, and any B3 alignment,
+  now builds in the right place: each such structure sat its base elevation
+  too high (100 ft in the shipped B3 and D90 examples), and a B3 wall ran
+  mirrored, in the IFC, the DXF, the KML and against a `terrain:` ground.
+  These parameters are true elevations: a spec that gave them relative to
+  the base, to make up for the bug, must add the base elevation back. A B3
+  or approach-slab alignment's `pob` is survey (State Plane) coordinates,
+  as the bridge's is: one given in the local frame of a project with a
+  State Plane base (the B3 examples' `{northing: 0, easting: 0}`) is now
+  refused once by the family, naming the base point's northing and
+  easting, where it would have put the structure at the zone's origin. The
+  two B3 examples give the base point's real coordinates; their walls stay
+  at the origin. `ops.wingwall_section` takes the project's `ctx=` for the
+  same frame; without one it keeps the alignment's survey frame, as before.
 
 - `est-bim add-alignments` (`bim.add_alignment.add_alignments`) crashed on
   a profile with two PVIs (no vertical curve): it is written as one

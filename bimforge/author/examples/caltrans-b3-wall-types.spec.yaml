@@ -5,7 +5,7 @@ family: standard-plan
 params:
   tables_file: ./caltrans-b3-tables.example.yaml
   alignment:
-    pob: {station: 0.0, northing: 0.0, easting: 0.0}
+    pob: {station: 0.0, northing: 1943000.0, easting: 6594000.0}
     run:
       - {kind: tangent, bearing: "N 37-30-0 E", length: 320.0}
   walls:
@@ -64,3 +64,8 @@ project:
   epsg: 2226
   base: [6594000.0, 1943000.0, 100.0]
   guid_ns: "3b7a5c2e-0000-4000-8000-0000000013b3"
+  facility: {kind: road, name: "B3 Retaining Wall Types"}
+
+# IFC4X3: the road it serves, its roadside part
+spatial_parts:
+  - {match: ".", part: {name: Roadside, predefined_type: ROADSIDE, usage_type: LATERAL}}

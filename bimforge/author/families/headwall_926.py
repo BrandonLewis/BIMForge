@@ -29,6 +29,7 @@ from bimforge.author import family_dictionary as fd
 from bimforge.author.model import Element, StructureModel
 from bimforge.author.primitives import (
     IN3_PER_CF, STEEL_LB_PER_IN3, Prism, Tube, equal_area_polygon_radius)
+from bimforge.author.sweep import to_model_elev
 
 REQUIRED = ("pipe_dia_ft", "wall_t_ft", "hw_int_w_ft", "hw_height_ft",
             "foot_len_ft", "foot_splay_ft", "wing_len_ft", "cut_depth_ft",
@@ -43,7 +44,10 @@ def build(params: dict, ctx) -> StructureModel:
     t = p["wall_t_ft"]
     hw_w = p["hw_int_w_ft"] + 2 * t
     hw_h = p["hw_height_ft"]
-    el_top = p["el_top_hw"]
+    # elevations -> model z (E - base_h, ProjectContext.local): every z
+    # below derives from these two
+    el_top = to_model_elev(ctx, p["el_top_hw"])
+    el_invert = to_model_elev(ctx, p["el_invert"])
     el_tf = el_top - hw_h                       # top of footing
     el_bf = el_tf - p.get("foot_t_ft", t)       # bottom of footing
     el_bc = el_bf - p["cut_depth_ft"]
@@ -84,7 +88,7 @@ def build(params: dict, ctx) -> StructureModel:
         # so x0=0.0 keeps this centered on the headwall's own centerline
         # (hw_plan spans -hw_w/2..hw_w/2 about x=0), not offset by -t.
         geometry={"kind": "tube", "units": "ft", "x0": 0.0,
-                  "length": 3 * t, "cz": p["el_invert"] + p["pipe_dia_ft"] / 2,
+                  "length": 3 * t, "cz": el_invert + p["pipe_dia_ft"] / 2,
                   "r_outer": p["pipe_dia_ft"] / 2,
                   "wall": p["pipe_dia_ft"] / 2, "axis": "y"},
         guid_key="opening/pipe")
@@ -132,13 +136,14 @@ def build(params: dict, ctx) -> StructureModel:
             geometry={"kind": "box", "units": "in", "boxes": [
                 (((i - (n - 1) / 2) * (p["pipe_dia_ft"] * 12.0 / max(n - 1, 1))),
                  0.0,
-                 (p["el_invert"] - el_tf + p["pipe_dia_ft"] / 2) * 12.0,
+                 (el_invert - el_tf + p["pipe_dia_ft"] / 2) * 12.0,
                  bar_t_in, bar_w_in, L_ft * 12.0)
                 for i in range(n)]},
             quantities={"count": n, "length_ft": n * L_ft,
                         "weight_lb": vol_in3 * STEEL_LB_PER_IN3,
                         "volume_cf": vol_in3 / IN3_PER_CF},
-            z_ft=0.0, layer="S-STEEL"))
+            # the bars' z is from the top of footing
+            z_ft=el_tf, layer="S-STEEL"))
 
     # ---- OPTION: guardrail (posts + one rail along the wall top)
     gr = p.get("guardrail")

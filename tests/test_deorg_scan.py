@@ -30,3 +30,15 @@ def test_a_jwt_is_flagged_but_not_a_globalid_with_eyj_in_it():
     rx = deorg_scan.pattern()
     assert rx.search("ey" + "JhbGciOiJIUzI1NiJ9.e30.x")
     assert not rx.search('"1IZEYJJifTDO4H7Hv3vVsg": "IfcRelDefinesByProperties"')
+
+
+def test_a_pinned_globalid_that_spells_a_project_token_is_not_flagged(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("DEORG_EXTRA_PATTERNS", "acme")
+    rx = deorg_scan.pattern()
+    f = tmp_path / "pins.json"
+    f.write_text('{\n  "3EiAcMeGPnSSvLDNBLCFnM": "IfcRelDefinesByProperties",\n'
+                 '  "name": "Acme Bridge"\n}\n', encoding="utf-8")
+    monkeypatch.setattr(deorg_scan, "ROOT", tmp_path)
+    hits = deorg_scan.scan([f], rx)
+    assert len(hits) == 1 and "Acme Bridge" in hits[0]

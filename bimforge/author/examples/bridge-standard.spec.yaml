@@ -71,3 +71,14 @@ project:
   epsg: 2226
   base: [6594000.0, 1943000.0, 300.0]
   guid_ns: "3b7a5c2e-0000-4000-8000-0000000000b1"
+  facility: {kind: bridge, name: "Fixture Overcrossing", predefined_type: GIRDER}
+
+# IFC4X3: Superstructure (the spans, the bent diaphragm) and Substructure >
+# Abutment 1, Bent 2, Abutment 3
+spatial_parts:
+  - {match: "superstructure|diaphragm",
+     part: {name: Superstructure, predefined_type: SUPERSTRUCTURE}}
+  - {match: "^A1 ", part: {name: Abutment 1, predefined_type: ABUTMENT,
+                           parent: {name: Substructure, predefined_type: SUBSTRUCTURE}}}
+  - {match: "^B2 ", part: {name: Bent 2, predefined_type: PIER, parent: Substructure}}
+  - {match: "^A3 ", part: {name: Abutment 3, predefined_type: ABUTMENT, parent: Substructure}}

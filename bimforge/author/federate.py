@@ -313,13 +313,20 @@ def _site_contained_ids(src) -> set:
             for p in rel.RelatedElements}
 
 
+def _is_terrain(p) -> bool:
+    return p.is_a("IfcGeographicElement") and p.PredefinedType == "TERRAIN"
+
+
 def _uses_facility_tree(src) -> bool:
     """A 4X3 source whose products sit in a facility tree or directly in the
-    site (a `site`-kind source) — as opposed to a building/storey tree."""
+    site (a `site`-kind source) — as opposed to a building/storey tree. The
+    ground (TERRAIN) is in the site on every tree (emit_ifc's _Home), so it
+    does not make a building/storey source a `site`-kind one."""
     if not _is_4x3(src):
         return False
     subtree, _roots = _facility_subtree(src)
-    return bool(subtree) or bool(_site_contained_ids(src))
+    return bool(subtree) or any(not _is_terrain(src.by_id(i))
+                                for i in _site_contained_ids(src))
 
 
 def _carry_relationships(tgt, src, added: dict, roots: dict,
@@ -372,12 +379,15 @@ def _namespace(roots: dict, storey_name: str, ctx) -> None:
             r.GlobalId = ctx.guid(f"{storey_name}/{r.GlobalId}")
 
 
-def _merge_source(tgt, src, storey_name: str, dest_storey, ctx, seen=None
-                  ) -> tuple[int, list]:
+def _merge_source(tgt, src, storey_name: str, dest_storey, ctx, site,
+                  seen=None) -> tuple[int, list]:
     """The storey path (IFC4 sources, and 4X3 sources with no facility tree):
     every non-feature product is re-contained in this source's storey, except
-    alignments (carried whole, placed by the caller). Returns (products,
-    the carried top-level alignments)."""
+    alignments (carried whole, placed by the caller) and every product the
+    source contains in its IfcSite, which goes to the target site: a
+    site-contained product belongs to the site. On this path that is
+    normally the ground, which emit_ifc contains in the site on every tree.
+    Returns (products, the carried top-level alignments)."""
     align_ids, tops = _alignment_ids(src)
     tops, dropped = _dedupe_alignments(src, tops, align_ids, seen)
     align_ids -= dropped
@@ -395,8 +405,11 @@ def _merge_source(tgt, src, storey_name: str, dest_storey, ctx, seen=None
     _carry_relationships(tgt, src, added, roots)
     _carry_alignment_nests(tgt, src, added, roots, align_ids)
     _namespace(roots, storey_name, ctx)
-    _contain(tgt, [added[p.id()] for p in keep], dest_storey,
-             f"federated/contained/{storey_name}", ctx)
+    site_ids = _site_contained_ids(src)
+    _contain(tgt, [added[p.id()] for p in keep if p.id() not in site_ids],
+             dest_storey, f"federated/contained/{storey_name}", ctx)
+    _contain(tgt, [added[p.id()] for p in keep if p.id() in site_ids], site,
+             "federated/contained/site", ctx)
     return len(keep), [added[a.id()] for a in tops]
 
 
@@ -852,7 +865,7 @@ def federate(sources, out_path: str, ctx, *, unit_check: bool = True,
             result.site_products += n_site
         else:
             n, als = _merge_source(f, src, name,
-                                   _storey(f, ctx, building, name), ctx,
+                                   _storey(f, ctx, building, name), ctx, site,
                                    seen_alignments)
         _place_alignments(f, als, site, ctx)
         result.alignments += len(als)

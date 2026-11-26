@@ -37,21 +37,31 @@ def station_line(msp, align, s0: float, s1: float, *, step: float = 2.0,
 
 def wingwall_section(align, tables, wall_type: int, H: float,
                      s0: float, s1: float, front: str,
-                     ft_top: float):
-    """(footing Prism, stem Prism) for one wall slice at design H."""
+                     ft_top: float, *, ctx=None):
+    """(footing Prism, stem Prism) for one wall slice at design H.
+
+    With the project's `ctx` the slice is in the model frame, as
+    standard-plan builds one: `ft_top` is an elevation and becomes z =
+    ft_top - base_h, and the plan is x east, y north, local to the base
+    (`to_model`). Without one the plan is the alignment's survey (northing,
+    easting) and `ft_top` is used as given: a frame no emitter reads, so a
+    script that emits the prisms passes its ctx."""
     from bimforge.author.alignment import WallSection
     from bimforge.author.primitives import Prism
+    from bimforge.author.sweep import to_model, to_model_elev
     ws = WallSection(wall_type, H, tables)
     back = "Rt" if str(front).upper().startswith("L") else "Lt"
-    foot = [align.station_offset(s0, ws.C, front),
-            align.station_offset(s1, ws.C, front),
-            align.station_offset(s1, ws.B, back),
-            align.station_offset(s0, ws.B, back)]
+
+    def at(station, offset, side):
+        n, e = align.station_offset(station, offset, side)
+        return (n, e) if ctx is None else to_model(ctx, n, e)[:2]
+    if ctx is not None:
+        ft_top = to_model_elev(ctx, ft_top)
+    foot = [at(s0, ws.C, front), at(s1, ws.C, front),
+            at(s1, ws.B, back), at(s0, ws.B, back)]
     th = ws.T + ws.batter * H / 2.0
-    stem = [align.station_offset(s0, 0.0, front),
-            align.station_offset(s1, 0.0, front),
-            align.station_offset(s1, th, back),
-            align.station_offset(s0, th, back)]
+    stem = [at(s0, 0.0, front), at(s1, 0.0, front),
+            at(s1, th, back), at(s0, th, back)]
     return (Prism(f"wingwall footing {fmt_station(s0)}", foot,
                   ft_top - ws.F, ft_top, dims_ft=(s1 - s0, ws.W),
                   ifc="IfcFooting"),

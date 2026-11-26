@@ -520,13 +520,22 @@
    "build"
   ]
  },
+ "entity|IfcBridge": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcBridgePart": {
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "entity|IfcBuilding": {
   "IFC4": [
    "build",
    "dxf2bim"
   ],
   "IFC4X3": [
-   "build",
    "dxf2bim"
   ]
  },
@@ -554,7 +563,6 @@
    "dxf2bim"
   ],
   "IFC4X3": [
-   "build",
    "dxf2bim"
   ]
  },
@@ -796,6 +804,11 @@
   "IFC4": [
    "build"
   ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
+ "entity|IfcFacility": {
   "IFC4X3": [
    "build"
   ]

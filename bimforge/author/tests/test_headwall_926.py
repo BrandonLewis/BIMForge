@@ -40,6 +40,33 @@ def test_concrete_hand_figures():
     assert run_pre(m).passed
 
 
+def test_elevations_are_model_z_relative_to_base_h():
+    # The model frame is z = elevation - base_h (ProjectContext.local): with
+    # the base at elevation 100, a top of headwall at 130.26 is model z
+    # 30.26, and the pipe opening's centre sits at invert + r - 100.
+    ctx = ProjectContext(name="f", guid_ns=uuid.UUID(int=8), base_h=100.0)
+    m = build({**PARAMS, "guardrail": {}}, ctx)
+    hw = m.element("headwall").geometry
+    assert hw.z_top == pytest.approx(30.26)
+    assert hw.z_bot == pytest.approx(30.26 - 5.75)
+    (_host, opening), = m.openings
+    assert opening.geometry["cz"] == pytest.approx(27.18 + 1.5)
+    assert m.element("guardrail").z_ft == pytest.approx(30.26)
+    assert run_pre(m).passed
+
+
+def test_trash_rack_sits_over_the_opening():
+    # The rack's bars are centred on the pipe: their z is from the top of
+    # footing, so the element sits at the top of footing, not at z 0.
+    ctx = ProjectContext(name="f", guid_ns=uuid.UUID(int=8), base_h=100.0)
+    m = build({**PARAMS, "rack": {"bars": 7}}, ctx)
+    rack = m.element("trash rack")
+    (_host, opening), = m.openings
+    for (_x, _y, z_in, *_size) in rack.geometry["boxes"]:
+        assert rack.z_ft + z_in / 12.0 == pytest.approx(opening.geometry["cz"])
+    assert run_pre(m).passed
+
+
 def test_options_are_off_by_default_and_add_steel():
     m = build(PARAMS, CTX)
     names = [e.name for e in m.elements]
