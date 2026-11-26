@@ -41,6 +41,12 @@ SECRETS = (
 )
 
 
+#: a pinned GlobalId key (`"3EiRo...": "IfcRelDefinesByProperties"`): 22
+#: random base64 characters, which carry no provenance but can spell a short
+#: project token by chance, so they are left out of the scan
+PINNED_GLOBALID = re.compile(r'"[0-3][0-9A-Za-z_$]{21}"(?=\s*:\s*"Ifc)')
+
+
 def pattern() -> re.Pattern[str]:
     parts = [BIDS, PATHS, SECRETS]
     extra = os.environ.get("DEORG_EXTRA_PATTERNS", "").strip()
@@ -70,7 +76,7 @@ def scan(files: list[Path], rx: re.Pattern[str]) -> list[str]:
         if b"\x00" in data:          # binary
             continue
         for n, line in enumerate(data.decode("utf-8", "replace").splitlines(), 1):
-            if rx.search(line):
+            if rx.search(PINNED_GLOBALID.sub('""', line)):
                 hits.append(f"{f.relative_to(ROOT).as_posix()}:{n}: {line.strip()[:160]}")
     return hits
 
