@@ -1,3 +1,5 @@
+# Conformance fixture: a copy of bimforge/author/examples/caltrans-b3-tables.example.yaml,
+# kept apart so the suite's copy never shadows the example's.
 # Small CI fixture covering every supported B3 section type. NOT the production
 # catalog (that ships in bimforge.caltrans: tables_pack
 # caltrans/2025/b3-retaining-wall, transcribed from the B3 sheets). Values here are illustrative but schema-faithful.

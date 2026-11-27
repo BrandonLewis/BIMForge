@@ -31,7 +31,7 @@ project:
   name: Caltrans B3 Retaining Wall (terrain, conformance)
   epsg: 2226
   base: [6594000.0, 1943000.0, 100.0]
-  guid_ns: 3b7a5c2e-0000-4000-8000-0000000000b3
+  guid_ns: 3b7a5c2e-0000-4000-8000-00000c110007
   facility: {kind: road, name: B3 Retaining Wall}
   vertical_datum: NAVD88
 spatial_parts:

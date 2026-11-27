@@ -53,7 +53,7 @@ project:
   name: Pipe Supports (conformance)
   epsg: 2226
   base: [6594000.0, 1943000.0, 270.0]
-  guid_ns: 3b7a5c2e-0000-4000-8000-0000000000b5
+  guid_ns: 3b7a5c2e-0000-4000-8000-00000c110003
   vertical_datum: NAVD88
   facility: {kind: facility, name: Pipe Supports}
 spatial_parts:

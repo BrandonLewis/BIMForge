@@ -1,5 +1,7 @@
-# Example paycodes for Concrete Barrier Type 842 (R31). Per-bid data; ships as a
-# template. Ordered first-match on element name; transition rules FIRST so HSS/
+# Conformance fixture: a copy of bimforge/author/examples/concrete-barrier-842.paycodes.yaml,
+# kept apart so the suite's copy never shadows the example's.
+# Example paycodes for Concrete Barrier Type 842 (R31).
+# Ordered first-match on element name; transition rules FIRST so HSS/
 # bolt parts never fall into the barrier/rebar groups (name-coupling guard).
 rules:
   - match: "(?i)842 transition HS bolts"

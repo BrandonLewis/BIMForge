@@ -1,13 +1,25 @@
 # Conformance paycodes for pipe-supports.spec.yaml.
 # Fixture values from the family's own tests; not a project or a bid.
 rules:
+- {match: '(?i)grout pad', group: ps_grout}
+- {match: '(?i)bolt', group: ps_bolt}
+- {match: '(?i)plate|strap', group: ps_plate}
 - {match: '(?i)footing rebar', group: ps_steel}
 - {match: '(?i)pipe support footing$', group: ps_concrete}
 groups:
   ps_concrete: {measure: GrossVolume}
   ps_steel: {measure: Weight}
+  ps_plate: {measure: Weight}
+  ps_bolt: {measure: Weight}
+  ps_grout: {measure: GrossVolume}
 codes:
   PS-CONC: {group: ps_concrete, measure: GrossVolume, unit: CY, item_number: '0001', description: 'Structural
       concrete, pipe support footings'}
   PS-STEEL: {group: ps_steel, measure: Weight, unit: LB, item_number: '0002', description: 'Bar
       reinforcing steel, pipe support footings', elements_carry_weight: true}
+  PS-PLATE: {group: ps_plate, measure: Weight, unit: LB, item_number: '0003', description: 'Structural
+      steel plate, pipe supports', elements_carry_weight: true}
+  PS-BOLT: {group: ps_bolt, measure: Weight, unit: LB, item_number: '0004', description: 'Bolts
+      and anchor bolts, pipe supports', elements_carry_weight: true}
+  PS-GROUT: {group: ps_grout, measure: GrossVolume, unit: CF, item_number: '0005', description: Non-shrink
+      grout pads}

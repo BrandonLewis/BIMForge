@@ -13,7 +13,7 @@ project:
   name: R31 842 example (barrier-842-mod)
   epsg: 2226
   base: [6594000.0, 1943000.0]
-  guid_ns: 6f0e5a1a-0000-4000-8000-000000000042
+  guid_ns: 3b7a5c2e-0000-4000-8000-00000c110006
   facility: {kind: bridge, name: Type 842 Barrier}
 spatial_parts:
 - match: .

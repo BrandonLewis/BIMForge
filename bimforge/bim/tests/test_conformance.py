@@ -26,6 +26,8 @@ import pytest
 
 ifcopenshell = pytest.importorskip("ifcopenshell")
 yaml = pytest.importorskip("yaml")
+# validate's takeoff section: without it no file here could be clean
+pytest.importorskip("ifctester.ids")
 
 import ifcopenshell.guid  # noqa: E402
 
@@ -45,17 +47,28 @@ X3, IFC4 = "IFC4X3_ADD2", "IFC4"
 SCHEMAS = (X3, IFC4)
 
 
+def test_no_conformance_spec_shadows_an_example():
+    """The suite copies the examples and the conformance specs into one
+    directory: a shared name would build one in place of the other."""
+    assert not set(EXAMPLES) & set(VARIANTS)
+    example_files = {e.name for e in (files("bimforge.author") / "examples")
+                     .iterdir()}
+    assert not example_files & {p.name for p in CONFORMANCE_SPECS.iterdir()}
+
+
 def _family_of(spec_path) -> str:
     return yaml.safe_load(Path(spec_path).read_text("utf-8"))["family"]
 
 
-def test_every_registered_family_is_built_by_the_suite():
-    from bimforge.author.families.registry import available
+def test_every_shipped_family_is_built_by_the_suite():
+    """Every family the package ships (not a third party's, installed by
+    entry point) is built by an example or a conformance spec."""
+    from bimforge.author.families.registry import _shipped
     examples = files("bimforge.author") / "examples"
     built_families = {_family_of(examples / f"{n}.spec.yaml") for n in EXAMPLES}
     built_families |= {_family_of(CONFORMANCE_SPECS / f"{n}.spec.yaml")
                        for n in VARIANTS}
-    missing = sorted(set(available()) - built_families)
+    missing = sorted(set(_shipped()) - built_families)
     assert not missing, (f"families no example or conformance spec builds: "
                          f"{missing}; add one under {CONFORMANCE_SPECS.name}/")
 
@@ -70,10 +83,19 @@ def _schema_of(schema: str) -> str:
     return "IFC4X3" if schema == X3 else schema
 
 
-def _schemas_of(doc: dict) -> tuple:
-    """The schemas a spec is built on: its `conformance: schemas:` (read by
-    this suite only; load_spec ignores the key), else every one."""
-    return tuple((doc.get("conformance") or {}).get("schemas", SCHEMAS))
+def _schemas_of(doc: dict, name: str) -> tuple:
+    """The schemas spec `name` is built on: its `conformance: schemas:`
+    (read by this suite only; load_spec ignores the key), else every one.
+    A list that names nothing, or a schema the suite does not build, is the
+    spec's error: it would build on nothing while counting as built."""
+    schemas = (doc.get("conformance") or {}).get("schemas", SCHEMAS)
+    if not schemas:
+        raise ValueError(f"{name}: conformance.schemas names no schema")
+    bad = [s for s in schemas if s not in SCHEMAS]
+    if bad:
+        raise ValueError(f"{name}: conformance.schemas {bad} not among "
+                         f"{list(SCHEMAS)}")
+    return tuple(schemas)
 
 
 def test_a_spec_names_the_schemas_it_is_built_on(tmp_path):
@@ -87,20 +109,33 @@ def test_a_spec_names_the_schemas_it_is_built_on(tmp_path):
                                                "utf-8")
     spec = tmp_path / "demo-box.spec.yaml"
     doc = yaml.safe_load(spec.read_text("utf-8"))
-    assert _schemas_of(doc) == SCHEMAS
+    assert _schemas_of(doc, "demo-box") == SCHEMAS
     doc["conformance"] = {"schemas": [X3]}
-    assert _schemas_of(doc) == (X3,)
+    assert _schemas_of(doc, "demo-box") == (X3,)
     spec.write_text(yaml.safe_dump(doc, sort_keys=False), "utf-8")
     assert build_from_spec(str(spec), check_only=True) == 0
+
+
+@pytest.mark.parametrize("schemas, match", [
+    ([], "names no schema"),
+    (["IFC4X3"], r"\['IFC4X3'\] not among"),
+])
+def test_a_spec_naming_no_schema_the_suite_builds_is_refused(schemas, match):
+    with pytest.raises(ValueError,
+                       match=f"demo-box: conformance.schemas {match}"):
+        _schemas_of({"conformance": {"schemas": schemas}}, "demo-box")
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory) -> dict:
     """{(name, schema): path of its IFC}: every example, and every
     conformance spec on the schemas it names, built as a user builds them,
-    the IFC4 copy with `project: schema: IFC4`."""
+    the IFC4 copy with `project: schema: IFC4`. A spec this interpreter
+    cannot build (a terrain: block without bimforge[terrain]) maps to the
+    reason, a str: its cases skip, the others still run."""
     from bimforge.author.families.registry import build_from_spec
-    from bimforge.author.tests.test_spec_terrain import offline
+    from bimforge.terrain.testing import missing_terrain_deps, offline
+    no_terrain = missing_terrain_deps()
     out = {}
     for schema in SCHEMAS:
         tmp = tmp_path_factory.mktemp(f"conformance-{schema}")
@@ -113,7 +148,12 @@ def built(tmp_path_factory) -> dict:
         for name in EXAMPLES + VARIANTS:
             spec = tmp / f"{name}.spec.yaml"
             doc = yaml.safe_load(spec.read_text("utf-8"))
-            if schema not in _schemas_of(doc):
+            if schema not in _schemas_of(doc, name):
+                continue
+            if doc.get("terrain") and no_terrain:
+                out[name, schema] = (f"{name}: its terrain: block needs "
+                                     f"{', '.join(no_terrain)} "
+                                     f"(pip install bimforge[terrain])")
                 continue
             if schema != X3:
                 doc.setdefault("project", {})["schema"] = schema
@@ -127,7 +167,8 @@ def built(tmp_path_factory) -> dict:
 
 
 def _clean(f, name):
-    """No finding in any of validate's failing sections. `name` writes f for
+    """validate's verdict on f is clean: no finding in a failing section,
+    every check in them run and every rule evaluated. `name` writes f for
     the normative rules; None for a hand-built fixture, whose own shortcuts
     they would report."""
     import tempfile
@@ -137,12 +178,18 @@ def _clean(f, name):
         path = Path(tmp) / "f.ifc"
         f.write(str(path))
         r = validate(path)
+    secs = r["sections"]
     # the gate's lines carry their own check name
     found = [f"{s}: {x['message']}"
              + (f" [{x['instance']}]" if "instance" in x else "")
-             for s in FAILING if r["sections"][s]["status"] == "fail"
-             for x in r["sections"][s]["findings"]]
-    assert not found, "\n".join(found[:20])
+             for s in FAILING if secs[s]["status"] == "fail"
+             for x in secs[s]["findings"]]
+    found += [f"{s}: not run ({secs[s]['reason']})" for s in FAILING
+              if secs[s]["status"] == "not run"]
+    if secs["rules"].get("unevaluated"):
+        found.append(f"rules: {secs['rules']['unevaluated']} unevaluated")
+    assert r["verdict"] == "clean", (f"verdict {r['verdict']}:\n"
+                                     + "\n".join(found[:20]))
     if name and (out := os.environ.get("BIMFORGE_CONFORMANCE_OUT")):
         Path(out).mkdir(parents=True, exist_ok=True)
         f.write(str(Path(out) / f"{name}.ifc"))
@@ -150,12 +197,34 @@ def _clean(f, name):
 
 @pytest.mark.parametrize("schema", SCHEMAS)
 @pytest.mark.parametrize("name", EXAMPLES + VARIANTS)
-def test_every_example_builds_conformant(built, name, schema):
+def test_every_spec_builds_conformant(built, name, schema):
+    """Each example and conformance spec, built on each schema it names,
+    is a file validate calls clean."""
     if (name, schema) not in built:
         pytest.skip(f"{name} names the schemas it is built on")
+    if isinstance(built[name, schema], str):
+        pytest.skip(built[name, schema])
     f = ifcopenshell.open(str(built[name, schema]))
     assert f.schema == _schema_of(schema)
     _clean(f, _label(name, schema))
+
+
+@pytest.mark.parametrize("schema", SCHEMAS)
+@pytest.mark.parametrize("name", ["headwall-926-rack-guardrail",
+                                  "pipe-supports"])
+def test_the_variants_options_are_inside_the_takeoff_contract(built, name,
+                                                              schema):
+    """The options these specs add (the 926 rack and guardrail, the pipe
+    supports' steel) are classified, so the failing takeoff section holds
+    their quantities: the advisory coverage section names nothing but the
+    pipe supports' casing, reference geometry the family leaves unpaid on
+    purpose (named so no pay rule matches it)."""
+    from bimforge.bim.validate import validate
+    r = validate(built[name, schema])
+    unpaid = [x.get("instance", x["check"])
+              for x in r["sections"]["coverage"]["findings"]
+              if "(REFERENCE)" not in x.get("instance", "")]
+    assert unpaid == []
 
 
 def test_the_alignment_checks_have_an_alignment_to_check(built):

@@ -1,3 +1,5 @@
+# Conformance fixture: a copy of bimforge/author/examples/caltrans-b3-retaining-wall.paycodes.yaml,
+# kept apart so the suite's copy never shadows the example's.
 # Caltrans B3 retaining wall - structural concrete only (rebar & earthwork: phase 2).
 rules:
   - match: "(?i)retaining wall (footing|stem)"
