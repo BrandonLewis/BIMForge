@@ -121,11 +121,12 @@ def test_no_rules_checks_attributes_only(tmp_path, capsys):
 
 def test_json_writes_the_result(sample_ifc, tmp_path):
     import json
+    pytest.importorskip("ifctester.ids")
     out = tmp_path / "r.json"
     rc = cli.main(["validate", str(sample_ifc), "--json", str(out)])
     r = json.loads(out.read_text("utf-8"))
     assert r["contract"] == "bimforge-validate/1"
-    assert rc == (0 if r["verdict"] == "clean" else 1)
+    assert r["verdict"] == "clean" and rc == 0
 
 
 def test_json_dash_prints_only_the_result(sample_ifc, capsys):
@@ -147,3 +148,62 @@ def test_an_unreadable_file_with_json_says_unreadable(tmp_path):
     out = tmp_path / "r.json"
     assert cli.main(["validate", str(bad), "--json", str(out)]) == 2
     assert json.loads(out.read_text("utf-8"))["verdict"] == "unreadable"
+
+
+def test_the_summary_is_sections_then_counts_then_verdict(sample_ifc, capsys):
+    cli.main(["validate", str(sample_ifc)])
+    lines = capsys.readouterr().out.splitlines()
+    at = {key: next(i for i, line in enumerate(lines) if line.startswith(key))
+          for key in ("schema:", "coverage:", "CLASS", "TOTAL", "verdict:")}
+    order = [at[k] for k in ("schema:", "coverage:", "CLASS", "TOTAL", "verdict:")]
+    assert order == sorted(order)
+
+
+def test_a_missing_file_with_json_names_the_file_not_the_path(tmp_path):
+    import json
+    out = tmp_path / "r.json"
+    assert cli.main(["validate", str(tmp_path / "nope.ifc"),
+                     "--json", str(out)]) == 2
+    r = json.loads(out.read_text("utf-8"))
+    assert r["file"] == "nope.ifc" and r["verdict"] == "unreadable"
+
+
+def test_a_bad_ids_document_exits_two_with_no_verdict(sample_ifc, tmp_path,
+                                                      capsys):
+    pytest.importorskip("ifctester.ids")
+    bad = tmp_path / "bad.ids"
+    bad.write_text("<not-ids/>", "utf-8")
+    out = tmp_path / "r.json"
+    assert cli.main(["validate", str(sample_ifc), "--ids", str(bad),
+                     "--json", str(out)]) == 2
+    assert "bad.ids" in capsys.readouterr().err
+    assert not out.exists()          # the file was not judged: no verdict
+
+
+def test_a_check_that_raises_a_value_error_is_not_unreadable(
+        sample_ifc, monkeypatch, capsys):
+    from bimforge.author import gate
+
+    def boom(f):
+        raise ValueError("a check's own failure")
+
+    monkeypatch.setattr(gate, "formula_issues", boom)
+    assert cli.main(["validate", str(sample_ifc)]) == 1
+    out = capsys.readouterr().out
+    assert "structure: fail" in out and "formula raised" in out
+
+
+def test_without_ifctester_the_command_exits_one(sample_ifc, monkeypatch, capsys):
+    import builtins
+    real = builtins.__import__
+
+    def no_ifctester(name, *a, **k):
+        if name == "ifctester" or name.startswith("ifctester."):
+            raise ImportError(name)
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", no_ifctester)
+    assert cli.main(["validate", str(sample_ifc)]) == 1
+    out = capsys.readouterr().out
+    assert "takeoff: not run (pip install bimforge[ids])" in out
+    assert "verdict: incomplete" in out

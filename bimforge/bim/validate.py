@@ -9,6 +9,7 @@ them (C.8), and the result names the rule set it pinned.
 from __future__ import annotations
 
 import hashlib
+from collections import Counter
 from importlib.metadata import PackageNotFoundError, version
 from importlib.resources import files
 from pathlib import Path
@@ -21,6 +22,14 @@ FAILING = ("schema", "rules", "alignment", "structure", "takeoff")
 NO_IDS = "pip install bimforge[ids]"
 
 
+class UnreadableFile(ValueError):
+    """The IFC cannot be opened, or is not IFC: the verdict is unreadable."""
+
+
+class BadIds(ValueError):
+    """An --ids document does not exist or does not parse."""
+
+
 def _version(dist: str) -> str | None:
     try:
         return version(dist)
@@ -29,6 +38,9 @@ def _version(dist: str) -> str | None:
 
 
 def rule_set() -> str:
+    """`repository@ref` of buildingSMART's normative rules CI holds every
+    family to, read from the shipped contract/bsi_rules.yaml (the file CI's
+    bsi-rules job checks its rules out from)."""
     p = yaml.safe_load((files("bimforge.bim") / "contract" / "bsi_rules.yaml")
                        .read_text("utf-8"))
     return f"{p['repository']}@{p['ref']}"
@@ -44,9 +56,18 @@ def _finding(check: str, message: str, inst=None) -> dict:
     return out
 
 
-def _lines(check: str, lines) -> list[dict]:
-    """A gate check's one-line findings, as findings."""
-    return [_finding(check, line) for line in lines]
+def _raised(check: str, exc: Exception) -> dict:
+    """A check that raised on this file: a failing finding, never a
+    traceback (the gate's _run_contained, for a file someone else wrote)."""
+    return _finding(f"{check} raised", f"{type(exc).__name__}: {exc}")
+
+
+def _lines(check: str, fn, *args) -> list[dict]:
+    """A gate check's one-line findings, as findings; a raise is one."""
+    try:
+        return [_finding(check, line) for line in fn(*args)]
+    except Exception as exc:     # noqa: BLE001 - a hostile file fails, not crashes
+        return [_raised(check, exc)]
 
 
 def _section(findings: list[dict], advisory: bool = False) -> dict:
@@ -55,88 +76,132 @@ def _section(findings: list[dict], advisory: bool = False) -> dict:
     return {"status": "fail" if findings else "pass", "findings": findings}
 
 
-def _ids_findings(f, path) -> list[dict]:
-    """Each failed entity of each specification of one IDS document."""
+def _not_run(reason: str) -> dict:
+    return {"status": "not run", "reason": reason}
+
+
+def _open_ids(path):
+    """An IDS document opened and checked against the IDS schema; BadIds
+    naming it when it does not exist or does not parse."""
     from ifctester import ids
-    doc = ids.open(str(path), validate=True)
-    doc.validate(f)
-    label = Path(str(path)).name
+    if not Path(path).is_file():
+        raise BadIds(f"--ids {path}: no such file")
+    try:
+        return ids.open(str(path), validate=True)
+    except Exception as exc:     # noqa: BLE001 - ifctester raises its own types
+        raise BadIds(f"--ids {path}: {exc}") from exc
+
+
+def _ids_findings(f, doc, label: str) -> list[dict]:
+    """Each failure of each specification of one opened IDS document. A
+    required specification nothing applies to, and a prohibited one that
+    applies, fail with no failed entity: they are findings too."""
+    try:
+        doc.validate(f)
+    except Exception as exc:     # noqa: BLE001
+        return [_raised(label, exc)]
     out = []
     for spec in doc.specifications:
+        check = f"{label}: {spec.name}"
         for inst in spec.failed_entities:
-            out.append(_finding(f"{label}: {spec.name}",
-                                "fails the specification's requirements", inst))
+            out.append(_finding(check, "fails the specification's "
+                                       "requirements", inst))
+        if spec.status is False and not spec.failed_entities:
+            if spec.maxOccurs == 0:
+                out += [_finding(check, "prohibited by the specification",
+                                 inst) for inst in spec.applicable_entities]
+            else:
+                out.append(_finding(check, "required by the specification; "
+                                           "no applicable entity"))
     return out
 
 
-def _schema_split(f, rules: bool):
-    """(attribute-type findings, rule findings or None when not run).
-    schema_issues(f, rules=False) is the attribute pass; the rule findings
-    are what the full pass adds."""
-    from bimforge.author.gate import schema_issues
-    types = schema_issues(f, rules=False)
+def _covers(doc, schema: str) -> list[str]:
+    """The IFC versions an IDS document's specifications name, when none of
+    them is `schema` (ifctester's own test: schema_identifier in
+    ifcVersion); empty when the document covers the file."""
+    versions = sorted({v for spec in doc.specifications
+                       for v in (spec.ifcVersion or ())})
+    return [] if schema in versions else versions
+
+
+def _schema_sections(f, rules: bool) -> tuple[dict, dict]:
+    """(schema, rules) sections from one ifcopenshell.validate pass."""
+    from bimforge.author import gate
+    try:
+        stmts = gate.schema_statements(f, rules=rules)
+    except Exception as exc:     # noqa: BLE001
+        return _section([_raised("schema", exc)]), (
+            _section([]) if rules else _not_run("--no-rules"))
+    schema = _section([_finding("schema", line)
+                       for kind, line in stmts if kind == "schema"])
     if not rules:
-        return types, None
-    full = schema_issues(f, rules=True)
-    seen = list(types)
-    extra = []
-    for line in full:
-        if line in seen:
-            seen.remove(line)
-        else:
-            extra.append(line)
-    return types, extra
+        return schema, _not_run("--no-rules")
+    return schema, _section([_finding("rule", line)
+                             for kind, line in stmts if kind == "rule"])
 
 
-def validate(path, extra_ids=(), rules: bool = True) -> dict:
-    """The bimforge-validate/1 result for the IFC at `path`. Raises
-    ValueError naming the file when it cannot be opened as IFC, and naming
-    an extra IDS document that does not exist or does not parse."""
+def _validate(path, extra_ids=(), rules: bool = True) -> tuple[dict, Counter]:
+    """validate()'s result, and the file's IfcElement count per class (what
+    est-bim validate prints beside it, so the file is opened once)."""
     import ifcopenshell
 
-    from bimforge.author.gate import (alignment_issues, formula_issues,
-                                      representation_issues, spatial_issues,
-                                      unhosted_cut_issues)
+    from bimforge.author import gate
     path = Path(path)
-    try:
-        f = ifcopenshell.open(str(path))
-    except (OSError, ValueError, RuntimeError, ifcopenshell.Error) as exc:
-        raise ValueError(f"cannot open {path.name}: {exc}") from exc
-    for doc in extra_ids:
-        if not Path(doc).is_file():
-            raise ValueError(f"--ids {doc}: no such file")
-
-    types, rule_lines = _schema_split(f, rules)
-    sections = {
-        "schema": _section(_lines("schema", types)),
-        "rules": (_section(_lines("rule", rule_lines)) if rule_lines is not None
-                  else {"status": "not run", "reason": "--no-rules"}),
-        "alignment": _section(_lines("alignment", alignment_issues(f))),
-        "structure": _section(
-            _lines("spatial tree", spatial_issues(f))
-            + _lines("formula", formula_issues(f))
-            + _lines("representation", representation_issues(f))
-            + _lines("earthworks cut", unhosted_cut_issues(f))),
-    }
     try:
         import ifctester.ids  # noqa: F401
         have_ids = True
     except ImportError:
         have_ids = False
-    contract = files("bimforge.bim") / "contract"
+    # every --ids document before any check runs: a bad argument costs nothing
     if have_ids:
-        takeoff = _ids_findings(f, contract / "takeoff.ids")
-        for doc in extra_ids:
-            try:
-                takeoff += _ids_findings(f, doc)
-            except Exception as exc:     # ifctester raises its own on a bad doc
-                raise ValueError(f"--ids {doc}: {exc}") from exc
-        sections["takeoff"] = _section(takeoff)
-        sections["coverage"] = _section(
-            _ids_findings(f, contract / "takeoff-coverage.ids"), advisory=True)
+        extra = [(Path(str(d)).name, _open_ids(d)) for d in extra_ids]
     else:
-        for name in ("takeoff", "coverage"):
-            sections[name] = {"status": "not run", "reason": NO_IDS}
+        for d in extra_ids:
+            if not Path(d).is_file():
+                raise BadIds(f"--ids {d}: no such file")
+        extra = []
+    try:
+        f = ifcopenshell.open(str(path))
+    except (OSError, ValueError, RuntimeError, ifcopenshell.Error) as exc:
+        raise UnreadableFile(f"cannot open {path.name}: {exc}") from exc
+
+    schema, rule_section = _schema_sections(f, rules)
+    sections = {
+        "schema": schema,
+        "rules": rule_section,
+        "alignment": _section(_lines("alignment", gate.alignment_issues, f)),
+        "structure": _section(
+            _lines("spatial tree", gate.spatial_issues, f)
+            + _lines("formula", gate.formula_issues, f)
+            + _lines("representation", gate.representation_issues, f)
+            + _lines("earthworks cut", gate.unhosted_cut_issues, f)),
+    }
+    if have_ids:
+        contract = files("bimforge.bim") / "contract"
+        takeoff_doc = _open_ids(contract / "takeoff.ids")
+        outside = _covers(takeoff_doc, f.schema_identifier)
+        if outside:
+            reason = (f"the takeoff contract covers {', '.join(outside)}, "
+                      f"not {f.schema_identifier}")
+            if extra:
+                reason += (f"; not run: "
+                           f"{', '.join(label for label, _ in extra)}")
+            sections["takeoff"] = _not_run(reason)
+            sections["coverage"] = _not_run(reason.split(";")[0])
+        else:
+            takeoff = _ids_findings(f, takeoff_doc, "takeoff.ids")
+            for label, doc in extra:
+                takeoff += _ids_findings(f, doc, label)
+            sections["takeoff"] = _section(takeoff)
+            sections["coverage"] = _section(_ids_findings(
+                f, _open_ids(contract / "takeoff-coverage.ids"),
+                "takeoff-coverage.ids"), advisory=True)
+    else:
+        skipped = [Path(str(d)).name for d in extra_ids]
+        sections["takeoff"] = _not_run(
+            NO_IDS + (f"; not run: {', '.join(skipped)}" if skipped else ""))
+        sections["coverage"] = _not_run(NO_IDS)
 
     failing = sum(len(sections[n].get("findings", [])) for n in FAILING
                   if sections[n]["status"] == "fail")
@@ -146,10 +211,16 @@ def validate(path, extra_ids=(), rules: bool = True) -> dict:
         verdict = "incomplete"
     else:
         verdict = "clean"
-    return {
+    with open(path, "rb") as fh:
+        sha256 = hashlib.file_digest(fh, "sha256").hexdigest()
+    try:
+        counts = Counter(e.is_a() for e in f.by_type("IfcElement"))
+    except RuntimeError:         # a schema with no IfcElement: nothing to count
+        counts = Counter()
+    result = {
         "contract": CONTRACT,
         "file": path.name,
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "sha256": sha256,
         "schema": f.schema_identifier,
         "verdict": verdict,
         "failing": failing,
@@ -162,3 +233,13 @@ def validate(path, extra_ids=(), rules: bool = True) -> dict:
                       "every family bimforge ships, not on this file",
             "rule_set": rule_set()}},
     }
+    return result, counts
+
+
+def validate(path, extra_ids=(), rules: bool = True) -> dict:
+    """The bimforge-validate/1 result for the IFC at `path`. Raises
+    UnreadableFile naming the file when it cannot be opened as IFC, and
+    BadIds naming an extra IDS document that does not exist or does not
+    parse (both before any check runs). A check that raises on the file is
+    a failing finding in its section, not an exception."""
+    return _validate(path, extra_ids, rules)[0]

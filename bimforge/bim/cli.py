@@ -178,10 +178,9 @@ def _run_validate(args) -> int:
     the verdict is clean, 1 when it is issues or incomplete, 2 when the file
     (or an --ids document) cannot be read.
     """
-    from collections import Counter
     from pathlib import Path
 
-    from bimforge.bim.validate import CONTRACT, validate
+    from bimforge.bim.validate import CONTRACT, BadIds, UnreadableFile, _validate
 
     def emit(result):
         if args.json_out == "-":
@@ -190,32 +189,25 @@ def _run_validate(args) -> int:
             Path(args.json_out).write_text(json.dumps(result, indent=2) + "\n",
                                            encoding="utf-8")
 
+    def unreadable(error: str) -> int:
+        emit({"contract": CONTRACT, "file": os.path.basename(args.ifc),
+              "verdict": "unreadable", "error": error})
+        return 2
+
     if not os.path.isfile(args.ifc):
         print(f"error: no such file: {args.ifc}", file=sys.stderr)
-        emit({"contract": CONTRACT, "file": args.ifc,
-              "verdict": "unreadable", "error": "no such file"})
-        return 2
+        return unreadable("no such file")
     try:
-        result = validate(args.ifc, extra_ids=args.ids, rules=not args.no_rules)
-    except ValueError as exc:
+        result, counts = _validate(args.ifc, extra_ids=args.ids,
+                                   rules=not args.no_rules)
+    except BadIds as exc:            # the file was not judged: no verdict
         print(f"error: {exc}", file=sys.stderr)
-        if "--ids" not in str(exc):
-            emit({"contract": CONTRACT, "file": os.path.basename(args.ifc),
-                  "verdict": "unreadable", "error": str(exc)})
         return 2
+    except UnreadableFile as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return unreadable(str(exc))
     emit(result)
     if args.json_out != "-":
-        import ifcopenshell
-        model = ifcopenshell.open(args.ifc)
-        counts = Counter(e.is_a() for e in model.by_type("IfcElement"))
-        width = max(len("CLASS"), len("TOTAL"), *(len(c) for c in counts)) \
-            if counts else len("CLASS")
-        print(f"{'CLASS':<{width}}  COUNT")
-        for cls in sorted(counts):
-            print(f"{cls:<{width}}  {counts[cls]:>5}")
-        print(f"{'TOTAL':<{width}}  {sum(counts.values()):>5}")
-        if not counts:
-            print("warning: model contains no IfcElement", file=sys.stderr)
         for name, sec in result["sections"].items():
             n = len(sec.get("findings", []))
             tail = f" ({sec['reason']})" if sec["status"] == "not run" else (
@@ -227,6 +219,14 @@ def _run_validate(args) -> int:
                     print(f"  - {x['check']}{where}: {x['message']}")
                 if n > 20:
                     print(f"  ... {n - 20} more")
+        width = max(len("CLASS"), len("TOTAL"), *(len(c) for c in counts)) \
+            if counts else len("CLASS")
+        print(f"{'CLASS':<{width}}  COUNT")
+        for cls in sorted(counts):
+            print(f"{cls:<{width}}  {counts[cls]:>5}")
+        print(f"{'TOTAL':<{width}}  {sum(counts.values()):>5}")
+        if not counts:
+            print("warning: model contains no IfcElement", file=sys.stderr)
         print(f"verdict: {result['verdict']}")
         print(f"not run: buildingSMART's normative rules (held in CI to "
               f"{result['not_run']['normative_rules']['rule_set']})")

@@ -2,5 +2,7 @@
 # every family bimforge ships to (C.8). CI checks this ref out; est-bim
 # validate names it in its report (C.11). Bump it deliberately: a new rule
 # lands as a reviewed change, not a red main.
+# Keep it flat `key: value` with the values unquoted: CI reads it with a
+# plain line parser, not PyYAML.
 repository: buildingSMART/ifc-gherkin-rules
 ref: 893f8275049b8960c3ce0c7379b4b57aefeaa8f9
