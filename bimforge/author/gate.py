@@ -988,6 +988,44 @@ def _run_contained(rep: GateReport, chk, *args) -> None:
     rep.checks_run += 1
 
 
+def _terrain_carves(model):
+    """(element name, provenance) of each TERRAIN element whose carve check
+    (G.5) was asked for."""
+    from bimforge.terrain.attach import is_terrain
+    for el in model.elements:
+        geom = el.geometry if isinstance(el.geometry, dict) else {}
+        prov = geom.get("provenance") or {}
+        if is_terrain(el) and prov.get("CarveStatus", "not asked") != "not asked":
+            yield el.name, prov
+
+
+def _terrain_carve_check(model, tol: float = MESH_TOLERANCE) -> list[str]:
+    """A finished carve check (G.5): the existing ground the cuts take out
+    together is what they take out cut by cut. They differ where cuts
+    overlap, so their volumes count that ground twice, or where the boolean
+    went wrong."""
+    fail = []
+    for name, prov in _terrain_carves(model):
+        if prov["CarveStatus"] != "carved":
+            continue
+        together = float(prov["CarveRemovedVolume"])
+        each = float(prov["CarveCutsVolume"])
+        if abs(together - each) > tol * max(abs(each), 1.0):
+            fail.append(f"{name}: the cuts take out {together:.1f} units^3 of "
+                        f"existing ground together but {each:.1f} cut by cut "
+                        "(cuts overlapping, or a failed boolean)")
+    return fail
+
+
+def _terrain_carve_notes(model) -> list[str]:
+    """A carve check that did not finish (G.5): the ground ships as it
+    always does, unchecked, and the provenance says why."""
+    return [f"{name}: terrain carve check {prov['CarveStatus']}"
+            + (f" ({prov['CarveReason']})" if prov.get("CarveReason") else "")
+            for name, prov in _terrain_carves(model)
+            if prov["CarveStatus"] != "carved"]
+
+
 def _sweeps_on_a_line(model) -> bool:
     from bimforge.author.emit_alignment import model_alignments
     try:
@@ -1038,6 +1076,9 @@ def run_post(model, outputs: dict, paycodes=None,
             rep.checks_run += probe.checks_run
             (rep.failures if mode == "error" else rep.warnings).extend(
                 probe.failures)
+    if any(_terrain_carves(model)):
+        _run_contained(rep, _terrain_carve_check, model)
+        rep.warnings.extend(_terrain_carve_notes(model))
     if outputs.get("takeoff_map"):
         _run_contained(rep, _map_coverage_check, model, outputs["takeoff_map"])
     if outputs.get("dxf"):

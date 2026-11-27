@@ -1,4 +1,4 @@
-"""attach_terrain — the fetch -> shift -> mesh -> carve -> provenance arc.
+"""attach_terrain — the fetch -> shift -> mesh -> carve check -> provenance arc.
 
 The bridge-pilot ``terrain()`` orchestration generalized: explicit bbox / CRS /
 unit scale — no hidden project assumptions; the caller (family, script, or
@@ -76,12 +76,12 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
     (matching ``workunit_meta``'s own degradation posture).
 
     ``cuts`` are ``(base, top_base, z0, z1)`` excavation frustums in model
-    units (see :func:`~bimforge.terrain.solid.frustum`); when supplied the
-    open surface is carved into a watertight solid by
-    :func:`~bimforge.terrain.solid.carve` (which closes the surface itself —
-    and degrades, logged, to the open surface if the mesh-boolean deps are
-    missing). The element name gains "(excavation carved)" only when the
-    carve actually produced the closed solid.
+    units (see :func:`~bimforge.terrain.solid.frustum`); when supplied they
+    are carved out of the ground by :func:`~bimforge.terrain.solid.carve`
+    as a CHECK (G.5): the ground shipped stays the open surface, each cut
+    voiding it (roadmap E.1), and the provenance records what the carve
+    found (``CarveStatus``, and the volumes the post gate compares). A carve
+    asked for without the mesh-boolean libraries raises.
 
     ``grid`` is an already-fetched TerrainGrid over ``bbox_m``, which is then
     not fetched again; ``vshift_source`` is written into the provenance as
@@ -120,35 +120,30 @@ def attach_terrain(model, bbox_m, *, crs_epsg, cache_stem, unit_scale,
     log(f"  terrain: {len(verts)} {source.upper()} verts @ {spacing_m:g} {unit}, "
         f"shift -{shift:.3f} m")
 
-    closed = False
-    if cuts:
-        # carve builds the watertight solid internally (close_surface +
-        # boolean); no separate close here. Above-terrain cuts no-op — the
-        # existing-vs-future-ground classification is proven by geometry.
-        verts, tris, closed, _removed = carve(verts, tris, list(cuts),
-                                              log=log)
+    # the carve is a check, its solid not kept: above-terrain cuts no-op,
+    # so the existing-vs-future-ground classification is proven by geometry
+    check = carve(verts, tris, list(cuts), log=log) if cuts else None
 
     info = dict(grid.info)
     info.setdefault("crs_epsg", grid.crs_epsg)
-    prov = build_provenance(source, info, wu, shift, spacing_m, closed,
+    prov = build_provenance(source, info, wu, shift, spacing_m, check,
                             shift_source=vshift_source)
 
-    name = ("Existing ground - USGS 3DEP %s%s"
-            % ("lidar" if source == "lpc" else "DEM",
-               " (excavation carved)" if closed else ""))
-    return add_terrain(model, name, verts, tris, prov, closed)
+    name = ("Existing ground - USGS 3DEP %s"
+            % ("lidar" if source == "lpc" else "DEM"))
+    return add_terrain(model, name, verts, tris, prov)
 
 
-def add_terrain(model, name, verts, tris, provenance, closed=False):
+def add_terrain(model, name, verts, tris, provenance):
     """Add the TERRAIN reference element: IfcGeographicElement/TERRAIN, no
-    pay code, no quantities, its mesh carrying `provenance`. An open sheet
+    pay code, no quantities, its mesh carrying `provenance`. The open sheet
     of ground is declared a surface (Element.body), so the solid-body check
-    does not read its rim as a broken solid; a carved one is a solid."""
+    does not read its rim as a broken solid."""
     from bimforge.author.model import Element
     return model.add(Element(
         name, ifc_class="IfcGeographicElement", predefined_type="TERRAIN",
         classifications=[], quantities={},
-        body="solid" if closed else "surface",
+        body="surface",
         geometry={"kind": "mesh", "verts": verts, "tris": tris,
                   "units": "ft", "provenance": provenance}))
 

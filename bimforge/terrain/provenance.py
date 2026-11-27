@@ -3,7 +3,7 @@
 Terrain is reference geometry: no pay code, no Qto, SurveyGrade False. What
 it DOES carry is where it came from - source product, source CRS, work-unit
 acquisition vintage and quality level, the applied vertical-datum shift, the
-mesh spacing, and whether the excavation was carved into it.
+mesh spacing, and what the excavation carve check found (G.5).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def spacing_unit(crs_epsg) -> str | None:
     return name
 
 
-def build_provenance(source, info, workunit, shift_m, spacing_m, carved,
+def build_provenance(source, info, workunit, shift_m, spacing_m, carve=None,
                      shift_source=None):
     """Assemble the terrain provenance Pset dict.
 
@@ -33,8 +33,14 @@ def build_provenance(source, info, workunit, shift_m, spacing_m, carved,
     the 3DEP work-unit vintage dict from ``workunit_meta`` (``{}`` when the
     index was unreachable - its keys are then omitted, the build continues);
     ``shift_m`` is the applied ``out_vert -> project`` vertical shift
-    (recorded negated: the mesh moved by ``-shift_m``); ``carved`` echoes
-    whether the excavation boolean produced a closed carved solid;
+    (recorded negated: the mesh moved by ``-shift_m``); ``carve`` is the
+    :class:`~bimforge.terrain.solid.Carve` the excavation check came to, or
+    None when none was asked for. The ground shipped is never carved
+    (``Carved`` false: each cut voids it, roadmap E.1); ``CarveStatus`` says
+    what the check found, and a finished one records the existing ground
+    the cuts take out together (``CarveRemovedVolume``) and cut by cut
+    (``CarveCutsVolume``), in the mesh's units cubed, which the post gate
+    compares;
     ``shift_source`` names where the shift came from (``"spec vshift_m"``,
     ``"NAVD88: none"``, ``"NOAA NCAT VERTCON 3.0"``), written as
     ``VerticalShiftSource`` when given.
@@ -68,10 +74,16 @@ def build_provenance(source, info, workunit, shift_m, spacing_m, carved,
         "SourceVerticalDatum": "NAVD88",
         "AppliedVerticalShift": -float(shift_m),  # to the project datum
         "MeshSpacing": float(spacing_m),     # in the CRS's own unit
-        "Carved": bool(carved),
+        "Carved": False,
+        "CarveStatus": carve.status if carve is not None else "not asked",
         "License": "Public domain (US Government work)",
         "SurveyGrade": False,
     })
+    if carve is not None and carve.status == "carved":
+        prov["CarveRemovedVolume"] = float(carve.removed_cf)
+        prov["CarveCutsVolume"] = float(carve.cuts_cf)
+    elif carve is not None and carve.reason:
+        prov["CarveReason"] = str(carve.reason)
     if shift_source:
         prov["VerticalShiftSource"] = str(shift_source)
     unit = spacing_unit(info.get("crs_epsg"))
