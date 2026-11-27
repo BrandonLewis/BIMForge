@@ -1,0 +1,40 @@
+# Conformance spec: the B3 example with the ground around it
+# (`terrain:`, 3DEP; the suite answers 3DEP locally).
+# Values from the shipped example; not a project or a bid.
+family: standard-plan
+params:
+  tables_file: ./b3-terrain-tables.yaml
+  alignment:
+    pob: {station: 0.0, northing: 1943000.0, easting: 6594000.0}
+    run:
+    - {kind: tangent, bearing: N 0-0-0 E, length: 64.0}
+  walls:
+  - name: R1
+    wall_type: 1
+    front_side: Lt
+    beg: {station: 0.0}
+    end: {station: 64.0}
+    grid_ft: 8.0
+    design_h_segments:
+    - {length_ft: 32.0, H_ft: 8}
+    - {length_ft: 32.0, H_ft: 10}
+    top_of_wall:
+      start_station: 0.0
+      grid_ft: 8.0
+      elevs: [109.0, 109.0, 109.0, 109.0, 109.0, 109.0, 109.0, 109.0, 109.0]
+    footing_bottom:
+      steps:
+      - {station: 0.0, elev: 100.0}
+paycodes: ./b3-terrain.paycodes.yaml
+outputs: {dxf: out/b3-terrain.dxf, ifc: out/b3-terrain.ifc, takeoff_map: out/b3-terrain-takeoff-map.yaml}
+project:
+  name: Caltrans B3 Retaining Wall (terrain, conformance)
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 100.0]
+  guid_ns: 3b7a5c2e-0000-4000-8000-00000c110007
+  facility: {kind: road, name: B3 Retaining Wall}
+  vertical_datum: NAVD88
+spatial_parts:
+- match: .
+  part: {name: Roadside, predefined_type: ROADSIDE, usage_type: LATERAL}
+terrain: {source: dem, cache: terrain/b3, margin_ft: 50, spacing_m: 2.0}

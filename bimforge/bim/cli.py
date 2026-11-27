@@ -2,7 +2,7 @@
 
   est-bim sample  [--dir out] [--with-configs]
   est-bim dxf2bim --dxf plans.dxf --config layer_map.yaml --out model.ifc
-  est-bim validate model.ifc
+  est-bim validate model.ifc [--json out.json|-] [--ids extra.ids ...] [--no-rules]
   est-bim ifc2dxf --ifc model.ifc [--out model.plan.dxf] [--include IfcSlab,IfcFooting] [--exclude IfcRailing] [--simplify-ft 0.05]
   est-bim ifc2gis --ifc model.ifc [model2.ifc ...] [--out model.gpkg] [--index structures.ifc] [--tin]
   est-bim takeoff --ifc model.ifc [--map takeoff_map.yaml] [--out takeoff.json] [--csv takeoff.csv]
@@ -170,59 +170,69 @@ def _run_ifc2gis(args) -> int:
 
 
 def _run_validate(args) -> int:
-    """Open + schema-validate an IFC and report element counts per class.
+    """Accept a file (C.11): bimforge.bim.validate's result, summarised on
+    stdout with the element counts per class, optionally as JSON.
 
     The dxf-to-bim SKILL's step-4 verification as a command: surface what
-    the model actually contains so nothing is silently dropped.
+    the model actually contains so nothing is silently dropped. Exit 0 when
+    the verdict is clean, 1 when it is issues or incomplete, 2 when the file
+    (or an --ids document) cannot be read.
     """
-    from collections import Counter
+    from pathlib import Path
 
-    import ifcopenshell
+    from bimforge.bim.validate import CONTRACT, BadIds, UnreadableFile, _validate
 
-    from bimforge.author.gate import schema_issues
+    def emit(result):
+        if args.json_out == "-":
+            print(json.dumps(result, indent=2))
+        elif args.json_out:
+            Path(args.json_out).write_text(json.dumps(result, indent=2) + "\n",
+                                           encoding="utf-8")
+
+    def unreadable(error: str) -> int:
+        emit({"contract": CONTRACT, "file": os.path.basename(args.ifc),
+              "verdict": "unreadable", "error": error})
+        return 2
 
     if not os.path.isfile(args.ifc):
         print(f"error: no such file: {args.ifc}", file=sys.stderr)
-        return 1
+        return unreadable("no such file")
     try:
-        model = ifcopenshell.open(args.ifc)
-    except (OSError, ValueError, RuntimeError, ifcopenshell.Error) as exc:
-        print(f"error: cannot open {args.ifc}: {exc}", file=sys.stderr)
-        return 1
-
-    issues = schema_issues(model, rules=not args.no_rules)
-    # #364: the validator's "With inverse: VoidsElements ... Not valid" names
-    # no element; say which cut is unhosted and what pay-item excavation is
-    # Guard on the schema's own declarations: IFC2X3 and IFC4 lack the
-    # entity, and by_type raises on a name the schema does not define
-    from bimforge.author.emit_ifc import _schema_has
-    has_cut = _schema_has(model.schema_identifier, "IfcEarthworksCut")
-    for cut in model.by_type("IfcEarthworksCut") if has_cut else []:
-        if not getattr(cut, "VoidsElements", None):
-            issues.append(
-                f"IfcEarthworksCut {cut.Name!r} ({cut.GlobalId}) voids no host: "
-                f"a feature subtraction must be the RelatedOpeningElement of "
-                f"an IfcRelVoidsElement. Pay-item excavation is "
-                f"IfcEarthworksElement with ObjectType EXCAVATION — emit_ifc "
-                f"writes an unhosted cut that way.")
-
-    counts = Counter(e.is_a() for e in model.by_type("IfcElement"))
-    width = max(len("CLASS"), len("TOTAL"), *(len(c) for c in counts)) \
-        if counts else len("CLASS")
-    print(f"{'CLASS':<{width}}  COUNT")
-    for cls in sorted(counts):
-        print(f"{cls:<{width}}  {counts[cls]:>5}")
-    print(f"{'TOTAL':<{width}}  {sum(counts.values()):>5}")
-    print(f"schema issues: {len(issues)}")
-    if not counts:
-        print("warning: model contains no IfcElement", file=sys.stderr)
-    if issues:
-        for msg in issues[:20]:
-            print(f"  ! {msg}", file=sys.stderr)
-        if len(issues) > 20:
-            print(f"  ... {len(issues) - 20} more", file=sys.stderr)
-        return 1
-    return 0
+        result, counts = _validate(args.ifc, extra_ids=args.ids,
+                                   rules=not args.no_rules)
+    except BadIds as exc:            # the file was not judged: no verdict
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except UnreadableFile as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return unreadable(str(exc))
+    emit(result)
+    if args.json_out != "-":
+        for name, sec in result["sections"].items():
+            n = len(sec.get("findings", []))
+            tail = f" ({sec['reason']})" if sec["status"] == "not run" else (
+                f" ({n})" if n else "")
+            if sec.get("unevaluated"):   # the rules: not a finding, not a pass
+                tail += f" ({sec['unevaluated']} unevaluated)"
+            print(f"{name}: {sec['status']}{tail}")
+            if sec["status"] == "fail" or (name == "coverage" and n):
+                for x in sec["findings"][:20]:
+                    where = f" {x['instance']}" if "instance" in x else ""
+                    print(f"  - {x['check']}{where}: {x['message']}")
+                if n > 20:
+                    print(f"  ... {n - 20} more")
+        width = max(len("CLASS"), len("TOTAL"), *(len(c) for c in counts)) \
+            if counts else len("CLASS")
+        print(f"{'CLASS':<{width}}  COUNT")
+        for cls in sorted(counts):
+            print(f"{cls:<{width}}  {counts[cls]:>5}")
+        print(f"{'TOTAL':<{width}}  {sum(counts.values()):>5}")
+        if not counts:
+            print("warning: model contains no IfcElement", file=sys.stderr)
+        print(f"verdict: {result['verdict']}")
+        print(f"not run: buildingSMART's normative rules (held in CI to "
+              f"{result['not_run']['normative_rules']['rule_set']})")
+    return 0 if result["verdict"] == "clean" else 1
 
 
 def _run_takeoff(args) -> int:
@@ -2594,12 +2604,20 @@ def main(argv=None) -> int:
                      help="emit OGC-valid TIN Z solids instead of MultiPolygon Z")
 
     va = sub.add_parser("validate",
-                        help="open + schema-validate an IFC and report "
-                             "element counts per class (exit 1 on issues)")
+                        help="accept a file: schema, rules, alignment, "
+                             "structure and the takeoff contract, one verdict "
+                             "(exit 0 clean, 1 issues or incomplete, 2 "
+                             "unreadable)")
     va.add_argument("ifc", help="input IFC file")
     va.add_argument("--no-rules", action="store_true", dest="no_rules",
                     help="check attribute types only, not the schema's WHERE "
-                         "and global rules (faster on very large files)")
+                         "and global rules (faster on very large files; the "
+                         "verdict is then incomplete)")
+    va.add_argument("--json", dest="json_out", metavar="PATH",
+                    help="write the bimforge-validate/1 result; '-' prints it "
+                         "instead of the summary")
+    va.add_argument("--ids", action="append", default=[], metavar="IDS",
+                    help="also hold the file to this IDS document (repeatable)")
 
     t = sub.add_parser("takeoff", help="roll an IFC up into a CanonicalTakeoff")
     t.add_argument("--ifc", required=True, help="input IFC file")

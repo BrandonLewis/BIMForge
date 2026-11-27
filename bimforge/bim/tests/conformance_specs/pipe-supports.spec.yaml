@@ -1,0 +1,61 @@
+# Conformance spec (CI builds it; no example does): two pipe
+# supports under one casing span.
+# Fixture values from the family's own tests; not a project or a bid.
+family: pipe-supports
+params:
+  supports:
+  - {id: PS-1, station: 388.43, pipe_invert_ft: 275.51}
+  - {id: PS-2, station: 478.91, pipe_invert_ft: 275.51}
+  span: {clear_span_ft: 90.48}
+  footing: {count: 2, length_ft: 4.0, width_ft: 4.0, depth_ft: 2.0, cover_in: 3.0, max_wcm: 0.5}
+  grout: {count: 2, thickness_in: 1.5}
+  rebar: {bar_size: 5, lb_per_ft: 1.043, spacing_in: 6.0, bars_each_way: 7, directions: 2,
+    mats: 2}
+  saddle:
+    count: 2
+    cl_approx_in: 20.5
+    cl_approx_tolerance_in: 0.25
+    saddle_plate: {thickness_in: 0.375, width_in: 12.0}
+    upper_strap: {thickness_in: 0.375, width_in: 12.0}
+    end_plate: {thickness_in: 0.375, width_in: 12.0, count_per_support: 2}
+    bearing_plate: {thickness_in: 0.75, height_in: 5.75, length_in: 12.0, count_per_support: 1}
+    base_plate: {thickness_in: 0.75, length_in: 24.75, width_in: 12.0, count_per_support: 1}
+    lug_plate: {thickness_in: 0.375, projection_in: 3.0, length_in: 12.0, bolt_edge_distance_in: 1.5,
+      count_per_support: 4}
+    collar_bolts: {count: 4}
+    stiffener_plate: {thickness_in: 0.375, locations: 1, pieces_per_location: 2}
+    anchor_bolts: {count: 4, diameter_in: 0.75, length_in: 18.0, min_embed_below_top_mat_in: 9.0,
+      leveling_nuts: true}
+    holes: {anchor_bolt_dia_in: 1.3125, collar_bolt_dia_in: 0.8125}
+  reference:
+    casing: {od_in: 24.0, wall_in: 0.375}
+    carrier: {od_in: 9.05, nominal_in: 8}
+  assumptions:
+  - {key: stiffener_half_width_in, value: 12.0, reason: fixture}
+  - {key: stiffener_x_offset_in, value: 0.0, reason: fixture}
+  - {key: saddle_wrap_deg, value: 180, reason: fixture}
+  - {key: collar_bolt_diameter_in, value: 0.75, reason: fixture}
+  - {key: collar_bolt_length_in, value: 3.0, reason: fixture}
+  - {key: collar_bolt_gauge_in, value: 3.0, reason: fixture}
+  - {key: anchor_bolt_projection_above_plate_in, value: 1.25, reason: fixture}
+  quantities:
+  - {item: Support Footings, qty: 2.3704, unit: CY}
+  - {item: Support Rebar, qty: 204.43, unit: LBS}
+  - {item: Support Grout Pads, qty: 0.5156, unit: CF}
+  validation:
+    groundwater_elevation_ft: [265, 267]
+    min_freeboard_ft: 2.0
+    arc_segments: 64
+    facet_tolerance: 0.005
+paycodes: ./pipe-supports.paycodes.yaml
+outputs: {dxf: out/pipe-supports.dxf, ifc: out/pipe-supports.ifc, takeoff_map: out/pipe-supports-takeoff-map.yaml}
+project:
+  name: Pipe Supports (conformance)
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 270.0]
+  guid_ns: 3b7a5c2e-0000-4000-8000-00000c110003
+  vertical_datum: NAVD88
+  facility: {kind: facility, name: Pipe Supports}
+spatial_parts:
+- match: .
+  part: {name: Pipe Supports, usage_type: LONGITUDINAL}

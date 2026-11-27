@@ -1,0 +1,45 @@
+# Conformance spec (CI builds it; no example does): one Type N
+# approach slab on a tangent, its alignment at the project base.
+# Fixture values from the family's own tests; not a project or a bid.
+family: approach-slab
+params:
+  alignment:
+    pob: {station: 0.0, northing: 1943000.0, easting: 6594000.0}
+    run:
+    - {kind: tangent, bearing: N 0-0-0 E, length: 400.0}
+  tables:
+    type_n_30:
+      length_ft: 30.0
+      thickness_ft: 1.25
+      design_span_ft: 24.5
+      bars:
+        bottom_main: '#10@6'
+        bottom_transverse: '#6@12'
+        top_mat: '#5@18'
+        edge_cont: {size: 5, count: 4}
+      dowels: {seat: '#5@12', seat_len_ft: 2.0, diaphragm: '#5@9', diaphragm_len_ft: 2.667}
+    type_eq_10:
+      length_ft: 10.0
+      thickness_ft: 1.0
+      design_span_ft: 7.83
+      bars:
+        bottom_main: '#7@6'
+        bottom_transverse: '#6@12'
+        top_mat: '#5@18'
+        edge_cont: {size: 5, count: 2}
+      dowels: {seat: '#5@12', seat_len_ft: 2.0, diaphragm: '#5@9', diaphragm_len_ft: 2.667}
+  slabs:
+  - {name: Abut 1, slab_type: type_n_30, station: 100.0, skew_deg: 0.0, width_ft: 44.0, approach: ahead,
+    abutment_type: seat, joint: false, drainage: false, soffit_elev_ft: 310.0}
+paycodes: ./approach-slab.paycodes.yaml
+outputs: {dxf: out/approach-slab.dxf, ifc: out/approach-slab.ifc, takeoff_map: out/approach-slab-takeoff-map.yaml}
+project:
+  name: Approach Slab (conformance)
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 300.0]
+  guid_ns: 3b7a5c2e-0000-4000-8000-00000c110002
+  vertical_datum: NAVD88
+  facility: {kind: bridge, name: Approach Slab}
+spatial_parts:
+- match: .
+  part: {name: Substructure, predefined_type: SUBSTRUCTURE}

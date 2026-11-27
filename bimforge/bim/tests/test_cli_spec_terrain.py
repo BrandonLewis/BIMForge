@@ -1,6 +1,7 @@
 """est-bim terrain (G.9): fetch a spec's ground ahead of the build. (The
 contour and terrain-diff commands are tested in test_cli_terrain.py.)"""
-from bimforge.author.tests.test_spec_terrain import b3_spec, offline
+from bimforge.author.tests.test_spec_terrain import b3_spec
+from bimforge.terrain.testing import offline
 from bimforge.bim import cli
 
 

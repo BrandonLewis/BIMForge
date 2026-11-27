@@ -1,0 +1,20 @@
+# Conformance spec: the 842 example with its run's stem raised
+# (`stem_h_ft`, a Mod of the standard dims).
+# Values from the shipped example; not a project or a bid.
+family: concrete-barrier-842
+params:
+  runs:
+  - {name: NB, straight_length_ft: 120.0, base_kind: deck, start_end: approach, end_end: departure,
+    stem_h_ft: 4.0}
+paycodes: ./barrier-842-variants.paycodes.yaml
+outputs: {dxf: out/barrier-842-mod.dxf, ifc: out/barrier-842-mod.ifc, takeoff_map: out/barrier-842-mod-takeoff-map.yaml,
+  ifc_allow_local: true}
+project:
+  name: R31 842 example (barrier-842-mod)
+  epsg: 2226
+  base: [6594000.0, 1943000.0]
+  guid_ns: 3b7a5c2e-0000-4000-8000-00000c110006
+  facility: {kind: bridge, name: Type 842 Barrier}
+spatial_parts:
+- match: .
+  part: {name: Surface structure, predefined_type: SURFACESTRUCTURE}

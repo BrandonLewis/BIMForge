@@ -1,0 +1,30 @@
+# Conformance spec (CI builds it; no example does): a 926 headwall
+# with both of its options, the trash rack and the guardrail.
+# Fixture values from the family's own tests; not a project or a bid.
+family: headwall-926
+params:
+  pipe_dia_ft: 3.0
+  wall_t_ft: 0.67
+  hw_int_w_ft: 5.5
+  hw_height_ft: 5.75
+  foot_len_ft: 6.83
+  foot_splay_ft: 1.0
+  wing_len_ft: 6.16
+  cut_depth_ft: 2.0
+  el_top_hw: 130.26
+  el_invert: 127.18
+  rack: {bars: 7}
+  guardrail: {}
+paycodes: ./headwall-926-rack-guardrail.paycodes.yaml
+outputs: {dxf: out/headwall-926-rack-guardrail.dxf, ifc: out/headwall-926-rack-guardrail.ifc,
+  takeoff_map: out/headwall-926-rack-guardrail-takeoff-map.yaml}
+project:
+  name: 926 Headwall (conformance)
+  epsg: 2226
+  base: [6594000.0, 1943000.0, 100.0]
+  guid_ns: 3b7a5c2e-0000-4000-8000-00000c110001
+  vertical_datum: NAVD88
+  facility: {kind: road, name: 926 Headwall}
+spatial_parts:
+- match: .
+  part: {name: Roadside, predefined_type: ROADSIDE, usage_type: LATERAL}

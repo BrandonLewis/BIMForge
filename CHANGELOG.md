@@ -2,6 +2,59 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
+## Unreleased
+
+### Added
+
+- **`est-bim validate` accepts a file in one command (C.11, X.8).** It runs
+  the schema, its where and global rules, buildingSMART's alignment checks
+  (C.12), the structure checks the build gate makes on a written file (the
+  spatial tree and facility parts, products reaching the site, quantity
+  formulas, representation types, an unhosted cut) and the takeoff contract
+  (`takeoff.ids`, and any `--ids` document; `takeoff-coverage.ids` is
+  advisory), and gives one verdict: `clean`; `issues` (a check that crashes
+  on the file is a failing finding); `incomplete` when nothing failed but a
+  failing section did not run (`--no-rules`, no `bimforge[ids]`, no pytest
+  for the rules, or a schema outside the contract's `ifcVersion`, such as
+  IFC2X3) or a rule could not be evaluated (`rules.unevaluated`); or
+  `unreadable`. Exit 0 when clean, 1 on issues or incomplete, 2 when the
+  file or an `--ids` document cannot be read. `--json` writes the
+  `bimforge-validate/1` result, with each section's findings, the file's
+  sha256, the versions used and the buildingSMART rule set CI held this
+  release's families to, read from the shipped
+  `bimforge/bim/contract/bsi_rules.yaml` (CI's `bsi-rules` job checks its
+  rules out from the same file). Library: `bimforge.bim.validate.validate`.
+  The structure checks are the gate's own (`gate.spatial_issues`,
+  `formula_issues`, `representation_issues`, `unhosted_cut_issues`), so a
+  build and `validate` hold a file to one code path.
+- **CI builds every shipped family, with its options.** Seven conformance
+  specs (`bimforge/bim/tests/conformance_specs/`) build the four families no
+  example built (`approach-slab`, `headwall-926` with its rack and
+  guardrail, `pipe-supports`, `spillway`) and options the examples leave off
+  (an 842 profile ring and Mod dimension, a B3 wall with a `terrain:` block
+  on a stubbed ground), on both schemas, for buildingSMART's normative
+  rules. Every file the conformance suite writes must get verdict `clean`
+  from `validate`; a shipped family no spec builds fails the suite. The
+  offline 3DEP stub the terrain tests use is `bimforge.terrain.testing`.
+- **A new-family skill** (`.claude/skills/new-family/SKILL.md`): the steps a
+  family takes to ship, each with the check that proves it.
+
+### Changed
+
+- **`est-bim validate` reports by section with a verdict.** Stdout gives
+  one line per section, the class counts, `verdict: ...`, then a line saying
+  the normative rules were not run, in place of `schema issues: N` and
+  findings on stderr. It exits 2, not 1, on a file it cannot read, and
+  `--no-rules` now exits 1 (`incomplete`) where it exited 0. Without
+  `bimforge[ids]` it exits 1 (`incomplete`, the takeoff contract not run)
+  where it exited 0; and the alignment, structure and takeoff-contract
+  checks are new failing sections, so a file that passed before (a Revit or
+  Tekla export without the contract's quantities, say) can now exit 1.
+- **`bimforge[ids]` installs pytest beside ifctester.** ifcopenshell's rule
+  executor, which evaluates the schema's where and global rules, imports
+  pytest; without it `validate` reports the rules `not run` rather than
+  passing them.
+
 ## 0.1.133 — 2026-11-26
 
 Modified standards recorded on the B3 wall and the barriers (#125), terrain from a spec and `est-bim terrain` (#127), the road corridor's shared-use path (#126), and the examples fixed (#130): four families built in the model frame, the ground in the IfcSite, and every example in its IFC4X3 facility.

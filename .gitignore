@@ -12,3 +12,6 @@ dist/
 # data/caltrans-2025/manifest.json (tests/test_caltrans_manifest.py).
 /data/caltrans-2025/dgn/
 /data/caltrans-2025/dxf/
+
+# generated outputs (e.g. BIMFORGE_CONFORMANCE_OUT=out/conformance)
+/out/
