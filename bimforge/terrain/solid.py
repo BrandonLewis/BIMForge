@@ -10,9 +10,11 @@ ground as real pits. A solid terrain that gets earth removed is also the
 right shape for staging and shoring study later.
 
 The mesh-boolean deps (trimesh + manifold3d, plus networkx for repair) are
-OPTIONAL — imported at call time inside :func:`carve`; when they are missing
-or the boolean fails, the degradation is logged and the open surface comes
-back unchanged, so terrain works everywhere.
+OPTIONAL — imported at call time inside :func:`carve`, which raises when a
+carve is asked for and they are missing. A boolean that fails or runs past
+its time limit is reported in the result's status (G.5). The carve is a
+check: the terrain a model ships stays the open surface, each cut voiding
+it (roadmap E.1).
 
 Axis convention: callers hand verts as ``(n, e, z)``; :func:`carve` works in
 ``(e, n, z)`` internally (the x=easting, y=northing frame the boolean runs
@@ -22,6 +24,8 @@ in) and converts back to ``(n, e, z)`` on return, matching the bridge-pilot sour
 from __future__ import annotations
 
 from collections import Counter
+from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
@@ -80,34 +84,47 @@ def frustum(base, top_base, z0, z1):
     return v, np.asarray(f, dtype="int64")
 
 
-def carve(verts, tris, cuts, log=print):
-    """Carve excavation cuts into a terrain surface.
+#: what a carve came to, recorded on the terrain as ``CarveStatus`` (G.5).
+#: Missing mesh-boolean libraries are not among them: a carve that is asked
+#: for and cannot run raises (:class:`CarveUnavailable`), so the same spec
+#: never builds different files where they are and are not installed.
+NOT_ASKED = "not asked"
+BOOLEAN_FAILED = "boolean failed"
+TIMED_OUT = "timed out"
+CARVED = "carved"
+CARVE_STATUSES = (NOT_ASKED, BOOLEAN_FAILED, TIMED_OUT, CARVED)
+#: how long the boolean may run, seconds, before the carve gives up
+CARVE_TIMEOUT_S = 600.0
 
-    ``verts`` are ``(n, e, z)`` in model units; ``tris`` index them; each
-    cut is a ``(base, top_base, z0, z1)`` frustum (see :func:`frustum`).
-    Returns ``(verts, tris, closed, removed_cf)``: the carved watertight
-    solid with ``closed=True`` and ``removed_cf`` — the volume of existing
-    ground removed, ``terr.volume - carved.volume`` in input units cubed —
-    on success; the input open surface with ``closed=False`` and
-    ``removed_cf=0.0`` (degradation logged) when the mesh-boolean deps are
-    missing or the boolean fails.
 
-    A cut floating entirely above the terrain removes nothing — the
-    existing-vs-future-ground classification is proven by the boolean, not
-    asserted (see the module docstring).
-    """
-    try:
-        import trimesh
-        import manifold3d  # noqa: F401 — the boolean engine trimesh uses
-    except Exception as e:
-        log(f"  terrain: carve skipped (mesh-boolean deps missing: {e})")
-        return verts, tris, False, 0.0
-    tv = np.array(verts, dtype="float64")
-    tf = np.array(tris, dtype="int64")
-    top = np.column_stack([tv[:, 1], tv[:, 0], tv[:, 2]])   # (e, n, z)
+class CarveUnavailable(RuntimeError):
+    """A carve was asked for and the mesh-boolean libraries are missing."""
+
+
+class Carve(NamedTuple):
+    """What :func:`carve` found. ``removed_cf`` is the existing ground the
+    cuts take out together; ``cuts_cf`` the sum of what each takes out
+    alone, so the two differ only where cuts overlap or the boolean went
+    wrong. ``verts``/``tris`` are the carved closed solid, ``(n, e, z)``,
+    when the status is ``carved``, and None otherwise; ``reason`` says why
+    a carve did not finish."""
+    status: str
+    removed_cf: float = 0.0
+    cuts_cf: float = 0.0
+    verts: list | None = None
+    tris: list | None = None
+    reason: str = ""
+
+
+def _boolean(top, tf, cuts):
+    """The carve's boolean, (e, n, z): the closed terrain less every cut, as
+    (verts, faces, removed, per-cut sum). Raises when the result is not one
+    closed solid."""
+    import trimesh
+
     cut_z0 = [(c[2] if not isinstance(c[2], (list, tuple)) else min(c[2]))
               for c in cuts]
-    zbase = float(min(tv[:, 2].min(), min(cut_z0)) - 5.0)
+    zbase = float(min(top[:, 2].min(), min(cut_z0)) - 5.0)
     V, F = close_surface(top, tf, zbase)
     terr = trimesh.Trimesh(vertices=V, faces=F, process=True)
     trimesh.repair.fix_normals(terr)
@@ -119,16 +136,93 @@ def carve(verts, tris, cuts, log=print):
         return mm
 
     tools = [_tool(c) for c in cuts]
+    carved = terr.difference(tools)
+    if not carved.is_watertight:
+        raise ValueError("the carved terrain is not closed")
+    each = sum(float(terr.intersection([t]).volume) for t in tools)
+    return (np.asarray(carved.vertices), np.asarray(carved.faces),
+            float(terr.volume - carved.volume), each)
+
+
+def _worker(job: str) -> None:
+    """Run :func:`_boolean` on the arrays in ``job`` (an .npz the parent
+    wrote) and write its answer beside it: ``<job>.out.npz``, or the
+    exception as text in ``<job>.err``."""
+    import json
+    with np.load(job, allow_pickle=False) as data:
+        top, tf, cuts = data["top"], data["tf"], json.loads(str(data["cuts"]))
     try:
-        carved = terr.difference(tools)
+        cv, cf, removed, each = _boolean(top, tf, cuts)
+    except Exception as e:                      # noqa: BLE001 - reported
+        Path(job + ".err").write_text(f"{type(e).__name__}: {e}",
+                                      encoding="utf-8")
+        return
+    np.savez(job + ".out.npz", cv=cv, cf=cf, removed=removed, each=each)
+
+
+def carve(verts, tris, cuts, *, timeout_s: float = CARVE_TIMEOUT_S,
+          log=print) -> Carve:
+    """Carve excavation cuts into a terrain surface, as a check (G.5).
+
+    ``verts`` are ``(n, e, z)`` in model units; ``tris`` index them; each
+    cut is a ``(base, top_base, z0, z1)`` frustum (see :func:`frustum`).
+    The surface is closed into a solid and every cut subtracted with a
+    manifold mesh boolean, in a child process so that a boolean that never
+    returns is stopped after ``timeout_s``. Returns a :class:`Carve`: status
+    ``carved`` with the closed solid and both volumes; ``boolean failed``
+    when it raises or leaves no closed solid; ``timed out``; ``not asked``
+    with no cuts. Raises :class:`CarveUnavailable` when the libraries are
+    missing.
+
+    A cut floating entirely above the terrain removes nothing — the
+    existing-vs-future-ground classification is proven by the boolean, not
+    asserted (see the module docstring).
+    """
+    if not cuts:
+        return Carve(NOT_ASKED)
+    try:
+        import trimesh  # noqa: F401
+        import manifold3d  # noqa: F401 — the boolean engine trimesh uses
     except Exception as e:
-        log(f"  terrain: mesh boolean failed ({e}); open surface")
-        return verts, tris, False, 0.0
-    removed_cf = float(terr.volume - carved.volume)
-    cv = np.asarray(carved.vertices)
-    cf = np.asarray(carved.faces)
+        raise CarveUnavailable(
+            f"terrain carve asked for, but the mesh-boolean libraries are "
+            f"missing ({e}): pip install \"bimforge[terrain]\"") from e
+    import json
+    import os
+    import subprocess
+    import sys
+    import tempfile
+    tv = np.array(verts, dtype="float64")
+    top = np.column_stack([tv[:, 1], tv[:, 0], tv[:, 2]])   # (e, n, z)
+    tf = np.array(tris, dtype="int64")
+    with tempfile.TemporaryDirectory(prefix="bimforge-carve-") as tmp:
+        job = str(Path(tmp) / "job.npz")
+        np.savez(job, top=top, tf=tf,
+                 cuts=json.dumps([list(c) for c in cuts]))
+        # the child imports this bimforge, from the parent's own path
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(sys.path))
+        try:
+            subprocess.run(
+                [sys.executable, "-c",
+                 "import sys; from bimforge.terrain.solid import _worker; "
+                 "_worker(sys.argv[1])", job],
+                check=False, timeout=timeout_s, capture_output=True, env=env)
+        except subprocess.TimeoutExpired:
+            log(f"  terrain: carve timed out after {timeout_s:g} s "
+                f"({len(cuts)} cuts); open surface")
+            return Carve(TIMED_OUT, reason=f"over {timeout_s:g} s")
+        err = Path(job + ".err")
+        out = Path(job + ".out.npz")
+        if not out.exists():
+            why = (err.read_text(encoding="utf-8") if err.exists()
+                   else "the carve process stopped with no answer")
+            log(f"  terrain: mesh boolean failed ({why}); open surface")
+            return Carve(BOOLEAN_FAILED, reason=why)
+        with np.load(str(out)) as res:        # closed before tmp goes
+            cv, cf = res["cv"], res["cf"]
+            removed, each = float(res["removed"]), float(res["each"])
     out_v = [(float(y), float(x), float(z)) for x, y, z in cv]  # -> (n, e, z)
     out_t = [tuple(int(i) for i in f) for f in cf]
-    log(f"  terrain: carved solid, {len(out_v)} verts, {len(out_t)} tris, "
-        f"{removed_cf:.0f} units^3 existing-ground dig removed")
-    return out_v, out_t, True, removed_cf
+    log(f"  terrain: carve check, {len(cuts)} cuts take out {removed:.0f} "
+        f"units^3 of existing ground ({each:.0f} cut by cut)")
+    return Carve(CARVED, removed, each, out_v, out_t)

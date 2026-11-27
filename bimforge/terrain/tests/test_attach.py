@@ -129,26 +129,49 @@ def test_attach_vshift_lookup_drives_ncat_and_workunit(tmp_path, monkeypatch):
 
 # ------------------------------------------------------------------- carve
 
-def test_attach_with_cuts_carves_and_stamps_provenance(tmp_path, monkeypatch):
-    cut = ([(0.0, 0.0), (0.0, 10.0), (10.0, 10.0), (10.0, 0.0)],
-           [(-2.0, -2.0), (-2.0, 12.0), (12.0, 12.0), (12.0, -2.0)],
-           -5.0, 30.0)
+CUT = ([(0.0, 0.0), (0.0, 10.0), (10.0, 10.0), (10.0, 0.0)],
+       [(-2.0, -2.0), (-2.0, 12.0), (12.0, 12.0), (12.0, -2.0)],
+       -5.0, 30.0)
+
+
+def test_cuts_are_carved_as_a_check_and_the_open_ground_ships(tmp_path, monkeypatch):
+    """G.5: the carve is a check. Its volumes go into the provenance; the
+    ground shipped is the open surface it was given, each cut voiding it."""
+    from bimforge.terrain.solid import CARVED, Carve
     seen = {}
 
     def fake_carve(verts, tris, cuts, log=print):
-        seen["cuts"] = cuts
-        return verts, tris, True, 100.0
+        seen["cuts"], seen["verts"] = cuts, verts
+        return Carve(CARVED, 100.0, 100.0, [(0, 0, 0)], [(0, 0, 0)])
 
     monkeypatch.setattr(A, "fetch_3dep_dem", lambda *a, **k: _grid())
     monkeypatch.setattr(A, "carve", fake_carve)
     m = _model()
     el = A.attach_terrain(m, (0.0, 0.0, 4.0, 4.0), crs_epsg=26942,
                           cache_stem=str(tmp_path / "site"), unit_scale=FT,
-                          vshift_m=0.5, cuts=(cut,), log=lambda s: None)
-    assert list(seen["cuts"]) == [cut]
-    assert el.geometry["provenance"]["Carved"] is True
-    assert el.name.endswith("(excavation carved)")
-    assert el.body == "solid"                          # carved: closed
+                          vshift_m=0.5, cuts=(CUT,), log=lambda s: None)
+    assert list(seen["cuts"]) == [CUT]
+    prov = el.geometry["provenance"]
+    assert prov["Carved"] is False
+    assert prov["CarveStatus"] == "carved"
+    assert prov["CarveRemovedVolume"] == prov["CarveCutsVolume"] == 100.0
+    assert el.geometry["verts"] == seen["verts"]       # not the carved solid
+    assert "carved" not in el.name
+    assert el.body == "surface"
+
+
+def test_a_carve_that_does_not_finish_says_why(tmp_path, monkeypatch):
+    from bimforge.terrain.solid import TIMED_OUT, Carve
+    monkeypatch.setattr(A, "fetch_3dep_dem", lambda *a, **k: _grid())
+    monkeypatch.setattr(A, "carve", lambda *a, **k: Carve(TIMED_OUT,
+                                                          reason="over 600 s"))
+    el = A.attach_terrain(_model(), (0.0, 0.0, 4.0, 4.0), crs_epsg=26942,
+                          cache_stem=str(tmp_path / "site"), unit_scale=FT,
+                          vshift_m=0.5, cuts=(CUT,), log=lambda s: None)
+    prov = el.geometry["provenance"]
+    assert prov["CarveStatus"] == "timed out"
+    assert prov["CarveReason"] == "over 600 s"
+    assert "CarveRemovedVolume" not in prov
 
 
 def test_an_uncarved_terrain_is_declared_a_surface(tmp_path, monkeypatch):

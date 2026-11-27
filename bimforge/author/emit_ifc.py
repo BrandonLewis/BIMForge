@@ -503,16 +503,17 @@ def _is_closed(triangles) -> bool:
     return bool(edges) and set(edges.values()) == {2}
 
 
-def _face_set(f, triangles):
-    """An open surface: an IfcTriangulatedFaceSet with Closed=False, the
-    points in first-use order. CoordIndex is 1-based."""
+def _face_set(f, triangles, closed: bool = False):
+    """An IfcTriangulatedFaceSet, the points in first-use order: an open
+    surface (Closed=False), or with `closed` a solid whose triangles close
+    and are wound outward (roadmap E.5). CoordIndex is 1-based."""
     index: dict = {}
     for t in triangles:
         for p in t:
             index.setdefault(p, len(index) + 1)
     plist = f.create_entity("IfcCartesianPointList3D", CoordList=list(index))
     return f.create_entity(
-        "IfcTriangulatedFaceSet", Coordinates=plist, Closed=False,
+        "IfcTriangulatedFaceSet", Coordinates=plist, Closed=closed,
         CoordIndex=[tuple(index[p] for p in t) for t in triangles])
 
 
@@ -873,13 +874,21 @@ def solids_for(f, el, ft_to_m: float, curves=None):
                 else:
                     # a closed mesh is a brep; an open one (terrain, a
                     # measured surface) is a face set, its rim edges on one
-                    # face each (#103)
+                    # face each (#103). A "tessellated" mesh (earthwork,
+                    # E.5) stays a face set when closed too: its ground side
+                    # follows the terrain's triangles, which seldom share a
+                    # plane, so merging them saves few faces for many
+                    # entities, and the merge was where its shapes broke
                     verts = [tuple(float(c) * k for c in v)
                              for v in d["verts"]]
                     tris = _weld([tuple(verts[i] for i in tri)
                                   for tri in d["tris"]])
-                    out.append(_faceted_brep(f, tris) if _is_closed(tris)
-                               else _face_set(f, tris))
+                    closed = _is_closed(tris)
+                    if d.get("tessellated"):
+                        out.append(_face_set(f, tris, closed=closed))
+                    else:
+                        out.append(_faceted_brep(f, tris) if closed
+                                   else _face_set(f, tris))
             elif kind == "arc_band":
                 n = d["segments"]
                 wrap = math.radians(d["wrap_deg"])

@@ -190,3 +190,38 @@ def test_arc_faceting_message_omits_segments_for_sweeps():
     msg = check_arc_faceting(m)[0]
     assert "segments" not in msg          # a sweep has no arc_segments
     assert msg.endswith("exceeds 0.50%")
+
+
+def _terrain(status, **prov):
+    return Element("Existing ground", ifc_class="IfcGeographicElement",
+                   predefined_type="TERRAIN", body="surface", geometry={
+                       "kind": "mesh", "verts": [], "tris": [], "units": "ft",
+                       "provenance": {"Carved": False, "CarveStatus": status,
+                                      **prov}})
+
+
+def test_a_carve_check_whose_cuts_agree_passes():
+    rep = run_post(_model(_terrain("carved", CarveRemovedVolume=1000.0,
+                                   CarveCutsVolume=1002.0)), {})
+    assert rep.passed and rep.checks_run == 1 and not rep.warnings
+
+
+def test_overlapping_cuts_fail_the_carve_check():
+    """G.5: the cuts take out less together than one by one, so their
+    volumes count the shared ground twice."""
+    rep = run_post(_model(_terrain("carved", CarveRemovedVolume=24.0,
+                                   CarveCutsVolume=32.0)), {})
+    assert not rep.passed
+    assert "24.0 units^3" in rep.failures[0] and "32.0" in rep.failures[0]
+
+
+def test_a_carve_check_that_did_not_finish_is_a_warning():
+    rep = run_post(_model(_terrain("timed out", CarveReason="over 600 s")), {})
+    assert rep.passed
+    assert rep.warnings == ["Existing ground: terrain carve check timed out "
+                            "(over 600 s)"]
+
+
+def test_no_carve_asked_runs_no_carve_check():
+    rep = run_post(_model(_terrain("not asked")), {})
+    assert rep.passed and rep.checks_run == 0

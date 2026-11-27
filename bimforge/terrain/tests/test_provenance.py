@@ -6,7 +6,7 @@ from bimforge.terrain.provenance import build_provenance
 
 
 def test_dem_source_block_no_workunit():
-    prov = build_provenance("dem", {"crs_epsg": 26910}, {}, 0.712, 3.0, False)
+    prov = build_provenance("dem", {"crs_epsg": 26910}, {}, 0.712, 3.0)
 
     assert prov["Source"] == "USGS 3DEP 1m DEM"
     assert prov["SourceService"] == "3DEPElevation ImageServer exportImage"
@@ -24,6 +24,7 @@ def test_dem_source_block_no_workunit():
     assert prov["AppliedVerticalShift"] == pytest.approx(-0.712)
     assert prov["MeshSpacing"] == 3.0
     assert prov["Carved"] is False
+    assert prov["CarveStatus"] == "not asked"
     assert prov["SurveyGrade"] is False
     assert "Public domain" in prov["License"]
 
@@ -34,7 +35,8 @@ def test_lpc_source_block_with_workunit():
     wu = {"project": "OR_Example_2020_B20", "workunit": "OR_Example_1",
           "collect_start": "2020-06-01", "collect_end": "2020-08-15",
           "ql": "QL2"}
-    prov = build_provenance("lpc", info, wu, 0.5, 1.0, True)
+    from bimforge.terrain.solid import CARVED, Carve
+    prov = build_provenance("lpc", info, wu, 0.5, 1.0, Carve(CARVED, 12.0, 12.5))
 
     assert prov["Source"] == "USGS 3DEP Lidar Point Cloud (LPC)"
     # info's project wins over the workunit's (setdefault semantics).
@@ -49,7 +51,10 @@ def test_lpc_source_block_with_workunit():
     assert prov["QualityLevel"] == "QL2"
     assert prov["AppliedVerticalShift"] == pytest.approx(-0.5)
     assert prov["MeshSpacing"] == 1.0
-    assert prov["Carved"] is True
+    assert prov["Carved"] is False                     # the ground ships open
+    assert prov["CarveStatus"] == "carved"
+    assert prov["CarveRemovedVolume"] == 12.0
+    assert prov["CarveCutsVolume"] == 12.5
     assert prov["SurveyGrade"] is False
 
 
@@ -57,7 +62,7 @@ def test_dem_workunit_fills_source_project():
     wu = {"project": "WA_Sample_2019", "workunit": "WA_Sample_2",
           "collect_start": "2019-04-01", "collect_end": "2019-05-30",
           "ql": "QL1"}
-    prov = build_provenance("dem", {}, wu, 0.0, 3.0, False)
+    prov = build_provenance("dem", {}, wu, 0.0, 3.0)
     # DEM block has no SourceProject of its own; the workunit supplies it.
     assert prov["SourceProject"] == "WA_Sample_2019"
     assert prov["SourceWorkUnit"] == "WA_Sample_2"
@@ -65,24 +70,24 @@ def test_dem_workunit_fills_source_project():
 
 
 def test_source_crs_falls_back_to_info_crs_string():
-    prov = build_provenance("dem", {"crs": "EPSG:32610"}, {}, 0.0, 3.0, False)
+    prov = build_provenance("dem", {"crs": "EPSG:32610"}, {}, 0.0, 3.0)
     assert prov["SourceCRS"] == "EPSG:32610"
-    prov = build_provenance("dem", {}, {}, 0.0, 3.0, False)
+    prov = build_provenance("dem", {}, {}, 0.0, 3.0)
     assert prov["SourceCRS"] == ""
 
 
 @pytest.mark.parametrize("epsg, unit", [(2226, "ftUS"), (26942, "m")])
 def test_the_mesh_spacing_carries_the_crs_unit(epsg, unit):
-    prov = build_provenance("dem", {"crs_epsg": epsg}, {}, 0.0, 3.0, False)
+    prov = build_provenance("dem", {"crs_epsg": epsg}, {}, 0.0, 3.0)
     assert prov["MeshSpacing"] == 3.0
     assert prov["MeshSpacingUnit"] == unit
 
 
 def test_the_shift_source_is_written_when_given():
     from bimforge.terrain.provenance import build_provenance
-    p = build_provenance("dem", {"crs_epsg": 2226}, {}, 0.71, 3.28, False,
+    p = build_provenance("dem", {"crs_epsg": 2226}, {}, 0.71, 3.28,
                          shift_source="NOAA NCAT VERTCON 3.0")
     assert p["AppliedVerticalShift"] == -0.71
     assert p["VerticalShiftSource"] == "NOAA NCAT VERTCON 3.0"
-    q = build_provenance("dem", {"crs_epsg": 2226}, {}, 0.0, 3.28, False)
+    q = build_provenance("dem", {"crs_epsg": 2226}, {}, 0.0, 3.28)
     assert "VerticalShiftSource" not in q

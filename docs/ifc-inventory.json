@@ -2424,6 +2424,14 @@
    "build"
   ]
  },
+ "pset|Pset_BimforgeTerrain|CarveStatus": {
+  "IFC4": [
+   "build"
+  ],
+  "IFC4X3": [
+   "build"
+  ]
+ },
  "pset|Pset_BimforgeTerrain|Carved": {
   "IFC4": [
    "build"
