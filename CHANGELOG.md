@@ -2,6 +2,37 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
+## Unreleased
+
+### Changed
+
+- **Earthwork is written as triangle meshes (E.5).** Each road-corridor cut
+  and fill body is an `IfcTriangulatedFaceSet` (RepresentationType
+  `Tessellation`), one point list and one index list, `Closed` true when it
+  closes and wound outward, in place of an `IfcFacetedBrep` of merged
+  coplanar faces. The ground side follows the terrain's triangles, which
+  seldom share a plane: on a 9,319 ft test road's 64 fills the merge left
+  50,113 faces of 58,494 triangles at about 180,000 entities and 8.8 MB,
+  and it was where shapes broke (a band under its volume, a face with holes
+  web-ifc could not triangulate). Volumes are unchanged: the quantity sets
+  come from the columns, not the shape. Other closed meshes stay merged
+  breps. **For ProjectCommand:** cut and fill bodies arrive as closed face
+  sets; feature edges only, as agreed.
+- **A terrain carve is a check, and says what it found (G.5).**
+  `attach_terrain(cuts=...)` no longer ships the carved solid: the ground
+  is the open surface, each cut voiding it (E.1), and the carve runs beside
+  it. Its provenance records `CarveStatus` (`not asked`, `boolean failed`,
+  `timed out`, `carved`) beside `Carved` (now always false), and a finished
+  carve the existing ground the cuts take out together
+  (`CarveRemovedVolume`) and cut by cut (`CarveCutsVolume`); the post gate
+  fails when the two differ, since overlapping cuts count that ground twice,
+  and warns on a carve that did not finish (`CarveReason`). A carve asked
+  for without `trimesh` and `manifold3d` fails the build
+  (`CarveUnavailable`), so a spec builds the same file everywhere; the
+  boolean runs in a child process stopped after `timeout_s` (600 s). `carve`
+  returns a `Carve` in place of its 4-tuple, and the terrain element no
+  longer gains "(excavation carved)".
+
 ## 0.1.133 — 2026-11-26
 
 Modified standards recorded on the B3 wall and the barriers (#125), terrain from a spec and `est-bim terrain` (#127), the road corridor's shared-use path (#126), and the examples fixed (#130): four families built in the model frame, the ground in the IfcSite, and every example in its IFC4X3 facility.
@@ -120,32 +151,6 @@ skip or read them. `model-elements` sends `route`, `based_on` and
 
 ### Changed
 
-- **Earthwork is written as triangle meshes (E.5).** Each road-corridor cut
-  and fill body is an `IfcTriangulatedFaceSet` (RepresentationType
-  `Tessellation`), one point list and one index list, `Closed` true when it
-  closes and wound outward, in place of an `IfcFacetedBrep` of merged
-  coplanar faces. The ground side follows the terrain's triangles, which
-  seldom share a plane: on a 9,319 ft test road's 64 fills the merge left
-  50,113 faces of 58,494 triangles at about 180,000 entities and 8.8 MB,
-  and it was where shapes broke (a band under its volume, a face with holes
-  web-ifc could not triangulate). Volumes are unchanged: the quantity sets
-  come from the columns, not the shape. Other closed meshes stay merged
-  breps. **For ProjectCommand:** cut and fill bodies arrive as closed face
-  sets; feature edges only, as agreed.
-- **A terrain carve is a check, and says what it found (G.5).**
-  `attach_terrain(cuts=...)` no longer ships the carved solid: the ground
-  is the open surface, each cut voiding it (E.1), and the carve runs beside
-  it. Its provenance records `CarveStatus` (`not asked`, `boolean failed`,
-  `timed out`, `carved`) beside `Carved` (now always false), and a finished
-  carve the existing ground the cuts take out together
-  (`CarveRemovedVolume`) and cut by cut (`CarveCutsVolume`); the post gate
-  fails when the two differ, since overlapping cuts count that ground twice,
-  and warns on a carve that did not finish (`CarveReason`). A carve asked
-  for without `trimesh` and `manifold3d` fails the build
-  (`CarveUnavailable`), so a spec builds the same file everywhere; the
-  boolean runs in a child process stopped after `timeout_s` (600 s). `carve`
-  returns a `Carve` in place of its 4-tuple, and the terrain element no
-  longer gains "(excavation carved)".
 - **The examples declare their IFC4X3 facility, by what they serve.** Each
   shipped example sets `project.facility` and, where its elements need
   parts, `spatial_parts:`, so its IFC4X3 file is Site > facility > parts in
