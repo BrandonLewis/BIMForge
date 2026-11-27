@@ -225,8 +225,10 @@ class EarthMesh:
         return abs(_signed_volume([(v[a], v[b], v[c]) for a, b, c in self.tris]))
 
     def body_solids(self) -> list[dict]:
+        # written as a triangle mesh, not merged faces (roadmap E.5)
         return [{"kind": "mesh", "units": "ft", "verts": list(self.verts),
-                 "tris": list(self.tris), "plan": self.plan}]
+                 "tris": list(self.tris), "plan": self.plan,
+                 "tessellated": True}]
 
 
 def _column_faces(p: Column, vid) -> list:

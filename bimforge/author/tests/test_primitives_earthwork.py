@@ -358,3 +358,76 @@ def test_emit_ifc_mesh_branch_ignores_the_new_plan_key(tmp_path):
     pts = {p.id() for face in breps[0].Outer.CfsFaces
            for p in face.Bounds[0].Bound.Polygon}
     assert len(pts) == 8
+
+
+def _emit_one(tmp_path, d, ifc_class="IfcEarthworksFill"):
+    ifcopenshell = pytest.importorskip("ifcopenshell")
+    from bimforge.author.emit_ifc import emit_ifc
+    from bimforge.author.model import Element, StructureModel
+    from bimforge.author.project import ProjectContext
+
+    ctx = ProjectContext(name="Earthwork Fixture", epsg=2226,
+                         base_e=6_594_000.0, base_n=1_943_000.0,
+                         guid_ns=uuid.UUID(int=12))
+    m = StructureModel("earthwork", ctx)
+    m.add(Element("band", ifc_class=ifc_class, classifications=[], geometry=d))
+    out = tmp_path / "e.ifc"
+    emit_ifc(m, str(out))
+    f = ifcopenshell.open(str(out))
+    (el,) = f.by_type(ifc_class)
+    (rep,) = [r for r in el.Representation.Representations
+              if r.RepresentationIdentifier == "Body"]
+    return f, rep
+
+
+def test_an_earthwork_mesh_is_written_as_one_closed_triangulated_face_set(tmp_path):
+    """E.5: earthwork goes out as an indexed triangle mesh, one point list
+    and one index list, not a faceted brep of merged faces. Closed only
+    because it is, and wound outward, so the volume reads back."""
+    from bimforge.author.corridor.earthwork import EarthMesh
+    import ifcopenshell.geom as geom
+
+    sp = SectionPrism("weir", profile=[(0, 0), (4, 0), (4, 2), (0, 2)],
+                      length=10.0)
+    box = as_mesh(sp.body_solids()[0])
+    em = EarthMesh("fill 1", "fill", box["verts"], box["tris"], box["plan"])
+    f, rep = _emit_one(tmp_path, em.body_solids()[0])
+    (item,) = rep.Items
+    assert item.is_a("IfcTriangulatedFaceSet")
+    assert item.Closed is True
+    assert rep.RepresentationType == "Tessellation"
+    assert len(item.CoordIndex) == 12
+    assert len(item.Coordinates.CoordList) == 8
+    assert not f.by_type("IfcFacetedBrep")
+    sh = geom.create_shape(geom.settings(), item)      # an item: its mesh
+    ft = 1200 / 3937                       # the project's US survey foot
+    assert _volume_of(sh.verts, sh.faces) == pytest.approx(4 * 2 * 10 * ft ** 3,
+                                                           rel=1e-6)
+
+
+def _volume_of(verts, faces):
+    p = [verts[i:i + 3] for i in range(0, len(verts), 3)]
+    t = [faces[i:i + 3] for i in range(0, len(faces), 3)]
+    return _signed_volume([(p[a], p[b], p[c]) for a, b, c in t])
+
+
+def test_an_open_earthwork_mesh_is_a_face_set_not_called_closed(tmp_path):
+    from bimforge.author.corridor.earthwork import EarthMesh
+
+    sp = SectionPrism("weir", profile=[(0, 0), (4, 0), (4, 2), (0, 2)],
+                      length=10.0)
+    box = as_mesh(sp.body_solids()[0])
+    em = EarthMesh("fill 1", "fill", box["verts"], box["tris"][:-1], box["plan"])
+    _f, rep = _emit_one(tmp_path, em.body_solids()[0])
+    (item,) = rep.Items
+    assert item.is_a("IfcTriangulatedFaceSet")
+    assert item.Closed is False
+
+
+def test_a_closed_mesh_not_from_earthwork_stays_a_merged_brep(tmp_path):
+    sp = SectionPrism("weir", profile=[(0, 0), (4, 0), (4, 2), (0, 2)],
+                      length=10.0)
+    _f, rep = _emit_one(tmp_path, as_mesh(sp.body_solids()[0]),
+                        ifc_class="IfcBuildingElementProxy")
+    (item,) = rep.Items
+    assert item.is_a("IfcFacetedBrep")
