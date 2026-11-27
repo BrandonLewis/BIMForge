@@ -207,3 +207,23 @@ def test_without_ifctester_the_command_exits_one(sample_ifc, monkeypatch, capsys
     out = capsys.readouterr().out
     assert "takeoff: not run (pip install bimforge[ids])" in out
     assert "verdict: incomplete" in out
+
+
+def test_the_rules_line_counts_the_rules_not_evaluated(sample_ifc, monkeypatch,
+                                                       capsys):
+    # a rule the executor could not evaluate is not a pass: the summary says
+    # how many, beside the rules' status
+    pytest.importorskip("ifctester.ids")
+    from bimforge.bim.tests.test_validate import _unevaluated
+    _unevaluated(monkeypatch)
+    assert cli.main(["validate", str(sample_ifc)]) == 1
+    out = capsys.readouterr().out
+    assert "rules: pass (1 unevaluated)" in out.splitlines()
+    assert "verdict: incomplete" in out
+
+
+def test_the_rules_line_is_bare_when_every_rule_was_evaluated(sample_ifc,
+                                                              capsys):
+    pytest.importorskip("ifctester.ids")
+    assert cli.main(["validate", str(sample_ifc)]) == 0
+    assert "rules: pass" in capsys.readouterr().out.splitlines()

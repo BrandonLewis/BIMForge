@@ -212,6 +212,8 @@ def _run_validate(args) -> int:
             n = len(sec.get("findings", []))
             tail = f" ({sec['reason']})" if sec["status"] == "not run" else (
                 f" ({n})" if n else "")
+            if sec.get("unevaluated"):   # the rules: not a finding, not a pass
+                tail += f" ({sec['unevaluated']} unevaluated)"
             print(f"{name}: {sec['status']}{tail}")
             if sec["status"] == "fail" or (name == "coverage" and n):
                 for x in sec["findings"][:20]:
