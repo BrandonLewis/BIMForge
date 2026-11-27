@@ -72,7 +72,7 @@ The `structure` checks are the gate's file-only checks, moved into `bimforge.bim
 
 ### The command
 
-- Stdout: one line per section (`takeoff: fail (3)`), the class counts as today, then the verdict. `--json PATH` writes the result; `--json -` prints it instead of the summary.
+- Stdout: one line per section (`takeoff: fail (3)`), the class counts as today, the verdict, then a line naming the buildingSMART rule set that was not run. `--json PATH` writes the result; `--json -` prints it instead of the summary.
 - Exit 0 when `clean`, 1 when `issues` or `incomplete`, 2 when the file cannot be opened or is not IFC (the result, when asked for, then carries `verdict: "unreadable"` and the error).
 - `--no-rules` keeps its meaning (skip the where and global rules on very large files); the result says so.
 - An `--ids` file that does not exist or does not parse is exit 2, naming it.

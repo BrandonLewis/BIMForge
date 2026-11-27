@@ -45,7 +45,11 @@ Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
   one line per section, the class counts, `verdict: ...`, then a line saying
   the normative rules were not run, in place of `schema issues: N` and
   findings on stderr. It exits 2, not 1, on a file it cannot read, and
-  `--no-rules` now exits 1 (`incomplete`) where it exited 0.
+  `--no-rules` now exits 1 (`incomplete`) where it exited 0. Without
+  `bimforge[ids]` it exits 1 (`incomplete`, the takeoff contract not run)
+  where it exited 0; and the alignment, structure and takeoff-contract
+  checks are new failing sections, so a file that passed before (a Revit or
+  Tekla export without the contract's quantities, say) can now exit 1.
 - **`bimforge[ids]` installs pytest beside ifctester.** ifcopenshell's rule
   executor, which evaluates the schema's where and global rules, imports
   pytest; without it `validate` reports the rules `not run` rather than

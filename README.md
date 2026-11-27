@@ -124,7 +124,9 @@ the structure checks the build gate makes on a written file (the spatial
 tree and facility parts, quantity formulas, representation types, an
 unhosted cut), and the takeoff contract (`takeoff.ids` and each `--ids`
 document; `takeoff-coverage.ids` is advisory). It prints one line per
-section, the element counts per class and the verdict:
+section, the element counts per class, the verdict, and a line naming the
+buildingSMART rule set it did not run (`--json -` prints the JSON result
+instead):
 
 - `clean` (exit 0): every failing section ran and found nothing;
 - `issues` (exit 1): a failing section has findings (a check that crashes

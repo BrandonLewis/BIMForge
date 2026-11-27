@@ -41,7 +41,7 @@ is one that review has had to catch.
    `bimforge/author/tests/fixtures/example_globalids.json` for it. Check:
    `bimforge/author/tests/test_example_globalids.py`.
 7. **Regenerate the inventory:** run the conformance suite with
-   `BIMFORGE_CONFORMANCE_OUT=DIR` set (a folder outside the repo), then
+   `BIMFORGE_CONFORMANCE_OUT=DIR` set (`out/conformance`, which git ignores), then
    `python scripts/ifc_inventory.py DIR`. Check:
    `python scripts/ifc_inventory.py DIR --check` prints `inventory current`.
 8. **Validate its output and run the suite.** `est-bim validate out/x.ifc`
