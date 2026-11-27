@@ -97,14 +97,30 @@ jobs:
     # propositions, industry practice) on every kind of IFC bimforge writes,
     # gated by scripts/bsi_baseline.yaml (#94). The rules are a behave suite
     # with their own pins, so they get their own venv; the commit is pinned
-    # here so a new rule lands as a deliberate bump, not a red main.
+    # in bimforge/bim/contract/bsi_rules.yaml (which ships, so est-bim
+    # validate names it too) so a new rule lands as a deliberate bump, not a
+    # red main.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: The pinned rule set (bimforge/bim/contract/bsi_rules.yaml)
+        id: pin
+        run: |
+          # flat `key: value` lines, read without PyYAML (the runner's
+          # system Python, before setup-python, may not have it)
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          pin = {}
+          for line in open("bimforge/bim/contract/bsi_rules.yaml"):
+              key, sep, value = line.split("#")[0].partition(":")
+              if sep:
+                  pin[key.strip()] = value.strip()
+          print(f"repository={pin['repository']}")
+          print(f"ref={pin['ref']}")
+          EOF
       - uses: actions/checkout@v5
         with:
-          repository: buildingSMART/ifc-gherkin-rules
-          ref: 893f8275049b8960c3ce0c7379b4b57aefeaa8f9
+          repository: ${{ steps.pin.outputs.repository }}
+          ref: ${{ steps.pin.outputs.ref }}
           path: ifc-gherkin-rules
           submodules: true
       - uses: actions/setup-python@v6

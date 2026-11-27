@@ -52,7 +52,7 @@ exclude = [
 ]
 
 [tool.setuptools.package-data]
-"bimforge.bim" = ["examples/*", "contract/*.ids"]
+"bimforge.bim" = ["examples/*", "contract/*.ids", "contract/*.yaml"]
 "bimforge.bim.plansheet" = ["*.yaml"]
 "bimforge.cad" = ["templates/*.dxf"]
 "bimforge.author" = ["examples/*", "dictionary/*.json"]
