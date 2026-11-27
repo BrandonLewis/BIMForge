@@ -65,6 +65,8 @@ The `structure` checks are the gate's file-only checks, moved into `bimforge.bim
 
 - A section's `status` is `pass`, `fail`, `advisory` (coverage, whatever it finds) or `not run` with a `reason`. Each finding is `{check, instance, message}`; `instance` is `#id Class 'Name'` where the finding names one, else omitted.
 - `verdict` is `clean` only when every failing section ran and passed; `issues` when any failed; `incomplete` when none failed but a failing section did not run (no `ifctester`, or `--no-rules`). `failing` counts the findings in failing sections.
+- When the rules ran, `rules` also carries `unevaluated`: the number of rules ifcopenshell's rule executor could not evaluate (it notes a RecursionError and moves on). Any value above 0 turns `clean` into `incomplete`, since a rule that did not run is not a pass.
+- The schema's rules need pytest, which ifcopenshell's rule executor imports; `bimforge[ids]` installs it with `ifctester`. Without it, `rules` is `not run` with that reason and `schema` still reports the attribute pass.
 - Without `ifctester`, `takeoff` and `coverage` are `not run` with `reason: "pip install bimforge[ids]"`, and the verdict is `incomplete`, so a missing extra never reads as a pass.
 - `rule_set` is read from `bimforge/bim/contract/bsi_rules.yaml` (`repository`, `ref`), which ships in the package; CI's `bsi-rules` job reads its checkout ref from the same file, so the report names the rules this release's families were held to.
 
