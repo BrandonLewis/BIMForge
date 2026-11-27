@@ -92,6 +92,13 @@ def _open_ids(path):
         raise BadIds(f"--ids {path}: {exc}") from exc
 
 
+def _open_shipped(path):
+    """One of the package's own contract documents. A broken one is a
+    bimforge bug, not the user's argument: it raises as ifctester raises."""
+    from ifctester import ids
+    return ids.open(str(path), validate=True)
+
+
 def _ids_findings(f, doc, label: str) -> list[dict]:
     """Each failure of each specification of one opened IDS document. A
     required specification nothing applies to, and a prohibited one that
@@ -125,20 +132,49 @@ def _covers(doc, schema: str) -> list[str]:
     return [] if schema in versions else versions
 
 
+NO_PYTEST = ("the schema's rules need pytest, which ifcopenshell's rule "
+             "executor imports (pip install bimforge[ids])")
+
+
+def _missing_pytest(exc: BaseException) -> bool:
+    """Whether `exc` is, or was raised from, a missing pytest/_pytest
+    (ifcopenshell.express.rule_executor imports _pytest to run the rules)."""
+    seen = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        if isinstance(exc, ModuleNotFoundError) and (exc.name or "").split(
+                ".")[0] in ("pytest", "_pytest"):
+            return True
+        exc = exc.__cause__ or exc.__context__
+    return False
+
+
 def _schema_sections(f, rules: bool) -> tuple[dict, dict]:
-    """(schema, rules) sections from one ifcopenshell.validate pass."""
+    """(schema, rules) sections from one ifcopenshell.validate pass. When
+    the pass with the rules raises, the attribute pass alone gives the
+    schema section and the rules are not run (no pytest) or a failing
+    finding (anything else): never a pass for a check that did not run."""
     from bimforge.author import gate
-    try:
-        stmts = gate.schema_statements(f, rules=rules)
-    except Exception as exc:     # noqa: BLE001
-        return _section([_raised("schema", exc)]), (
-            _section([]) if rules else _not_run("--no-rules"))
-    schema = _section([_finding("schema", line)
-                       for kind, line in stmts if kind == "schema"])
+
+    def schema_of(stmts):
+        return _section([_finding("schema", line)
+                         for kind, line in stmts if kind == "schema"])
+
+    def attributes_only():
+        try:
+            return schema_of(gate.schema_statements(f, rules=False))
+        except Exception as exc:     # noqa: BLE001
+            return _section([_raised("schema", exc)])
+
     if not rules:
-        return schema, _not_run("--no-rules")
-    return schema, _section([_finding("rule", line)
-                             for kind, line in stmts if kind == "rule"])
+        return attributes_only(), _not_run("--no-rules")
+    try:
+        stmts = gate.schema_statements(f, rules=True)
+    except Exception as exc:     # noqa: BLE001
+        return attributes_only(), (_not_run(NO_PYTEST) if _missing_pytest(exc)
+                                   else _section([_raised("rules", exc)]))
+    return schema_of(stmts), _section([_finding("rule", line)
+                                       for kind, line in stmts if kind == "rule"])
 
 
 def _validate(path, extra_ids=(), rules: bool = True) -> tuple[dict, Counter]:
@@ -179,23 +215,22 @@ def _validate(path, extra_ids=(), rules: bool = True) -> tuple[dict, Counter]:
     }
     if have_ids:
         contract = files("bimforge.bim") / "contract"
-        takeoff_doc = _open_ids(contract / "takeoff.ids")
+        takeoff_doc = _open_shipped(contract / "takeoff.ids")
         outside = _covers(takeoff_doc, f.schema_identifier)
         if outside:
-            reason = (f"the takeoff contract covers {', '.join(outside)}, "
-                      f"not {f.schema_identifier}")
-            if extra:
-                reason += (f"; not run: "
-                           f"{', '.join(label for label, _ in extra)}")
-            sections["takeoff"] = _not_run(reason)
-            sections["coverage"] = _not_run(reason.split(";")[0])
+            uncovered = (f"the takeoff contract covers {', '.join(outside)}, "
+                         f"not {f.schema_identifier}")
+            skipped = ", ".join(label for label, _ in extra)
+            sections["takeoff"] = _not_run(
+                uncovered + (f"; not run: {skipped}" if skipped else ""))
+            sections["coverage"] = _not_run(uncovered)
         else:
             takeoff = _ids_findings(f, takeoff_doc, "takeoff.ids")
             for label, doc in extra:
                 takeoff += _ids_findings(f, doc, label)
             sections["takeoff"] = _section(takeoff)
             sections["coverage"] = _section(_ids_findings(
-                f, _open_ids(contract / "takeoff-coverage.ids"),
+                f, _open_shipped(contract / "takeoff-coverage.ids"),
                 "takeoff-coverage.ids"), advisory=True)
     else:
         skipped = [Path(str(d)).name for d in extra_ids]

@@ -249,17 +249,94 @@ def test_a_check_that_raises_is_a_finding_not_a_traceback(sample_ifc, monkeypatc
     assert r["verdict"] == "issues"
 
 
+def _ifc2x3_project(path):
+    """The smallest IFC2X3 file every other section passes: a project with
+    its owner history, units and a model context."""
+    f = ifcopenshell.file(schema="IFC2X3")
+    org = f.createIfcOrganization(None, "o")
+    owner = f.createIfcOwnerHistory(
+        f.createIfcPersonAndOrganization(f.createIfcPerson(None, None, "x"), org),
+        f.createIfcApplication(org, "1", "bimforge", "bimforge"),
+        None, "ADDED", None, None, None, 0)
+    origin = f.createIfcAxis2Placement3D(f.createIfcCartesianPoint((0.0, 0.0, 0.0)))
+    ctx = f.createIfcGeometricRepresentationContext(None, "Model", 3, 1e-5,
+                                                    origin, None)
+    units = f.createIfcUnitAssignment(
+        [f.createIfcSIUnit(None, "LENGTHUNIT", None, "METRE")])
+    f.createIfcProject(ifcopenshell.guid.new(), owner, "p", None, None, None,
+                       None, [ctx], units)
+    f.write(str(path))
+    return path
+
+
 def test_a_schema_outside_the_takeoff_contract_is_not_run(tmp_path):
     pytest.importorskip("ifctester.ids")
-    path = tmp_path / "old.ifc"
-    ifcopenshell.file(schema="IFC2X3").write(str(path))
-    r = validate(path)
+    r = validate(_ifc2x3_project(tmp_path / "old.ifc"))
     for name in ("takeoff", "coverage"):
         assert r["sections"][name]["status"] == "not run"
         assert "IFC4" in r["sections"][name]["reason"]
         assert "IFC2X3" in r["sections"][name]["reason"]
-    assert r["verdict"] in ("incomplete", "issues")
-    assert r["verdict"] != "clean"
+    for name in ("schema", "rules", "alignment", "structure"):
+        assert r["sections"][name]["status"] == "pass", r["sections"][name]
+    assert r["verdict"] == "incomplete"
+
+
+def test_a_schema_outside_the_contract_names_the_skipped_ids(tmp_path):
+    pytest.importorskip("ifctester.ids")
+    doc = _ids(tmp_path, "mine.ids", min=1, max="unbounded", entity="IFCWALL")
+    r = validate(_ifc2x3_project(tmp_path / "old.ifc"), extra_ids=[doc])
+    assert "mine.ids" in r["sections"]["takeoff"]["reason"]
+    assert "mine.ids" not in r["sections"]["coverage"]["reason"]
+
+
+def _hide(monkeypatch, hidden):
+    """Make `import X` fail for every name `hidden(name)` is true of."""
+    real = builtins.__import__
+
+    def imp(name, *a, **k):
+        if hidden(name):
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+        return real(name, *a, **k)
+
+    monkeypatch.setattr(builtins, "__import__", imp)
+
+
+def test_without_pytest_the_rules_do_not_run_and_schema_still_does(
+        sample_ifc, monkeypatch):
+    # ifcopenshell's rule executor imports _pytest; it is not a bimforge
+    # dependency outside the ids extra, so the rules must read as not run
+    # hidden only around the call: pytest's own reporting imports _pytest
+    with monkeypatch.context() as m:
+        _hide(m, lambda n: n == "_pytest" or n.startswith("_pytest.")
+              or n == "pytest" or n.startswith("pytest."))
+        r = validate(sample_ifc)
+    assert r["sections"]["schema"] == {"status": "pass", "findings": []}
+    assert r["sections"]["rules"]["status"] == "not run"
+    assert "pytest" in r["sections"]["rules"]["reason"]
+    assert "bimforge[ids]" in r["sections"]["rules"]["reason"]
+    assert r["verdict"] == "incomplete"
+
+
+def test_another_failure_of_the_rules_pass_is_a_rules_finding(tmp_path,
+                                                             monkeypatch):
+    from bimforge.author import gate
+    real = gate.schema_statements
+
+    def rules_crash(f, rules=True):
+        if rules:
+            raise RuntimeError("rule executor broke")
+        return real(f, rules=False)
+
+    monkeypatch.setattr(gate, "schema_statements", rules_crash)
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    f.createIfcCartesianPoint()          # an attribute finding to keep
+    r = validate(_write(f, tmp_path))
+    assert r["sections"]["rules"] == {"status": "fail", "findings": [
+        {"check": "rules raised", "message": "RuntimeError: rule executor broke"}]}
+    assert r["sections"]["schema"]["status"] == "fail"
+    assert any("Coordinates" in x["message"]
+               for x in r["sections"]["schema"]["findings"])
 
 
 def test_without_ifctester_the_reason_names_the_skipped_ids(sample_ifc, tmp_path,

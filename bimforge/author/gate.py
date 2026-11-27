@@ -740,7 +740,10 @@ RULE_STATEMENT_TYPES = ("entity_rule", "global_rule", "simpletype_rule")
 def schema_statements(f, rules: bool = True) -> list[tuple[str, str]]:
     """ifcopenshell.validate's findings in one pass, as (kind, line): kind
     "rule" for a WHERE or global rule's finding (only when `rules`), else
-    "schema" (attribute types, cardinalities, inverses)."""
+    "schema" (attribute types, cardinalities, inverses). Only error-level
+    statements: the rule executor logs a rule it could not evaluate (a
+    RecursionError) at info level, which says nothing is wrong with the
+    file, so it is dropped rather than read as a failure."""
     import ifcopenshell.validate
     logger = ifcopenshell.validate.json_logger()
     ifcopenshell.validate.validate(f, logger, express_rules=rules)
@@ -748,6 +751,8 @@ def schema_statements(f, rules: bool = True) -> list[tuple[str, str]]:
     for stmt in logger.statements:
         if not isinstance(stmt, dict):
             out.append(("schema", str(stmt)))
+            continue
+        if stmt.get("level", "error") != "error":
             continue
         msg = (str(stmt.get("message", "")).strip().splitlines() or [""])[0]
         where = stmt.get("instance") or ""

@@ -96,6 +96,20 @@ def test_schema_statements_split_attributes_from_rules():
     assert gate.schema_issues(f) == [line for _, line in kinds]
 
 
+def test_schema_statements_keep_errors_only(monkeypatch):
+    # the rule executor logs a RecursionError at info level: not a finding
+    import ifcopenshell.validate
+
+    def fake(f, logger, express_rules=False):
+        logger.info("maximum recursion depth exceeded")
+        logger.error("Attribute not optional")
+
+    monkeypatch.setattr(ifcopenshell.validate, "validate", fake)
+    assert gate.schema_statements(_project()) == [
+        ("schema", "Attribute not optional")]
+    assert gate.schema_issues(_project()) == ["Attribute not optional"]
+
+
 @pytest.mark.parametrize("check, fn", [
     ("_ifc_spatial_chain_check", "spatial_issues"),
     ("_ifc_formula_check", "formula_issues"),
