@@ -96,8 +96,9 @@ def test_schema_statements_split_attributes_from_rules():
     assert gate.schema_issues(f) == [line for _, line in kinds]
 
 
-def test_schema_statements_keep_errors_only(monkeypatch):
-    # the rule executor logs a RecursionError at info level: not a finding
+def test_a_rule_that_could_not_be_evaluated_is_its_own_kind(monkeypatch):
+    # the rule executor logs a RecursionError at info level: the rule did
+    # not run, which is neither a finding nor a pass
     import ifcopenshell.validate
 
     def fake(f, logger, express_rules=False):
@@ -106,8 +107,37 @@ def test_schema_statements_keep_errors_only(monkeypatch):
 
     monkeypatch.setattr(ifcopenshell.validate, "validate", fake)
     assert gate.schema_statements(_project()) == [
+        ("unevaluated", "maximum recursion depth exceeded"),
         ("schema", "Attribute not optional")]
     assert gate.schema_issues(_project()) == ["Attribute not optional"]
+
+
+def _facility_with_a_rule_break():
+    import ifcopenshell.api.aggregate
+    import ifcopenshell.api.spatial
+    f = _project()
+    site = ifcopenshell.api.root.create_entity(f, ifc_class="IfcSite", name="s")
+    bridge = ifcopenshell.api.root.create_entity(f, ifc_class="IfcBridge", name="b")
+    ifcopenshell.api.aggregate.assign_object(
+        f, products=[site], relating_object=f.by_type("IfcProject")[0])
+    ifcopenshell.api.aggregate.assign_object(f, products=[bridge],
+                                             relating_object=site)
+    w = ifcopenshell.api.root.create_entity(f, ifc_class="IfcWall", name="W1")
+    w.PredefinedType = "USERDEFINED"
+    ifcopenshell.api.spatial.assign_container(f, products=[w],
+                                              relating_structure=bridge)
+    return f
+
+
+def test_spatial_issues_can_leave_the_schema_to_its_caller(tmp_path):
+    f = _facility_with_a_rule_break()
+    with_schema = gate.spatial_issues(f)
+    assert any("ifcopenshell.validate: IfcWall.CorrectPredefinedType" in i
+               for i in with_schema)
+    assert gate.spatial_issues(f, schema=False) == []
+    path = tmp_path / "fac.ifc"
+    f.write(str(path))
+    assert gate._ifc_spatial_chain_check(None, str(path)) == with_schema
 
 
 @pytest.mark.parametrize("check, fn", [

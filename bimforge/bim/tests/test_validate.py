@@ -237,7 +237,7 @@ def test_a_formula_that_does_not_hold_fails_structure(tmp_path):
 def test_a_check_that_raises_is_a_finding_not_a_traceback(sample_ifc, monkeypatch):
     from bimforge.author import gate
 
-    def boom(f):
+    def boom(f, *args):
         raise RuntimeError("hostile file")
 
     monkeypatch.setattr(gate, "spatial_issues", boom)
@@ -353,3 +353,71 @@ def test_without_ifctester_the_reason_names_the_skipped_ids(sample_ifc, tmp_path
     r = validate(sample_ifc, extra_ids=[doc])
     assert "mine.ids" in r["sections"]["takeoff"]["reason"]
     assert r["verdict"] == "incomplete"
+
+
+def _bridge_with_a_rule_break(tmp_path):
+    """IFC4X3 with a facility (as every family writes) and a wall breaking
+    IfcWall.CorrectPredefinedType: USERDEFINED with no ObjectType."""
+    import ifcopenshell.api.aggregate
+    import ifcopenshell.api.spatial
+    f = ifcopenshell.file(schema="IFC4X3_ADD2")
+    p = ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    site = ifcopenshell.api.root.create_entity(f, ifc_class="IfcSite", name="s")
+    bridge = ifcopenshell.api.root.create_entity(f, ifc_class="IfcBridge", name="b")
+    ifcopenshell.api.aggregate.assign_object(f, products=[site], relating_object=p)
+    ifcopenshell.api.aggregate.assign_object(f, products=[bridge],
+                                             relating_object=site)
+    w = ifcopenshell.api.root.create_entity(f, ifc_class="IfcWall", name="W1")
+    w.PredefinedType = "USERDEFINED"
+    ifcopenshell.api.spatial.assign_container(f, products=[w],
+                                              relating_structure=bridge)
+    return _write(f, tmp_path, "bridge.ifc")
+
+
+def test_a_rule_break_in_a_facility_file_is_counted_once(tmp_path):
+    r = validate(_bridge_with_a_rule_break(tmp_path))
+    rules = r["sections"]["rules"]["findings"]
+    assert any("CorrectPredefinedType" in x["message"] for x in rules)
+    assert r["sections"]["structure"] == {"status": "pass", "findings": []}
+    assert r["failing"] == len(rules)
+
+
+def test_without_pytest_a_facility_file_has_a_passing_structure(
+        tmp_path, monkeypatch):
+    path = _bridge_with_a_rule_break(tmp_path)
+    with monkeypatch.context() as m:
+        _hide(m, lambda n: n.split(".")[0] in ("_pytest", "pytest"))
+        r = validate(path)
+    assert r["sections"]["structure"] == {"status": "pass", "findings": []}
+    assert r["sections"]["rules"]["status"] == "not run"
+    assert r["verdict"] == "incomplete"
+
+
+def _unevaluated(monkeypatch):
+    """A validator that could not evaluate one rule (info level) and
+    found nothing wrong."""
+    import ifcopenshell.validate
+
+    def fake(f, logger, express_rules=False):
+        if express_rules:
+            logger.set_state("type", "entity_rule")
+            logger.info("maximum recursion depth exceeded")
+
+    monkeypatch.setattr(ifcopenshell.validate, "validate", fake)
+
+
+def test_a_rule_that_could_not_be_evaluated_is_not_a_pass(sample_ifc,
+                                                         monkeypatch):
+    pytest.importorskip("ifctester.ids")
+    _unevaluated(monkeypatch)
+    r = validate(sample_ifc)
+    assert r["sections"]["rules"] == {"status": "pass", "findings": [],
+                                      "unevaluated": 1}
+    assert r["verdict"] == "incomplete"
+
+
+def test_every_rule_evaluated_says_so(sample_ifc):
+    pytest.importorskip("ifctester.ids")
+    r = validate(sample_ifc)
+    assert r["sections"]["rules"]["unevaluated"] == 0
+    assert r["verdict"] == "clean"

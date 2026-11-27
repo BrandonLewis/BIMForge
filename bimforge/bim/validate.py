@@ -173,8 +173,11 @@ def _schema_sections(f, rules: bool) -> tuple[dict, dict]:
     except Exception as exc:     # noqa: BLE001
         return attributes_only(), (_not_run(NO_PYTEST) if _missing_pytest(exc)
                                    else _section([_raised("rules", exc)]))
-    return schema_of(stmts), _section([_finding("rule", line)
-                                       for kind, line in stmts if kind == "rule"])
+    rule_section = _section([_finding("rule", line)
+                             for kind, line in stmts if kind == "rule"])
+    # a rule the executor could not evaluate: not a finding, not a pass
+    rule_section["unevaluated"] = sum(kind == "unevaluated" for kind, _ in stmts)
+    return schema_of(stmts), rule_section
 
 
 def _validate(path, extra_ids=(), rules: bool = True) -> tuple[dict, Counter]:
@@ -208,7 +211,8 @@ def _validate(path, extra_ids=(), rules: bool = True) -> tuple[dict, Counter]:
         "rules": rule_section,
         "alignment": _section(_lines("alignment", gate.alignment_issues, f)),
         "structure": _section(
-            _lines("spatial tree", gate.spatial_issues, f)
+            # the schema and its rules are this result's own sections
+            _lines("spatial tree", gate.spatial_issues, f, False)
             + _lines("formula", gate.formula_issues, f)
             + _lines("representation", gate.representation_issues, f)
             + _lines("earthworks cut", gate.unhosted_cut_issues, f)),
@@ -242,7 +246,8 @@ def _validate(path, extra_ids=(), rules: bool = True) -> tuple[dict, Counter]:
                   if sections[n]["status"] == "fail")
     if failing:
         verdict = "issues"
-    elif any(sections[n]["status"] == "not run" for n in FAILING):
+    elif (any(sections[n]["status"] == "not run" for n in FAILING)
+          or sections["rules"].get("unevaluated")):
         verdict = "incomplete"
     else:
         verdict = "clean"

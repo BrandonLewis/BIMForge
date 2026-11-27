@@ -669,7 +669,7 @@ def _ifc_formula_check(model, ifc_path: str,
     return formula_issues(ifcopenshell.open(str(ifc_path)), tol)
 
 
-def spatial_issues(f) -> list[str]:
+def spatial_issues(f, schema: bool = True) -> list[str]:
     """Every storey must be reachable from IfcProject through IfcRelAggregates.
 
     The check none of the others could be: `ifcopenshell.validate()` returns
@@ -685,6 +685,8 @@ def spatial_issues(f) -> list[str]:
     Also (#318): every product's container chain reaches the IfcSite, and an
     IFC4X3 file with a facility tree has every facility under the site, every
     part under a facility, no empty part, and a clean ifcopenshell.validate.
+    `schema=False` leaves that last to a caller that reports the schema and
+    its rules itself (bimforge.bim.validate), so a break is counted once.
     """
     projects = f.by_type("IfcProject")
     if not projects:
@@ -721,7 +723,7 @@ def spatial_issues(f) -> list[str]:
                 f"'{rel.RelatingStructure.Name}', which is not reachable "
                 "from IfcProject")
     if f.schema.upper().startswith("IFC4X3"):
-        fail += _ifc4x3_facility_check(f, reached)
+        fail += _ifc4x3_facility_check(f, reached, schema=schema)
     fail += _products_reach_site(f)
     return fail
 
@@ -740,10 +742,9 @@ RULE_STATEMENT_TYPES = ("entity_rule", "global_rule", "simpletype_rule")
 def schema_statements(f, rules: bool = True) -> list[tuple[str, str]]:
     """ifcopenshell.validate's findings in one pass, as (kind, line): kind
     "rule" for a WHERE or global rule's finding (only when `rules`), else
-    "schema" (attribute types, cardinalities, inverses). Only error-level
-    statements: the rule executor logs a rule it could not evaluate (a
-    RecursionError) at info level, which says nothing is wrong with the
-    file, so it is dropped rather than read as a failure."""
+    "schema" (attribute types, cardinalities, inverses). A statement below
+    error level is the rule executor saying it could not evaluate a rule (a
+    RecursionError): kind "unevaluated", neither a finding nor a pass."""
     import ifcopenshell.validate
     logger = ifcopenshell.validate.json_logger()
     ifcopenshell.validate.validate(f, logger, express_rules=rules)
@@ -752,12 +753,15 @@ def schema_statements(f, rules: bool = True) -> list[tuple[str, str]]:
         if not isinstance(stmt, dict):
             out.append(("schema", str(stmt)))
             continue
-        if stmt.get("level", "error") != "error":
-            continue
         msg = (str(stmt.get("message", "")).strip().splitlines() or [""])[0]
         where = stmt.get("instance") or ""
         what = stmt.get("attribute")      # the rule, or the attribute
-        kind = "rule" if stmt.get("type") in RULE_STATEMENT_TYPES else "schema"
+        if stmt.get("level", "error") != "error":
+            kind = "unevaluated"
+        elif stmt.get("type") in RULE_STATEMENT_TYPES:
+            kind = "rule"
+        else:
+            kind = "schema"
         out.append((kind, ": ".join(str(p) for p in (what, where, msg) if p)))
     return out
 
@@ -765,8 +769,10 @@ def schema_statements(f, rules: bool = True) -> list[tuple[str, str]]:
 def schema_issues(f, rules: bool = True) -> list[str]:
     """ifcopenshell.validate's findings, one line each. `rules` adds the
     schema's WHERE and global rules (#94): attribute checks alone pass a
-    file that breaks, say, IfcWall.CorrectPredefinedType."""
-    return [line for _, line in schema_statements(f, rules)]
+    file that breaks, say, IfcWall.CorrectPredefinedType. A rule that could
+    not be evaluated is not a finding."""
+    return [line for kind, line in schema_statements(f, rules)
+            if kind != "unevaluated"]
 
 
 #: (entity, attribute) holding a distance along a curve, which
@@ -843,12 +849,12 @@ def unhosted_cut_issues(f) -> list[str]:
             if not getattr(cut, "VoidsElements", None)]
 
 
-def _ifc4x3_facility_check(f, reached) -> list[str]:
+def _ifc4x3_facility_check(f, reached, schema: bool = True) -> list[str]:
     """The IFC4X3 facility tree (#318): every facility hangs off the IfcSite,
     every facility part off a facility, and no part is empty — then the file
     must pass ifcopenshell.validate (the 4X3 path writes entities and
     enumerations the IFC4 path never touches, e.g. the REQUIRED
-    IfcFacilityPart.UsageType)."""
+    IfcFacilityPart.UsageType), unless `schema` is False."""
     fail = []
     facilities = [x for x in f.by_type("IfcFacility")
                   if not x.is_a("IfcBuilding")]
@@ -874,7 +880,7 @@ def _ifc4x3_facility_check(f, reached) -> list[str]:
             fail.append(
                 f"spatial tree: {part.is_a()} '{part.Name}' is empty — a part "
                 "that contains nothing is a navigation dead end")
-    if facilities or parts:
+    if schema and (facilities or parts):
         issues = schema_issues(f)
         fail += [f"ifcopenshell.validate: {msg}" for msg in issues[:20]]
         if len(issues) > 20:
