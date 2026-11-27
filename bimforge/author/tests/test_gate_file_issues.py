@@ -26,9 +26,9 @@ def test_spatial_issues_names_a_storey_with_no_building():
     assert any("storey 'L1'" in i and "IfcBuilding" in i for i in issues)
 
 
-def test_formula_issues_names_a_formula_that_does_not_hold():
-    f = _project()
-    wall = ifcopenshell.api.root.create_entity(f, ifc_class="IfcWall", name="W")
+def bad_formula(f, name="W"):
+    """A wall whose GrossVolume is not its Formula over its own set."""
+    wall = ifcopenshell.api.root.create_entity(f, ifc_class="IfcWall", name=name)
     qs = [f.createIfcQuantityLength("Length", None, None, 2.0),
           f.createIfcQuantityLength("Width", None, None, 3.0),
           f.createIfcQuantityLength("Height", None, None, 4.0),
@@ -38,6 +38,24 @@ def test_formula_issues_names_a_formula_that_does_not_hold():
                                       "Qto_BaseQuantities", None, None, qs)
     f.createIfcRelDefinesByProperties(ifcopenshell.guid.new(), None, None,
                                       None, [wall], qset)
+    return wall
+
+
+def bad_representation(f, name="S"):
+    """A slab whose Body says SweptSolid over an IfcFacetedBrep (#329)."""
+    slab = ifcopenshell.api.root.create_entity(f, ifc_class="IfcSlab", name=name)
+    origin = f.createIfcAxis2Placement3D(f.createIfcCartesianPoint((0.0, 0.0, 0.0)))
+    ctx = f.createIfcGeometricRepresentationContext(None, "Model", 3, 1e-5,
+                                                    origin, None)
+    brep = f.createIfcFacetedBrep(f.createIfcClosedShell([]))
+    rep = f.createIfcShapeRepresentation(ctx, "Body", "SweptSolid", [brep])
+    slab.Representation = f.createIfcProductDefinitionShape(None, None, [rep])
+    return slab
+
+
+def test_formula_issues_names_a_formula_that_does_not_hold():
+    f = _project()
+    bad_formula(f)
     issues = gate.formula_issues(f)
     assert len(issues) == 1 and "GrossVolume" in issues[0]
 
@@ -58,6 +76,26 @@ def test_representation_issues_on_a_clean_file_is_empty():
     assert gate.representation_issues(_project()) == []
 
 
+def test_representation_issues_names_a_type_that_does_not_admit_its_items():
+    f = _project()
+    bad_representation(f)
+    (issue,) = gate.representation_issues(f)
+    assert issue.startswith("S:") and "SweptSolid" in issue
+    assert "IfcFacetedBrep" in issue
+
+
+def test_schema_statements_split_attributes_from_rules():
+    f = _project()
+    f.createIfcCartesianPoint()          # Coordinates is required
+    w = ifcopenshell.api.root.create_entity(f, ifc_class="IfcWall", name="W1")
+    w.PredefinedType = "USERDEFINED"     # with no ObjectType: a WHERE rule
+    kinds = gate.schema_statements(f)
+    assert {k for k, line in kinds if "Coordinates" in line} == {"schema"}
+    assert {k for k, line in kinds if "CorrectPredefinedType" in line} == {"rule"}
+    assert [k for k, _ in gate.schema_statements(f, rules=False)] == ["schema"]
+    assert gate.schema_issues(f) == [line for _, line in kinds]
+
+
 @pytest.mark.parametrize("check, fn", [
     ("_ifc_spatial_chain_check", "spatial_issues"),
     ("_ifc_formula_check", "formula_issues"),
@@ -66,8 +104,10 @@ def test_representation_issues_on_a_clean_file_is_empty():
 def test_the_gate_wrappers_return_the_file_functions_findings(
         tmp_path, check, fn):
     f = _project()
-    ifcopenshell.api.root.create_entity(f, ifc_class="IfcWall", name="W")
+    bad_formula(f)
+    bad_representation(f)
     path = tmp_path / "m.ifc"
     f.write(str(path))
-    assert getattr(gate, check)(None, str(path)) == getattr(gate, fn)(
-        ifcopenshell.open(str(path)))
+    found = getattr(gate, fn)(ifcopenshell.open(str(path)))
+    assert found                         # something to compare, not [] == []
+    assert getattr(gate, check)(None, str(path)) == found

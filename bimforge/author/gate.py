@@ -732,23 +732,36 @@ def _ifc_spatial_chain_check(model, ifc_path: str) -> list[str]:
     return spatial_issues(ifcopenshell.open(str(ifc_path)))
 
 
-def schema_issues(f, rules: bool = True) -> list[str]:
-    """ifcopenshell.validate's findings, one line each. `rules` adds the
-    schema's WHERE and global rules (#94): attribute checks alone pass a
-    file that breaks, say, IfcWall.CorrectPredefinedType."""
+#: the json_logger statement types the schema's rules log under (ifcopenshell
+#: express.rule_executor); the attribute pass logs as "schema"
+RULE_STATEMENT_TYPES = ("entity_rule", "global_rule", "simpletype_rule")
+
+
+def schema_statements(f, rules: bool = True) -> list[tuple[str, str]]:
+    """ifcopenshell.validate's findings in one pass, as (kind, line): kind
+    "rule" for a WHERE or global rule's finding (only when `rules`), else
+    "schema" (attribute types, cardinalities, inverses)."""
     import ifcopenshell.validate
     logger = ifcopenshell.validate.json_logger()
     ifcopenshell.validate.validate(f, logger, express_rules=rules)
     out = []
     for stmt in logger.statements:
         if not isinstance(stmt, dict):
-            out.append(str(stmt))
+            out.append(("schema", str(stmt)))
             continue
         msg = (str(stmt.get("message", "")).strip().splitlines() or [""])[0]
         where = stmt.get("instance") or ""
         what = stmt.get("attribute")      # the rule, or the attribute
-        out.append(": ".join(str(p) for p in (what, where, msg) if p))
+        kind = "rule" if stmt.get("type") in RULE_STATEMENT_TYPES else "schema"
+        out.append((kind, ": ".join(str(p) for p in (what, where, msg) if p)))
     return out
+
+
+def schema_issues(f, rules: bool = True) -> list[str]:
+    """ifcopenshell.validate's findings, one line each. `rules` adds the
+    schema's WHERE and global rules (#94): attribute checks alone pass a
+    file that breaks, say, IfcWall.CorrectPredefinedType."""
+    return [line for _, line in schema_statements(f, rules)]
 
 
 #: (entity, attribute) holding a distance along a curve, which
