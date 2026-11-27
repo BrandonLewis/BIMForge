@@ -113,6 +113,37 @@ The IFC is written for FreeCAD, Revit and Bonsai as much as for the takeoff:
 
 ## Checking a model before takeoff
 
+```bash
+pip install 'bimforge[ids]'
+est-bim validate model.ifc [--json result.json] [--ids extra.ids ...] [--no-rules]
+```
+
+runs every check that ships with bimforge on any IFC and gives one verdict:
+the schema and its where and global rules, buildingSMART's alignment checks,
+the structure checks the build gate makes on a written file (the spatial
+tree and facility parts, quantity formulas, representation types, an
+unhosted cut), and the takeoff contract (`takeoff.ids` and each `--ids`
+document; `takeoff-coverage.ids` is advisory). It prints one line per
+section, the element counts per class and the verdict:
+
+- `clean` (exit 0): every failing section ran and found nothing;
+- `issues` (exit 1): a failing section has findings (a check that crashes
+  on the file is one);
+- `incomplete` (exit 1): nothing failed, but a check did not run or a rule
+  could not be evaluated: `--no-rules`, no `bimforge[ids]` (the extra
+  installs ifctester for the contract and pytest, which ifcopenshell's rule
+  executor imports), or a schema the contract does not cover (IFC2X3);
+- `unreadable` (exit 2): the file cannot be opened as IFC. A missing or
+  malformed `--ids` document is exit 2 too.
+
+`--json PATH` writes the `bimforge-validate/1` result (`--json -` prints
+it): each section's status and findings, the file's sha256, and the
+versions used; the library function is `bimforge.bim.validate.validate`.
+buildingSMART's normative rules (ifc-gherkin-rules) are not run on your
+machine: CI builds every family bimforge ships, with its options, and holds
+it to them, and the result names that rule set
+(`bimforge/bim/contract/bsi_rules.yaml`).
+
 `bimforge/bim/contract/takeoff.ids` is the takeoff's input contract as a
 buildingSMART IDS document, so a Revit or Tekla export can be checked in any
 IDS tool before it reaches `est-bim takeoff`:
