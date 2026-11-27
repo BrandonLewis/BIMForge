@@ -12,8 +12,9 @@ import numpy as np
 from bimforge.terrain import fetch as F
 
 #: what building a spec's terrain: block from the offline DEM imports
-#: (bimforge[terrain]): Pillow reads the DEM, scipy and trimesh the rest
-TERRAIN_DEPS = ("PIL", "scipy", "trimesh")
+#: (bimforge[terrain]): Pillow reads the DEM, scipy and trimesh the rest,
+#: manifold3d the boolean the terrain carve runs
+TERRAIN_DEPS = ("PIL", "scipy", "trimesh", "manifold3d")
 
 
 def missing_terrain_deps() -> list[str]:
