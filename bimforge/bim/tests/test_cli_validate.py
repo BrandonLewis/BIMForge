@@ -1,7 +1,8 @@
-"""est-bim validate: open + schema-validate an IFC, report per-class counts.
+"""est-bim validate: accept a file (C.11), one verdict, per-class counts.
 
-The thin CLI form of the check the dxf-to-bim SKILL used to embed as an
-inline python block (R12 item 3).
+The CLI form of bimforge.bim.validate (the check the dxf-to-bim SKILL used to
+embed as an inline python block, R12 item 3): exit 0 clean, 1 issues or
+incomplete, 2 unreadable.
 """
 from __future__ import annotations
 
@@ -30,6 +31,7 @@ def sample_ifc(tmp_path_factory):
 
 
 def test_valid_ifc_exits_zero_with_counts(sample_ifc, capsys):
+    pytest.importorskip("ifctester.ids")
     assert cli.main(["validate", str(sample_ifc)]) == 0
     out = capsys.readouterr().out
     # per-class counts (the sample model's known contents)
@@ -37,22 +39,22 @@ def test_valid_ifc_exits_zero_with_counts(sample_ifc, capsys):
     assert re.search(r"IfcColumn +4", out)
     assert "IfcSlab" in out
     assert "IfcWall" in out
-    # total element count and the schema verdict
+    # total element count and the verdict
     assert re.search(r"TOTAL +8", out)
-    assert "schema issues: 0" in out
+    assert "verdict: clean" in out
 
 
-def test_nonexistent_file_exits_one(tmp_path, capsys):
+def test_nonexistent_file_exits_two(tmp_path, capsys):
     missing = tmp_path / "nope.ifc"
-    assert cli.main(["validate", str(missing)]) == 1
+    assert cli.main(["validate", str(missing)]) == 2
     err = capsys.readouterr().err
     assert "error" in err and "nope.ifc" in err
 
 
-def test_unparseable_file_exits_one(tmp_path, capsys):
+def test_unparseable_file_exits_two(tmp_path, capsys):
     bad = tmp_path / "garbage.ifc"
     bad.write_text("this is not an IFC file", encoding="utf-8")
-    assert cli.main(["validate", str(bad)]) == 1
+    assert cli.main(["validate", str(bad)]) == 2
     err = capsys.readouterr().err
     assert "error" in err
 
@@ -69,9 +71,9 @@ def test_unhosted_earthworks_cut_fails_with_a_hint(tmp_path, capsys):
     path = tmp_path / "cut.ifc"
     f.write(str(path))
     assert cli.main(["validate", str(path)]) == 1
-    err = capsys.readouterr().err
-    assert "Cut 1" in err
-    assert "IfcRelVoidsElement" in err and "IfcEarthworksElement" in err
+    out = capsys.readouterr().out       # under the structure section
+    assert "Cut 1" in out
+    assert "IfcRelVoidsElement" in out and "IfcEarthworksElement" in out
 
 
 def test_ifc2x3_file_validates_without_crashing(tmp_path, capsys):
@@ -86,7 +88,7 @@ def test_ifc2x3_file_validates_without_crashing(tmp_path, capsys):
     f.write(str(path))
     rc = cli.main(["validate", str(path)])
     out = capsys.readouterr().out
-    assert "TOTAL" in out and "schema issues:" in out
+    assert "TOTAL" in out and "verdict:" in out
     assert rc in (0, 1)
 
 
@@ -107,9 +109,41 @@ def _rule_break(tmp_path):
 def test_a_where_rule_break_fails(tmp_path, capsys):
     # #94: the schema's rules are checked, not only its attribute types
     assert cli.main(["validate", str(_rule_break(tmp_path))]) == 1
-    assert "CorrectPredefinedType" in capsys.readouterr().err
+    assert "CorrectPredefinedType" in capsys.readouterr().out
 
 
 def test_no_rules_checks_attributes_only(tmp_path, capsys):
+    # the rules did not run: the verdict is incomplete, never clean
     assert cli.main(["validate", "--no-rules",
-                     str(_rule_break(tmp_path))]) == 0
+                     str(_rule_break(tmp_path))]) == 1
+    assert "rules: not run" in capsys.readouterr().out
+
+
+def test_json_writes_the_result(sample_ifc, tmp_path):
+    import json
+    out = tmp_path / "r.json"
+    rc = cli.main(["validate", str(sample_ifc), "--json", str(out)])
+    r = json.loads(out.read_text("utf-8"))
+    assert r["contract"] == "bimforge-validate/1"
+    assert rc == (0 if r["verdict"] == "clean" else 1)
+
+
+def test_json_dash_prints_only_the_result(sample_ifc, capsys):
+    import json
+    cli.main(["validate", str(sample_ifc), "--json", "-"])
+    assert json.loads(capsys.readouterr().out)["file"] == sample_ifc.name
+
+
+def test_a_missing_ids_document_exits_two(sample_ifc, tmp_path, capsys):
+    assert cli.main(["validate", str(sample_ifc), "--ids",
+                     str(tmp_path / "nope.ids")]) == 2
+    assert "nope.ids" in capsys.readouterr().err
+
+
+def test_an_unreadable_file_with_json_says_unreadable(tmp_path):
+    import json
+    bad = tmp_path / "garbage.ifc"
+    bad.write_text("not an IFC", "utf-8")
+    out = tmp_path / "r.json"
+    assert cli.main(["validate", str(bad), "--json", str(out)]) == 2
+    assert json.loads(out.read_text("utf-8"))["verdict"] == "unreadable"
