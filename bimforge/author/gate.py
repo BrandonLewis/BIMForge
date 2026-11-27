@@ -502,7 +502,7 @@ def _ifc_exact_revolution_check(model, ifc_path: str) -> list[str]:
     return fail
 
 
-def _ifc_representation_type_check(model, ifc_path: str) -> list[str]:
+def representation_issues(f) -> list[str]:
     """Every shape representation's items are ones its RepresentationType admits.
 
     The check ifcopenshell.validate cannot make (#329): RepresentationType is
@@ -510,9 +510,7 @@ def _ifc_representation_type_check(model, ifc_path: str) -> list[str]:
     while strict importers and MVD/IDS checkers reject it. A Body
     representation must also carry a type the table knows at all.
     """
-    import ifcopenshell
     from bimforge.author.emit_ifc import REPRESENTATION_ITEMS, admits
-    f = ifcopenshell.open(str(ifc_path))
     fail = []
     for rep in f.by_type("IfcShapeRepresentation"):
         rt = rep.RepresentationType
@@ -528,6 +526,12 @@ def _ifc_representation_type_check(model, ifc_path: str) -> list[str]:
             fail.append(f"{', '.join(owners) or f'#{rep.id()}'}: "
                         f"RepresentationType {rt!r} does not admit {bad}")
     return fail
+
+
+def _ifc_representation_type_check(model, ifc_path: str) -> list[str]:
+    """representation_issues on the written IFC."""
+    import ifcopenshell
+    return representation_issues(ifcopenshell.open(str(ifc_path)))
 
 
 #: How far a quantity may stray from its Formula recomputed over the
@@ -624,15 +628,12 @@ def _dimension_values(product) -> dict:
     return out
 
 
-def _ifc_formula_check(model, ifc_path: str,
-                       tol: float = FORMULA_TOLERANCE) -> list[str]:
+def formula_issues(f, tol: float = FORMULA_TOLERANCE) -> list[str]:
     """Every quantity written with a Formula (roadmap M.3) is that formula
     over the quantities of its own set and its element's BIMForge_Dimensions,
     as the file states them: a reader that recomputes gets the number in the
     file. A set shared by several products is checked for each, over that
     product's dimensions, so one that does not hold is named alone."""
-    import ifcopenshell
-    f = ifcopenshell.open(str(ifc_path))
     fail = []
     for qset in f.by_type("IfcElementQuantity"):
         values = {q.Name: quantity_value(q) for q in qset.Quantities
@@ -661,7 +662,14 @@ def _ifc_formula_check(model, ifc_path: str,
     return fail
 
 
-def _ifc_spatial_chain_check(model, ifc_path: str) -> list[str]:
+def _ifc_formula_check(model, ifc_path: str,
+                       tol: float = FORMULA_TOLERANCE) -> list[str]:
+    """formula_issues on the written IFC."""
+    import ifcopenshell
+    return formula_issues(ifcopenshell.open(str(ifc_path)), tol)
+
+
+def spatial_issues(f) -> list[str]:
     """Every storey must be reachable from IfcProject through IfcRelAggregates.
 
     The check none of the others could be: `ifcopenshell.validate()` returns
@@ -678,11 +686,9 @@ def _ifc_spatial_chain_check(model, ifc_path: str) -> list[str]:
     IFC4X3 file with a facility tree has every facility under the site, every
     part under a facility, no empty part, and a clean ifcopenshell.validate.
     """
-    import ifcopenshell
-    f = ifcopenshell.open(str(ifc_path))
     projects = f.by_type("IfcProject")
     if not projects:
-        return [f"{ifc_path}: no IfcProject — the file has no spatial root"]
+        return ["no IfcProject — the file has no spatial root"]
 
     reached, frontier = set(), [projects[0]]
     while frontier:
@@ -718,6 +724,12 @@ def _ifc_spatial_chain_check(model, ifc_path: str) -> list[str]:
         fail += _ifc4x3_facility_check(f, reached)
     fail += _products_reach_site(f)
     return fail
+
+
+def _ifc_spatial_chain_check(model, ifc_path: str) -> list[str]:
+    """spatial_issues on the written IFC."""
+    import ifcopenshell
+    return spatial_issues(ifcopenshell.open(str(ifc_path)))
 
 
 def schema_issues(f, rules: bool = True) -> list[str]:
@@ -792,6 +804,25 @@ def alignment_issues(f) -> list[str]:
                 out.append(f"{entity}.{attr}: #{inst.id()} is "
                            f"{value.is_a()}, not IfcLengthMeasure")
     return out
+
+
+def unhosted_cut_issues(f) -> list[str]:
+    """An IfcEarthworksCut that voids no host (#364): a feature subtraction
+    must be the RelatedOpeningElement of an IfcRelVoidsElement. The
+    validator's "With inverse: VoidsElements ... Not valid" names no element;
+    this says which cut is unhosted and what pay-item excavation is. IFC2X3
+    and IFC4 have no such entity, and by_type raises on a name the schema
+    does not declare, so the schema's own declarations are asked first."""
+    from bimforge.author.emit_ifc import _schema_has
+    if not _schema_has(f.schema_identifier, "IfcEarthworksCut"):
+        return []
+    return [f"IfcEarthworksCut {cut.Name!r} ({cut.GlobalId}) voids no host: "
+            f"a feature subtraction must be the RelatedOpeningElement of an "
+            f"IfcRelVoidsElement. Pay-item excavation is IfcEarthworksElement "
+            f"with ObjectType EXCAVATION — emit_ifc writes an unhosted cut "
+            f"that way."
+            for cut in f.by_type("IfcEarthworksCut")
+            if not getattr(cut, "VoidsElements", None)]
 
 
 def _ifc4x3_facility_check(f, reached) -> list[str]:

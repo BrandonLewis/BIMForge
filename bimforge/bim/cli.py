@@ -179,7 +179,7 @@ def _run_validate(args) -> int:
 
     import ifcopenshell
 
-    from bimforge.author.gate import schema_issues
+    from bimforge.author.gate import schema_issues, unhosted_cut_issues
 
     if not os.path.isfile(args.ifc):
         print(f"error: no such file: {args.ifc}", file=sys.stderr)
@@ -191,20 +191,7 @@ def _run_validate(args) -> int:
         return 1
 
     issues = schema_issues(model, rules=not args.no_rules)
-    # #364: the validator's "With inverse: VoidsElements ... Not valid" names
-    # no element; say which cut is unhosted and what pay-item excavation is
-    # Guard on the schema's own declarations: IFC2X3 and IFC4 lack the
-    # entity, and by_type raises on a name the schema does not define
-    from bimforge.author.emit_ifc import _schema_has
-    has_cut = _schema_has(model.schema_identifier, "IfcEarthworksCut")
-    for cut in model.by_type("IfcEarthworksCut") if has_cut else []:
-        if not getattr(cut, "VoidsElements", None):
-            issues.append(
-                f"IfcEarthworksCut {cut.Name!r} ({cut.GlobalId}) voids no host: "
-                f"a feature subtraction must be the RelatedOpeningElement of "
-                f"an IfcRelVoidsElement. Pay-item excavation is "
-                f"IfcEarthworksElement with ObjectType EXCAVATION — emit_ifc "
-                f"writes an unhosted cut that way.")
+    issues += unhosted_cut_issues(model)   # #364: names the unhosted cut
 
     counts = Counter(e.is_a() for e in model.by_type("IfcElement"))
     width = max(len("CLASS"), len("TOTAL"), *(len(c) for c in counts)) \
