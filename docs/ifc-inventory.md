@@ -37,6 +37,8 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcCartesianPointList3D | build | both |
 | IfcCartesianTransformationOperator3D | build | both |
 | IfcCircle | build | both |
+| IfcCircleHollowProfileDef | build | both |
+| IfcCircleProfileDef | build | both |
 | IfcClassification | build, dxf2bim | both |
 | IfcClassificationReference | build, dxf2bim | both |
 | IfcClosedShell | build | both |
@@ -54,8 +56,10 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcCurveSegment | build | IFC4X3 |
 | IfcDimensionalExponents | build | both |
 | IfcDirection | build, dxf2bim | both |
+| IfcDiscreteAccessory | build | both |
 | IfcEarthworksCut | build | IFC4X3 |
 | IfcEarthworksFill | build | IFC4X3 |
+| IfcElementAssembly | build | both |
 | IfcElementQuantity | build, dxf2bim | both |
 | IfcExtrudedAreaSolid | build, dxf2bim | both |
 | IfcFace | build | both |
@@ -63,6 +67,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcFaceOuterBound | build | both |
 | IfcFacetedBrep | build | both |
 | IfcFacility | build | IFC4X3 |
+| IfcFacilityPartCommon | build | IFC4X3 |
 | IfcFooting | build | both |
 | IfcFootingType | build | both |
 | IfcGeographicElement | build | both |
@@ -86,10 +91,12 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcMember | build | both |
 | IfcMemberType | build | both |
 | IfcMonetaryUnit | estimate-model, schedule + cost5d | both |
+| IfcOpeningElement | build | both |
 | IfcOrganization | schedule --returned | both |
 | IfcOwnerHistory | schedule --returned | both |
 | IfcPerson | schedule --returned | both |
 | IfcPersonAndOrganization | schedule --returned | both |
+| IfcPipeSegment | build | both |
 | IfcPlate | build | both |
 | IfcPlateType | build | both |
 | IfcPointByDistanceExpression | build | IFC4X3 |
@@ -129,7 +136,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | IfcRelNests | IFC4X3: build; IFC4: estimate-model, schedule + cost5d, schedule --returned | both |
 | IfcRelPositions | build | IFC4X3 |
 | IfcRelReferencedInSpatialStructure | build | IFC4X3 |
-| IfcRelVoidsElement | build | IFC4X3 |
+| IfcRelVoidsElement | build | both |
 | IfcRepresentationMap | build | both |
 | IfcResourceTime | schedule + cost5d | both |
 | IfcRevolvedAreaSolid | build | both |
@@ -165,14 +172,14 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 | BIMForge_LinearReference | Alignment, OffsetLeftMax, OffsetLeftMin, OffsetText, StationEnd, StationEndText, StationStart, StationStartText, StationUnit | IfcBeam, IfcColumn, IfcCourse, IfcEarthworksCut, IfcEarthworksFill, IfcGeographicElement, IfcPlate, IfcRailing, IfcSlab, IfcWall | build | IFC4X3 |
 | BIMForge_MassHaul | CumulativeVolume, EndStation, EndStationText, StartStation, StartStationText | IfcBuildingElementProxy, IfcEarthworksCut, IfcEarthworksFill | build | both |
 | BIMForge_Model | BimforgeVersion, BuildId, Schema, Source | IfcProject | build, dxf2bim | both |
-| BIMForge_Route | BasedOn, Batter, F_ft, HeelWidth, Route, StemThickness, ToeWidth, W_ft | IfcFooting, IfcWall | build | both |
+| BIMForge_Route | BasedOn, Batter, F_ft, HeelWidth, Route, StemThickness, ToeWidth, W_ft, stem_h_ft | IfcFooting, IfcWall | build | both |
 | BidSheet_Activity | ActivityId, Cost, CostCode, HomeItemId, Kind, Manhours | IfcTask | estimate-model | both |
 | BidSheet_Crew | CrewId, Headcount, Members, Writer | IfcLaborResource | estimate-model | both |
 | BidSheet_EstimateItem | AllocatedTotal, CostKey, ItemCode, ItemId, ItemNumber, PricingSource, Quantity, Schedule, Total, Unit, UnitPrice | IfcCostItem | estimate-model | both |
 | BidSheet_EstimateModel | EstimateId, WorkSchedule, Writer | IfcCostSchedule, IfcWorkSchedule | estimate-model | both |
 | Bimforge_CostItem | ActivityId, ElementGlobalId, ElementId, ExactCost, Fraction, ItemId, LaborHours, Reason, TaskId | IfcCostItem | estimate-model, schedule + cost5d | both |
 | Bimforge_Task | MatchIfcClass, TaskId, Wbs | IfcTask | estimate-model, schedule + cost5d, schedule --returned | both |
-| Pset_BimforgeTerrain | Carved, MeshSpacing, MeshSpacingUnit, PlaneElevation, PlaneSlopeE, PlaneSlopeN, Source, SurveyGrade | IfcGeographicElement | build | both |
+| Pset_BimforgeTerrain | AcquisitionEnd, AcquisitionStart, AppliedVerticalShift, Carved, License, MeshSpacing, MeshSpacingUnit, PlaneElevation, PlaneSlopeE, PlaneSlopeN, QualityLevel, Source, SourceCRS, SourceProject, SourceService, SourceVerticalDatum, SourceWorkUnit, SurveyGrade, VerticalShiftSource | IfcGeographicElement | build | both |
 | Pset_FootingCommon | Reference | IfcFooting | build | both |
 | Pset_RailingCommon | Reference | IfcRailing | build | both |
 | Pset_Stationing | Station | IfcReferent | build | IFC4X3 |
@@ -183,7 +190,7 @@ inventory of roadmap C.9; the profile and conformance statement build on it.
 
 | Set | Quantities | Applied to | Written by | Schema |
 |---|---|---|---|---|
-| Qto_BaseQuantities | Count (IfcQuantityCount), GrossArea (IfcQuantityArea), GrossVolume (IfcQuantityVolume), GrossWeight (IfcQuantityWeight), Height (IfcQuantityLength), Length (IfcQuantityLength), Perimeter (IfcQuantityLength), Width (IfcQuantityLength) | IfcBeam, IfcBuildingElementProxy, IfcColumn, IfcCourse, IfcEarthworksCut, IfcEarthworksFill, IfcFooting, IfcMechanicalFastener, IfcMember, IfcPlate, IfcRailing, IfcReinforcingBar, IfcSlab, IfcWall | build | both |
+| Qto_BaseQuantities | Count (IfcQuantityCount), GrossArea (IfcQuantityArea), GrossVolume (IfcQuantityVolume), GrossWeight (IfcQuantityWeight), Height (IfcQuantityLength), Length (IfcQuantityLength), OuterSurfaceArea (IfcQuantityArea), Perimeter (IfcQuantityLength), Width (IfcQuantityLength) | IfcBeam, IfcBuildingElementProxy, IfcColumn, IfcCourse, IfcDiscreteAccessory, IfcEarthworksCut, IfcEarthworksFill, IfcFooting, IfcMechanicalFastener, IfcMember, IfcPipeSegment, IfcPlate, IfcRailing, IfcReinforcingBar, IfcSlab, IfcWall | build | both |
 | Qto_CourseBaseQuantities | Length (IfcQuantityLength), Thickness (IfcQuantityLength), Volume (IfcQuantityVolume), Width (IfcQuantityLength) | IfcCourse | build | IFC4X3 |
 | Qto_EarthworksCutBaseQuantities | Depth (IfcQuantityLength), Length (IfcQuantityLength), LooseVolume (IfcQuantityVolume), UndisturbedVolume (IfcQuantityVolume), Width (IfcQuantityLength) | IfcEarthworksCut | build | IFC4X3 |
 | Qto_EarthworksFillBaseQuantities | CompactedVolume (IfcQuantityVolume), Depth (IfcQuantityLength), Length (IfcQuantityLength), LooseVolume (IfcQuantityVolume), Width (IfcQuantityLength) | IfcEarthworksFill | build | IFC4X3 |

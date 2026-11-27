@@ -1,8 +1,10 @@
 """estimate5d: the bid as a quantity-backed TENDER cost schedule."""
 import ifcopenshell
+import ifcopenshell.api.aggregate
 import ifcopenshell.api.classification
 import ifcopenshell.api.pset
 import ifcopenshell.api.root
+import ifcopenshell.api.spatial
 import ifcopenshell.api.unit
 import ifcopenshell.util.unit
 import pytest
@@ -14,12 +16,20 @@ M_TO_LF = 3.28083989501
 
 def _pile_ifc(codes=("PILE-200W-FRN",), schema="IFC4"):
     """One IfcPile, Length 12_500 native mm (= 12.5 m), Count 1, one
-    classification reference per entry in `codes`."""
+    classification reference per entry in `codes`, contained in an IfcSite
+    under the project (a spatial tree a consumer accepts)."""
     f = ifcopenshell.file(schema=schema)
-    ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject", name="p")
+    project = ifcopenshell.api.root.create_entity(f, ifc_class="IfcProject",
+                                                  name="p")
     ifcopenshell.api.unit.assign_unit(f)   # default: MILLIMETRES
+    site = ifcopenshell.api.root.create_entity(f, ifc_class="IfcSite",
+                                               name="Site")
+    ifcopenshell.api.aggregate.assign_object(f, products=[site],
+                                             relating_object=project)
     pile = ifcopenshell.api.root.create_entity(f, ifc_class="IfcPile",
                                                name="P-1")
+    ifcopenshell.api.spatial.assign_container(f, products=[pile],
+                                              relating_structure=site)
     qto = ifcopenshell.api.pset.add_qto(f, product=pile,
                                         name="Qto_PileBaseQuantities")
     ifcopenshell.api.pset.edit_qto(f, qto=qto,

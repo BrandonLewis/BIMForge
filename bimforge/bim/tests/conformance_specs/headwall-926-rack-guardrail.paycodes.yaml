@@ -1,0 +1,9 @@
+# Conformance paycodes for headwall-926-rack-guardrail.spec.yaml.
+# Fixture values from the family's own tests; not a project or a bid.
+rules:
+- {match: '(?i)headwall|wingwall|cutoff|footing', group: hw_concrete}
+groups:
+  hw_concrete: {measure: GrossVolume}
+codes:
+  HW-CONC: {group: hw_concrete, measure: GrossVolume, unit: CY, item_number: '0001', description: 'Structural
+      concrete, 926 headwall'}

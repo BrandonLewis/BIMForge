@@ -1,0 +1,9 @@
+# Conformance paycodes for spillway.spec.yaml.
+# Fixture values from the family's own tests; not a project or a bid.
+rules:
+- {match: '(?i)spillway', group: sp_conc}
+groups:
+  sp_conc: {measure: GrossVolume}
+codes:
+  SP-CONC: {group: sp_conc, measure: GrossVolume, unit: CY, item_number: '0007', description: 'Structural
+      concrete, spillway'}

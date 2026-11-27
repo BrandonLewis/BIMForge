@@ -1,0 +1,144 @@
+# Conformance spec (CI builds it; no example does): a principal and
+# an auxiliary spillway, placed by survey origins near the base.
+# Fixture values from the family's own tests; not a project or a bid.
+family: spillway
+params:
+  common: {wall_top_thickness_ft: 1.0, wall_batter_run_over_rise: 0.08333333333333333, wall_freeboard_ft: 3.5,
+    cutoff_wall_thickness_ft: 1.5}
+  principal:
+    placement:
+      origin: [6592369.561, 1943852.795]
+      y_dir: [0.0, -1.0]
+      el0: 100.0
+    slab:
+      top_el: 194.0
+      thickness_ft: 2.0
+      half_outline:
+      - [25.533, 0.0]
+      - [31.19, 5.657]
+      - [22.157, 14.689]
+      - [16.176, 25.048]
+      - [12.498, 38.775]
+      - [12.498, 80.11]
+      - [38.494, 80.11]
+      - [38.494, 93.108]
+      - [0.0, 93.108]
+      cutoffs:
+      - {edge: inlet, depth_ft: 6.0}
+      - {edge: outlet, depth_ft: 6.0}
+    chute_wall:
+      half_lol:
+      - [27.654, 2.122]
+      - [18.156, 11.62]
+      - [11.518, 23.118]
+      - [7.499, 38.118]
+      - [7.499, 89.108]
+      top_profile:
+      - [2.122, 206.5]
+      - [38.122, 218.5]
+      - [52.372, 218.79]
+      - [73.372, 211.5]
+      - [90.108, 211.5]
+    wing_wall:
+      lol_y_ft: 89.108
+      to_x_ft: 38.494
+      top_profile:
+      - [8.499, 211.5]
+      - [18.499, 211.5]
+      - [38.494, 206.5]
+    sloped_concrete: {slope_h_to_v: 2.0, floor_half_width_ft: 7.5, ends_at_local_y_ft: 38.118}
+  auxiliary:
+    placement:
+      origin: [6592682.565, 1943824.261]
+      y_dir: [1.0, 0.0]
+      el0: 100.0
+    clear_width_ft: 350.0
+    slab:
+      profile_t_el:
+      - [0.0, 203.0]
+      - [24.247, 203.0]
+      - [24.247, 197.503]
+      - [22.747, 197.503]
+      - [22.747, 201.501]
+      - [1.501, 201.501]
+      - [1.501, 197.001]
+      - [0.0, 197.001]
+    ogee:
+      toe_el: 203.0
+      coordinates:
+      - [0.0, -7.084, 203.0]
+      - [0.0, 0.0, 210.084]
+      - [0.083, 0.099, 210.183]
+      - [0.167, 0.154, 210.239]
+      - [0.233, 0.18, 210.265]
+      - [0.25, 0.185, 210.269]
+      - [0.333, 0.203, 210.287]
+      - [0.417, 0.213, 210.298]
+      - [0.483, 0.216, 210.3]
+      - [0.583, 0.212, 210.296]
+      - [0.667, 0.204, 210.288]
+      - [0.75, 0.19, 210.274]
+      - [0.852, 0.167, 210.251]
+      - [1.0, 0.121, 210.206]
+      - [1.167, 0.057, 210.141]
+      - [1.333, -0.022, 210.062]
+      - [1.474, -0.103, 209.981]
+      - [1.75, -0.286, 209.798]
+      - [2.0, -0.477, 209.607]
+      - [2.333, -0.776, 209.308]
+      - [2.574, -1.032, 209.052]
+      - [7.428, -7.084, 203.0]
+      eps_void_t_el:
+      - [1.501, 203.0]
+      - [1.501, 207.0]
+      - [2.293, 207.0]
+      - [2.293, 206.0]
+      - [3.096, 206.0]
+      - [3.096, 205.0]
+      - [3.899, 205.0]
+      - [3.899, 204.001]
+      - [4.703, 204.001]
+      - [4.703, 203.0]
+    chute_blocks:
+      width_in: 10.75
+      gap_in: 10.75
+      end_in: 9.125
+      profile_t_el:
+      - [6.705, 203.901]
+      - [8.588, 203.901]
+      - [8.588, 203.0]
+      - [7.428, 203.0]
+    dentated_sill:
+      width_in: 8.375
+      gap_in: 8.375
+      end_in: 10.5
+      profile_t_el:
+      - [21.997, 203.0]
+      - [21.997, 203.901]
+      - [22.417, 203.901]
+      - [24.247, 203.0]
+    retaining_wall:
+      from_t_ft: -28.5
+      to_t_ft: 59.667
+      base_el: 201.0
+      footing_width_ft: 13.0
+      footing_offset_ft: 3.0
+      footing_thickness_ft: 2.0
+      cutoff_depth_ft: 6.0
+      top_profile:
+      - [-28.5, 206.5]
+      - [9.583, 218.5]
+      - [21.583, 218.74]
+      - [59.667, 206.5]
+paycodes: ./spillway.paycodes.yaml
+outputs: {dxf: out/spillway.dxf, ifc: out/spillway.ifc, takeoff_map: out/spillway-takeoff-map.yaml}
+project:
+  name: Spillway (conformance)
+  epsg: 2227
+  base: [6592000.0, 1943000.0]
+  guid_ns: 3b7a5c2e-0000-4000-8000-000000000042
+  vertical_datum: NAVD88
+  facility: {kind: facility, name: Spillway}
+spatial_parts:
+- match: .
+  part: {name: Spillway, usage_type: REGION}

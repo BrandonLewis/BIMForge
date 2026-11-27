@@ -1,0 +1,34 @@
+# Conformance spec: the 842 example with its run drawn from an
+# explicit `profile` ring (a Mod section the standard dims cannot
+# draw: a top block over a stem stood in, top corners chamfered).
+# Values from the shipped example; not a project or a bid.
+family: concrete-barrier-842
+params:
+  runs:
+  - name: NB
+    straight_length_ft: 120.0
+    base_kind: deck
+    start_end: approach
+    end_end: departure
+    profile:
+    - [0.3333, 0.0]
+    - [1.75, 0.0]
+    - [1.2708, 2.9]
+    - [1.2708, 3.4167]
+    - [1.1875, 3.5]
+    - [0.1041, 3.5]
+    - [0.0208, 3.4167]
+    - [0.0208, 2.3333]
+    - [0.3333, 2.3333]
+paycodes: ./barrier-842-variants.paycodes.yaml
+outputs: {dxf: out/barrier-842-profile.dxf, ifc: out/barrier-842-profile.ifc, takeoff_map: out/barrier-842-profile-takeoff-map.yaml,
+  ifc_allow_local: true}
+project:
+  name: R31 842 example (barrier-842-profile)
+  epsg: 2226
+  base: [6594000.0, 1943000.0]
+  guid_ns: 6f0e5a1a-0000-4000-8000-000000000042
+  facility: {kind: bridge, name: Type 842 Barrier}
+spatial_parts:
+- match: .
+  part: {name: Surface structure, predefined_type: SURFACESTRUCTURE}
