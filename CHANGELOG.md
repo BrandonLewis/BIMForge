@@ -2,7 +2,11 @@
 
 Newest first. Versions follow `pyproject.toml`; a tag `vX.Y.Z` releases to PyPI.
 
-## Unreleased
+## 0.1.133 — 2026-11-26
+
+Modified standards recorded on the B3 wall and the barriers (#125), terrain from a spec and `est-bim terrain` (#127), the road corridor's shared-use path (#126), and the examples fixed (#130): four families built in the model frame, the ground in the IfcSite, and every example in its IFC4X3 facility.
+
+**For ProjectCommand and BidSheet.ai:** the shipped examples no longer write an IfcBuilding or IfcBuildingStorey. Each is an IfcBridge, IfcRoad or IfcFacility decomposed into IfcBridgePart / IfcRoadPart / IfcFacilityPart, and the TERRAIN ground is contained in the IfcSite. A reader that finds elements through storeys must read the facility parts (any `IfcRelContainedInSpatialStructure`) instead.
 
 **For ProjectCommand and BidSheet.ai:** `BIMForge_Route` holds the first
 `IfcComplexProperty`s BIMForge writes (one per changed value, UsageName
